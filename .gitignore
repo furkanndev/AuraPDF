@@ -1,0 +1,21 @@
+__pycache__/
+*.py[cod]
+*$py.class
+
+# pyinstaller
+build/
+dist/
+*.spec
+
+# virtual environments
+venv/
+env/
+.env
+
+# IDEs
+.vscode/
+.idea/
+
+# temporary folders
+scratch/
+Kurulum/
