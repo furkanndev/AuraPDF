@@ -65,8 +65,10 @@ class BaseSettingsPopup(QWidget):
         super().__init__(parent, Qt.WindowType.Popup)
         self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, False)
         settings = QSettings("AuraPDF", "PDFViewer")
-        current_th = settings.value("app_theme", "dark")
-        spec = POPUP_THEME_SPECS.get(current_th, POPUP_THEME_SPECS["dark"])
+        current_th = settings.value("app_theme", "gray")
+        if current_th == "navy":
+            current_th = "gray"
+        spec = POPUP_THEME_SPECS.get(current_th, POPUP_THEME_SPECS["gray"])
         self.apply_theme(current_th, spec)
 
     def show_below(self, button_widget):
@@ -96,7 +98,7 @@ class BaseSettingsPopup(QWidget):
                 background-color: {spec['tb_bg']};
                 color: {spec['main_text']};
                 font-size: 12px;
-                border: 1px solid {spec['tb_border']};
+                border: 1px solid rgba(255, 255, 255, 0.1);
                 border-radius: 8px;
             }}
             QLabel {{
@@ -120,9 +122,9 @@ class BaseSettingsPopup(QWidget):
                 background: transparent;
             }}
             QPushButton {{
-                background-color: {spec['main_bg']};
+                background-color: transparent;
                 color: {spec['main_text']};
-                border: 1px solid {spec['tb_border']};
+                border: 1px solid transparent;
                 border-radius: 6px;
                 padding: 6px 10px;
                 font-size: 12px;
@@ -132,18 +134,18 @@ class BaseSettingsPopup(QWidget):
             QPushButton:hover {{
                 background-color: {spec['btn_hover']};
                 color: #ffffff;
-                border-color: {spec['accent']};
+                border: 1px solid transparent;
             }}
             QPushButton:checked, QPushButton[checked="true"] {{
                 background-color: {spec['accent']};
                 color: #ffffff;
-                border: 1px solid {spec['accent']};
+                border: 1px solid transparent;
                 font-weight: bold;
             }}
             QPushButton#FormatBtn, QPushButton.segment-btn, QPushButton#ToggleBtn {{
-                background-color: {spec['main_bg']};
+                background-color: transparent;
                 color: {spec['tab_text']};
-                border: 1px solid {spec['tb_border']};
+                border: 1px solid transparent;
                 border-radius: 6px;
                 padding: 4px 6px;
                 font-weight: 500;
@@ -153,13 +155,13 @@ class BaseSettingsPopup(QWidget):
             QPushButton#FormatBtn:hover, QPushButton.segment-btn:hover, QPushButton#ToggleBtn:hover {{
                 background-color: {spec['btn_hover']};
                 color: {spec['main_text']};
-                border-color: {spec['accent']};
+                border: 1px solid transparent;
             }}
             QPushButton#FormatBtn:checked, QPushButton#FormatBtn[checked="true"],
             QPushButton.segment-btn[checked="true"], QPushButton#ToggleBtn:checked {{
                 background-color: {spec['accent']};
                 color: #ffffff;
-                border: 1px solid {spec['accent']};
+                border: 1px solid transparent;
                 font-weight: bold;
             }}
             QPushButton#ClearBtn {{
@@ -178,16 +180,17 @@ class BaseSettingsPopup(QWidget):
                 color: #ffffff;
             }}
             QComboBox {{
-                background-color: {spec['main_bg']};
+                background-color: rgba(255, 255, 255, 0.03);
                 color: {spec['main_text']};
-                border: 1px solid {spec['tb_border']};
+                border: 1px solid rgba(255, 255, 255, 0.1);
                 border-radius: 5px;
-                padding: 3px 8px;
+                padding: 4px 8px;
                 font-size: 11px;
                 min-height: 24px;
             }}
             QComboBox:focus {{
-                border-color: {spec['accent']};
+                border: 1px solid {spec['accent']};
+                background-color: rgba(255, 255, 255, 0.05);
             }}
             QComboBox QAbstractItemView {{
                 background-color: {spec['tb_bg']};
@@ -232,7 +235,7 @@ class BaseSettingsPopup(QWidget):
             QMenu {{
                 background-color: {spec['tb_bg']};
                 color: {spec['main_text']};
-                border: 1px solid {spec['tb_border']};
+                border: 1px solid rgba(255, 255, 255, 0.1);
                 border-radius: 6px;
                 padding: 4px;
             }}
@@ -271,16 +274,6 @@ class SelectionSettingsPopup(BaseSettingsPopup):
         self.lbl_sec_sel.setObjectName("SectionHeader")
         layout.addWidget(self.lbl_sec_sel)
 
-        self.btn_select = QPushButton(" ↖ " + LanguageManager.tr("cursor_arrow"))
-        self.btn_select.setIcon(ModernIconFactory.icon_cursor())
-        self.btn_select.setCheckable(True)
-        self.btn_select.clicked.connect(lambda: self._select_mode("select"))
-
-        self.btn_pan = QPushButton(" ✋ " + LanguageManager.tr("cursor_pan"))
-        self.btn_pan.setIcon(ModernIconFactory.icon_select_pan())
-        self.btn_pan.setCheckable(True)
-        self.btn_pan.clicked.connect(lambda: self._select_mode("pan"))
-
         self.btn_rect = QPushButton(LanguageManager.tr("sel_rect"))
         self.btn_rect.setIcon(ModernIconFactory.icon_select_rect())
         self.btn_rect.setCheckable(True)
@@ -297,8 +290,6 @@ class SelectionSettingsPopup(BaseSettingsPopup):
         self.btn_move.setCheckable(True)
         self.btn_move.clicked.connect(lambda: self._select_mode("move"))
 
-        layout.addWidget(self.btn_select)
-        layout.addWidget(self.btn_pan)
         layout.addWidget(self.btn_rect)
         layout.addWidget(self.btn_lasso)
         layout.addWidget(self.btn_move)
@@ -407,10 +398,6 @@ class SelectionSettingsPopup(BaseSettingsPopup):
 
     def retranslate_ui(self):
         self.lbl_sec_sel.setText(LanguageManager.tr("sel_mode"))
-        if hasattr(self, 'btn_select'):
-            self.btn_select.setText(" ↖ " + LanguageManager.tr("cursor_arrow"))
-        if hasattr(self, 'btn_pan'):
-            self.btn_pan.setText(" ✋ " + LanguageManager.tr("cursor_pan"))
         self.btn_rect.setText(LanguageManager.tr("sel_rect"))
         self.btn_lasso.setText(LanguageManager.tr("sel_lasso"))
         self.btn_move.setText(LanguageManager.tr("sel_move"))
@@ -430,10 +417,6 @@ class SelectionSettingsPopup(BaseSettingsPopup):
 
     def _select_mode(self, mode):
         self.current_mode = mode
-        if hasattr(self, 'btn_select'):
-            self.btn_select.setChecked(mode == "select")
-        if hasattr(self, 'btn_pan'):
-            self.btn_pan.setChecked(mode == "pan")
         self.btn_rect.setChecked(mode == "rect")
         self.btn_lasso.setChecked(mode == "lasso")
         self.btn_move.setChecked(mode == "move")
@@ -441,8 +424,7 @@ class SelectionSettingsPopup(BaseSettingsPopup):
         self.box_ruler_opts.setVisible(mode == "ruler")
         self.adjustSize()
 
-        for btn in (getattr(self, 'btn_select', None), getattr(self, 'btn_pan', None),
-                    self.btn_rect, self.btn_lasso, self.btn_move, self.btn_ruler):
+        for btn in (self.btn_rect, self.btn_lasso, self.btn_move, self.btn_ruler):
             if btn:
                 btn.style().unpolish(btn)
                 btn.style().polish(btn)
@@ -1162,7 +1144,9 @@ class TextFloatingFormatHUD(QFrame):
         self.setObjectName("TextFloatingFormatHUD")
 
         settings = QSettings("AuraPDF", "PDFViewer")
-        current_th = settings.value("app_theme", "dark")
+        current_th = settings.value("app_theme", "gray")
+        if current_th == "navy":
+            current_th = "gray"
         self.apply_theme(current_th)
 
         layout = QHBoxLayout(self)
@@ -1423,7 +1407,7 @@ class TextFloatingFormatHUD(QFrame):
             QMenu {
                 background-color: #242426;
                 color: #f1f5f9;
-                border: 1px solid #3f3f46;
+                border: 1px solid rgba(255, 255, 255, 0.1);
                 border-radius: 6px;
                 padding: 6px;
             }
@@ -1458,7 +1442,7 @@ class TextFloatingFormatHUD(QFrame):
             QPushButton {
                 background-color: #2f2f35;
                 color: #f1f5f9;
-                border: 1px solid #3f3f46;
+                border: 1px solid rgba(255, 255, 255, 0.1);
                 border-radius: 4px;
                 font-size: 11px;
                 padding: 3px 6px;
@@ -1899,12 +1883,16 @@ class FloatingHUDPreview(QWidget):
         self.hide_timer.timeout.connect(self.hide)
 
         settings = QSettings("AuraPDF", "PDFViewer")
-        current_th = settings.value("app_theme", "dark")
+        current_th = settings.value("app_theme", "gray")
+        if current_th == "navy":
+            current_th = "gray"
         self.apply_theme(current_th)
 
     def apply_theme(self, theme_name: str, spec: dict = None):
+        if theme_name == "navy":
+            theme_name = "gray"
         if not spec:
-            spec = POPUP_THEME_SPECS.get(theme_name, POPUP_THEME_SPECS.get("dark", {}))
+            spec = POPUP_THEME_SPECS.get(theme_name, POPUP_THEME_SPECS.get("gray", {}))
         if spec:
             tb_bg = QColor(spec.get('tb_bg', '#1c1c1c'))
             self.bg_color = QColor(tb_bg.red(), tb_bg.green(), tb_bg.blue(), 230)

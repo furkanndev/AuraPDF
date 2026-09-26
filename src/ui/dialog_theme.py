@@ -22,15 +22,6 @@ THEME_PALETTES = {
         "text": "#f1f5f9",
         "muted": "#94a3b8",
     },
-    "navy": {
-        "bg": "#0f172a",
-        "card": "#1e293b",
-        "border": "#334155",
-        "accent": "#38bdf8",
-        "accent_hover": "#0ea5e9",
-        "text": "#e2e8f0",
-        "muted": "#94a3b8",
-    },
     "emerald": {
         "bg": "#091a14",
         "card": "#112a21",
@@ -88,9 +79,9 @@ def get_current_theme(parent: Optional[Any] = None) -> str:
             return parent.main_window.current_theme
     try:
         settings = QSettings("AuraPDF", "PDFViewer")
-        return settings.value("app_theme", "dark")
+        return settings.value("app_theme", "gray")
     except Exception:
-        return "dark"
+        return "gray"
 
 
 def get_dialog_theme_stylesheet(parent: Optional[Any] = None, extra_css: str = "") -> str:
@@ -101,7 +92,22 @@ def get_dialog_theme_stylesheet(parent: Optional[Any] = None, extra_css: str = "
 
     if theme == "apple":
         css = """
-
+            QDialog {
+                background-color: #16181f;
+                color: #f5f5f7;
+            }
+            QGroupBox {
+                color: #0a84ff;
+                font-size: 12px;
+                font-weight: bold;
+                border: 1px solid rgba(255, 255, 255, 0.14);
+                border-radius: 8px;
+                margin-top: 10px;
+                padding-top: 14px;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                left: 10px;
                 padding: 0 5px;
             }
             QLineEdit, QTextEdit, QPlainTextEdit, QKeySequenceEdit {
@@ -371,14 +377,14 @@ def get_dialog_theme_stylesheet(parent: Optional[Any] = None, extra_css: str = "
             }}
             QFrame[class="card"], QFrame.card {{
                 background-color: {pal['card']};
-                border: 1.2px solid {pal['border']};
+                border: 1px solid rgba(255, 255, 255, 0.1);
                 border-radius: 8px;
             }}
             QGroupBox {{
                 color: {pal['accent']};
                 font-size: 12px;
                 font-weight: bold;
-                border: 1px solid {pal['border']};
+                border: 1px solid rgba(255, 255, 255, 0.1);
                 border-radius: 8px;
                 margin-top: 10px;
                 padding-top: 14px;
@@ -391,7 +397,7 @@ def get_dialog_theme_stylesheet(parent: Optional[Any] = None, extra_css: str = "
             QLineEdit, QTextEdit, QPlainTextEdit, QKeySequenceEdit {{
                 background-color: {pal['bg']};
                 color: #ffffff;
-                border: 1.2px solid {pal['border']};
+                border: 1px solid rgba(255, 255, 255, 0.1);
                 border-radius: 6px;
                 padding: 5px 8px;
                 font-size: 12px;
@@ -402,7 +408,7 @@ def get_dialog_theme_stylesheet(parent: Optional[Any] = None, extra_css: str = "
             QComboBox {{
                 background-color: {pal['card']};
                 color: #ffffff;
-                border: 1.2px solid {pal['border']};
+                border: 1px solid rgba(255, 255, 255, 0.1);
                 border-radius: 6px;
                 padding: 4px 8px;
             }}
@@ -414,21 +420,21 @@ def get_dialog_theme_stylesheet(parent: Optional[Any] = None, extra_css: str = "
                 color: #ffffff;
                 selection-background-color: {pal['accent']};
                 selection-color: #ffffff;
-                border: 1px solid {pal['border']};
+                border: 1px solid rgba(255, 255, 255, 0.1);
                 padding: 4px;
                 outline: none;
             }}
             QSpinBox, QDoubleSpinBox {{
                 background-color: {pal['bg']};
                 color: #ffffff;
-                border: 1.2px solid {pal['border']};
+                border: 1px solid rgba(255, 255, 255, 0.1);
                 border-radius: 5px;
                 padding: 3px 6px;
             }}
             QPushButton {{
                 background-color: {pal['card']};
                 color: {pal['text']};
-                border: 1px solid {pal['border']};
+                border: 1px solid rgba(255, 255, 255, 0.1);
                 border-radius: 6px;
                 padding: 6px 14px;
                 font-weight: 500;
@@ -462,7 +468,7 @@ def get_dialog_theme_stylesheet(parent: Optional[Any] = None, extra_css: str = "
             QPushButton#CancelBtn {{
                 background-color: {pal['card']};
                 color: {pal['text']};
-                border: 1px solid {pal['border']};
+                border: 1px solid rgba(255, 255, 255, 0.1);
                 border-radius: 6px;
                 padding: 6px 16px;
             }}
@@ -472,7 +478,7 @@ def get_dialog_theme_stylesheet(parent: Optional[Any] = None, extra_css: str = "
             QPushButton#SecondaryBtn {{
                 background-color: {pal['bg']};
                 color: {pal['text']};
-                border: 1px solid {pal['border']};
+                border: 1px solid rgba(255, 255, 255, 0.1);
                 border-radius: 5px;
                 padding: 5px 12px;
             }}
@@ -482,7 +488,7 @@ def get_dialog_theme_stylesheet(parent: Optional[Any] = None, extra_css: str = "
             QPushButton.PresetBtn, QPushButton.NavBtn {{
                 background-color: {pal['card']};
                 color: {pal['text']};
-                border: 1px solid {pal['border']};
+                border: 1px solid rgba(255, 255, 255, 0.1);
                 border-radius: 5px;
                 padding: 4px 6px;
                 font-size: 11px;
@@ -498,7 +504,7 @@ def get_dialog_theme_stylesheet(parent: Optional[Any] = None, extra_css: str = "
                 border-color: #333333;
             }}
             QTabWidget::pane {{
-                border: 1px solid {pal['border']};
+                border: 1px solid rgba(255, 255, 255, 0.1);
                 background-color: {pal['card']};
                 border-radius: 8px;
             }}
@@ -520,13 +526,13 @@ def get_dialog_theme_stylesheet(parent: Optional[Any] = None, extra_css: str = "
             QListWidget, QTableWidget, QTreeWidget {{
                 background-color: {pal['bg']};
                 color: {pal['text']};
-                border: 1.2px solid {pal['border']};
+                border: 1px solid rgba(255, 255, 255, 0.1);
                 border-radius: 6px;
                 padding: 4px;
             }}
             QListWidget::item {{
                 background-color: {pal['card']};
-                border: 1px solid {pal['border']};
+                border: 1px solid rgba(255, 255, 255, 0.1);
                 border-radius: 6px;
                 padding: 6px;
                 margin: 3px;
@@ -544,7 +550,7 @@ def get_dialog_theme_stylesheet(parent: Optional[Any] = None, extra_css: str = "
                 spacing: 8px;
             }}
             QSlider::groove:horizontal {{
-                border: 1px solid {pal['border']};
+                border: 1px solid rgba(255, 255, 255, 0.1);
                 height: 6px;
                 background: {pal['card']};
                 border-radius: 3px;
@@ -564,7 +570,7 @@ def get_dialog_theme_stylesheet(parent: Optional[Any] = None, extra_css: str = "
             QHeaderView::section {{
                 background-color: {pal['card']};
                 color: #94a3b8;
-                border: 1px solid {pal['border']};
+                border: 1px solid rgba(255, 255, 255, 0.1);
                 padding: 4px;
                 font-weight: bold;
             }}

@@ -24,7 +24,7 @@ class ModernPrintDialog(QDialog):
         self.setSizeGripEnabled(True)
         self.setStyleSheet(get_dialog_theme_stylesheet(self, extra_css="""
             QGroupBox { 
-                border: 1px solid; 
+                border: 1px solid rgba(255, 255, 255, 0.12); 
                 border-radius: 8px; 
                 margin-top: 10px; 
                 padding-top: 12px; 

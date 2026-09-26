@@ -146,7 +146,7 @@ class ModernLinkInputDialog(QDialog):
         self.setStyleSheet("""
             QDialog {
                 background-color: #1e1e20;
-                border: 1px solid #3f3f46;
+                border: 1px solid rgba(255, 255, 255, 0.1);
                 border-radius: 12px;
             }
             QLabel {
@@ -157,7 +157,7 @@ class ModernLinkInputDialog(QDialog):
             QLineEdit {
                 background-color: #27272a;
                 color: #ffffff;
-                border: 1px solid #3f3f46;
+                border: 1px solid rgba(255, 255, 255, 0.1);
                 border-radius: 6px;
                 padding: 9px 12px;
                 font-size: 13px;
@@ -945,7 +945,7 @@ class EditableInlineTextItem(QGraphicsTextItem):
 
         menu = QMenu()
         menu.setStyleSheet("""
-            QMenu { background-color: #242426; color: #f1f5f9; border: 1px solid #3f3f46; border-radius: 6px; padding: 4px; }
+            QMenu { background-color: #242426; color: #f1f5f9; border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 6px; padding: 4px; }
             QMenu::item { padding: 6px 18px; border-radius: 4px; font-size: 12px; }
             QMenu::item:selected { background-color: #0284c7; color: #ffffff; }
         """)
@@ -1159,13 +1159,17 @@ class FullscreenSlideToolbar(QFrame):
         self.main_window = main_window
 
         settings = QSettings("AuraPDF", "PDFViewer")
-        current_th = settings.value("app_theme", "dark")
+        current_th = settings.value("app_theme", "gray")
+        if current_th == "navy":
+            current_th = "gray"
         self.apply_theme(current_th)
 
-    def apply_theme(self, theme_name: str = "dark", spec: Optional[dict] = None):
+    def apply_theme(self, theme_name: str = "gray", spec: Optional[dict] = None):
+        if theme_name == "navy":
+            theme_name = "gray"
         if not spec:
             from src.ui.popups import POPUP_THEME_SPECS
-            spec = POPUP_THEME_SPECS.get(theme_name, POPUP_THEME_SPECS.get("dark", {}))
+            spec = POPUP_THEME_SPECS.get(theme_name, POPUP_THEME_SPECS.get("gray", {}))
 
         tb_bg = spec.get("tb_bg", "#1c1c1c")
         tb_border = spec.get("tb_border", "#404040")
@@ -2093,7 +2097,7 @@ class ThumbnailsDock(QDockWidget):
 
         menu = QMenu(self)
         menu.setStyleSheet("""
-            QMenu { background-color: #242426; color: #f1f5f9; border: 1px solid #3f3f46; border-radius: 6px; padding: 4px; }
+            QMenu { background-color: #242426; color: #f1f5f9; border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 6px; padding: 4px; }
             QMenu::item { padding: 6px 18px; border-radius: 4px; font-size: 12px; }
             QMenu::item:selected { background-color: #0284c7; color: #ffffff; }
         """)
@@ -2137,7 +2141,7 @@ class ThumbnailsDock(QDockWidget):
 
         menu = QMenu(self)
         menu.setStyleSheet("""
-            QMenu { background-color: #242426; color: #f1f5f9; border: 1px solid #3f3f46; border-radius: 6px; padding: 4px; }
+            QMenu { background-color: #242426; color: #f1f5f9; border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 6px; padding: 4px; }
             QMenu::item { padding: 8px 24px; border-radius: 4px; font-size: 13px; }
             QMenu::item:selected { background-color: #0284c7; color: #ffffff; }
         """)
@@ -2415,7 +2419,7 @@ class ThumbnailsDock(QDockWidget):
         item = self.tree_bookmarks.itemAt(pos)
         menu = QMenu(self)
         menu.setStyleSheet("""
-            QMenu { background-color: #242426; color: #f1f5f9; border: 1px solid #3f3f46; border-radius: 6px; padding: 4px; }
+            QMenu { background-color: #242426; color: #f1f5f9; border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 6px; padding: 4px; }
             QMenu::item { padding: 6px 18px; border-radius: 4px; font-size: 12px; }
             QMenu::item:selected { background-color: #0284c7; color: #ffffff; }
         """)
@@ -2588,7 +2592,7 @@ class ThumbnailsDock(QDockWidget):
         item = self.list_attachments.itemAt(pos)
         menu = QMenu(self)
         menu.setStyleSheet("""
-            QMenu { background-color: #242426; color: #f1f5f9; border: 1px solid #3f3f46; border-radius: 6px; padding: 4px; }
+            QMenu { background-color: #242426; color: #f1f5f9; border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 6px; padding: 4px; }
             QMenu::item { padding: 6px 18px; border-radius: 4px; font-size: 12px; }
             QMenu::item:selected { background-color: #0284c7; color: #ffffff; }
         """)

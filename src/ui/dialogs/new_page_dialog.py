@@ -268,35 +268,30 @@ class NewPageDialog(QDialog):
         # Dialog Styling (Koyu camgöbeği & koyu tema)
         self.setStyleSheet(get_dialog_theme_stylesheet(self) + """
             QDialog {
-                
-                
                 font-family: 'Segoe UI', -apple-system, sans-serif;
             }
-            QLabel {
-                
-            }
             QFrame.card {
-                
-                border: 1px solid;
+                background-color: rgba(255, 255, 255, 0.04);
+                border: 1px solid rgba(255, 255, 255, 0.1);
                 border-radius: 8px;
                 padding: 12px;
             }
             QComboBox {
-                
-                
-                border: 1px solid;
+                background-color: rgba(255, 255, 255, 0.06);
+                color: #f1f5f9;
+                border: 1px solid rgba(255, 255, 255, 0.12);
                 border-radius: 6px;
                 padding: 4px 8px;
                 min-height: 28px;
                 font-size: 13px;
             }
             QComboBox:focus {
-                border-
+                border-color: #38bdf8;
             }
             QSpinBox {
-                
-                
-                border: 1px solid;
+                background-color: rgba(255, 255, 255, 0.06);
+                color: #f1f5f9;
+                border: 1px solid rgba(255, 255, 255, 0.12);
                 border-radius: 5px;
                 min-height: 28px;
                 font-size: 14px;
@@ -304,17 +299,17 @@ class NewPageDialog(QDialog):
                 padding: 0px 4px;
             }
             QSpinBox:focus {
-                border-
+                border-color: #38bdf8;
             }
             QRadioButton {
-                
+                color: #f1f5f9;
                 font-size: 13px;
                 font-weight: 500;
                 spacing: 6px;
             }
             QPushButton#PrimaryBtn {
-                
-                
+                background-color: #2563eb;
+                color: #ffffff;
                 font-weight: bold;
                 border: none;
                 border-radius: 6px;
@@ -322,18 +317,19 @@ class NewPageDialog(QDialog):
                 font-size: 13px;
             }
             QPushButton#PrimaryBtn:hover {
-                
+                background-color: #3b82f6;
             }
             QPushButton#CancelBtn {
-                
-                
-                border: 1px solid;
+                background-color: rgba(255, 255, 255, 0.08);
+                color: #f1f5f9;
+                border: 1px solid rgba(255, 255, 255, 0.12);
                 border-radius: 6px;
                 padding: 8px 18px;
                 font-size: 13px;
             }
             QPushButton#CancelBtn:hover {
-                
+                background-color: rgba(255, 255, 255, 0.14);
+                color: #ffffff;
             }
         """)
 
@@ -437,21 +433,21 @@ class NewPageDialog(QDialog):
         btn_dec.setCursor(Qt.CursorShape.PointingHandCursor)
         btn_dec.setStyleSheet("""
             QPushButton {
-                
-                
-                border: 1px solid;
+                background-color: rgba(255, 255, 255, 0.08);
+                color: #f1f5f9;
+                border: 1px solid rgba(255, 255, 255, 0.12);
                 border-radius: 6px;
                 font-size: 18px;
                 font-weight: bold;
                 padding: 0px;
             }
             QPushButton:hover {
-                
-                border-
-                
+                background-color: rgba(255, 255, 255, 0.15);
+                border-color: rgba(255, 255, 255, 0.25);
+                color: #ffffff;
             }
             QPushButton:pressed {
-                
+                background-color: rgba(255, 255, 255, 0.22);
             }
         """)
 

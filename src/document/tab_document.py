@@ -182,7 +182,7 @@ class BookmarkRibbonItem(QGraphicsItem):
     def show_context_menu(self, global_pos):
         menu = QMenu()
         menu.setStyleSheet("""
-            QMenu { background-color: #242426; color: #f1f5f9; border: 1px solid #3f3f46; border-radius: 6px; padding: 4px; }
+            QMenu { background-color: #242426; color: #f1f5f9; border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 6px; padding: 4px; }
             QMenu::item { padding: 6px 18px; border-radius: 4px; font-size: 12px; }
             QMenu::item:selected { background-color: #0284c7; color: #ffffff; }
         """)

@@ -8,7 +8,7 @@ class LanguageManager:
             "app_title": "AuraPDF",
             "insert_btn_tip": "Ekle (+) / Tablo, Emoji, Görsel, Ses, Video",
             "insert_table": "Tablo Ekle...",
-            "insert_emoji": "Gif&Emoji ekle...",
+            "insert_emoji": "Gif&&Emoji Ekle...",
             "insert_image": "Görsel Ekle...",
             "insert_image_local": "Görsel (Bilgisayardan)...",
             "insert_image_url": "Görsel (Web Adresi / URL)...",
@@ -246,7 +246,7 @@ class LanguageManager:
             "theme_section_desc": "Uygulamanın genel renk paletini ve arayüz temasını seçin:",
             "theme_dark": "Koyu / Siyah Tema (Varsayılan)",
             "theme_gray": "Gri Tema (Charcoal Gray)",
-            "theme_navy": "Gece Mavisi (Midnight Navy)",
+
             "theme_emerald": "Zümrüt Yeşili (Forest Emerald)",
             "theme_purple": "Asil Mor (Royal Amethyst)",
             "theme_crimson": "Kızıl Gece (Deep Crimson)",
@@ -254,7 +254,7 @@ class LanguageManager:
             "theme_vice_city": "Vice City Neon (80'ler Retro)",
             "theme_dark_desc": "Gözü yormayan derin siyah ve antrasit tonlar",
             "theme_gray_desc": "Dengeli ve şık kömür grisi çalışma ortamı",
-            "theme_navy_desc": "Zarif gece mavisi ve derin lacivert",
+
             "theme_emerald_desc": "Doğal ve dinlendirici zümrüt orman yeşili tonları",
             "theme_purple_desc": "Zengin ve estetik koyu ametist mor atmosferi",
             "theme_crimson_desc": "Yoğun ve karizmatik derin yakut kızılı tonları",
@@ -451,6 +451,11 @@ class LanguageManager:
             "recovery_status_not_found": "Belirtilen yöntem ve aralıkta geçerli parola bulunamadı.",
             "recovery_status_stopped": "Parola arama işlemi kullanıcı tarafından durduruldu.",
             "recovery_success_saved": "PDF şifresi başarıyla çözüldü ve kaydedildi:\n{path}",
+            "recovery_err_invalid_key": "Geçersiz kurtarma anahtarı! Belge açılamadı.",
+            "confirm_title": "Onay",
+            "split_warn_no_file": "Lütfen önce bir PDF dosyası açın veya seçin.",
+            "theme_macos_tahoe_desc": "macOS Tahoe Tasarımı",
+
             "insert_blank_page": "Boş Sayfa Ekle",
             "insert_blank_page_tip": "Mevcut belgeye yeni bir boş sayfa ekle",
             "insert_blank_page_success": "Yeni boş sayfa başarıyla eklendi.",
@@ -471,6 +476,19 @@ class LanguageManager:
             "view_mode_btn_tip": "Sayfa Görünümü (Tekli / İkili Sayfa)",
             "view_mode_single": "Tekli Sayfa Görünümü",
             "view_mode_double": "İkili Sayfa Görünümü (Yan Yana)",
+
+            # Watermark
+            "watermark_dialog_title": "PDF Filigran Ekle",
+            "watermark_tab_text": "Metin Filigranı",
+            "watermark_tab_image": "Görsel / Logo Filigranı",
+            "watermark_text_label": "Filigran Metni:",
+            "watermark_presets_label": "Önceden Tanımlı Şablonlar:",
+            "watermark_preset_confidential": "GİZLİ",
+            "watermark_preset_draft": "TASLAK",
+            "watermark_preset_copy": "KOPYA",
+            "watermark_preset_urgent": "ACİL",
+            "watermark_preset_approved": "ONAYLANDI",
+            "watermark_preset_private": "ÖZEL",
             "watermark_font_family": "Yazı Tipi:",
             "watermark_font_size": "Yazı Boyutu:",
             "watermark_color_label": "Metin Rengi:",
@@ -1032,7 +1050,7 @@ class LanguageManager:
             "app_title": "AuraPDF",
             "insert_btn_tip": "Insert (+) / Table, Emoji, Image, Audio, Video",
             "insert_table": "Insert Table...",
-            "insert_emoji": "Insert Emoji & GIF...",
+            "insert_emoji": "Insert Emoji && GIF...",
             "insert_image": "Insert Image...",
             "insert_image_local": "Image (From Computer)...",
             "insert_image_url": "Image (Web URL)...",
@@ -1278,7 +1296,7 @@ class LanguageManager:
             "theme_section_desc": "Customize the overall color scheme and appearance of the application:",
             "theme_dark": "Dark / Black Theme (Default)",
             "theme_gray": "Charcoal Gray Theme",
-            "theme_navy": "Midnight Navy",
+
             "theme_emerald": "Forest Emerald Theme",
             "theme_purple": "Royal Amethyst Theme",
             "theme_crimson": "Deep Crimson Theme",
@@ -1286,7 +1304,7 @@ class LanguageManager:
             "theme_vice_city": "Vice City Neon (80s Retro)",
             "theme_dark_desc": "Modern deep black and anthracite tones",
             "theme_gray_desc": "Balanced and sleek charcoal gray workspace",
-            "theme_navy_desc": "Elegant midnight blue and deep navy",
+
             "theme_emerald_desc": "Natural and relaxing deep forest emerald green",
             "theme_purple_desc": "Rich and elegant deep royal amethyst purple",
             "theme_crimson_desc": "Intense and bold dark ruby crimson tones",
@@ -1481,6 +1499,8 @@ class LanguageManager:
             "recovery_status_stopped": "Password search stopped by user.",
             "recovery_success_saved": "PDF successfully unlocked and saved:\n{path}",
             "recovery_err_invalid_key": "Invalid recovery key! Document could not be unlocked.",
+            "confirm_title": "Confirmation",
+            "split_warn_no_file": "Please open or select a PDF file first.",
 
             # Watermark
             "watermark_dialog_title": "Add PDF Watermark",
@@ -2075,7 +2095,10 @@ class LanguageManager:
 
     @classmethod
     def tr(cls, key: str, **kwargs) -> str:
-        text = cls.TRANSLATIONS.get(cls.current_lang, {}).get(key, key)
+        lang_dict = cls.TRANSLATIONS.get(cls.current_lang, {})
+        text = lang_dict.get(key)
+        if text is None:
+            text = cls.TRANSLATIONS.get("en", {}).get(key, key)
         if kwargs:
             try:
                 return text.format(**kwargs)

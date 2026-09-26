@@ -97,7 +97,7 @@ class TablePreviewWidget(QWidget):
         self.text_color = QColor("#1e1b4b")
         self.setMinimumSize(250, 200)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-        self.setStyleSheet(" border: 1px solid; border-radius: 8px;")
+        self.setStyleSheet("border: 1px solid rgba(255, 255, 255, 0.12); border-radius: 8px; background: rgba(0, 0, 0, 0.2);")
 
     def update_table(self, rows: int, cols: int, has_header: bool,
                      header_bg: QColor, cell_bg: QColor, border_color: QColor, text_color: QColor,
@@ -246,16 +246,17 @@ class ModernStepperWidget(QFrame):
         self.setFixedWidth(98)
         self.setStyleSheet("""
             QFrame {
-                
-                border: 1px solid;
+                background-color: rgba(255, 255, 255, 0.05);
+                border: 1px solid rgba(255, 255, 255, 0.12);
                 border-radius: 7px;
             }
             QFrame:hover {
-                border-
+                border-color: rgba(255, 255, 255, 0.25);
             }
             QPushButton {
-                
-                border: 1px solid;
+                background-color: rgba(255, 255, 255, 0.08);
+                color: #f1f5f9;
+                border: 1px solid rgba(255, 255, 255, 0.15);
                 border-radius: 5px;
                 padding: 0px !important;
                 margin: 0px !important;
@@ -263,14 +264,15 @@ class ModernStepperWidget(QFrame):
                 min-height: 0px !important;
             }
             QPushButton:hover {
-                
-                border-
+                background-color: rgba(255, 255, 255, 0.18);
+                border-color: #38bdf8;
+                color: #ffffff;
             }
             QPushButton:pressed {
-                
+                background-color: rgba(56, 189, 248, 0.25);
             }
             QLabel {
-                
+                color: #f1f5f9;
                 font-size: 13px;
                 font-weight: 700;
                 background: transparent;
@@ -364,8 +366,8 @@ class TableInsertDialog(QDialog):
         form_frame.setObjectName("StepperFormFrame")
         form_frame.setStyleSheet("""
             QFrame#StepperFormFrame {
-                
-                border: 1px solid;
+                background-color: rgba(255, 255, 255, 0.04);
+                border: 1px solid rgba(255, 255, 255, 0.1);
                 border-radius: 10px;
             }
         """)
@@ -393,7 +395,7 @@ class TableInsertDialog(QDialog):
         self.chk_header.setChecked(True)
         self.chk_header.setStyleSheet("""
             QCheckBox {
-                
+                color: #f1f5f9;
                 font-size: 12px;
                 font-weight: 500;
                 spacing: 8px;
@@ -403,16 +405,16 @@ class TableInsertDialog(QDialog):
             QCheckBox::indicator {
                 width: 17px;
                 height: 17px;
-                border: 1.5px solid #475569;
+                border: 1.5px solid rgba(255, 255, 255, 0.2);
                 border-radius: 4px;
-                
+                background-color: rgba(255, 255, 255, 0.06);
             }
             QCheckBox::indicator:hover {
-                border-
+                border-color: #38bdf8;
             }
             QCheckBox::indicator:checked {
-                
-                border-
+                background-color: #38bdf8;
+                border-color: #38bdf8;
             }
         """)
         self.chk_header.toggled.connect(self._on_params_changed)
@@ -435,9 +437,9 @@ class TableInsertDialog(QDialog):
             btn.setIcon(make_preset_icon(pr["header_bg"], pr["cell_bg"]))
             btn.setStyleSheet("""
                 QPushButton {
-                    
-                    
-                    border: 1.5px solid #334155;
+                    background-color: rgba(255, 255, 255, 0.06);
+                    color: #f1f5f9;
+                    border: 1px solid rgba(255, 255, 255, 0.15);
                     border-radius: 8px;
                     padding: 7px 10px;
                     font-size: 11px;
@@ -445,9 +447,9 @@ class TableInsertDialog(QDialog):
                     text-align: left;
                 }
                 QPushButton:hover {
-                    
-                    border-
-                    
+                    background-color: rgba(255, 255, 255, 0.12);
+                    border-color: #38bdf8;
+                    color: #ffffff;
                 }
             """)
             btn.clicked.connect(lambda ch, p=pr, b=btn: self._apply_preset(p, b))
@@ -466,9 +468,9 @@ class TableInsertDialog(QDialog):
 
         btn_style = """
             QPushButton {
-                
-                
-                border: 1.5px solid #334155;
+                background-color: rgba(255, 255, 255, 0.06);
+                color: #f1f5f9;
+                border: 1px solid rgba(255, 255, 255, 0.15);
                 border-radius: 8px;
                 padding: 7px 10px;
                 font-size: 11px;
@@ -476,12 +478,12 @@ class TableInsertDialog(QDialog):
                 text-align: left;
             }
             QPushButton:hover {
-                
-                border-
-                
+                background-color: rgba(255, 255, 255, 0.12);
+                border-color: #38bdf8;
+                color: #ffffff;
             }
             QPushButton:pressed {
-                
+                background-color: rgba(56, 189, 248, 0.2);
             }
         """
 
@@ -544,16 +546,16 @@ class TableInsertDialog(QDialog):
         btn_cancel.setStyleSheet("""
             QPushButton {
                 padding: 8px 20px;
-                
-                
-                border: 1px solid;
+                background-color: #334155;
+                color: #e2e8f0;
+                border: 1px solid #475569;
                 border-radius: 8px;
                 font-size: 12px;
                 font-weight: 600;
             }
             QPushButton:hover {
-                
-                
+                background-color: #475569;
+                color: #ffffff;
             }
         """)
         btn_cancel.clicked.connect(self.reject)
@@ -563,18 +565,18 @@ class TableInsertDialog(QDialog):
         btn_ok.setStyleSheet("""
             QPushButton {
                 padding: 8px 24px;
-                
-                
+                background-color: #2563eb;
+                color: #ffffff;
                 border: none;
                 border-radius: 8px;
                 font-size: 12px;
                 font-weight: bold;
             }
             QPushButton:hover {
-                
+                background-color: #1d4ed8;
             }
             QPushButton:pressed {
-                
+                background-color: #1e40af;
             }
         """)
         btn_ok.clicked.connect(self.accept)
@@ -608,8 +610,8 @@ class TableInsertDialog(QDialog):
             if btn == clicked_btn:
                 btn.setStyleSheet("""
                     QPushButton {
-                        
-                        
+                        background-color: #0f172a;
+                        color: #38bdf8;
                         border: 1.5px solid #38bdf8;
                         border-radius: 8px;
                         padding: 7px 10px;
@@ -621,8 +623,8 @@ class TableInsertDialog(QDialog):
             else:
                 btn.setStyleSheet("""
                     QPushButton {
-                        
-                        
+                        background-color: #1e293b;
+                        color: #e2e8f0;
                         border: 1.5px solid #334155;
                         border-radius: 8px;
                         padding: 7px 10px;
@@ -631,9 +633,8 @@ class TableInsertDialog(QDialog):
                         text-align: left;
                     }
                     QPushButton:hover {
-                        
-                        border-
-                        
+                        border-color: #38bdf8;
+                        background-color: #334155;
                     }
                 """)
 
@@ -744,8 +745,8 @@ class TableStyleDialog(QDialog):
             btn.setIcon(make_preset_icon(pr["header_bg"], pr["cell_bg"]))
             btn.setStyleSheet("""
                 QPushButton {
-                    
-                    
+                    background-color: #1e293b;
+                    color: #e2e8f0;
                     border: 1.5px solid #334155;
                     border-radius: 8px;
                     padding: 6px 10px;
@@ -754,9 +755,8 @@ class TableStyleDialog(QDialog):
                     text-align: left;
                 }
                 QPushButton:hover {
-                    
-                    border-
-                    
+                    border-color: #38bdf8;
+                    background-color: #334155;
                 }
             """)
             btn.clicked.connect(lambda ch, p=pr, b=btn: self._apply_preset(p, b))
@@ -768,8 +768,8 @@ class TableStyleDialog(QDialog):
         font_frame = QFrame()
         font_frame.setStyleSheet("""
             QFrame {
-                
-                border: 1px solid;
+                background-color: #1e293b;
+                border: 1px solid #334155;
                 border-radius: 8px;
                 padding: 8px;
             }
@@ -783,15 +783,15 @@ class TableStyleDialog(QDialog):
         self.cmb_font.addItems(["Arial", "Times New Roman", "Courier New", "Segoe UI", "Calibri", "Georgia", "Verdana", "Tahoma"])
         self.cmb_font.setStyleSheet("""
             QComboBox {
-                
-                
+                background-color: #0f172a;
+                color: #e2e8f0;
                 border: 1.5px solid #334155;
                 border-radius: 6px;
                 padding: 5px 10px;
                 font-size: 12px;
             }
             QComboBox:hover {
-                border-
+                border-color: #38bdf8;
             }
         """)
         idx = self.cmb_font.findText(self.font_family)
@@ -817,20 +817,21 @@ class TableStyleDialog(QDialog):
         toggle_btn_style = """
             QPushButton {
                 padding: 6px 14px;
-                
-                
-                border: 1.5px solid #334155;
+                background-color: rgba(255, 255, 255, 0.06);
+                color: #f1f5f9;
+                border: 1px solid rgba(255, 255, 255, 0.15);
                 border-radius: 6px;
                 font-weight: 600;
             }
             QPushButton:checked {
-                
-                
-                border-
+                background-color: rgba(56, 189, 248, 0.25);
+                color: #38bdf8;
+                border: 1px solid #38bdf8;
             }
             QPushButton:hover:!checked {
-                
-                border-
+                background-color: rgba(255, 255, 255, 0.12);
+                border-color: rgba(255, 255, 255, 0.3);
+                color: #ffffff;
             }
         """
         btn_row = QHBoxLayout()
@@ -864,9 +865,9 @@ class TableStyleDialog(QDialog):
 
         c_btn_style = """
             QPushButton {
-                
-                
-                border: 1.5px solid #334155;
+                background-color: rgba(255, 255, 255, 0.06);
+                color: #f1f5f9;
+                border: 1px solid rgba(255, 255, 255, 0.15);
                 border-radius: 8px;
                 padding: 7px 10px;
                 font-size: 11px;
@@ -874,12 +875,12 @@ class TableStyleDialog(QDialog):
                 text-align: left;
             }
             QPushButton:hover {
-                
-                border-
-                
+                background-color: rgba(255, 255, 255, 0.12);
+                border-color: #38bdf8;
+                color: #ffffff;
             }
             QPushButton:pressed {
-                
+                background-color: rgba(56, 189, 248, 0.2);
             }
         """
 
@@ -982,9 +983,9 @@ class TableStyleDialog(QDialog):
             else:
                 btn.setStyleSheet("""
                     QPushButton {
-                        
-                        
-                        border: 1.5px solid #334155;
+                        background-color: rgba(255, 255, 255, 0.06);
+                        color: #f1f5f9;
+                        border: 1px solid rgba(255, 255, 255, 0.15);
                         border-radius: 8px;
                         padding: 6px 10px;
                         font-size: 11px;
@@ -992,9 +993,9 @@ class TableStyleDialog(QDialog):
                         text-align: left;
                     }
                     QPushButton:hover {
-                        
-                        border-
-                        
+                        background-color: rgba(255, 255, 255, 0.12);
+                        border-color: #38bdf8;
+                        color: #ffffff;
                     }
                 """)
         self._apply()
@@ -1624,15 +1625,15 @@ class GifThumbnailCard(QFrame):
         if self.is_selected:
             self.setStyleSheet("""
                 QFrame {
-                    
-                    border: 2px solid;
+                    background-color: rgba(56, 189, 248, 0.2);
+                    border: 2px solid #38bdf8;
                     border-radius: 4px;
                 }
             """)
         elif hovered:
             self.setStyleSheet("""
                 QFrame {
-                    
+                    background-color: rgba(255, 255, 255, 0.08);
                     border: 1.5px solid #00a884;
                     border-radius: 4px;
                 }
@@ -1640,8 +1641,8 @@ class GifThumbnailCard(QFrame):
         else:
             self.setStyleSheet("""
                 QFrame {
-                    
-                    border: 1px solid;
+                    background-color: transparent;
+                    border: 1px solid rgba(255, 255, 255, 0.08);
                     border-radius: 4px;
                 }
             """)
@@ -1933,8 +1934,8 @@ class EmojiGifPickerDialog(QDialog):
         pill = QFrame()
         pill.setStyleSheet("""
             QFrame {
-                
-                border: 1px solid;
+                background-color: rgba(255, 255, 255, 0.05);
+                border: 1px solid rgba(255, 255, 255, 0.12);
                 border-radius: 17px;
             }
         """)
@@ -1981,21 +1982,22 @@ class EmojiGifPickerDialog(QDialog):
             QPushButton {
                 background: transparent;
                 border: none;
-                
+                color: #94a3b8;
                 font-size: 13px;
                 font-weight: bold;
                 padding: 4px 14px;
                 border-radius: 14px;
             }
             QPushButton:hover {
-                
+                color: #ffffff;
+                background-color: rgba(255, 255, 255, 0.08);
             }
         """
         active_style = """
             QPushButton {
-                
-                border: 1px solid;
-                
+                background-color: rgba(255, 255, 255, 0.15);
+                border: 1px solid rgba(255, 255, 255, 0.2);
+                color: #ffffff;
                 font-size: 13px;
                 font-weight: bold;
                 padding: 4px 14px;
@@ -2418,9 +2420,10 @@ class ImageInsertDialog(QDialog):
 
         self.tabs = QTabWidget()
         self.tabs.setStyleSheet("""
-            QTabWidget::pane { border: 1px solid; border-radius: 6px;  }
-            QTabBar::tab {   padding: 8px 18px; border-top-left-radius: 4px; border-top-right-radius: 4px; font-size: 12px; font-weight: bold; }
-            QTabBar::tab:selected {   }
+            QTabWidget::pane { border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 6px; background-color: rgba(255, 255, 255, 0.02); }
+            QTabBar::tab { background: rgba(255, 255, 255, 0.04); color: #94a3b8; padding: 8px 18px; border-top-left-radius: 4px; border-top-right-radius: 4px; font-size: 12px; font-weight: bold; }
+            QTabBar::tab:hover { background: rgba(255, 255, 255, 0.08); color: #ffffff; }
+            QTabBar::tab:selected { background: rgba(255, 255, 255, 0.1); color: #38bdf8; border-bottom: 2px solid #38bdf8; }
         """)
 
         # Sekme 1: Bilgisayardan
@@ -2468,10 +2471,13 @@ class ImageInsertDialog(QDialog):
         self.txt_url.setPlaceholderText("https://ornek.com/resim.jpg")
         self.txt_url.setStyleSheet("""
             QLineEdit {
-                 
-                border: 1px solid; border-radius: 6px;
+                background-color: rgba(255, 255, 255, 0.06);
+                color: #f1f5f9;
+                border: 1px solid rgba(255, 255, 255, 0.12);
+                border-radius: 6px;
                 padding: 8px; font-size: 12px;
             }
+            QLineEdit:focus { border-color: #38bdf8; }
         """)
         btn_fetch = QPushButton("İndir ve Önizle")
         btn_fetch.setStyleSheet("""
@@ -2636,7 +2642,7 @@ class AudioWaveformVisualizer(QWidget):
         self.anim_timer = QTimer(self)
         self.anim_timer.timeout.connect(self._on_tick)
 
-        self.setStyleSheet(" border: 1px solid; border-radius: 8px;")
+        self.setStyleSheet("border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 8px; background: rgba(0, 0, 0, 0.2);")
 
     def set_audio_level(self, level: float):
         """Mikrofondan gelen anlık gerçek ses şiddetini ayarlar (0.0 - 1.0)."""
@@ -2840,11 +2846,15 @@ class AudioRecordDialog(QDialog):
         self.btn_compact.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_compact.setStyleSheet("""
             QPushButton {
-                  border: 1px solid;
+                background-color: rgba(255, 255, 255, 0.06);
+                color: #f1f5f9;
+                border: 1px solid rgba(255, 255, 255, 0.12);
                 border-radius: 5px; padding: 4px 10px; font-size: 11px; font-weight: 500;
             }
             QPushButton:hover {
-                 border- 
+                background-color: rgba(255, 255, 255, 0.12);
+                border-color: rgba(255, 255, 255, 0.25);
+                color: #ffffff;
             }
         """)
         self.btn_compact.clicked.connect(self._toggle_compact_mode)
@@ -2858,11 +2868,13 @@ class AudioRecordDialog(QDialog):
         self.txt_title = QLineEdit("Ses Notu")
         self.txt_title.setStyleSheet("""
             QLineEdit {
-                 
-                border: 1px solid; border-radius: 6px;
+                background-color: rgba(255, 255, 255, 0.06);
+                color: #f1f5f9;
+                border: 1px solid rgba(255, 255, 255, 0.12);
+                border-radius: 6px;
                 padding: 7px 10px; font-size: 12px;
             }
-            QLineEdit:focus { border: 1px solid; }
+            QLineEdit:focus { border-color: #38bdf8; }
         """)
         layout.addWidget(self.txt_title)
 
@@ -2872,9 +2884,9 @@ class AudioRecordDialog(QDialog):
         self.timer_frame.setMinimumHeight(92)
         self.timer_frame.setStyleSheet("""
             QFrame#timer_frame {
-                
+                background-color: rgba(0, 0, 0, 0.25);
                 border-radius: 8px;
-                border: 1px solid;
+                border: 1px solid rgba(255, 255, 255, 0.1);
             }
         """)
         t_layout = QVBoxLayout(self.timer_frame)
@@ -2901,7 +2913,7 @@ class AudioRecordDialog(QDialog):
         ctrl_box = QHBoxLayout()
         ctrl_box.setSpacing(8)
 
-        btn_disabled_css = "  border: 1px solid;"
+        btn_disabled_css = "background-color: rgba(255, 255, 255, 0.03); color: #64748b; border: 1px solid rgba(255, 255, 255, 0.06);"
 
         self.btn_start = QPushButton("Kaydı Başlat")
         self.btn_start.setStyleSheet(f"""
@@ -3022,10 +3034,16 @@ class AudioRecordDialog(QDialog):
             self.btn_compact.setText("🗖 Tam Görünüm")
             self.btn_compact.setStyleSheet("""
                 QPushButton {
-                      border: 1px solid;
+                    background-color: rgba(255, 255, 255, 0.06);
+                    color: #f1f5f9;
+                    border: 1px solid rgba(255, 255, 255, 0.12);
                     border-radius: 5px; padding: 4px 10px; font-size: 11px; font-weight: bold;
                 }
-                QPushButton:hover {  }
+                QPushButton:hover {
+                    background-color: rgba(255, 255, 255, 0.12);
+                    border-color: rgba(255, 255, 255, 0.25);
+                    color: #ffffff;
+                }
             """)
             self.setFixedSize(480, 235)
         else:
@@ -3044,11 +3062,15 @@ class AudioRecordDialog(QDialog):
             self.btn_compact.setText("🗕 Kompakt Mod")
             self.btn_compact.setStyleSheet("""
                 QPushButton {
-                      border: 1px solid;
+                    background-color: rgba(255, 255, 255, 0.06);
+                    color: #f1f5f9;
+                    border: 1px solid rgba(255, 255, 255, 0.12);
                     border-radius: 5px; padding: 4px 10px; font-size: 11px; font-weight: 500;
                 }
                 QPushButton:hover {
-                     border- 
+                    background-color: rgba(255, 255, 255, 0.12);
+                    border-color: rgba(255, 255, 255, 0.25);
+                    color: #ffffff;
                 }
             """)
             self.setFixedSize(500, 520)
@@ -3098,7 +3120,7 @@ class AudioRecordDialog(QDialog):
         except Exception as e:
             print("AudioSource error:", e)
 
-        btn_disabled_css = "  border: 1px solid;"
+        btn_disabled_css = "background-color: rgba(255, 255, 255, 0.03); color: #64748b; border: 1px solid rgba(255, 255, 255, 0.06);"
 
         self.btn_start.setEnabled(False)
         self.btn_pause.setEnabled(True)
@@ -3123,7 +3145,7 @@ class AudioRecordDialog(QDialog):
         if not self.is_recording:
             return
 
-        btn_disabled_css = "  border: 1px solid;"
+        btn_disabled_css = "background-color: rgba(255, 255, 255, 0.03); color: #64748b; border: 1px solid rgba(255, 255, 255, 0.06);"
 
         if not self.is_paused:
             self.recorder.pause()
@@ -3308,9 +3330,10 @@ class VideoInsertDialog(QDialog):
 
         tabs = QTabWidget()
         tabs.setStyleSheet("""
-            QTabWidget::pane { border: 1px solid; border-radius: 6px;  }
-            QTabBar::tab {   padding: 6px 14px; border-top-left-radius: 4px; border-top-right-radius: 4px; font-size: 11px; font-weight: bold; }
-            QTabBar::tab:selected {   }
+            QTabWidget::pane { border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 6px; background-color: rgba(255, 255, 255, 0.02); }
+            QTabBar::tab { background: rgba(255, 255, 255, 0.04); color: #94a3b8; padding: 6px 14px; border-top-left-radius: 4px; border-top-right-radius: 4px; font-size: 11px; font-weight: bold; }
+            QTabBar::tab:hover { background: rgba(255, 255, 255, 0.08); color: #ffffff; }
+            QTabBar::tab:selected { background: rgba(255, 255, 255, 0.1); color: #38bdf8; border-bottom: 2px solid #38bdf8; }
         """)
 
         # Sekme 1: Bilgisayardan
@@ -3318,7 +3341,7 @@ class VideoInsertDialog(QDialog):
         tl = QVBoxLayout(tab_local)
         tl.setSpacing(10)
         btn_sel_video = QPushButton("Bilgisayardan Video Seç (.mp4, .mkv, .avi, .webm)...")
-        btn_sel_video.setStyleSheet("  font-weight: bold; padding: 10px; border-radius: 6px;")
+        btn_sel_video.setStyleSheet("background-color: #2563eb; color: #ffffff; font-weight: bold; padding: 10px; border-radius: 6px; border: none;")
         btn_sel_video.clicked.connect(self._select_local_video)
         tl.addWidget(btn_sel_video)
 
@@ -3339,11 +3362,11 @@ class VideoInsertDialog(QDialog):
 
         self.txt_url = QLineEdit()
         self.txt_url.setPlaceholderText("https://www.youtube.com/watch?v=...")
-        self.txt_url.setStyleSheet("  border: 1px solid; border-radius: 6px; padding: 8px;")
+        self.txt_url.setStyleSheet("background-color: rgba(255, 255, 255, 0.06); color: #f1f5f9; border: 1px solid rgba(255, 255, 255, 0.12); border-radius: 6px; padding: 8px;")
         tu.addWidget(self.txt_url)
 
         btn_apply_url = QPushButton("Bağlantıyı Tanımla")
-        btn_apply_url.setStyleSheet("  font-weight: bold; padding: 8px; border-radius: 6px;")
+        btn_apply_url.setStyleSheet("background-color: rgba(255, 255, 255, 0.1); color: #f1f5f9; font-weight: bold; padding: 8px; border-radius: 6px; border: 1px solid rgba(255, 255, 255, 0.15);")
         btn_apply_url.clicked.connect(self._apply_url)
         tu.addWidget(btn_apply_url)
         tu.addStretch()
@@ -3356,7 +3379,7 @@ class VideoInsertDialog(QDialog):
         lbl_t.setStyleSheet(" font-size: 11px;")
         layout.addWidget(lbl_t)
         self.txt_title = QLineEdit("Tanıtım Videosu")
-        self.txt_title.setStyleSheet("  border: 1px solid; border-radius: 6px; padding: 6px 10px;")
+        self.txt_title.setStyleSheet("background-color: rgba(255, 255, 255, 0.06); color: #f1f5f9; border: 1px solid rgba(255, 255, 255, 0.12); border-radius: 6px; padding: 6px 10px;")
         layout.addWidget(self.txt_title)
 
         layout.addStretch()

@@ -506,23 +506,23 @@ class ModernShortcutEdit(QWidget):
     def _apply_style(self):
         if self._is_recording:
             self.btn_input.setStyleSheet(
-                "QPushButton { background: rgba(56, 189, 248, 0.22); border: 2px solid; "
+                "QPushButton { background: rgba(56, 189, 248, 0.22); border: 2px solid #38bdf8; "
                 "border-radius: 6px; padding: 4px 10px; font-size: 12px; font-weight: bold; "
-                " text-align: center; }"
+                "color: #ffffff; text-align: center; }"
             )
         else:
             has_val = bool(self._current_shortcut)
             col = "#e2e8f0" if has_val else "#94a3b8"
             self.btn_input.setStyleSheet(
-                f"QPushButton {{ background: rgba(255, 255, 255, 0.06); border: 1px solid; "
+                f"QPushButton {{ background: rgba(255, 255, 255, 0.06); border: 1px solid rgba(255, 255, 255, 0.15); "
                 f"border-radius: 6px; padding: 4px 10px; font-size: 12px; font-weight: 600; "
                 f"color: {col}; text-align: center; }} "
-                "QPushButton:hover { background: rgba(255, 255, 255, 0.12); border-color: rgba(255, 255, 255, 0.3); }"
+                "QPushButton:hover { background: rgba(255, 255, 255, 0.12); border-color: rgba(255, 255, 255, 0.35); color: #ffffff; }"
             )
         self.btn_clear.setStyleSheet(
-            "QToolButton { background: rgba(255, 255, 255, 0.06); border: 1px solid; "
-            "border-radius: 6px; font-size: 11px;  } "
-            "QToolButton:hover { background: rgba(239, 68, 68, 0.22); border-  }"
+            "QToolButton { background: rgba(255, 255, 255, 0.06); border: 1px solid rgba(255, 255, 255, 0.15); "
+            "border-radius: 6px; font-size: 11px; color: #cbd5e1; } "
+            "QToolButton:hover { background: rgba(239, 68, 68, 0.22); border: 1px solid #ef4444; color: #ffffff; }"
         )
 
 
@@ -540,7 +540,7 @@ class ModernSettingsDialog(QDialog):
         self.setSizeGripEnabled(True)
         
         # Seçili temanın rengine göre stil
-        self.current_theme = self.settings.value("app_theme", "dark")
+        self.current_theme = self.settings.value("app_theme", "gray")
         self._apply_dialog_style()
         self._init_ui()
         self._load_saved_values()
@@ -584,139 +584,168 @@ class ModernSettingsDialog(QDialog):
 
         self.setStyleSheet(f"""
             QDialog {{
-                    background-color: {c['bg']};
-                    color: {c['text']};
-                }}
-                QListWidget#SettingsSidebar {{
-                    background-color: transparent;
-                    border: none;
-                    outline: none;
-                    padding: 8px 0px;
-                }}
-                QListWidget#SettingsSidebar::item {{
-                    background-color: transparent;
-                    border: none;
-                    margin: 0px;
-                    border-radius: 6px;
-                    padding: 10px 14px;
-                    color: {c['muted']};
-                    font-size: 13px;
-                    font-weight: 600;
-                }}
-                QListWidget#SettingsSidebar::item:hover {{
-                    background-color: {c['card']};
-                    color: {c['text']};
-                }}
-                QListWidget#SettingsSidebar::item:selected {{
-                    background-color: {c['accent']};
-                    
-                }}
-                QStackedWidget {{
-                    background-color: {c['card']};
-                    border: 1px solid {c['border']};
-                    border-radius: 10px;
-                }}
-                QLabel {{
-                    color: {c['text']};
-                }}
-                QLineEdit, QComboBox, QKeySequenceEdit {{
-                    background-color: {c['bg']};
-                    
-                    border: 1.2px solid {c['border']};
-                    border-radius: 5px;
-                    padding: 5px 10px;
-                    font-size: 13px;
-                    min-height: 28px;
-                }}
-                QLineEdit:focus, QComboBox:focus, QKeySequenceEdit:focus {{
-                    border-color: {c['accent']};
-                }}
-                QListWidget#ToolbarList {{
-                    background-color: {c['bg']};
-                    border: 1px solid {c['border']};
-                    border-radius: 6px;
-                    padding: 4px;
-                }}
-                QListWidget#ToolbarList::item {{
-                    background-color: {c['card']};
-                    border: 1px solid {c['border']};
-                    border-radius: 4px;
-                    padding: 6px 10px;
-                    margin: 2px;
-                    font-size: 12px;
-                    font-weight: 500;
-                }}
-                QListWidget#ToolbarList::item:hover {{
-                    background-color: {c['bg']};
-                    border-color: {c['accent']};
-                }}
-                QListWidget#ToolbarList::item:selected {{
-                    background-color: {c['accent']};
-                    border: 1px solid {c['accent']};
-                    
-                    font-weight: bold;
-                }}
-                QWidget#TransparentWidget {{
-                    background-color: transparent;
-                }}
-                QPushButton {{
-                    background-color: {c['card']};
-                    
-                    border: 1.2px solid {c['border']};
-                    border-radius: 5px;
-                    padding: 6px 14px;
-                    font-weight: 500;
-                }}
-                QPushButton:hover {{
-                    border-color: {c['accent']};
-                }}
-                QPushButton[class="primary"] {{
-                    background-color: {c['accent']};
-                    border-color: {c['accent']};
-                    
-                    font-weight: bold;
-                }}
-                QRadioButton {{
-                    color: {c['text']};
-                    font-size: 13px;
-                    font-weight: bold;
-                }}
-                QRadioButton::indicator:checked {{
-                    background-color: {c['accent']};
-                    border: 2px solid;
-                    border-radius: 6px;
-                }}
-                QListWidget {{
-                    background-color: {c['bg']};
-                    color: {c['text']};
-                    border: 1px solid {c['border']};
-                    border-radius: 6px;
-                }}
-                QListWidget::item {{
-                    background-color: {c['card']};
-                    border: 1px solid {c['border']};
-                    border-radius: 4px;
-                    padding: 4px;
-                    margin: 2px;
-                }}
-                QListWidget::item:selected {{
-                    background-color: {c['accent']};
-                    
-                    font-weight: bold;
-                    border-color: {c['accent']};
-                }}
+                background-color: {c['bg']};
+                color: {c['text']};
+            }}
+            QListWidget#SettingsSidebar {{
+                background-color: transparent;
+                border: none;
+                outline: none;
+                padding: 8px 0px;
+            }}
+            QListWidget#SettingsSidebar::item {{
+                background-color: transparent;
+                border: 1px solid transparent;
+                margin: 2px 4px;
+                border-radius: 8px;
+                padding: 10px 14px;
+                color: {c['muted']};
+                font-size: 13px;
+                font-weight: 500;
+            }}
+            QListWidget#SettingsSidebar::item:hover {{
+                background-color: rgba(255, 255, 255, 0.08);
+                border-color: rgba(255, 255, 255, 0.12);
+                color: #ffffff;
+            }}
+            QListWidget#SettingsSidebar::item:selected {{
+                background-color: {c['accent']};
+                border-color: {c['accent']};
+                color: #ffffff;
+                font-weight: bold;
+            }}
+            QListWidget#SettingsSidebar::item:selected:hover {{
+                background-color: {c['accent']};
+                border-color: {c['accent']};
+                color: #ffffff;
+                font-weight: bold;
+            }}
+            QStackedWidget {{
+                background-color: {c['card']};
+                border: 1px solid rgba(255, 255, 255, 0.08);
+                border-radius: 10px;
+            }}
+            QLabel {{
+                color: {c['text']};
+            }}
+            QLineEdit, QComboBox, QKeySequenceEdit {{
+                background-color: {c['bg']};
+                color: {c['text']};
+                border: 1px solid rgba(255, 255, 255, 0.12);
+                border-radius: 6px;
+                padding: 5px 10px;
+                font-size: 13px;
+                min-height: 28px;
+            }}
+            QLineEdit:focus, QComboBox:focus, QKeySequenceEdit:focus {{
+                border-color: {c['accent']};
+            }}
+            QListWidget#ToolbarList {{
+                background-color: {c['bg']};
+                border: 1px solid rgba(255, 255, 255, 0.1);
+                border-radius: 6px;
+                padding: 4px;
+            }}
+            QListWidget#ToolbarList::item {{
+                background-color: {c['card']};
+                border: 1px solid rgba(255, 255, 255, 0.08);
+                border-radius: 4px;
+                padding: 6px 10px;
+                margin: 2px;
+                font-size: 12px;
+                font-weight: 500;
+                color: {c['text']};
+            }}
+            QListWidget#ToolbarList::item:hover {{
+                background-color: {c['bg']};
+                border-color: {c['accent']};
+                color: #ffffff;
+            }}
+            QListWidget#ToolbarList::item:selected {{
+                background-color: {c['accent']};
+                border: 1px solid {c['accent']};
+                color: #ffffff;
+                font-weight: bold;
+            }}
+            QWidget#TransparentWidget {{
+                background-color: transparent;
+            }}
+            QPushButton {{
+                background-color: {c['card']};
+                color: {c['text']};
+                border: 1px solid rgba(255, 255, 255, 0.12);
+                border-radius: 6px;
+                padding: 6px 14px;
+                font-weight: 500;
+            }}
+            QPushButton:hover {{
+                background-color: rgba(255, 255, 255, 0.08);
+                border-color: {c['accent']};
+                color: #ffffff;
+            }}
+            QPushButton[class="primary"] {{
+                background-color: {c['accent']};
+                border-color: {c['accent']};
+                color: #ffffff;
+                font-weight: bold;
+            }}
+            QRadioButton {{
+                color: {c['text']};
+                font-size: 13px;
+                font-weight: bold;
+            }}
+            QRadioButton::indicator:checked {{
+                background-color: {c['accent']};
+                border: 2px solid {c['accent']};
+                border-radius: 6px;
+            }}
+            QListWidget {{
+                background-color: {c['bg']};
+                color: {c['text']};
+                border: 1px solid rgba(255, 255, 255, 0.1);
+                border-radius: 6px;
+            }}
+            QListWidget::item {{
+                background-color: {c['card']};
+                border: 1px solid rgba(255, 255, 255, 0.08);
+                border-radius: 4px;
+                padding: 4px;
+                margin: 2px;
+                color: {c['text']};
+            }}
+            QListWidget::item:hover {{
+                background-color: rgba(255, 255, 255, 0.08);
+                color: #ffffff;
+            }}
+            QListWidget::item:selected {{
+                background-color: {c['accent']};
+                color: #ffffff;
+                font-weight: bold;
+                border-color: {c['accent']};
+            }}
             QComboBox QAbstractItemView {{
                 background-color: {c['card']};
-                
+                color: {c['text']};
                 selection-background-color: {c['accent']};
-                selection-
-                border: 1px solid {c['border']};
+                selection-color: #ffffff;
+                border: 1px solid rgba(255, 255, 255, 0.12);
+                border-radius: 6px;
                 padding: 4px;
                 outline: none;
             }}
             QComboBox QAbstractItemView::item {{
                 min-height: 28px;
-                padding: 4px 8px;
+                padding: 6px 10px;
+                border-radius: 4px;
+                color: {c['text']};
+            }}
+            QComboBox QAbstractItemView::item:hover {{
+                background-color: rgba(255, 255, 255, 0.08);
+                color: #ffffff;
+            }}
+            QComboBox QAbstractItemView::item:selected {{
+                background-color: {c['accent']};
+                color: #ffffff;
             }}
             QCheckBox, QRadioButton {{
                 color: {c['text']};
@@ -725,54 +754,63 @@ class ModernSettingsDialog(QDialog):
             }}
             QFrame.card {{
                 background-color: {c['card']};
-                border: 1.2px solid {c['border']};
+                border: 1px solid rgba(255, 255, 255, 0.08);
                 border-radius: 8px;
                 padding: 12px;
             }}
             QPushButton#PrimaryBtn {{
                 background-color: {c['accent']};
-                
+                color: #ffffff;
                 font-weight: bold;
                 border: none;
                 border-radius: 6px;
                 padding: 8px 22px;
             }}
             QPushButton#PrimaryBtn:hover {{
-                opacity: 0.9;
+                background-color: {c['accent']};
+                color: #ffffff;
             }}
             QPushButton#CancelBtn {{
                 background-color: {c['cancel']};
                 color: {c['text']};
                 font-weight: 500;
-                border: none;
+                border: 1px solid rgba(255, 255, 255, 0.1);
                 border-radius: 6px;
                 padding: 8px 18px;
             }}
             QPushButton#CancelBtn:hover {{
                 background-color: {c['border']};
+                color: #ffffff;
             }}
             QPushButton#SecondaryBtn {{
                 background-color: {c['bg']};
                 color: {c['text']};
-                border: 1px solid {c['border']};
-                border-radius: 5px;
+                border: 1px solid rgba(255, 255, 255, 0.12);
+                border-radius: 6px;
                 padding: 5px 12px;
             }}
             QPushButton#SecondaryBtn:hover {{
                 background-color: {c['card']};
+                border-color: {c['accent']};
+                color: #ffffff;
             }}
             QPushButton#DangerBtn {{
-                
-                
-                border: 1px solid;
+                background-color: rgba(239, 68, 68, 0.12);
+                color: #fca5a5;
+                border: 1px solid rgba(239, 68, 68, 0.35);
                 border-radius: 6px;
-                padding: 7px 16px;
+                padding: 8px 18px;
                 font-weight: 600;
+                font-size: 13px;
             }}
             QPushButton#DangerBtn:hover {{
-                
-                border-
-                
+                background-color: rgba(239, 68, 68, 0.25);
+                border-color: #ef4444;
+                color: #ffffff;
+            }}
+            QPushButton#DangerBtn:pressed {{
+                background-color: #dc2626;
+                color: #ffffff;
             }}
         """)
 
@@ -920,9 +958,9 @@ class ModernSettingsDialog(QDialog):
         self.shortcut_settings.clear()
 
         # 2. Arayüz kontrollerini varsayılan değerlerine döndür
-        if "dark" in self.theme_radios:
-            self.theme_radios["dark"].setChecked(True)
-        self.current_theme = "dark"
+        if "gray" in self.theme_radios:
+            self.theme_radios["gray"].setChecked(True)
+        self.current_theme = "gray"
         self._apply_dialog_style()
 
         # Kısayollar
@@ -997,7 +1035,7 @@ class ModernSettingsDialog(QDialog):
         themes_info = [
             ("dark", "theme_dark", "theme_dark_desc", 1),
             ("gray", "theme_gray", "theme_gray_desc", 2),
-            ("navy", "theme_navy", "theme_navy_desc", 3),
+
             ("emerald", "theme_emerald", "theme_emerald_desc", 4),
             ("purple", "theme_purple", "theme_purple_desc", 5),
             ("crimson", "theme_crimson", "theme_crimson_desc", 6),
@@ -1018,7 +1056,7 @@ class ModernSettingsDialog(QDialog):
         # Geriye dönük uyumluluk için referanslar
         self.rb_dark = self.theme_radios["dark"]
         self.rb_gray = self.theme_radios["gray"]
-        self.rb_navy = self.theme_radios["navy"]
+
         self.rb_emerald = self.theme_radios["emerald"]
         self.rb_purple = self.theme_radios["purple"]
         self.rb_crimson = self.theme_radios["crimson"]
@@ -1051,8 +1089,8 @@ class ModernSettingsDialog(QDialog):
         lbl_hint.setWordWrap(True)
         lbl_hint.setStyleSheet(
             " font-size: 11px; padding: 8px 12px; "
-            "background: rgba(56, 189, 248, 0.08); border: 1px solid; "
-            "border-radius: 6px;"
+            "background: rgba(56, 189, 248, 0.08); border: 1px solid rgba(56, 189, 248, 0.25); "
+            "border-radius: 6px; color: #cbd5e1;"
         )
         layout.addWidget(lbl_hint)
 
@@ -1511,9 +1549,9 @@ class ModernSettingsDialog(QDialog):
             btn.setCheckable(True)
             btn.setChecked(t_key == "pen")
             btn.setStyleSheet("""
-                QPushButton {   border: 1px solid; border-radius: 4px; padding: 3px 7px; font-size: 11px; }
-                QPushButton:hover {   }
-                QPushButton:checked {   border- font-weight: bold; }
+                QPushButton { background: rgba(255, 255, 255, 0.06); color: #cbd5e1; border: 1px solid rgba(255, 255, 255, 0.12); border-radius: 4px; padding: 4px 8px; font-size: 11px; }
+                QPushButton:hover { background: rgba(255, 255, 255, 0.12); color: #ffffff; border-color: rgba(255, 255, 255, 0.25); }
+                QPushButton:checked { background: rgba(56, 189, 248, 0.22); color: #38bdf8; border: 1px solid #38bdf8; font-weight: bold; }
             """)
             btn.clicked.connect(lambda checked, tk=t_key: self._set_preview_tool(tk))
             cp_top.addWidget(btn)
@@ -1645,7 +1683,7 @@ class ModernSettingsDialog(QDialog):
     # ----------------------------------------------------
     def _load_saved_values(self):
         # 1. Tema
-        saved_theme = self.settings.value("app_theme", "dark")
+        saved_theme = self.settings.value("app_theme", "gray")
         if saved_theme in self.theme_radios:
             self.theme_radios[saved_theme].setChecked(True)
         else:
@@ -1743,7 +1781,7 @@ class ModernSettingsDialog(QDialog):
 
     def apply_settings(self):
         # 1. Tema Kaydet & Uygula
-        selected_theme = "dark"
+        selected_theme = "gray"
         for code, rb in self.theme_radios.items():
             if rb.isChecked():
                 selected_theme = code

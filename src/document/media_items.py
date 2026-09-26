@@ -472,7 +472,7 @@ class PDFTableItem(QGraphicsItem):
 
         menu = QMenu()
         menu.setStyleSheet("""
-            QMenu { background-color: #1e1e24; color: #ffffff; border: 1px solid #3f3f46; border-radius: 6px; padding: 4px; }
+            QMenu { background-color: #1e1e24; color: #ffffff; border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 6px; padding: 4px; }
             QMenu::item { padding: 6px 20px; border-radius: 4px; }
             QMenu::item:selected { background-color: #2563eb; }
         """)
@@ -895,7 +895,7 @@ class PDFResizableImageItem(QGraphicsItem):
     def contextMenuEvent(self, event):
         menu = QMenu()
         menu.setStyleSheet("""
-            QMenu { background-color: #1e1e24; color: #ffffff; border: 1px solid #3f3f46; border-radius: 6px; padding: 4px; }
+            QMenu { background-color: #1e1e24; color: #ffffff; border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 6px; padding: 4px; }
             QMenu::item { padding: 6px 20px; border-radius: 4px; }
             QMenu::item:selected { background-color: #2563eb; }
         """)
@@ -1318,7 +1318,7 @@ class PDFAudioItem(QGraphicsItem):
     def contextMenuEvent(self, event):
         menu = QMenu()
         menu.setStyleSheet("""
-            QMenu { background-color: #1e1e24; color: #ffffff; border: 1px solid #3f3f46; border-radius: 6px; padding: 4px; }
+            QMenu { background-color: #1e1e24; color: #ffffff; border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 6px; padding: 4px; }
             QMenu::item { padding: 6px 20px; border-radius: 4px; }
             QMenu::item:selected { background-color: #2563eb; }
         """)
@@ -1948,7 +1948,7 @@ class PDFVideoItem(QGraphicsItem):
     def contextMenuEvent(self, event):
         menu = QMenu()
         menu.setStyleSheet("""
-            QMenu { background-color: #1e1e24; color: #ffffff; border: 1px solid #3f3f46; border-radius: 6px; padding: 4px; }
+            QMenu { background-color: #1e1e24; color: #ffffff; border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 6px; padding: 4px; }
             QMenu::item { padding: 6px 20px; border-radius: 4px; }
             QMenu::item:selected { background-color: #2563eb; }
         """)

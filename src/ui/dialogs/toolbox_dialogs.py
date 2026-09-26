@@ -47,9 +47,9 @@ def get_spinbox_stylesheet() -> str:
 
     return f"""
         QSpinBox {{
-            
-            
-            border: 1px solid;
+            background-color: #242426;
+            color: #f1f5f9;
+            border: 1px solid rgba(255, 255, 255, 0.12);
             border-radius: 4px;
             padding: 3px 2px 3px 6px;
             padding-right: 42px;
@@ -57,9 +57,9 @@ def get_spinbox_stylesheet() -> str:
             font-weight: bold;
         }}
         QSpinBox#PreviewPageSpin {{
-            
-            
-            border: 1px solid;
+            background-color: #1a1a1e;
+            color: #f1f5f9;
+            border: 1px solid rgba(255, 255, 255, 0.12);
             border-radius: 4px;
             padding: 2px 2px;
             font-size: 12px;
@@ -67,10 +67,10 @@ def get_spinbox_stylesheet() -> str:
             text-align: center;
         }}
         QSpinBox#PreviewPageSpin:focus {{
-            border: 1px solid;
+            border: 1px solid #38bdf8;
         }}
         QSpinBox:focus {{
-            border: 1px solid;
+            border: 1px solid #38bdf8;
         }}
         QSpinBox::down-button {{
             subcontrol-origin: border;
@@ -78,17 +78,17 @@ def get_spinbox_stylesheet() -> str:
             right: 21px;
             width: 18px;
             height: 18px;
-            border: 1px solid;
+            border: 1px solid rgba(255, 255, 255, 0.1);
             border-radius: 3px;
-            
+            background-color: rgba(255, 255, 255, 0.06);
             image: url("{down_icon}");
         }}
         QSpinBox::down-button:hover {{
-            
-            border-
+            background-color: rgba(255, 255, 255, 0.12);
+            border-color: rgba(255, 255, 255, 0.25);
         }}
         QSpinBox::down-button:pressed {{
-            
+            background-color: rgba(255, 255, 255, 0.18);
         }}
         QSpinBox::up-button {{
             subcontrol-origin: border;
@@ -96,17 +96,17 @@ def get_spinbox_stylesheet() -> str:
             right: 2px;
             width: 18px;
             height: 18px;
-            border: 1px solid;
+            border: 1px solid rgba(255, 255, 255, 0.1);
             border-radius: 3px;
-            
+            background-color: rgba(255, 255, 255, 0.06);
             image: url("{up_icon}");
         }}
         QSpinBox::up-button:hover {{
-            
-            border-
+            background-color: rgba(255, 255, 255, 0.12);
+            border-color: rgba(255, 255, 255, 0.25);
         }}
         QSpinBox::up-button:pressed {{
-            
+            background-color: rgba(255, 255, 255, 0.18);
         }}
     """
 
@@ -1787,8 +1787,8 @@ class PDFOrganizePagesDialog(QDialog):
         v_th.setSpacing(8)
         self.widget_thesis.setStyleSheet("""
             QWidget#ThesisBox {
-                
-                border: 1px solid;
+                background-color: rgba(255, 255, 255, 0.03);
+                border: 1px solid rgba(255, 255, 255, 0.1);
                 border-radius: 6px;
             }
         """)
@@ -1968,8 +1968,7 @@ class PDFOrganizePagesDialog(QDialog):
         grp_preview.setFixedWidth(320)
         grp_preview.setStyleSheet("""
             QGroupBox {
-                
-                border: 1px solid;
+                border: 1px solid rgba(255, 255, 255, 0.1);
                 border-radius: 6px;
                 margin-top: 10px;
                 padding-top: 14px;
@@ -1984,7 +1983,7 @@ class PDFOrganizePagesDialog(QDialog):
         v_prev.addWidget(self.lbl_preview_info)
 
         frame_box = QWidget()
-        frame_box.setStyleSheet(" border: 1px solid; border-radius: 6px;")
+        frame_box.setStyleSheet("border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 6px; background-color: rgba(0, 0, 0, 0.2);")
         v_box = QVBoxLayout(frame_box)
         v_box.setContentsMargins(6, 6, 6, 6)
         v_box.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -1992,7 +1991,7 @@ class PDFOrganizePagesDialog(QDialog):
         self.lbl_preview = InteractivePageNumberPreviewLabel()
         self.lbl_preview.setFixedSize(250, 350)
         self.lbl_preview.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.lbl_preview.setStyleSheet("border: 1px solid;  border-radius: 2px;")
+        self.lbl_preview.setStyleSheet("border: 1px solid rgba(255, 255, 255, 0.15); border-radius: 2px;")
         self.lbl_preview.positionChanged.connect(self._on_preview_position_dragged)
         v_box.addWidget(self.lbl_preview)
         v_prev.addWidget(frame_box)
@@ -2014,9 +2013,9 @@ class PDFOrganizePagesDialog(QDialog):
         self.spn_preview_page.setFixedWidth(56)
         self.spn_preview_page.setStyleSheet("""
             QSpinBox#PreviewPageSpin {
-                
-                
-                border: 1px solid;
+                background-color: #1a1a1e;
+                color: #f1f5f9;
+                border: 1px solid rgba(255, 255, 255, 0.12);
                 border-radius: 4px;
                 padding: 2px 2px;
                 font-size: 12px;
@@ -2024,7 +2023,7 @@ class PDFOrganizePagesDialog(QDialog):
                 text-align: center;
             }
             QSpinBox#PreviewPageSpin:focus {
-                border: 1px solid;
+                border: 1px solid #38bdf8;
             }
         """)
         self.spn_preview_page.valueChanged.connect(self._preview_page_spin_changed)
@@ -2379,9 +2378,9 @@ class PDFOrganizePagesDialog(QDialog):
         from PyQt6.QtGui import QCursor
         menu = QMenu(self)
         menu.setStyleSheet("""
-            QMenu {   border: 1px solid; border-radius: 6px; padding: 4px; }
+            QMenu { background-color: #242426; color: #f1f5f9; border: 1px solid rgba(255, 255, 255, 0.12); border-radius: 6px; padding: 4px; }
             QMenu::item { padding: 8px 24px; border-radius: 4px; font-size: 13px; }
-            QMenu::item:selected {   }
+            QMenu::item:selected { background-color: #2563eb; color: #ffffff; }
         """)
 
         styles = [
@@ -2592,7 +2591,7 @@ class PDFOrganizePagesDialog(QDialog):
 
     def _update_color_btn(self):
         c = self.number_color.name()
-        self.btn_color.setStyleSheet(f"background-color: {c}; border: 1px solid; border-radius: 3px;")
+        self.btn_color.setStyleSheet(f"background-color: {c}; border: 1px solid rgba(255, 255, 255, 0.25); border-radius: 3px;")
 
     def _choose_color(self):
         col = QColorDialog.getColor(self.number_color, self, LanguageManager.tr("page_number_font_color"))
@@ -4081,7 +4080,7 @@ class PDFEncryptDialog(QDialog):
         h_rec_key = QHBoxLayout()
         self.txt_recovery_key = QLineEdit()
         self.txt_recovery_key.setPlaceholderText(LanguageManager.tr("encrypt_key_placeholder"))
-        self.txt_recovery_key.setStyleSheet("  font-family: Consolas, monospace; font-size: 13px; font-weight: bold; border: 1px solid; padding: 4px;")
+        self.txt_recovery_key.setStyleSheet("font-family: Consolas, monospace; font-size: 13px; font-weight: bold; background-color: rgba(255, 255, 255, 0.06); color: #f1f5f9; border: 1px solid rgba(255, 255, 255, 0.15); border-radius: 4px; padding: 6px;")
         self._generate_recovery_key()
         self.btn_regen_key = QPushButton(LanguageManager.tr("encrypt_regen_key"))
         self.btn_regen_key.setToolTip(LanguageManager.tr("regen_key_tip"))
@@ -5354,8 +5353,8 @@ class PDFWatermarkDialog(QDialog):
 
         self.lbl_editing_badge = QLabel("\u2139\ufe0f " + LanguageManager.tr("watermark_editing_badge"))
         self.lbl_editing_badge.setStyleSheet(
-            "border:1px solid;"
-            "border-radius:5px;padding:6px 12px;font-weight:bold;font-size:12px;"
+            "background-color: rgba(56, 189, 248, 0.15); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.35); "
+            "border-radius: 5px; padding: 6px 12px; font-weight: bold; font-size: 12px;"
         )
         self.lbl_editing_badge.setVisible(False)
         left_v.addWidget(self.lbl_editing_badge)
@@ -5726,9 +5725,9 @@ class PDFWatermarkDialog(QDialog):
         h_bot_top.addStretch()
         self.btn_remove_watermark = QPushButton(LanguageManager.tr("watermark_btn_remove"))
         self.btn_remove_watermark.setStyleSheet(
-            "QPushButton{background:#7f1d1d;border:1px solid;"
-            "border-radius:4px;font-weight:bold;padding:5px 12px;min-height:26px;}"
-            "QPushButton:hover{background:#991b1b;border-}"
+            "QPushButton { background-color: rgba(239, 68, 68, 0.15); color: #fca5a5; border: 1px solid rgba(239, 68, 68, 0.35); "
+            "border-radius: 4px; font-weight: bold; padding: 5px 12px; min-height: 26px; } "
+            "QPushButton:hover { background-color: rgba(239, 68, 68, 0.28); border-color: #ef4444; color: #ffffff; }"
         )
         self.btn_remove_watermark.clicked.connect(self.execute_remove_watermark)
         self.btn_remove_watermark.setVisible(False)
@@ -5762,8 +5761,8 @@ class PDFWatermarkDialog(QDialog):
         grp_preview = QGroupBox(LanguageManager.tr("preview_title"))
         grp_preview.setFixedWidth(295)
         grp_preview.setStyleSheet(
-            "QGroupBox{border:1px solid;"
-            "border-radius:6px;margin-top:10px;padding-top:14px;}"
+            "QGroupBox { border: 1px solid rgba(255, 255, 255, 0.1); "
+            "border-radius: 6px; margin-top: 10px; padding-top: 14px; }"
         )
         v_prev = QVBoxLayout(grp_preview)
         v_prev.setContentsMargins(10, 12, 10, 12)
@@ -5772,14 +5771,14 @@ class PDFWatermarkDialog(QDialog):
         self.lbl_preview_info.setStyleSheet("font-size:11px;")
         v_prev.addWidget(self.lbl_preview_info)
         frame_box = QWidget()
-        frame_box.setStyleSheet("border:1px solid;border-radius:6px;")
+        frame_box.setStyleSheet("border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 6px; background-color: rgba(0, 0, 0, 0.2);")
         v_box = QVBoxLayout(frame_box)
         v_box.setContentsMargins(6, 6, 6, 6)
         v_box.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.lbl_preview = InteractiveWatermarkPreviewLabel()
         self.lbl_preview.setFixedSize(242, 338)
         self.lbl_preview.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.lbl_preview.setStyleSheet("border:1px solid;border-radius:2px;")
+        self.lbl_preview.setStyleSheet("border: 1px solid rgba(255, 255, 255, 0.15); border-radius: 2px;")
         self.lbl_preview.positionChanged.connect(lambda pos: self.update_preview())
         v_box.addWidget(self.lbl_preview)
         v_prev.addWidget(frame_box)
@@ -5799,9 +5798,9 @@ class PDFWatermarkDialog(QDialog):
         self.spn_preview_page.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.spn_preview_page.setFixedWidth(52)
         self.spn_preview_page.setStyleSheet(
-            "QSpinBox#PreviewPageSpin{background:#1a1a1a;border:1px solid;"
-            "border-radius:4px;padding:2px;font-size:12px;font-weight:bold;}"
-            "QSpinBox#PreviewPageSpin:focus{border:1px solid;}"
+            "QSpinBox#PreviewPageSpin { background-color: #1a1a1e; color: #f1f5f9; border: 1px solid rgba(255, 255, 255, 0.12); "
+            "border-radius: 4px; padding: 2px; font-size: 12px; font-weight: bold; } "
+            "QSpinBox#PreviewPageSpin:focus { border: 1px solid #38bdf8; }"
         )
         self.spn_preview_page.valueChanged.connect(self._preview_page_spin_changed)
         self.lbl_total_preview_pages = QLabel("/ 1")
@@ -6252,7 +6251,7 @@ class PDFWatermarkDialog(QDialog):
 
     def _update_color_btn(self):
         hex_c = self.watermark_color.name()
-        self.btn_color.setStyleSheet(f"background-color: {hex_c}; border: 1px solid; border-radius: 4px; min-width: 36px;")
+        self.btn_color.setStyleSheet(f"background-color: {hex_c}; border: 1px solid rgba(255, 255, 255, 0.25); border-radius: 4px; min-width: 36px;")
 
     def _pick_color(self):
         color = QColorDialog.getColor(self.watermark_color, self, "Filigran Rengi Seç")
@@ -7040,8 +7039,7 @@ class PDFBackgroundDialog(QDialog):
         grp_preview.setFixedWidth(325)
         grp_preview.setStyleSheet("""
             QGroupBox {
-                
-                border: 1px solid;
+                border: 1px solid rgba(255, 255, 255, 0.1);
                 border-radius: 6px;
                 margin-top: 10px;
                 padding-top: 14px;
@@ -7056,7 +7054,7 @@ class PDFBackgroundDialog(QDialog):
         v_prev.addWidget(self.lbl_preview_info)
 
         frame_box = QWidget()
-        frame_box.setStyleSheet(" border: 1px solid; border-radius: 6px;")
+        frame_box.setStyleSheet("border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 6px; background-color: rgba(0, 0, 0, 0.2);")
         v_box = QVBoxLayout(frame_box)
         v_box.setContentsMargins(8, 8, 8, 8)
         v_box.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -7064,7 +7062,7 @@ class PDFBackgroundDialog(QDialog):
         self.lbl_preview = QLabel()
         self.lbl_preview.setFixedSize(260, 360)
         self.lbl_preview.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.lbl_preview.setStyleSheet("border: 1px solid;  border-radius: 2px;")
+        self.lbl_preview.setStyleSheet("border: 1px solid rgba(255, 255, 255, 0.15); border-radius: 2px;")
         v_box.addWidget(self.lbl_preview)
         v_prev.addWidget(frame_box)
 
@@ -7088,9 +7086,9 @@ class PDFBackgroundDialog(QDialog):
         self.spn_preview_page.setFixedWidth(56)
         self.spn_preview_page.setStyleSheet("""
             QSpinBox#PreviewPageSpin {
-                
-                
-                border: 1px solid;
+                background-color: #1a1a1e;
+                color: #f1f5f9;
+                border: 1px solid rgba(255, 255, 255, 0.12);
                 border-radius: 4px;
                 padding: 2px 2px;
                 font-size: 12px;
@@ -7098,7 +7096,7 @@ class PDFBackgroundDialog(QDialog):
                 text-align: center;
             }
             QSpinBox#PreviewPageSpin:focus {
-                border: 1px solid;
+                border: 1px solid #38bdf8;
             }
         """)
         self.spn_preview_page.valueChanged.connect(self._preview_page_spin_changed)
@@ -7154,7 +7152,7 @@ class PDFBackgroundDialog(QDialog):
 
     def _update_color_preview(self):
         hex_c = self.current_bg_color.name()
-        self.lbl_color_preview.setStyleSheet(f"background-color: {hex_c}; border: 2px solid; border-radius: 4px; min-width: 48px; min-height: 24px;")
+        self.lbl_color_preview.setStyleSheet(f"background-color: {hex_c}; border: 2px solid rgba(255, 255, 255, 0.3); border-radius: 4px; min-width: 48px; min-height: 24px;")
 
     def _pick_custom_color(self):
         color = QColorDialog.getColor(self.current_bg_color, self, "Arka Plan Rengi Seç")
@@ -7456,7 +7454,7 @@ class PDFPasswordDialog(QDialog):
         if self.hint:
             lbl_hint = QLabel(LanguageManager.tr("password_hint_display", hint=self.hint))
             lbl_hint.setWordWrap(True)
-            lbl_hint.setStyleSheet(" border: 1px solid;  font-size: 13px; padding: 8px 12px; border-radius: 6px; font-weight: 500;")
+            lbl_hint.setStyleSheet("background-color: rgba(255, 255, 255, 0.05); color: #cbd5e1; border: 1px solid rgba(255, 255, 255, 0.12); font-size: 13px; padding: 8px 12px; border-radius: 6px; font-weight: 500;")
             layout.addWidget(lbl_hint)
 
         # Parola Giriş Alanı

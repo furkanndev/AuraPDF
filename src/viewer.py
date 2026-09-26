@@ -92,10 +92,10 @@ class EditableZoomWidget(QWidget):
         self._is_editing = False
         self.apply_theme(getattr(main_window, 'current_theme', 'dark'))
 
-    def apply_theme(self, theme_name: str = "dark"):
+    def apply_theme(self, theme_name: str = "gray"):
         palette = {
             "gray": {"btn": "#3b3f45", "btn_hover": "#4b5159", "lbl": "#2b2d30", "border": "#525862", "border_inner": "#444850", "accent": "#60a5fa", "text": "#ffffff"},
-            "navy": {"btn": "#1e293b", "btn_hover": "#334155", "lbl": "#0f172a", "border": "#334155", "border_inner": "#1e293b", "accent": "#38bdf8", "text": "#f8fafc"},
+
             "emerald": {"btn": "#112a21", "btn_hover": "#1a3d30", "lbl": "#091a14", "border": "#1a3d30", "border_inner": "#112a21", "accent": "#10b981", "text": "#ecfdf5"},
             "purple": {"btn": "#201435", "btn_hover": "#2f1d4d", "lbl": "#150d22", "border": "#321f52", "border_inner": "#201435", "accent": "#a855f7", "text": "#faf5ff"},
             "crimson": {"btn": "#2d1118", "btn_hover": "#401923", "lbl": "#1d0b10", "border": "#441924", "border_inner": "#2d1118", "accent": "#f43f5e", "text": "#fff1f2"},
@@ -103,7 +103,7 @@ class EditableZoomWidget(QWidget):
             "dark": {"btn": "#262626", "btn_hover": "#363636", "lbl": "#181818", "border": "#404040", "border_inner": "#303030", "accent": "#388bfd", "text": "#ffffff"},
             "vice_city": {"btn": "#240e3b", "btn_hover": "#381458", "lbl": "#160024", "border": "#ff2a85", "border_inner": "#240e3b", "accent": "#00f0ff", "text": "#ffffff"},
         }
-        p = palette.get(theme_name, palette["dark"])
+        p = palette.get(theme_name, palette["gray"])
 
         btn_base = f"""
             QToolButton {{
@@ -272,7 +272,7 @@ class ModernPDFViewer(QMainWindow):
         self._init_docks()
         self._init_toolbar()
         self._init_shortcuts()
-        self.apply_theme(settings.value("app_theme", "dark"))
+        self.apply_theme(settings.value("app_theme", "gray"))
         self.retranslate_ui()
         self.update_viewport_cursor()
 
@@ -709,7 +709,7 @@ class ModernPDFViewer(QMainWindow):
 
         insert_menu = QMenu(self.btn_insert)
         insert_menu.setStyleSheet("""
-            QMenu { background-color: #242426; color: #f1f5f9; border: 1px solid #3f3f46; border-radius: 6px; padding: 4px; }
+            QMenu { background-color: #242426; color: #f1f5f9; border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 6px; padding: 4px; }
             QMenu::item { padding: 6px 20px; border-radius: 4px; }
             QMenu::item:selected { background-color: #0284c7; color: #ffffff; }
         """)
@@ -802,7 +802,7 @@ class ModernPDFViewer(QMainWindow):
 
         view_menu = QMenu(self.btn_view_mode)
         view_menu.setStyleSheet("""
-            QMenu { background-color: #242424; color: #ffffff; border: 1px solid #444; border-radius: 6px; padding: 4px; }
+            QMenu { background-color: #242424; color: #ffffff; border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 6px; padding: 4px; }
             QMenu::item { padding: 6px 20px; border-radius: 4px; }
             QMenu::item:selected { background-color: #3b82f6; }
         """)
@@ -1034,7 +1034,9 @@ class ModernPDFViewer(QMainWindow):
         dlg = ModernSettingsDialog(self)
         dlg.exec()
 
-    def apply_theme(self, theme_name: str = "dark"):
+    def apply_theme(self, theme_name: str = "gray"):
+        if theme_name == "navy":
+            theme_name = "gray"
         self.current_theme = theme_name
         settings = QSettings("AuraPDF", "PDFViewer")
         settings.setValue("app_theme", theme_name)
@@ -1089,7 +1091,7 @@ class ModernPDFViewer(QMainWindow):
                 "view_bg": "#0d0017"
             }
         }
-        spec = theme_specs.get(theme_name, theme_specs["dark"])
+        spec = theme_specs.get(theme_name, theme_specs["gray"])
         view_bg = spec["view_bg"]
 
         self.setStyleSheet(f"""
@@ -1105,7 +1107,7 @@ class ModernPDFViewer(QMainWindow):
                 QTabBar::tab {{ background-color: {spec['tab_bg']}; color: {spec['tab_text']}; padding: 7px 16px; margin-right: 2px; border-top-left-radius: 6px; border-top-right-radius: 6px; border: 1px solid {spec['tab_border']}; border-bottom: none; }}
                 QTabBar::tab:hover {{ background-color: {spec['tab_hover']}; color: #ffffff; }}
                 QTabBar::tab:selected {{ background-color: {spec['main_bg']}; color: #ffffff; border-top: 2px solid {spec['accent']}; font-weight: bold; }}
-                QMenu {{ background-color: {spec['tb_bg']}; color: {spec['main_text']}; border: 1px solid {spec['tb_border']}; border-radius: 8px; padding: 4px; }}
+                QMenu {{ background-color: {spec['tb_bg']}; color: {spec['main_text']}; border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 8px; padding: 4px; }}
                 QMenu::item {{ padding: 6px 20px; border-radius: 4px; font-size: 12px; }}
                 QMenu::item:selected {{ background-color: {spec['accent']}; color: #ffffff; font-weight: bold; }}
                 QMenu::separator {{ height: 1px; background-color: {spec['tb_border']}; margin: 4px 6px; }}
@@ -1268,7 +1270,6 @@ class ModernPDFViewer(QMainWindow):
         if not theme:
             theme = getattr(self, 'current_theme', 'dark')
         bg_map = {
-            "gray": "#222426", "navy": "#090d16", "emerald": "#06120e",
             "purple": "#0e0817", "crimson": "#13070a", "nord": "#11161e", "dark": "#121212",
             "vice_city": "#0d0017"
         }
