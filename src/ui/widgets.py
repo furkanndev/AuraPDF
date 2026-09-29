@@ -1157,12 +1157,93 @@ class FullscreenSlideToolbar(QFrame):
         super().__init__(main_window)
         self.setObjectName("FullscreenToolbarFrame")
         self.main_window = main_window
+        self._active_popup = None
 
         settings = QSettings("AuraPDF", "PDFViewer")
+        edge = settings.value("fullscreen_toolbar_edge", None, type=str)
+        if not edge:
+            edge = settings.value("fullscreen_toolbar_side", "left", type=str)
+        if edge not in ("left", "right", "top", "bottom"):
+            edge = "left"
+        self.edge = edge
+
+        self.box_layout = QBoxLayout(QBoxLayout.Direction.TopToBottom, self)
+        self.box_layout.setContentsMargins(6, 6, 6, 6)
+        self.box_layout.setSpacing(6)
+
+        # Sürükle-bırak tutamacı
+        self.grip = FullscreenToolbarGrip(self)
+        self.box_layout.addWidget(self.grip)
+
+        self.buttons = {}
+        tools = [
+            ('select', ModernIconFactory.icon_cursor(), 'Seçim Aracı (İmleç / Ayarlar için tıkla)'),
+            ('pan', ModernIconFactory.icon_select_pan(), 'El Aracı (Sayfayı Kaydır)'),
+            ('selection_tool', ModernIconFactory.icon_select_rect(), 'Kare Seçim Aracı (Seçim / Cetvel Paneli için tıkla)'),
+            ('pen', ModernIconFactory.icon_pen(), 'Çizim / Kalem (Renk & Boyut Paneli için tıkla)'),
+            ('highlighter', ModernIconFactory.icon_highlighter(), 'Vurgulayıcı (Renk & Boyut Paneli için tıkla)'),
+            ('eraser', ModernIconFactory.icon_eraser(), 'Silgi (Silgi Ayarları için tıkla)'),
+            ('text', ModernIconFactory.icon_text_box(), 'Metin Kutusu (Yazı & Biçim Paneli için tıkla)'),
+            ('insert', ModernIconFactory.icon_insert(), LanguageManager.tr("insert_btn_tip")),
+            ('pointer', ModernIconFactory.icon_pointer(), 'Lazer İşaretçi (İşaretçi Ayarları için tıkla)')
+        ]
+
+        for name, icon, tip in tools:
+            btn = QToolButton(self)
+            btn.setIcon(icon)
+            btn.setToolTip(tip)
+            if name != 'insert':
+                btn.setCheckable(True)
+            btn.setFixedSize(40, 40)
+            btn.clicked.connect(lambda checked=False, n=name: self._on_tool_clicked(n))
+            btn.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+            btn.customContextMenuRequested.connect(lambda pos, n=name: self._on_tool_context_menu(n))
+            self.box_layout.addWidget(btn)
+            self.buttons[name] = btn
+
+        self.sep = QFrame(self)
+        self.sep.setFrameShape(QFrame.Shape.NoFrame)
+        self.sep.setStyleSheet('border: none; background-color: rgba(255, 255, 255, 0.15);')
+        self.box_layout.addWidget(self.sep)
+
+        self.btn_exit = QToolButton(self)
+        self.btn_exit.setIcon(ModernIconFactory.icon_fullscreen())
+        self.btn_exit.setToolTip('Tam Ekrandan Çık (F11 / Esc)')
+        self.btn_exit.setFixedSize(40, 40)
+        self.btn_exit.clicked.connect(self._on_exit_fullscreen)
+        self.box_layout.addWidget(self.btn_exit)
+
+        # Sürükleme durumu takibi
+        self._is_dragging = False
+        self._drag_start_pos = None
+        self._drag_start_panel_pos = None
+        self._drag_target_button = None
+
+        # Olay filtresi: panel, tutamaç ve butonlardan sürüklemeyi yakalar
+        self.installEventFilter(self)
+        self.grip.installEventFilter(self)
+        for btn in self.buttons.values():
+            btn.installEventFilter(self)
+        self.btn_exit.installEventFilter(self)
+
+        self.anim = QPropertyAnimation(self, b"pos", self)
+        enable_anim = settings.value("enable_animations", True, type=bool)
+        self.anim.setDuration(220 if enable_anim else 0)
+
+        self.hide_timer = QTimer(self)
+        self.hide_timer.setSingleShot(True)
+        self.hide_timer.setInterval(1600)
+        self.hide_timer.timeout.connect(self.slide_out)
+
+        self.is_slid_in = False
+        self._apply_edge_layout(self.edge)
+
         current_th = settings.value("app_theme", "gray")
         if current_th == "navy":
             current_th = "gray"
         self.apply_theme(current_th)
+
+        self.hide()
 
     def apply_theme(self, theme_name: str = "gray", spec: Optional[dict] = None):
         if theme_name == "navy":
@@ -1222,84 +1303,6 @@ class FullscreenSlideToolbar(QFrame):
         shadow.setOffset(2, 4)
         self.setGraphicsEffect(shadow)
 
-        settings = QSettings("AuraPDF", "PDFViewer")
-        edge = settings.value("fullscreen_toolbar_edge", None, type=str)
-        if not edge:
-            edge = settings.value("fullscreen_toolbar_side", "left", type=str)
-        if edge not in ("left", "right", "top", "bottom"):
-            edge = "left"
-        self.edge = edge
-
-        self.box_layout = QBoxLayout(QBoxLayout.Direction.TopToBottom, self)
-        self.box_layout.setContentsMargins(6, 6, 6, 6)
-        self.box_layout.setSpacing(6)
-
-        # Sürükle-bırak tutamacı
-        self.grip = FullscreenToolbarGrip(self)
-        self.box_layout.addWidget(self.grip)
-
-        self.buttons = {}
-        tools = [
-            ('select', ModernIconFactory.icon_cursor(), 'Seçim Aracı (İmleç)'),
-            ('pan', ModernIconFactory.icon_select_pan(), 'El Aracı (Sayfayı Kaydır)'),
-            ('selection_tool', ModernIconFactory.icon_select_rect(), 'Kare Seçim Aracı'),
-            ('pen', ModernIconFactory.icon_pen(), 'Çizim / Kalem'),
-            ('highlighter', ModernIconFactory.icon_highlighter(), 'Vurgulayıcı'),
-            ('eraser', ModernIconFactory.icon_eraser(), 'Silgi'),
-            ('text', ModernIconFactory.icon_text_box(), 'Metin Kutusu'),
-            ('insert', ModernIconFactory.icon_insert(), LanguageManager.tr("insert_btn_tip")),
-            ('pointer', ModernIconFactory.icon_pointer(), 'Lazer İşaretçi')
-        ]
-
-        for name, icon, tip in tools:
-            btn = QToolButton(self)
-            btn.setIcon(icon)
-            btn.setToolTip(tip)
-            if name != 'insert':
-                btn.setCheckable(True)
-            btn.setFixedSize(40, 40)
-            btn.clicked.connect(lambda checked=False, n=name: self._on_tool_clicked(n))
-            self.box_layout.addWidget(btn)
-            self.buttons[name] = btn
-
-        self.sep = QFrame(self)
-        self.sep.setFrameShape(QFrame.Shape.NoFrame)
-        self.sep.setStyleSheet('border: none; background-color: rgba(255, 255, 255, 0.15);')
-        self.box_layout.addWidget(self.sep)
-
-        self.btn_exit = QToolButton(self)
-        self.btn_exit.setIcon(ModernIconFactory.icon_fullscreen())
-        self.btn_exit.setToolTip('Tam Ekrandan Çık (F11 / Esc)')
-        self.btn_exit.setFixedSize(40, 40)
-        self.btn_exit.clicked.connect(self._on_exit_fullscreen)
-        self.box_layout.addWidget(self.btn_exit)
-
-        # Sürükleme durumu takibi
-        self._is_dragging = False
-        self._drag_start_pos = None
-        self._drag_start_panel_pos = None
-        self._drag_target_button = None
-
-        # Olay filtresi: panel, tutamaç ve butonlardan sürüklemeyi yakalar
-        self.installEventFilter(self)
-        self.grip.installEventFilter(self)
-        for btn in self.buttons.values():
-            btn.installEventFilter(self)
-        self.btn_exit.installEventFilter(self)
-
-        self.anim = QPropertyAnimation(self, b"pos", self)
-        enable_anim = QSettings("AuraPDF", "PDFViewer").value("enable_animations", True, type=bool)
-        self.anim.setDuration(220 if enable_anim else 0)
-
-        self.hide_timer = QTimer(self)
-        self.hide_timer.setSingleShot(True)
-        self.hide_timer.setInterval(1600)
-        self.hide_timer.timeout.connect(self.slide_out)
-
-        self.is_slid_in = False
-        self._apply_edge_layout(self.edge)
-        self.hide()
-
     @property
     def side(self):
         return self.edge
@@ -1336,6 +1339,11 @@ class FullscreenSlideToolbar(QFrame):
         self.hide_timer.start(3000)
 
     def eventFilter(self, watched, event):
+        if watched is getattr(self, '_active_popup', None):
+            if event.type() in (QEvent.Type.Hide, QEvent.Type.Close):
+                self._active_popup = None
+                self.hide_timer.start(2500)
+
         if event.type() == QEvent.Type.MouseButtonPress:
             if event.button() == Qt.MouseButton.LeftButton:
                 self._drag_start_pos = event.globalPosition().toPoint() if hasattr(event, 'globalPosition') else event.globalPos()
@@ -1350,6 +1358,8 @@ class FullscreenSlideToolbar(QFrame):
                     self._is_dragging = True
                     self.hide_timer.stop()
                     self.anim.stop()
+                    if getattr(self, '_active_popup', None) and self._active_popup.isVisible():
+                        self._active_popup.close()
                     self.setStyleSheet(self.STYLE_DRAGGING)
                     if self._drag_target_button:
                         self._drag_target_button.setDown(False)
@@ -1401,21 +1411,169 @@ class FullscreenSlideToolbar(QFrame):
             if not btn.isCheckable():
                 continue
             btn.blockSignals(True)
-            btn.setChecked(name == tool_name)
+            if tool_name == 'ruler':
+                btn.setChecked(name == 'selection_tool')
+            else:
+                btn.setChecked(name == tool_name)
             btn.blockSignals(False)
+
+        if 'selection_tool' in self.buttons:
+            btn_sel = self.buttons['selection_tool']
+            if tool_name == 'ruler':
+                btn_sel.setIcon(ModernIconFactory.icon_ruler())
+            else:
+                mode = getattr(self.main_window, 'selection_shape_mode', 'rect')
+                if mode == 'rect':
+                    btn_sel.setIcon(ModernIconFactory.icon_select_rect())
+                elif mode == 'lasso':
+                    btn_sel.setIcon(ModernIconFactory.icon_select_lasso())
+                elif mode == 'move':
+                    btn_sel.setIcon(ModernIconFactory.icon_select_move())
+
+    def _get_popup_for_tool(self, name: str):
+        mw = self.main_window
+        if not mw:
+            return None
+        if name == 'pen':
+            return getattr(mw, 'pen_popup', None)
+        elif name == 'highlighter':
+            return getattr(mw, 'hl_popup', None)
+        elif name == 'text':
+            return getattr(mw, 'text_popup', None)
+        elif name == 'eraser':
+            return getattr(mw, 'eraser_popup', None)
+        elif name == 'selection_tool':
+            return getattr(mw, 'selection_popup', None)
+        elif name == 'pointer':
+            return getattr(mw, 'pointer_popup', None)
+        elif name in ('select', 'pan'):
+            return getattr(mw, 'cursor_popup', None)
+        return None
+
+    def show_popup_for_tool(self, popup, btn):
+        if not popup or not btn:
+            return
+
+        if getattr(self, '_active_popup', None) and self._active_popup != popup and self._active_popup.isVisible():
+            self._active_popup.close()
+
+        self._active_popup = popup
+        self.hide_timer.stop()
+
+        if hasattr(popup, 'show_below'):
+            popup.show_below(btn)
+        else:
+            popup.show()
+
+        popup.adjustSize()
+        pw = max(popup.width(), popup.sizeHint().width())
+        ph = max(popup.height(), popup.sizeHint().height())
+
+        btn_pos = btn.mapToGlobal(QPoint(0, 0)) if hasattr(btn, 'mapToGlobal') else self.mapToGlobal(QPoint(0, 0))
+        btn_w = btn.width() if hasattr(btn, 'width') else 40
+        btn_h = btn.height() if hasattr(btn, 'height') else 40
+
+        screen = QApplication.screenAt(btn_pos) or QApplication.primaryScreen()
+        sgeo = screen.availableGeometry() if screen else QRect(0, 0, 1920, 1080)
+
+        if self.edge == "left":
+            x = btn_pos.x() + btn_w + 8
+            y = max(sgeo.top() + 8, min(sgeo.bottom() - ph - 8, btn_pos.y() - 10))
+        elif self.edge == "right":
+            x = btn_pos.x() - pw - 8
+            y = max(sgeo.top() + 8, min(sgeo.bottom() - ph - 8, btn_pos.y() - 10))
+        elif self.edge == "top":
+            x = max(sgeo.left() + 8, min(sgeo.right() - pw - 8, btn_pos.x() - pw // 2 + btn_w // 2))
+            y = btn_pos.y() + btn_h + 8
+        else:  # bottom
+            x = max(sgeo.left() + 8, min(sgeo.right() - pw - 8, btn_pos.x() - pw // 2 + btn_w // 2))
+            y = btn_pos.y() - ph - 8
+
+        popup.move(int(x), int(y))
+        popup.raise_()
+        popup.activateWindow()
+
+        popup.installEventFilter(self)
 
     def _on_tool_clicked(self, name):
         if name == 'insert':
             self._show_insert_menu(self.buttons.get('insert', self))
             return
-        elif name == 'selection_tool':
+
+        btn = self.buttons.get(name, self)
+        popup = self._get_popup_for_tool(name)
+
+        is_already_active = False
+        cur_tool = getattr(self.main_window, 'current_tool', '')
+        if name == 'select' and cur_tool == 'select':
+            is_already_active = True
+        elif name == 'pan' and cur_tool == 'pan':
+            is_already_active = True
+        elif name == 'selection_tool' and cur_tool in ('selection_tool', 'ruler'):
+            is_already_active = True
+        elif name == cur_tool:
+            is_already_active = True
+
+        if is_already_active and popup:
+            if popup.isVisible():
+                popup.close()
+            else:
+                self.show_popup_for_tool(popup, btn)
+            return
+
+        if popup and popup.isVisible():
+            popup.close()
+
+        if name == 'selection_tool':
             if hasattr(self.main_window, 'set_selection_mode'):
-                self.main_window.set_selection_mode('rect')
+                self.main_window.set_selection_mode(getattr(self.main_window, 'selection_shape_mode', 'rect'))
             else:
                 self.main_window.set_tool_state('selection_tool')
+        elif name == 'pan':
+            if hasattr(self.main_window, 'set_cursor_mode'):
+                self.main_window.set_cursor_mode('pan')
+            else:
+                self.main_window.set_tool_state('pan')
+        elif name == 'select':
+            if hasattr(self.main_window, 'set_cursor_mode'):
+                self.main_window.set_cursor_mode('select')
+            else:
+                self.main_window.set_tool_state('select')
         else:
             self.main_window.set_tool_state(name)
+
         self.update_active_tool(name)
+
+    def _on_tool_context_menu(self, name):
+        if name == 'insert':
+            self._show_insert_menu(self.buttons.get('insert', self))
+            return
+
+        btn = self.buttons.get(name, self)
+        popup = self._get_popup_for_tool(name)
+
+        if name == 'selection_tool':
+            if hasattr(self.main_window, 'set_selection_mode'):
+                self.main_window.set_selection_mode(getattr(self.main_window, 'selection_shape_mode', 'rect'))
+            else:
+                self.main_window.set_tool_state('selection_tool')
+        elif name == 'pan':
+            if hasattr(self.main_window, 'set_cursor_mode'):
+                self.main_window.set_cursor_mode('pan')
+            else:
+                self.main_window.set_tool_state('pan')
+        elif name == 'select':
+            if hasattr(self.main_window, 'set_cursor_mode'):
+                self.main_window.set_cursor_mode('select')
+            else:
+                self.main_window.set_tool_state('select')
+        else:
+            self.main_window.set_tool_state(name)
+
+        self.update_active_tool(name)
+
+        if popup:
+            self.show_popup_for_tool(popup, btn)
 
     def _show_insert_menu(self, btn):
         self.hide_timer.stop()
@@ -1584,6 +1742,9 @@ class FullscreenSlideToolbar(QFrame):
         self.hide_timer.start(3500)
 
     def hide_fullscreen_mode(self):
+        if getattr(self, '_active_popup', None) and self._active_popup.isVisible():
+            self._active_popup.close()
+            self._active_popup = None
         self.hide_timer.stop()
         self.anim.stop()
         self.hide()
@@ -2108,6 +2269,7 @@ class ThumbnailsDock(QDockWidget):
             menu.addSeparator()
 
         act_add_blank = menu.addAction(ModernIconFactory.icon_add_page(), LanguageManager.tr("sidebar_btn_add_blank"))
+        act_change_style = menu.addAction(ModernIconFactory.icon_brush(), LanguageManager.tr("change_page_style_action")) if item else None
         act_insert_pdf = menu.addAction(ModernIconFactory.icon_new_document(), LanguageManager.tr("sidebar_btn_add_pdf"))
         act_del = menu.addAction("Sayfayı Sil") if item else None
         
@@ -2119,6 +2281,8 @@ class ThumbnailsDock(QDockWidget):
             self.show_bookmark_for_page(idx)
         elif chosen == act_add_blank:
             self._on_add_blank_page_clicked()
+        elif chosen == act_change_style and item and hasattr(self.main_window, 'show_change_page_style_dialog'):
+            self.main_window.show_change_page_style_dialog(idx)
         elif chosen == act_insert_pdf:
             if tab_doc and tab_doc.doc is not None:
                 path, _ = QFileDialog.getOpenFileName(self, "Eklenecek PDF Dosyasını Seç", "", "PDF Dosyaları (*.pdf)")

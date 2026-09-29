@@ -1,10 +1,13 @@
 import os
 import math
 import uuid
+import hashlib
+import random
 import pymupdf as fitz
 from typing import List, Dict, Optional, Any
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QGraphicsView, QGraphicsScene, 
-                             QGraphicsTextItem, QMessageBox, QGraphicsItem, QMenu, QInputDialog)
+                             QGraphicsTextItem, QMessageBox, QGraphicsItem, QMenu, QInputDialog,
+                             QGraphicsItemGroup, QGraphicsPathItem)
 from PyQt6.QtGui import (QImage, QPixmap, QPen, QColor, QPainter, QPainterPath, QPainterPathStroker,
                          QBrush, QLinearGradient, QRadialGradient, QFont,
                          QFontMetrics, QFontMetricsF, QTransform)
@@ -15,6 +18,170 @@ from src.ui.icons import ModernIconFactory
 from src.ui.cursors import CursorFactory
 from src.ui.widgets import EditableInlineTextItem
 from src.document.media_items import PDFTableItem, PDFResizableImageItem, PDFAudioItem, PDFVideoItem
+
+
+def build_fountain_pen_path(raw_pts: List[QPointF], base_width: float = 6.0, min_width: float = 1.8) -> QPainterPath:
+    path = QPainterPath()
+    if not raw_pts:
+        return path
+    if len(raw_pts) == 1:
+        path.addEllipse(raw_pts[0], max(0.5, base_width / 2.0), max(0.5, base_width / 2.0))
+        return path
+
+    nib_angle = math.radians(40.0)
+    left_pts = []
+    right_pts = []
+    n = len(raw_pts)
+
+    for i in range(n):
+        pt = raw_pts[i]
+        if i == 0:
+            dx = raw_pts[1].x() - pt.x()
+            dy = raw_pts[1].y() - pt.y()
+        elif i == n - 1:
+            dx = pt.x() - raw_pts[i - 1].x()
+            dy = pt.y() - raw_pts[i - 1].y()
+        else:
+            dx = raw_pts[i + 1].x() - raw_pts[i - 1].x()
+            dy = raw_pts[i + 1].y() - raw_pts[i - 1].y()
+
+        seg_len = math.hypot(dx, dy)
+        if seg_len < 1e-4:
+            dx = 1.0
+            dy = 0.0
+            seg_len = 1.0
+
+        theta = math.atan2(dy, dx)
+        down_factor = max(0.0, dy / seg_len)
+
+        # Flex fountain pen: downstroke expands with dy > 0, upstroke stays fine hairline
+        w = max(min_width, min(base_width * 2.5, base_width * (0.32 + 1.65 * (down_factor ** 1.15))))
+
+        nx = (-math.sin(theta) * 0.45 - math.sin(nib_angle) * 0.55) * (w / 2.0)
+        ny = (math.cos(theta) * 0.45 + math.cos(nib_angle) * 0.55) * (w / 2.0)
+
+        left_pts.append(QPointF(pt.x() + nx, pt.y() + ny))
+        right_pts.append(QPointF(pt.x() - nx, pt.y() - ny))
+
+    path.moveTo(left_pts[0])
+    for lp in left_pts[1:]:
+        path.lineTo(lp)
+    for rp in reversed(right_pts):
+        path.lineTo(rp)
+    path.closeSubpath()
+    return path
+
+
+_PENCIL_TEXTURE_CACHE = {}
+_PENCIL_FRINGE_CACHE = {}
+
+_PENCIL_TEX_SIZE = 64
+_PENCIL_BODY_INTENSITIES = bytearray(_PENCIL_TEX_SIZE * _PENCIL_TEX_SIZE)
+_PENCIL_FRINGE_INTENSITIES = bytearray(_PENCIL_TEX_SIZE * _PENCIL_TEX_SIZE)
+
+# Precalculate multi-frequency paper tooth noise once at module load
+_rng = random.Random(777)
+for _py in range(_PENCIL_TEX_SIZE):
+    for _px in range(_PENCIL_TEX_SIZE):
+        _idx = _py * _PENCIL_TEX_SIZE + _px
+        _n1 = math.sin(_px * 0.22 + _py * 0.15) * math.cos(_py * 0.22 - _px * 0.1)
+        _n2 = math.sin(_px * 0.55 + _py * 0.35) * math.sin(_py * 0.55)
+        _speckle = _rng.random()
+        _tooth = (_n1 * 0.3 + _n2 * 0.2 + 0.5) * 0.4 + _speckle * 0.6
+
+        if _tooth > 0.22:
+            _norm_t = (_tooth - 0.22) / 0.78
+            _PENCIL_BODY_INTENSITIES[_idx] = int(min(255, 85 + (_norm_t ** 1.1) * 170))
+
+        if _tooth > 0.45 and _rng.random() > 0.25:
+            _norm_f = (_tooth - 0.45) / 0.55
+            _PENCIL_FRINGE_INTENSITIES[_idx] = int(min(150, 35 + _norm_f * 115))
+
+
+def _build_fast_pencil_pixmap(r: int, g: int, b: int, eff_alpha: float, intensities: bytearray) -> QPixmap:
+    size = _PENCIL_TEX_SIZE
+    buf = bytearray(size * size * 4)
+    lut_b = bytearray(256)
+    lut_g = bytearray(256)
+    lut_r = bytearray(256)
+    lut_a = bytearray(256)
+    for raw_a in range(256):
+        a = int(raw_a * eff_alpha)
+        if a > 255: a = 255
+        lut_a[raw_a] = a
+        af_val = a / 255.0
+        lut_b[raw_a] = int(b * af_val)
+        lut_g[raw_a] = int(g * af_val)
+        lut_r[raw_a] = int(r * af_val)
+
+    buf_view = memoryview(buf)
+    for i, raw_a in enumerate(intensities):
+        if raw_a > 0:
+            offset = i * 4
+            buf_view[offset] = lut_b[raw_a]
+            buf_view[offset + 1] = lut_g[raw_a]
+            buf_view[offset + 2] = lut_r[raw_a]
+            buf_view[offset + 3] = lut_a[raw_a]
+
+    img = QImage(buf, size, size, size * 4, QImage.Format.Format_ARGB32_Premultiplied).copy()
+    return QPixmap.fromImage(img)
+
+
+def get_graphite_lead_texture(color: QColor, alpha_scale: float = 1.0) -> QPixmap:
+    r, g, b = color.red(), color.green(), color.blue()
+    eff_alpha = min(1.0, max(0.04, color.alphaF() * float(alpha_scale)))
+    key = (r, g, b, round(eff_alpha, 3))
+    if key in _PENCIL_TEXTURE_CACHE:
+        return _PENCIL_TEXTURE_CACHE[key]
+    pix = _build_fast_pencil_pixmap(r, g, b, eff_alpha, _PENCIL_BODY_INTENSITIES)
+    _PENCIL_TEXTURE_CACHE[key] = pix
+    return pix
+
+
+def get_graphite_fringe_texture(color: QColor, alpha_scale: float = 1.0) -> QPixmap:
+    r, g, b = color.red(), color.green(), color.blue()
+    eff_alpha = min(1.0, max(0.04, color.alphaF() * float(alpha_scale)))
+    key = (r, g, b, round(eff_alpha, 3))
+    if key in _PENCIL_FRINGE_CACHE:
+        return _PENCIL_FRINGE_CACHE[key]
+    pix = _build_fast_pencil_pixmap(r, g, b, eff_alpha, _PENCIL_FRINGE_INTENSITIES)
+    _PENCIL_FRINGE_CACHE[key] = pix
+    return pix
+
+
+_PENCIL_FILL_TEXTURE_CACHE = {}
+
+def get_graphite_fill_texture(color: QColor, alpha_base: float = 1.0) -> QPixmap:
+    r, g, b = color.red(), color.green(), color.blue()
+    effective_alpha = min(color.alphaF(), float(alpha_base))
+    key = (r, g, b, round(effective_alpha, 2))
+    if key in _PENCIL_FILL_TEXTURE_CACHE:
+        return _PENCIL_FILL_TEXTURE_CACHE[key]
+
+    size = 64
+    img = QImage(size, size, QImage.Format.Format_ARGB32_Premultiplied)
+    base_alpha = max(15, min(255, int(95 * effective_alpha)))
+    img.fill(QColor(r, g, b, base_alpha))
+
+    tp = QPainter(img)
+    rng = random.Random(1337)
+    grain_density = 0.55
+
+    for y in range(size):
+        for x in range(size):
+            f1 = math.sin(x * 0.45) * math.cos(y * 0.45)
+            f2 = math.sin(x * 0.9 + y * 0.7) * 0.5
+            noise = (f1 + f2 + 1.5) / 3.0
+            speckle = rng.random()
+            val = noise * 0.45 + speckle * 0.55
+            if val > (1.0 - grain_density):
+                grain_a = int(60 + (val - (1.0 - grain_density)) / grain_density * 180)
+                tp.setPen(QColor(r, g, b, min(245, int(grain_a * effective_alpha))))
+                tp.drawPoint(x, y)
+    tp.end()
+    pix = QPixmap.fromImage(img)
+    _PENCIL_FILL_TEXTURE_CACHE[key] = pix
+    return pix
 
 
 class BookmarkRibbonItem(QGraphicsItem):
@@ -562,7 +729,7 @@ class ModernMeasurementItem(QGraphicsItem):
 
 # --- 9. TEKİL SEKME BELGE YÖNETİCİSİ (TAB DOCUMENT) ---
 class PDFTabDocument(QWidget):
-    def __init__(self, file_path: Optional[str], main_window: 'ModernPDFViewer', initial_style: str = "blank", initial_width: Optional[float] = None, initial_height: Optional[float] = None):
+    def __init__(self, file_path: Optional[str], main_window: 'ModernPDFViewer', initial_style: Optional[str] = None, initial_width: Optional[float] = None, initial_height: Optional[float] = None, create_initial_page: bool = False):
         super().__init__()
         self.file_path = file_path
         self.main_window = main_window
@@ -601,12 +768,15 @@ class PDFTabDocument(QWidget):
                         )
         else:
             self.doc = fitz.open()
-            w = initial_width if initial_width is not None else 595.32
-            h = initial_height if initial_height is not None else 841.92
-            new_p = self.doc.new_page(width=w, height=h)
-            if initial_style and initial_style != "blank":
-                self._draw_page_template(new_p, w, h, initial_style)
-            self.is_modified = True
+            if create_initial_page:
+                w = initial_width if initial_width is not None else 595.32
+                h = initial_height if initial_height is not None else 841.92
+                new_p = self.doc.new_page(width=w, height=h)
+                if initial_style and initial_style != "blank":
+                    self._draw_page_template(new_p, w, h, initial_style)
+                self.is_modified = True
+            else:
+                self.is_modified = False
 
         self.base_render_dpi = 1.5
         self.zoom_level = self.get_saved_zoom_level()
@@ -725,7 +895,7 @@ class PDFTabDocument(QWidget):
         self.view = QGraphicsView(self.scene)
         self.view.setRenderHint(QPainter.RenderHint.Antialiasing)
         self.view.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
-        self.view.setViewportUpdateMode(QGraphicsView.ViewportUpdateMode.FullViewportUpdate)
+        self.view.setViewportUpdateMode(QGraphicsView.ViewportUpdateMode.BoundingRectViewportUpdate)
         self.view.setStyleSheet("background-color: #181818; border: none;")
         self.view.setAcceptDrops(True)
         self.view.viewport().setAcceptDrops(True)
@@ -1102,7 +1272,7 @@ class PDFTabDocument(QWidget):
                 
             page = target_doc[target_page_idx]
             
-            if d.get("type") == "polyline":
+            if d.get("type") in ("polyline", "pencil"):
                 raw_pts = d.get("points", [])
                 if not raw_pts:
                     continue
@@ -1121,6 +1291,12 @@ class PDFTabDocument(QWidget):
 
                 pdf_width = max(0.5, d.get("width", 2.0) / self.base_render_dpi)
                 dashes = None
+                alpha_val = float(d.get("alpha", 1.0))
+                is_pencil = (d.get("type") == "pencil" or d.get("pen_type") == "pencil" or line_style == "pencil")
+                if is_pencil:
+                    alpha_val = min(1.0, alpha_val * 0.78)
+                    pdf_width = max(0.5, (d.get("width", 3.0) * 0.85) / self.base_render_dpi)
+
                 if line_style == "dash":
                     dashes = [6, 4]
                 elif line_style == "dot":
@@ -1140,7 +1316,7 @@ class PDFTabDocument(QWidget):
                     annot = page.add_ink_annot(strokes)
                     annot.set_colors(stroke=stroke_col)
                     annot.set_border(width=pdf_width, dashes=dashes if dashes else (), style="D" if dashes else "S")
-                    annot.set_opacity(float(d.get("alpha", 1.0)))
+                    annot.set_opacity(alpha_val)
                     annot.update()
                 except Exception as e:
                     import traceback
@@ -1170,7 +1346,10 @@ class PDFTabDocument(QWidget):
                             annot = page.add_polygon_annot(pts)
                             annot.set_colors(stroke=stroke_col, fill=stroke_col)
                             annot.set_border(width=0)
-                            annot.set_opacity(float(d.get("alpha", 1.0)))
+                            alpha_val = float(d.get("alpha", 1.0))
+                            if d.get("line_style") == "pencil":
+                                alpha_val = min(1.0, alpha_val * 0.78)
+                            annot.set_opacity(alpha_val)
                             annot.update()
                         except Exception:
                             pass
@@ -1626,6 +1805,8 @@ class PDFTabDocument(QWidget):
             s["points"] = [tuple(pt) for pt in d["points"]]
         if "arrow_head" in d and d["arrow_head"]:
             s["arrow_head"] = [tuple(pt) for pt in d["arrow_head"]]
+        if "rel_path" in d and d["rel_path"]:
+            s["rel_path"] = QPainterPath(d["rel_path"])
         if "x" in d:
             s["x"] = d["x"]
         if "y" in d:
@@ -1644,6 +1825,8 @@ class PDFTabDocument(QWidget):
             d["points"] = [list(pt) for pt in state["points"]]
         if "arrow_head" in state:
             d["arrow_head"] = [list(pt) for pt in state["arrow_head"]] if state["arrow_head"] else None
+        if "rel_path" in state and state["rel_path"]:
+            d["rel_path"] = QPainterPath(state["rel_path"])
         if "x" in state:
             d["x"] = state["x"]
         if "y" in state:
@@ -1906,7 +2089,7 @@ class PDFTabDocument(QWidget):
             self.highlight_selected_items()
             self.redo_stack.append(action)
 
-        elif action["type"] in ("reorder_pages", "insert_blank_page", "watermark"):
+        elif action["type"] in ("reorder_pages", "insert_blank_page", "watermark", "change_page_style"):
             if "old_bytes" in action:
                 self.doc.close()
                 if action["old_bytes"]:
@@ -2011,7 +2194,7 @@ class PDFTabDocument(QWidget):
             self.highlight_selected_items()
             self.undo_stack.append(action)
 
-        elif action["type"] in ("reorder_pages", "insert_blank_page", "watermark"):
+        elif action["type"] in ("reorder_pages", "insert_blank_page", "watermark", "change_page_style"):
             if "new_bytes" in action:
                 self.doc.close()
                 if action["new_bytes"]:
@@ -2320,6 +2503,8 @@ class PDFTabDocument(QWidget):
             if d.get("page", 0) >= insert_idx:
                 d["page"] += 1
 
+        self.pre_watermark_bytes = None
+
         self.render_pages_init()
         self.rerender_visible_pages()
         self.go_to_page(insert_idx)
@@ -2343,6 +2528,60 @@ class PDFTabDocument(QWidget):
             "new_drawings": [dict(d) for d in self.drawings],
             "new_page": insert_idx,
             "insert_idx": insert_idx
+        })
+        self.set_modified(True)
+
+    def change_page_style(self, page_idx: int, new_style: str, all_pages: bool = False):
+        """Mevcut sayfanın veya belgedeki tüm sayfaların şablonunu (Düz, Çizgili, Kareli, Cornell vb.)
+        değiştirir. Kullanıcı çizimleri, metinleri ve notları korunur."""
+        if self.doc is None or len(self.doc) == 0:
+            return
+
+        old_bytes = self.doc.tobytes()
+        old_drawings = [dict(d) for d in self.drawings]
+        old_page = self.current_page_idx
+
+        target_pages = list(range(len(self.doc))) if all_pages else [page_idx]
+
+        for p in target_pages:
+            if p < 0 or p >= len(self.doc):
+                continue
+            cur_p = self.doc[p]
+            w = cur_p.mediabox.width
+            h = cur_p.mediabox.height
+            rot = cur_p.rotation
+
+            # Yeni şablonlu sayfayı p+1 konumuna ekle
+            new_p = self.doc.new_page(pno=p + 1, width=w, height=h)
+            if rot:
+                new_p.set_rotation(rot)
+            if new_style and new_style != "blank":
+                self._draw_page_template(new_p, w, h, new_style)
+
+            # Eski sayfayı sil (böylece new_p sayfa indeksini p yapar)
+            self.doc.delete_page(p)
+
+        self.hide_managed_annotations()
+        self.render_pages_init()
+        self.rerender_visible_pages()
+        curr_p = max(0, min(self.current_page_idx, len(self.doc) - 1))
+        self.go_to_page(curr_p)
+
+        if hasattr(self.main_window, 'thumbnails_dock') and self.main_window.thumbnails_dock:
+            if self.main_window.thumbnails_dock.isVisible():
+                self.main_window.thumbnails_dock.load_thumbnails_lazy()
+                self.main_window.thumbnails_dock.select_page(curr_p)
+
+        self.push_undo_action({
+            "type": "change_page_style",
+            "old_bytes": old_bytes,
+            "old_drawings": old_drawings,
+            "old_page": old_page,
+            "new_bytes": self.doc.tobytes(),
+            "new_drawings": [dict(d) for d in self.drawings],
+            "new_page": curr_p,
+            "style": new_style,
+            "all_pages": all_pages
         })
         self.set_modified(True)
 
@@ -2385,6 +2624,110 @@ class PDFTabDocument(QWidget):
                 dock.load_thumbnails_lazy()
                 dock.select_page(new_curr)
 
+    def _render_pencil_item(self, pts: List[QPointF], d: dict) -> QGraphicsItemGroup:
+        group = self.scene.createItemGroup([])
+        if not pts:
+            return group
+        if len(pts) == 1:
+            pts = [pts[0], QPointF(pts[0].x() + 0.3, pts[0].y() + 0.3)]
+
+        base_w = float(d.get("width", 2.8))
+        col = d.get("color", (0.15, 0.15, 0.15))
+        if isinstance(col, QColor):
+            base_col = QColor(col)
+        elif isinstance(col, (tuple, list)) and len(col) >= 3:
+            base_col = QColor.fromRgbF(float(col[0]), float(col[1]), float(col[2]))
+        else:
+            base_col = QColor("#242424")
+
+        alpha_base = float(d.get("alpha", 1.0))
+        base_col.setAlphaF(alpha_base)
+
+        tex = get_graphite_lead_texture(base_col)
+        tex_fringe = get_graphite_fringe_texture(base_col)
+        line_style = d.get("line_style", "solid")
+
+        # 1. Main textured graphite lead path with micro-jitter
+        p_lead = QPainterPath()
+        p_lead.moveTo(pts[0])
+        if line_style in ("solid", "pencil") and len(pts) > 2:
+            for i, pt in enumerate(pts[1:]):
+                jx = ((i * 17) % 7 - 3) * 0.05 * base_w
+                jy = ((i * 23) % 7 - 3) * 0.05 * base_w
+                p_lead.lineTo(pt.x() + jx, pt.y() + jy)
+        else:
+            for pt in pts[1:]:
+                p_lead.lineTo(pt)
+
+        # 2. Arrow head support for pencil
+        if line_style == "arrow":
+            ah_pts = []
+            raw_ah = d.get("arrow_head")
+            if raw_ah and len(raw_ah) >= 3:
+                p_info = self.page_positions.get(d.get("page"))
+                if p_info:
+                    p_left = p_info.get('left', 0.0)
+                    p_top = p_info['top']
+                    ah_pts = [QPointF(x * self.base_render_dpi + p_left, y * self.base_render_dpi + p_top) for x, y in raw_ah]
+            if not ah_pts and len(pts) >= 2:
+                p_end = pts[-1]
+                p_prev = pts[-2] if len(pts) == 2 else pts[max(0, len(pts) - 5)]
+                dx = p_end.x() - p_prev.x()
+                dy = p_end.y() - p_prev.y()
+                dist = math.hypot(dx, dy)
+                if dist > 2.0:
+                    angle = math.atan2(dy, dx)
+                    arrow_len = max(9.0, min(26.0, base_w * 2.2 + 6.0))
+                    spread = 0.50
+                    left_pt = QPointF(p_end.x() - arrow_len * math.cos(angle - spread), p_end.y() - arrow_len * math.sin(angle - spread))
+                    right_pt = QPointF(p_end.x() - arrow_len * math.cos(angle + spread), p_end.y() - arrow_len * math.sin(angle + spread))
+                    ah_pts = [left_pt, p_end, right_pt]
+
+            if len(ah_pts) >= 3:
+                p_lead.moveTo(ah_pts[0])
+                p_lead.lineTo(ah_pts[1])
+                p_lead.lineTo(ah_pts[2])
+
+            pen_fringe = QPen(QBrush(tex_fringe), base_w * 1.28, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin)
+            item_fringe = self.scene.addPath(p_lead, pen_fringe)
+            group.addToGroup(item_fringe)
+
+            pen_tex = QPen(QBrush(tex), base_w, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin)
+            item_lead = self.scene.addPath(p_lead, pen_tex)
+            group.addToGroup(item_lead)
+            group.setCacheMode(QGraphicsItemGroup.CacheMode.DeviceCoordinateCache)
+            return group
+
+        # 3. Dashed, Dotted, DashDot lines (clean textured graphite with compact handwriting scale)
+        if line_style in ("dash", "dot", "dashdot"):
+            pen_tex = QPen(QBrush(tex), base_w, Qt.PenStyle.CustomDashLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin)
+            if line_style == "dash":
+                pen_tex.setDashPattern([2.2, 1.5])
+            elif line_style == "dot":
+                pen_tex.setDashPattern([0.01, 1.9])
+            elif line_style == "dashdot":
+                pen_tex.setDashPattern([2.2, 1.4, 0.01, 1.4])
+            item_lead = self.scene.addPath(p_lead, pen_tex)
+            group.addToGroup(item_lead)
+            group.setCacheMode(QGraphicsItemGroup.CacheMode.DeviceCoordinateCache)
+            return group
+
+        # 4. Solid pencil line: Soft dusty fringe + Rich textured lead + Concentrated core
+        pen_fringe = QPen(QBrush(tex_fringe), base_w * 1.28, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin)
+        item_fringe = self.scene.addPath(p_lead, pen_fringe)
+        group.addToGroup(item_fringe)
+
+        pen_tex = QPen(QBrush(tex), base_w, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin)
+        item_lead = self.scene.addPath(p_lead, pen_tex)
+        group.addToGroup(item_lead)
+
+        pen_core = QPen(QBrush(tex), max(0.6, base_w * 0.58), Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin)
+        item_core = self.scene.addPath(p_lead, pen_core)
+        group.addToGroup(item_core)
+        group.setCacheMode(QGraphicsItemGroup.CacheMode.DeviceCoordinateCache)
+
+        return group
+
     def restore_drawing_item(self, d):
         if "id" not in d:
             d["id"] = uuid.uuid4().hex[:12]
@@ -2392,13 +2735,42 @@ class PDFTabDocument(QWidget):
         if not p_info: return
         page_top = p_info['top']
         page_left = p_info.get('left', 0.0)
-        if d["type"] == "polyline":
+
+        if d.get("type") == "pencil" or d.get("pen_type") == "pencil" or (d.get("type") == "polyline" and d.get("line_style") == "pencil"):
+            pts = [QPointF(x * self.base_render_dpi + page_left, y * self.base_render_dpi + page_top) for x, y in d.get("points", [])]
+            if not pts: return
+            item = self._render_pencil_item(pts, d)
+            d["item_ref"] = item
+        elif d["type"] == "polyline":
             pts = [QPointF(x * self.base_render_dpi + page_left, y * self.base_render_dpi + page_top) for x, y in d["points"]]
             if not pts: return
+
+            line_style = d.get("line_style", "solid")
+            col = d["color"]
+            if isinstance(col, QColor):
+                pen_col = QColor(col)
+                pen_col.setAlphaF(float(d.get("alpha", 1.0)))
+            elif isinstance(col, (tuple, list)) and len(col) >= 3:
+                pen_col = QColor.fromRgbF(float(col[0]), float(col[1]), float(col[2]), float(d.get("alpha", 1.0)))
+            else:
+                pen_col = QColor(0, 0, 0, int(float(d.get("alpha", 1.0)) * 255))
+
+            if line_style == 'calligraphy':
+                rel_pts = [QPointF(x, y) for x, y in d["points"]]
+                rel_w = float(d.get("width", 6.0)) / self.base_render_dpi
+                min_w_rel = 1.8 / self.base_render_dpi
+                rel_path = build_fountain_pen_path(rel_pts, base_width=rel_w, min_width=min_w_rel)
+                transform = QTransform()
+                transform.translate(page_left, page_top)
+                transform.scale(self.base_render_dpi, self.base_render_dpi)
+                scene_path = transform.map(rel_path)
+                item = self.scene.addPath(scene_path, QPen(Qt.PenStyle.NoPen), QBrush(pen_col))
+                d["item_ref"] = item
+                return
+
             path = QPainterPath(pts[0])
             for pt in pts[1:]: path.lineTo(pt)
 
-            line_style = d.get("line_style", "solid")
             if line_style == "arrow" and d.get("arrow_head"):
                 ah = [QPointF(x * self.base_render_dpi + page_left, y * self.base_render_dpi + page_top) for x, y in d["arrow_head"]]
                 if len(ah) >= 3:
@@ -2415,18 +2787,6 @@ class PDFTabDocument(QWidget):
                 pen_style = Qt.PenStyle.DotLine
             elif line_style == 'dashdot':
                 pen_style = Qt.PenStyle.DashDotLine
-            elif line_style == 'calligraphy':
-                cap = Qt.PenCapStyle.FlatCap
-                join = Qt.PenJoinStyle.MiterJoin
-
-            col = d["color"]
-            if isinstance(col, QColor):
-                pen_col = QColor(col)
-                pen_col.setAlphaF(float(d.get("alpha", 1.0)))
-            elif isinstance(col, (tuple, list)) and len(col) >= 3:
-                pen_col = QColor.fromRgbF(float(col[0]), float(col[1]), float(col[2]), float(d.get("alpha", 1.0)))
-            else:
-                pen_col = QColor(0, 0, 0, int(float(d.get("alpha", 1.0)) * 255))
 
             pen = QPen(pen_col, d["width"], pen_style, cap, join)
             d["pen"] = pen
@@ -2449,7 +2809,11 @@ class PDFTabDocument(QWidget):
             else:
                 fill_col = QColor(0, 0, 0, int(float(d.get("alpha", 1.0)) * 255))
             
-            item = self.scene.addPath(scene_path, QPen(Qt.PenStyle.NoPen), QBrush(fill_col))
+            if d.get("line_style") == "pencil":
+                fill_tex = get_graphite_fill_texture(fill_col, float(d.get("alpha", 1.0)))
+                item = self.scene.addPath(scene_path, QPen(Qt.PenStyle.NoPen), QBrush(fill_tex))
+            else:
+                item = self.scene.addPath(scene_path, QPen(Qt.PenStyle.NoPen), QBrush(fill_col))
             d["item_ref"] = item
         elif d["type"] == "text":
             self.render_text_item(d)
@@ -3675,14 +4039,35 @@ class PDFTabDocument(QWidget):
                 for it in list(self.scene.items(erase_rect)):
                     if it in page_bg_items:
                         continue
-                    found = next((d for d in self.drawings if d.get("item_ref") == it), None)
+                    # Check parentItem in case item is inside a QGraphicsItemGroup (pencil)
+                    target_it = it
+                    while target_it.parentItem() is not None:
+                        target_it = target_it.parentItem()
+                    found = next((d for d in self.drawings if d.get("item_ref") == target_it or d.get("item_ref") == it), None)
                     if found and found not in deleted:
-                        if it.scene() == self.scene:
+                        # Ekle butonundaki işlevler (tablo, resim/gif, ses dosyası, ses kaydı, video, metin) silgi ile silinemez
+                        if found.get("type") in ("table", "image", "audio", "video", "text"):
+                            continue
+                        ref = found.get("item_ref")
+                        if ref and ref.scene() == self.scene:
+                            self.scene.removeItem(ref)
+                        elif it.scene() == self.scene:
                             self.scene.removeItem(it)
                         deleted.append(found)
                         if found in self.drawings:
                             self.drawings.remove(found)
                     elif found is None and isinstance(it, QGraphicsPathItem):
+                        # Medya/tablo nesnelerinin alt çocuk parçalarını koru
+                        p_check = it
+                        is_protected_child = False
+                        while p_check is not None:
+                            if any(d.get("item_ref") == p_check and d.get("type") in ("table", "image", "audio", "video", "text") for d in self.drawings):
+                                is_protected_child = True
+                                break
+                            p_check = p_check.parentItem()
+                        if is_protected_child:
+                            continue
+
                         # Askıda kalmış veya referansı kopmuş yetim çizgi parçalarını temizle
                         is_sys_item = (
                             it == getattr(self, 'selection_item', None) or
@@ -3697,6 +4082,8 @@ class PDFTabDocument(QWidget):
             for d in list(self.drawings):
                 if d in deleted:
                     continue
+                if d.get("type") in ("table", "image", "audio", "video", "text"):
+                    continue
                 p_idx = d.get("page", 0)
                 p_info = self.page_positions.get(p_idx)
                 if not p_info:
@@ -3705,7 +4092,7 @@ class PDFTabDocument(QWidget):
                 page_left = p_info.get('left', 0.0)
 
                 hit = False
-                if d.get("type") == "polyline" and d.get("points"):
+                if d.get("type") in ("polyline", "pencil") and d.get("points"):
                     d_width = d.get("width", 2.0)
                     hit_radius = radius + (d_width / 2.0) + 8.0  # Rahat ve akıcı silme payı
                     pts = [(rx * self.base_render_dpi + page_left, ry * self.base_render_dpi + page_top) for rx, ry in d["points"]]
@@ -3795,7 +4182,17 @@ class PDFTabDocument(QWidget):
                     new_drawings.append(record)
                     continue
 
-                if record["type"] == "polyline":
+                st = record.get("line_style", "solid")
+                pen = record.get("pen")
+                is_dashed = (st in ("dash", "dot", "dashdot")) or bool(
+                    pen and (
+                        pen.style() in (Qt.PenStyle.DashLine, Qt.PenStyle.DotLine, Qt.PenStyle.DashDotLine)
+                        or (pen.dashPattern() and pen.style() != Qt.PenStyle.SolidLine)
+                    )
+                )
+                stroke_width = pen.widthF() if pen else float(record.get("width", 2.0) or 2.0)
+
+                if record["type"] in ("polyline", "pencil"):
                     pts = record.get("points", [])
                     if not pts:
                         new_drawings.append(record)
@@ -3817,16 +4214,35 @@ class PDFTabDocument(QWidget):
                             path.lineTo(ah[1][0], ah[1][1])
                             path.lineTo(ah[2][0], ah[2][1])
 
-                    pen = record.get("pen")
                     stroker = QPainterPathStroker()
                     if pen:
                         stroker.setWidth(pen.widthF())
                         stroker.setCapStyle(pen.capStyle())
                         stroker.setJoinStyle(pen.joinStyle())
+                        if st == "dash":
+                            stroker.setDashPattern(Qt.PenStyle.DashLine)
+                        elif st == "dot":
+                            stroker.setDashPattern(Qt.PenStyle.DotLine)
+                        elif st == "dashdot":
+                            stroker.setDashPattern(Qt.PenStyle.DashDotLine)
+                        elif pen.style() != Qt.PenStyle.SolidLine:
+                            stroker.setDashPattern(pen.style())
+                        elif pen.dashPattern():
+                            stroker.setDashPattern(pen.dashPattern())
                     else:
-                        stroker.setWidth(record.get("width", 2.0))
+                        stroker.setWidth(stroke_width)
                         stroker.setCapStyle(Qt.PenCapStyle.RoundCap)
                         stroker.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+                        if st == "dash":
+                            stroker.setDashPattern(Qt.PenStyle.DashLine)
+                        elif st == "dot":
+                            stroker.setDashPattern(Qt.PenStyle.DotLine)
+                        elif st == "dashdot":
+                            stroker.setDashPattern(Qt.PenStyle.DashDotLine)
+                        elif st == "calligraphy":
+                            stroker.setCapStyle(Qt.PenCapStyle.FlatCap)
+                            stroker.setJoinStyle(Qt.PenJoinStyle.MiterJoin)
+
                     target_path = stroker.createStroke(path)
                 elif record["type"] == "filled_path":
                     transform = QTransform()
@@ -3859,24 +4275,73 @@ class PDFTabDocument(QWidget):
                 # new_path içindeki bağlantısız parçaları bağımsız şekillere (component) ayır
                 polys = new_path.toSubpathPolygons()
                 components = [] 
-                for poly in polys:
-                    p = QPainterPath()
-                    p.addPolygon(poly)
-                    intersecting_indices = []
-                    for i, comp_polys in enumerate(components):
-                        comp_path = QPainterPath()
-                        for cp in comp_polys:
-                            comp_path.addPolygon(cp)
-                        if comp_path.intersects(p) or comp_path.contains(p) or p.contains(comp_path):
-                            intersecting_indices.append(i)
-                    if not intersecting_indices:
-                        components.append([poly])
-                    else:
-                        base_idx = intersecting_indices[0]
-                        components[base_idx].append(poly)
-                        for idx in reversed(intersecting_indices[1:]):
-                            components[base_idx].extend(components[idx])
-                            components.pop(idx)
+                if is_dashed:
+                    bridge_tol = stroke_width * 1.25 + 1.0
+                    dilated_stroker = QPainterPathStroker()
+                    dilated_stroker.setWidth(bridge_tol * 2.0)
+                    dash_comps = []
+                    for poly in polys:
+                        p_path = QPainterPath()
+                        p_path.addPolygon(poly)
+                        p_br = p_path.boundingRect()
+                        p_dilated = None
+                        intersecting = []
+                        for i, comp in enumerate(dash_comps):
+                            if not comp['br_expanded'].intersects(p_br):
+                                continue
+                            if p_dilated is None:
+                                p_dilated = dilated_stroker.createStroke(p_path)
+                                p_dilated.addPath(p_path)
+                            if comp['dilated'].intersects(p_path) or p_dilated.intersects(comp['path']):
+                                intersecting.append(i)
+                        if not intersecting:
+                            if p_dilated is None:
+                                p_dilated = dilated_stroker.createStroke(p_path)
+                                p_dilated.addPath(p_path)
+                            dash_comps.append({
+                                'polys': [poly],
+                                'path': p_path,
+                                'dilated': p_dilated,
+                                'br': p_br,
+                                'br_expanded': p_br.adjusted(-bridge_tol, -bridge_tol, bridge_tol, bridge_tol)
+                            })
+                        else:
+                            if p_dilated is None:
+                                p_dilated = dilated_stroker.createStroke(p_path)
+                                p_dilated.addPath(p_path)
+                            base_idx = intersecting[0]
+                            dash_comps[base_idx]['polys'].append(poly)
+                            dash_comps[base_idx]['path'].addPath(p_path)
+                            dash_comps[base_idx]['dilated'].addPath(p_dilated)
+                            dash_comps[base_idx]['br'] = dash_comps[base_idx]['br'].united(p_br)
+                            dash_comps[base_idx]['br_expanded'] = dash_comps[base_idx]['br'].adjusted(-bridge_tol, -bridge_tol, bridge_tol, bridge_tol)
+                            for idx in reversed(intersecting[1:]):
+                                dash_comps[base_idx]['polys'].extend(dash_comps[idx]['polys'])
+                                dash_comps[base_idx]['path'].addPath(dash_comps[idx]['path'])
+                                dash_comps[base_idx]['dilated'].addPath(dash_comps[idx]['dilated'])
+                                dash_comps[base_idx]['br'] = dash_comps[base_idx]['br'].united(dash_comps[idx]['br'])
+                                dash_comps[base_idx]['br_expanded'] = dash_comps[base_idx]['br'].adjusted(-bridge_tol, -bridge_tol, bridge_tol, bridge_tol)
+                                dash_comps.pop(idx)
+                    components = [c['polys'] for c in dash_comps]
+                else:
+                    for poly in polys:
+                        p = QPainterPath()
+                        p.addPolygon(poly)
+                        intersecting_indices = []
+                        for i, comp_polys in enumerate(components):
+                            comp_path = QPainterPath()
+                            for cp in comp_polys:
+                                comp_path.addPolygon(cp)
+                            if comp_path.intersects(p) or comp_path.contains(p) or p.contains(comp_path):
+                                intersecting_indices.append(i)
+                        if not intersecting_indices:
+                            components.append([poly])
+                        else:
+                            base_idx = intersecting_indices[0]
+                            components[base_idx].append(poly)
+                            for idx in reversed(intersecting_indices[1:]):
+                                components[base_idx].extend(components[idx])
+                                components.pop(idx)
                 
                 inv_transform = QTransform()
                 inv_transform.translate(page_left, top_y)
@@ -3894,6 +4359,8 @@ class PDFTabDocument(QWidget):
                 else:
                     fill_col = QColor(0, 0, 0)
                 
+                is_pencil = (record.get("type") == "pencil" or st == "pencil")
+
                 for comp_polys in components:
                     comp_path = QPainterPath()
                     comp_path.setFillRule(Qt.FillRule.WindingFill)
@@ -3905,19 +4372,29 @@ class PDFTabDocument(QWidget):
                         continue
                         
                     rel_path = inv_transform.map(comp_path)
-                    new_item = self.scene.addPath(comp_path, QPen(Qt.PenStyle.NoPen), QBrush(fill_col))
+                    if is_pencil:
+                        fill_tex = get_graphite_fill_texture(fill_col, float(record.get("alpha", 1.0)))
+                        new_item = self.scene.addPath(comp_path, QPen(Qt.PenStyle.NoPen), QBrush(fill_tex))
+                    else:
+                        new_item = self.scene.addPath(comp_path, QPen(Qt.PenStyle.NoPen), QBrush(fill_col))
                     
                     new_rec = record.copy()
                     new_rec.pop("source_annot", None)
                     new_rec.pop("points", None)
-                    new_rec.pop("line_style", None)
                     new_rec.pop("arrow_head", None)
+                    if is_pencil:
+                        new_rec["line_style"] = "pencil"
+                    elif not is_dashed:
+                        new_rec.pop("line_style", None)
+                    else:
+                        new_rec["line_style"] = st
                     new_rec.update({
                         "id": uuid.uuid4().hex[:12],
                         "type": "filled_path",
                         "rel_path": rel_path,
                         "item_ref": new_item,
-                        "color": col
+                        "color": col,
+                        "width": stroke_width
                     })
                     new_drawings.append(new_rec)
 
@@ -3962,7 +4439,7 @@ class PDFTabDocument(QWidget):
                     if tool == 'pen':
                         p = self.main_window.pen_popup
                         p.set_thickness(p.thickness + (1 if delta > 0 else -1))
-                        self.main_window.floating_hud.show_preview(g_pos, p.color, p.thickness)
+                        self.main_window.floating_hud.show_preview(g_pos, p.color, p.thickness, False, "stroke", getattr(p, 'line_style', 'solid'), getattr(p, 'current_pen_type', 'solid'))
                     elif tool == 'highlighter':
                         p = self.main_window.hl_popup
                         p.set_thickness(p.thickness + step)
@@ -4008,6 +4485,7 @@ class PDFTabDocument(QWidget):
                     line_item.setZValue(998)
                     self.pointer_trail_items.append(line_item)
                     self.pointer_last_pos = pos
+                    return True
                 return False
             elif event.type() == QEvent.Type.MouseButtonPress:
                 if event.button() == Qt.MouseButton.LeftButton:
@@ -4060,15 +4538,19 @@ class PDFTabDocument(QWidget):
                     return True
         elif event.type() == event.Type.MouseMove:
             if event.buttons() & Qt.MouseButton.LeftButton:
+                if self.current_path_item is not None:
+                    return self._handle_mouse_move(event, tool)
                 pos = self.view.mapToScene(event.pos())
-                if any(isinstance(it, BookmarkRibbonItem) for it in self.scene.items(pos)):
+                if self.bookmark_ribbon_items and any(isinstance(it, BookmarkRibbonItem) for it in self.scene.items(pos)):
                     return super().eventFilter(source, event)
                 return self._handle_mouse_move(event, tool)
             else:
                 self._handle_mouse_hover(event, tool)
         elif event.type() == event.Type.MouseButtonRelease and event.button() == Qt.MouseButton.LeftButton:
+            if self.current_path_item is not None:
+                return self._handle_mouse_release(event, tool)
             pos = self.view.mapToScene(event.pos())
-            if any(isinstance(it, BookmarkRibbonItem) for it in self.scene.items(pos)):
+            if self.bookmark_ribbon_items and any(isinstance(it, BookmarkRibbonItem) for it in self.scene.items(pos)):
                 return super().eventFilter(source, event)
             return self._handle_mouse_release(event, tool)
 
@@ -4263,13 +4745,42 @@ class PDFTabDocument(QWidget):
             
             p_info = self.page_positions[page_idx]
             page_left = p_info.get('left', 0.0)
+            top_y = p_info['top']
 
-            self.current_path = QPainterPath(pos)
-            self.current_path_item = self.scene.addPath(self.current_path, pen)
+            popup = self.main_window.pen_popup if tool == 'pen' else self.main_window.hl_popup
+            line_style = getattr(popup, 'line_style', 'solid')
+            p_type = getattr(popup, 'current_pen_type', 'solid') if tool == 'pen' else 'highlighter'
+            is_pencil = (tool == 'pen' and (p_type == 'pencil' or line_style == 'pencil'))
 
             rel_x = (pos.x() - page_left) / self.base_render_dpi
-            rel_y = (pos.y() - p_info['top']) / self.base_render_dpi
+            rel_y = (pos.y() - top_y) / self.base_render_dpi
             self.current_stroke_pts = [(rel_x, rel_y)]
+
+            if tool == 'pen' and line_style == 'calligraphy':
+                rel_path = build_fountain_pen_path([QPointF(rel_x, rel_y)], base_width=float(popup.thickness) / self.base_render_dpi, min_width=1.8 / self.base_render_dpi)
+                transform = QTransform()
+                transform.translate(page_left, top_y)
+                transform.scale(self.base_render_dpi, self.base_render_dpi)
+                self.current_path = transform.map(rel_path)
+                self.current_path_item = self.scene.addPath(self.current_path, QPen(Qt.PenStyle.NoPen), QBrush(popup.color))
+            elif is_pencil:
+                p_col = QColor(popup.color)
+                tex = get_graphite_lead_texture(p_col)
+                pencil_pen = QPen(QBrush(tex), popup.thickness, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin)
+                if line_style == 'dash':
+                    pencil_pen.setStyle(Qt.PenStyle.CustomDashLine)
+                    pencil_pen.setDashPattern([2.2, 1.5])
+                elif line_style == 'dot':
+                    pencil_pen.setStyle(Qt.PenStyle.CustomDashLine)
+                    pencil_pen.setDashPattern([0.01, 1.9])
+                elif line_style == 'dashdot':
+                    pencil_pen.setStyle(Qt.PenStyle.CustomDashLine)
+                    pencil_pen.setDashPattern([2.2, 1.4, 0.01, 1.4])
+                self.current_path = QPainterPath(pos)
+                self.current_path_item = self.scene.addPath(self.current_path, pencil_pen)
+            else:
+                self.current_path = QPainterPath(pos)
+                self.current_path_item = self.scene.addPath(self.current_path, pen)
         return True
 
     def _handle_mouse_move(self, event, tool):
@@ -4342,6 +4853,9 @@ class PDFTabDocument(QWidget):
             has_shift = bool(event.modifiers() & Qt.KeyboardModifier.ShiftModifier)
             should_snap = is_hl_snap or is_pen_snap or has_shift
 
+            popup = self.main_window.pen_popup if tool == 'pen' else self.main_window.hl_popup
+            line_style = getattr(popup, 'line_style', 'solid')
+
             if should_snap and self.stroke_start_pos:
                 snap_path = QPainterPath()
                 snap_path.moveTo(self.stroke_start_pos)
@@ -4351,13 +4865,23 @@ class PDFTabDocument(QWidget):
                 else:
                     snap_end_x = clamped_pos.x()
                     snap_end_y = clamped_pos.y()
-                snap_path.lineTo(QPointF(snap_end_x, snap_end_y))
-                self.current_path = snap_path
-                self.current_path_item.setPath(snap_path)
+                snap_end_pt = QPointF(snap_end_x, snap_end_y)
+                snap_path.lineTo(snap_end_pt)
                 self.current_stroke_pts = [
                     ((self.stroke_start_pos.x() - page_left) / self.base_render_dpi, (self.stroke_start_pos.y() - top_y) / self.base_render_dpi),
                     ((snap_end_x - page_left) / self.base_render_dpi, (snap_end_y - top_y) / self.base_render_dpi)
                 ]
+                if tool == 'pen' and line_style == 'calligraphy':
+                    rel_pts = [QPointF(rx, ry) for rx, ry in self.current_stroke_pts]
+                    rel_path = build_fountain_pen_path(rel_pts, base_width=float(popup.thickness) / self.base_render_dpi, min_width=1.8 / self.base_render_dpi)
+                    transform = QTransform()
+                    transform.translate(page_left, top_y)
+                    transform.scale(self.base_render_dpi, self.base_render_dpi)
+                    self.current_path = transform.map(rel_path)
+                    self.current_path_item.setPath(self.current_path)
+                else:
+                    self.current_path = snap_path
+                    self.current_path_item.setPath(snap_path)
             elif self.current_path:
                 if self.current_stroke_pts:
                     last_rx, last_ry = self.current_stroke_pts[-1]
@@ -4366,10 +4890,22 @@ class PDFTabDocument(QWidget):
                 else:
                     dist = 999.0
 
-                if dist >= 0.5:
-                    self.current_path.lineTo(clamped_pos)
-                    self.current_path_item.setPath(self.current_path)
+                is_pencil = (tool == 'pen' and (getattr(popup, 'current_pen_type', 'solid') == 'pencil' or line_style == 'pencil'))
+                zoom = getattr(self, 'zoom_level', 1.0) or 1.0
+                min_step = (1.5 / max(0.25, zoom)) if is_pencil else (0.8 / max(0.25, zoom))
+                if dist >= min_step:
                     self.current_stroke_pts.append(((clamped_pos.x() - page_left) / self.base_render_dpi, (clamped_pos.y() - top_y) / self.base_render_dpi))
+                    if tool == 'pen' and line_style == 'calligraphy':
+                        rel_pts = [QPointF(rx, ry) for rx, ry in self.current_stroke_pts]
+                        rel_path = build_fountain_pen_path(rel_pts, base_width=float(popup.thickness) / self.base_render_dpi, min_width=1.8 / self.base_render_dpi)
+                        transform = QTransform()
+                        transform.translate(page_left, top_y)
+                        transform.scale(self.base_render_dpi, self.base_render_dpi)
+                        self.current_path = transform.map(rel_path)
+                        self.current_path_item.setPath(self.current_path)
+                    else:
+                        self.current_path.lineTo(clamped_pos)
+                        self.current_path_item.setPath(self.current_path)
         return True
 
     def _handle_mouse_release(self, event, tool):
@@ -4409,7 +4945,7 @@ class PDFTabDocument(QWidget):
                         orig_page_left = orig_p_info.get('left', 0.0)
                         orig_page_top = orig_p_info['top']
 
-                        if init_s.get("type") == "polyline" and "points" in init_s:
+                        if init_s.get("type") in ("polyline", "pencil") and "points" in init_s:
                             pts_scene = [
                                 QPointF(rx * self.base_render_dpi + orig_page_left + total_dx,
                                         ry * self.base_render_dpi + orig_page_top + total_dy)
@@ -4457,6 +4993,32 @@ class PDFTabDocument(QWidget):
                             d["page"] = target_page
                             d["x"] = (item_scene_x - target_page_left) / self.base_render_dpi
                             d["y"] = (item_scene_y - target_page_top) / self.base_render_dpi
+
+                        elif init_s.get("type") == "filled_path" and "rel_path" in init_s:
+                            orig_transform = QTransform()
+                            orig_transform.translate(orig_page_left, orig_page_top)
+                            orig_transform.scale(self.base_render_dpi, self.base_render_dpi)
+                            scene_path = orig_transform.map(init_s["rel_path"])
+
+                            move_transform = QTransform()
+                            move_transform.translate(total_dx, total_dy)
+                            moved_scene_path = move_transform.map(scene_path)
+
+                            center_pt = moved_scene_path.boundingRect().center()
+                            target_page = self.get_page_at_pos(center_pt)
+                            if target_page is None:
+                                target_page = orig_page
+                            target_p_info = self.page_positions.get(target_page, orig_p_info)
+                            target_page_left = target_p_info.get('left', 0.0)
+                            target_page_top = target_p_info['top']
+
+                            target_inv = QTransform()
+                            target_inv.translate(target_page_left, target_page_top)
+                            target_inv.scale(self.base_render_dpi, self.base_render_dpi)
+                            target_inv, invertible = target_inv.inverted()
+                            if invertible:
+                                d["page"] = target_page
+                                d["rel_path"] = target_inv.map(moved_scene_path)
 
                         new_states.append(self._snapshot_drawing_state(d))
 
@@ -4560,14 +5122,20 @@ class PDFTabDocument(QWidget):
                 page_left = p_info.get('left', 0.0) if p_info else 0.0
                 rx, ry = self.current_stroke_pts[0]
                 self.current_stroke_pts.append((rx + 0.2, ry + 0.2))
-                self.current_path.lineTo(QPointF(rx * self.base_render_dpi + page_left + 0.2, ry * self.base_render_dpi + top_y + 0.2))
-                self.current_path_item.setPath(self.current_path)
+                if self.current_path:
+                    self.current_path.lineTo(QPointF(rx * self.base_render_dpi + page_left + 0.2, ry * self.base_render_dpi + top_y + 0.2))
+                    self.current_path_item.setPath(self.current_path)
 
             if len(self.current_stroke_pts) > 1:
                 p_info = self.page_positions.get(self.active_drawing_page)
                 top_y = p_info['top'] if p_info else 0
                 page_left = p_info.get('left', 0.0) if p_info else 0.0
                 parent_item = p_info.get('bg_rect') if p_info else None
+
+                popup = self.main_window.pen_popup if tool == 'pen' else self.main_window.hl_popup
+                line_style = getattr(popup, 'line_style', 'solid')
+                p_type = getattr(popup, 'current_pen_type', 'solid') if tool == 'pen' else 'highlighter'
+                is_pencil = (tool == 'pen' and (p_type == 'pencil' or line_style == 'pencil'))
 
                 is_hl_snap = (tool == 'highlighter' and self.main_window.hl_popup.snap_straight)
                 is_pen_snap = (tool == 'pen' and getattr(self.main_window.pen_popup, 'snap_straight', False))
@@ -4580,15 +5148,37 @@ class PDFTabDocument(QWidget):
                     else:
                         end_y = self.current_stroke_pts[1][1] * self.base_render_dpi + top_y
                     end_pt = QPointF(self.current_stroke_pts[1][0] * self.base_render_dpi + page_left, end_y)
-                    self.scene.removeItem(self.current_path_item)
-                    self.current_path = QPainterPath(start_pt)
-                    self.current_path.lineTo(end_pt)
-                    self.current_path_item = self.scene.addPath(self.current_path, self.main_window.get_current_pen())
 
-                popup = self.main_window.pen_popup if tool == 'pen' else self.main_window.hl_popup
-                line_style = getattr(popup, 'line_style', 'solid')
+                    if tool == 'pen' and line_style == 'calligraphy':
+                        rel_pts = [QPointF(self.current_stroke_pts[0][0], self.current_stroke_pts[0][1]),
+                                   QPointF(self.current_stroke_pts[1][0], (end_y - top_y) / self.base_render_dpi)]
+                        rel_path = build_fountain_pen_path(rel_pts, base_width=float(popup.thickness) / self.base_render_dpi, min_width=1.8 / self.base_render_dpi)
+                        transform = QTransform()
+                        transform.translate(page_left, top_y)
+                        transform.scale(self.base_render_dpi, self.base_render_dpi)
+                        self.current_path = transform.map(rel_path)
+                        self.current_path_item.setPath(self.current_path)
+                    else:
+                        self.scene.removeItem(self.current_path_item)
+                        self.current_path = QPainterPath(start_pt)
+                        self.current_path.lineTo(end_pt)
+                        if is_pencil:
+                            tex = get_graphite_lead_texture(QColor(popup.color))
+                            p_pen = QPen(QBrush(tex), popup.thickness, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin)
+                            if line_style == 'dash':
+                                p_pen.setStyle(Qt.PenStyle.CustomDashLine)
+                                p_pen.setDashPattern([2.2, 1.5])
+                            elif line_style == 'dot':
+                                p_pen.setStyle(Qt.PenStyle.CustomDashLine)
+                                p_pen.setDashPattern([0.01, 1.9])
+                            elif line_style == 'dashdot':
+                                p_pen.setStyle(Qt.PenStyle.CustomDashLine)
+                                p_pen.setDashPattern([2.2, 1.4, 0.01, 1.4])
+                            self.current_path_item = self.scene.addPath(self.current_path, p_pen)
+                        else:
+                            self.current_path_item = self.scene.addPath(self.current_path, self.main_window.get_current_pen())
+
                 arrow_head = None
-
                 if line_style == 'arrow' and len(self.current_stroke_pts) >= 2:
                     p_end = self.current_stroke_pts[-1]
                     p_prev = self.current_stroke_pts[-2] if len(self.current_stroke_pts) == 2 else self.current_stroke_pts[max(0, len(self.current_stroke_pts) - 5)]
@@ -4617,18 +5207,69 @@ class PDFTabDocument(QWidget):
                             ((right_sx - page_left) / self.base_render_dpi, (right_sy - top_y) / self.base_render_dpi)
                         ]
 
-                new_item = {
-                    "id": uuid.uuid4().hex[:12],
-                    "type": "polyline", "page": self.active_drawing_page, "points": self.current_stroke_pts,
-                    "color": (popup.color.redF(), popup.color.greenF(), popup.color.blueF()),
-                    "alpha": popup.color.alphaF(), "width": popup.thickness,
-                    "line_style": line_style,
-                    "arrow_head": arrow_head,
-                    "path": self.current_path, "pen": self.main_window.get_current_pen(), "item_ref": self.current_path_item
-                }
-                self.drawings.append(new_item)
-                self.push_undo_action({"type": "add", "data": new_item})
-                self.notify_drawings_changed(self.active_drawing_page)
+                if tool == 'pen' and line_style == 'calligraphy':
+                    rel_pts = [QPointF(rx, ry) for rx, ry in self.current_stroke_pts]
+                    rel_path = build_fountain_pen_path(rel_pts, base_width=float(popup.thickness) / self.base_render_dpi, min_width=1.8 / self.base_render_dpi)
+                    transform = QTransform()
+                    transform.translate(page_left, top_y)
+                    transform.scale(self.base_render_dpi, self.base_render_dpi)
+                    scene_path = transform.map(rel_path)
+                    self.current_path_item.setPath(scene_path)
+
+                    new_item = {
+                        "id": uuid.uuid4().hex[:12],
+                        "type": "filled_path",
+                        "page": self.active_drawing_page,
+                        "points": self.current_stroke_pts,
+                        "color": (popup.color.redF(), popup.color.greenF(), popup.color.blueF()),
+                        "alpha": popup.color.alphaF(),
+                        "width": popup.thickness,
+                        "line_style": "calligraphy",
+                        "rel_path": rel_path,
+                        "path": self.current_path,
+                        "item_ref": self.current_path_item
+                    }
+                    self.drawings.append(new_item)
+                    self.push_undo_action({"type": "add", "data": new_item})
+                    self.notify_drawings_changed(self.active_drawing_page)
+
+                elif is_pencil:
+                    if self.current_path_item and self.current_path_item.scene() == self.scene:
+                        self.scene.removeItem(self.current_path_item)
+
+                    scene_pts = [QPointF(rx * self.base_render_dpi + page_left, ry * self.base_render_dpi + top_y) for rx, ry in self.current_stroke_pts]
+                    actual_style = "solid" if line_style == "pencil" else line_style
+                    new_item = {
+                        "id": uuid.uuid4().hex[:12],
+                        "type": "pencil",
+                        "pen_type": "pencil",
+                        "page": self.active_drawing_page,
+                        "points": self.current_stroke_pts,
+                        "color": (popup.color.redF(), popup.color.greenF(), popup.color.blueF()),
+                        "alpha": popup.color.alphaF(),
+                        "width": popup.thickness,
+                        "line_style": actual_style,
+                        "arrow_head": arrow_head,
+                    }
+                    group_item = self._render_pencil_item(scene_pts, new_item)
+                    new_item["item_ref"] = group_item
+                    self.drawings.append(new_item)
+                    self.push_undo_action({"type": "add", "data": new_item})
+                    self.notify_drawings_changed(self.active_drawing_page)
+
+                else:
+                    new_item = {
+                        "id": uuid.uuid4().hex[:12],
+                        "type": "polyline", "page": self.active_drawing_page, "points": self.current_stroke_pts,
+                        "color": (popup.color.redF(), popup.color.greenF(), popup.color.blueF()),
+                        "alpha": popup.color.alphaF(), "width": popup.thickness,
+                        "line_style": line_style,
+                        "arrow_head": arrow_head,
+                        "path": self.current_path, "pen": self.main_window.get_current_pen(), "item_ref": self.current_path_item
+                    }
+                    self.drawings.append(new_item)
+                    self.push_undo_action({"type": "add", "data": new_item})
+                    self.notify_drawings_changed(self.active_drawing_page)
             else:
                 if self.current_path_item:
                     self.scene.removeItem(self.current_path_item)

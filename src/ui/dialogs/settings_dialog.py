@@ -905,6 +905,19 @@ class ModernSettingsDialog(QDialog):
         self.cmb_zoom_mode.addItem(LanguageManager.tr("zoom_mode_fit"), "fit")
         card_layout.addWidget(self.cmb_zoom_mode)
         
+        card_layout.addSpacing(6)
+        card_layout.addWidget(QLabel(LanguageManager.tr("default_page_template_lbl")))
+        self.cmb_default_template = QComboBox()
+        self.cmb_default_template.addItem(LanguageManager.tr("style_blank_title"), "blank")
+        self.cmb_default_template.addItem(LanguageManager.tr("style_lined_title"), "lined")
+        self.cmb_default_template.addItem(LanguageManager.tr("style_grid_title"), "grid")
+        self.cmb_default_template.addItem(LanguageManager.tr("style_dotted_title"), "dotted")
+        self.cmb_default_template.addItem(LanguageManager.tr("style_cornell_title"), "cornell")
+        self.cmb_default_template.addItem(LanguageManager.tr("style_music_title"), "music")
+        self.cmb_default_template.addItem(LanguageManager.tr("style_dark_title"), "dark")
+        self.cmb_default_template.addItem(LanguageManager.tr("style_cover_title"), "cover")
+        card_layout.addWidget(self.cmb_default_template)
+        
         card_layout.addSpacing(8)
         self.chk_enable_animations = QCheckBox(LanguageManager.tr("enable_animations"))
         self.chk_enable_animations.setToolTip(LanguageManager.tr("enable_animations_desc"))
@@ -971,6 +984,7 @@ class ModernSettingsDialog(QDialog):
 
         # Zoom modu ve animasyonlar
         self._set_cmb_data(self.cmb_zoom_mode, "last")
+        self._set_cmb_data(self.cmb_default_template, "blank")
         self.chk_enable_animations.setChecked(True)
 
         # Yazar bilgileri
@@ -1732,6 +1746,10 @@ class ModernSettingsDialog(QDialog):
         saved_zoom_mode = self.settings.value("default_zoom_mode", "last")
         self._set_cmb_data(self.cmb_zoom_mode, saved_zoom_mode)
 
+        # Default Template
+        saved_tpl = self.settings.value("default_page_template", "blank")
+        self._set_cmb_data(self.cmb_default_template, saved_tpl)
+
         # Animations
         self.chk_enable_animations.setChecked(self.settings.value("enable_animations", True, type=bool))
 
@@ -1818,6 +1836,10 @@ class ModernSettingsDialog(QDialog):
         # 5. Zoom Modu
         zoom_mode = self.cmb_zoom_mode.currentData()
         self.settings.setValue("default_zoom_mode", zoom_mode)
+
+        # Default Template
+        tpl_mode = self.cmb_default_template.currentData()
+        self.settings.setValue("default_page_template", tpl_mode)
 
         # Animations
         self.settings.setValue("enable_animations", self.chk_enable_animations.isChecked())

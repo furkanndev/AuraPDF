@@ -1,21 +1,26 @@
 __pycache__/
 *.py[cod]
 *$py.class
+*.log
 
-# pyinstaller
+# PyInstaller / Build
 build/
 dist/
 *.spec
+Output/
+Kurulum/
 
-# virtual environments
+# Virtual Environments
 venv/
 env/
 .env
 
-# IDEs
+# IDEs & System
 .vscode/
 .idea/
+.agents/
+.DS_Store
+Thumbs.db
 
-# temporary folders
+# Temporary Folders
 scratch/
-Kurulum/

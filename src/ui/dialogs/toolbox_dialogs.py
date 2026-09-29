@@ -5828,12 +5828,31 @@ class PDFWatermarkDialog(QDialog):
         root.addWidget(left_container, stretch=1)
         root.addWidget(grp_preview,    stretch=0)
 
-        if (tab_doc := self.main_window.get_current_tab_doc()) and tab_doc.file_path:
-            p = tab_doc.file_path
-            self.txt_src.setText(p)
-            base_dir  = os.path.dirname(p)
-            base_name, _ = os.path.splitext(os.path.basename(p))
-            self.txt_dst.setText(os.path.join(base_dir, f"{base_name}_filigranli.pdf"))
+        tab_doc = getattr(self.main_window, 'get_current_tab_doc', lambda: None)()
+        if tab_doc and tab_doc.doc and len(tab_doc.doc) > 0:
+            if getattr(tab_doc, 'file_path', None):
+                p = tab_doc.file_path
+                self.txt_src.setText(p)
+                base_dir = os.path.dirname(p)
+                base_name, _ = os.path.splitext(os.path.basename(p))
+                self.txt_dst.setText(os.path.join(base_dir, f"{base_name}_filigranli.pdf"))
+            else:
+                doc_title = getattr(tab_doc, 'custom_title', None) or LanguageManager.tr("new_blank_doc")
+                self.txt_src.setText(f"[{doc_title}]")
+                desktop = os.path.join(os.path.expanduser("~"), "Desktop")
+                self.txt_dst.setText(os.path.join(desktop, f"{doc_title}_filigranli.pdf"))
+
+    def _is_active_tab_doc(self, src_path=None) -> bool:
+        tab_doc = getattr(self.main_window, 'get_current_tab_doc', lambda: None)()
+        if not tab_doc or tab_doc.doc is None or len(tab_doc.doc) == 0:
+            return False
+        if src_path is None:
+            src_path = self.txt_src.text().strip()
+        if getattr(tab_doc, 'file_path', None) and os.path.isfile(src_path):
+            return os.path.abspath(tab_doc.file_path) == os.path.abspath(src_path)
+        if not getattr(tab_doc, 'file_path', None) and (src_path.startswith("[") or not src_path):
+            return True
+        return False
 
         self.txt_src.textChanged.connect(self._on_source_changed)
         self.txt_watermark.textChanged.connect(self.update_preview)
@@ -6283,7 +6302,38 @@ class PDFWatermarkDialog(QDialog):
             self.update_preview()
 
     def _render_base_page(self, src_path, target_w=260, target_h=360):
-        if src_path and os.path.isfile(src_path):
+        if self._is_active_tab_doc(src_path):
+            try:
+                tab_doc = self.main_window.get_current_tab_doc()
+                doc = tab_doc.doc
+                total = len(doc)
+                self.preview_total_pages = max(1, total)
+                if self.preview_current_page >= self.preview_total_pages:
+                    self.preview_current_page = self.preview_total_pages - 1
+                self.spn_preview_page.blockSignals(True)
+                self.spn_preview_page.setRange(1, self.preview_total_pages)
+                self.spn_preview_page.setValue(self.preview_current_page + 1)
+                self.spn_preview_page.blockSignals(False)
+                self.lbl_total_preview_pages.setText(f"/ {self.preview_total_pages}")
+                self.btn_prev_page.setEnabled(self.preview_current_page > 0)
+                self.btn_next_page.setEnabled(self.preview_current_page < self.preview_total_pages - 1)
+                self.spn_preview_page.setEnabled(self.preview_total_pages > 1)
+
+                page = doc[self.preview_current_page]
+                rect = page.rect
+                self.preview_page_w = rect.width
+                self.preview_page_h = rect.height
+                scale = min(target_w / max(1.0, rect.width), target_h / max(1.0, rect.height))
+                mat = fitz.Matrix(scale, scale)
+                pix = page.get_pixmap(matrix=mat, alpha=False)
+                img = QImage(pix.samples, pix.width, pix.height, pix.stride, QImage.Format.Format_RGB888)
+                qpix = QPixmap.fromImage(img)
+                if hasattr(self, 'lbl_preview_info'):
+                    self.lbl_preview_info.setText(LanguageManager.tr("preview_page_counter", cur=self.preview_current_page + 1, total=self.preview_total_pages))
+                return qpix
+            except Exception:
+                pass
+        elif src_path and os.path.isfile(src_path):
             try:
                 doc = fitz.open(src_path)
                 if not doc.is_encrypted or doc.authenticate("") > 0:
@@ -6560,7 +6610,9 @@ class PDFWatermarkDialog(QDialog):
 
     def execute_apply_watermark(self, mode="auto"):
         src_path = self.txt_src.text().strip()
-        if not src_path or not os.path.isfile(src_path):
+        is_active_tab = self._is_active_tab_doc(src_path)
+
+        if not is_active_tab and (not src_path or not os.path.isfile(src_path)):
             QMessageBox.warning(self, LanguageManager.tr("warning"), LanguageManager.tr("encrypt_err_no_file"))
             return
 
@@ -6577,15 +6629,25 @@ class PDFWatermarkDialog(QDialog):
 
         settings = self._get_current_watermark_settings()
         tab_doc = getattr(self.main_window, 'get_current_tab_doc', lambda: None)()
-        is_active_tab = (tab_doc and tab_doc.doc and getattr(tab_doc, 'file_path', None)
-                         and os.path.abspath(tab_doc.file_path) == os.path.abspath(src_path))
 
         try:
-            if is_active_tab:
+            if is_active_tab and tab_doc and tab_doc.doc:
                 # Direct apply to active document
                 if mode == "auto" and getattr(tab_doc, 'has_watermark', False):
                     if getattr(tab_doc, 'pre_watermark_bytes', None):
-                        base_bytes = tab_doc.pre_watermark_bytes
+                        try:
+                            t_chk = fitz.open("pdf", tab_doc.pre_watermark_bytes)
+                            if len(t_chk) == len(tab_doc.doc):
+                                base_bytes = tab_doc.pre_watermark_bytes
+                            else:
+                                temp_doc = fitz.open("pdf", tab_doc.doc.tobytes())
+                                remove_watermark_from_doc(temp_doc)
+                                base_bytes = temp_doc.tobytes()
+                                tab_doc.pre_watermark_bytes = base_bytes
+                                temp_doc.close()
+                            t_chk.close()
+                        except Exception:
+                            base_bytes = tab_doc.doc.tobytes()
                     else:
                         temp_doc = fitz.open("pdf", tab_doc.doc.tobytes())
                         remove_watermark_from_doc(temp_doc)
@@ -6617,6 +6679,7 @@ class PDFWatermarkDialog(QDialog):
                     tab_doc.hide_managed_annotations()
                 tab_doc.has_watermark = True
                 tab_doc.watermark_settings = settings
+                tab_doc.set_modified(True)
                 tab_doc.render_pages_init()
                 tab_doc.rerender_visible_pages()
 
@@ -6688,13 +6751,12 @@ class PDFWatermarkDialog(QDialog):
         if reply != QMessageBox.StandardButton.Yes:
             return
 
-        tab_doc = getattr(self.main_window, 'get_current_tab_doc', lambda: None)()
         src_path = self.txt_src.text().strip()
-        is_active_tab = (tab_doc and tab_doc.doc and getattr(tab_doc, 'file_path', None)
-                         and os.path.abspath(tab_doc.file_path) == os.path.abspath(src_path))
+        is_active_tab = self._is_active_tab_doc(src_path)
+        tab_doc = getattr(self.main_window, 'get_current_tab_doc', lambda: None)()
 
         try:
-            if is_active_tab:
+            if is_active_tab and tab_doc and tab_doc.doc:
                 old_bytes = tab_doc.doc.tobytes()
                 old_drawings = [dict(d) for d in getattr(tab_doc, 'drawings', [])]
                 old_page = getattr(tab_doc, 'current_page', 0)
@@ -6720,6 +6782,7 @@ class PDFWatermarkDialog(QDialog):
                 tab_doc.has_watermark = False
                 tab_doc.watermark_settings = None
                 tab_doc.pre_watermark_bytes = None
+                tab_doc.set_modified(True)
                 tab_doc.render_pages_init()
                 tab_doc.rerender_visible_pages()
 
@@ -6749,6 +6812,9 @@ class PDFWatermarkDialog(QDialog):
                 QMessageBox.information(self, LanguageManager.tr("success"), LanguageManager.tr("watermark_success_remove"))
                 self.accept()
             else:
+                if not src_path or not os.path.isfile(src_path):
+                    QMessageBox.warning(self, LanguageManager.tr("warning"), LanguageManager.tr("encrypt_err_no_file"))
+                    return
                 doc = fitz.open(src_path)
                 remove_watermark_from_doc(doc)
                 dst_path = self.txt_dst.text().strip() or src_path
@@ -6767,12 +6833,13 @@ class PDFWatermarkDialog(QDialog):
 
     def execute_save_as_watermark(self):
         src_path = self.txt_src.text().strip()
-        if not src_path or not os.path.isfile(src_path):
+        is_active_tab = self._is_active_tab_doc(src_path)
+        if not is_active_tab and (not src_path or not os.path.isfile(src_path)):
             QMessageBox.warning(self, LanguageManager.tr("warning"), LanguageManager.tr("encrypt_err_no_file"))
             return
 
         cur = self.txt_dst.text().strip()
-        default_name = cur if cur else src_path.replace(".pdf", "_filigranli.pdf")
+        default_name = cur if cur else (src_path.replace(".pdf", "_filigranli.pdf") if os.path.isfile(src_path) else "belge_filigranli.pdf")
         path, _ = QFileDialog.getSaveFileName(self, LanguageManager.tr("save_dialog_title"), default_name, "PDF (*.pdf)")
         if not path:
             return
@@ -6791,11 +6858,9 @@ class PDFWatermarkDialog(QDialog):
 
         settings = self._get_current_watermark_settings()
         tab_doc = getattr(self.main_window, 'get_current_tab_doc', lambda: None)()
-        is_active_tab = (tab_doc and tab_doc.doc and getattr(tab_doc, 'file_path', None)
-                         and os.path.abspath(tab_doc.file_path) == os.path.abspath(src_path))
 
         try:
-            if is_active_tab:
+            if is_active_tab and tab_doc and tab_doc.doc:
                 if getattr(tab_doc, 'has_watermark', False):
                     if getattr(tab_doc, 'pre_watermark_bytes', None):
                         base_bytes = tab_doc.pre_watermark_bytes

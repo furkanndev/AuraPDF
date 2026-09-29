@@ -1,9 +1,15 @@
+import json
+import uuid
+import math
+import hashlib
+import random
 from typing import Optional
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QLabel, 
                              QPushButton, QSlider, QFrame, QColorDialog, 
-                             QFontComboBox, QComboBox, QCheckBox, QApplication, QInputDialog, QMessageBox)
-from PyQt6.QtGui import (QColor, QFont, QPainter, QPen, QBrush, QLinearGradient, QRadialGradient, QPainterPath, QTextCursor, QFontMetricsF)
-from PyQt6.QtCore import Qt, QPoint, QPointF, QRectF, QTimer, QSettings
+                             QFontComboBox, QComboBox, QCheckBox, QApplication, QInputDialog, QMessageBox,
+                             QStackedWidget, QScrollArea, QButtonGroup)
+from PyQt6.QtGui import (QColor, QFont, QPainter, QPen, QBrush, QLinearGradient, QRadialGradient, QPainterPath, QTextCursor, QFontMetricsF, QPixmap, QImage)
+from PyQt6.QtCore import Qt, QPoint, QPointF, QRect, QRectF, QTimer, QSettings, QEvent
 from src.core.i18n import LanguageManager
 from src.ui.icons import ModernIconFactory
 
@@ -92,7 +98,9 @@ class BaseSettingsPopup(QWidget):
         self.move(x, y)
         self.show()
 
-    def apply_theme(self, theme_name, spec):
+    def apply_theme(self, theme_name="dark", spec=None):
+        if not spec:
+            spec = POPUP_THEME_SPECS.get(theme_name, POPUP_THEME_SPECS.get("dark", {}))
         self.setStyleSheet(f"""
             QWidget, QWidget#RulerCard, QWidget#MeasurementCard {{
                 background-color: {spec['tb_bg']};
@@ -110,6 +118,13 @@ class BaseSettingsPopup(QWidget):
             QLabel#SectionHeader, QLabel#FieldLabel, QLabel#Desc, QLabel#Title {{
                 color: {spec['main_text']};
                 font-size: 11px;
+                font-weight: bold;
+                border: none;
+                background: transparent;
+            }}
+            QLabel#PanelHeaderTitle {{
+                color: {spec['main_text']};
+                font-size: 13px;
                 font-weight: bold;
                 border: none;
                 background: transparent;
@@ -857,13 +872,17 @@ class TextSettingsPopup(BaseSettingsPopup):
         layout.setContentsMargins(14, 12, 14, 12)
         layout.setSpacing(8)
 
-        # --- YAZI TİPİ BÖLÜMÜ ---
-        lbl_sec_font = QLabel(LanguageManager.tr("text_sec_font"))
-        lbl_sec_font.setObjectName("SectionHeader")
-        layout.addWidget(lbl_sec_font)
+        # --- PANEL BAŞLIĞI: METİN KUTUSU ---
+        head_box = QHBoxLayout()
+        head_box.setContentsMargins(0, 0, 0, 2)
+        self.lbl_panel_title = QLabel(LanguageManager.tr("panel_text"))
+        self.lbl_panel_title.setObjectName("PanelHeaderTitle")
+        self.lbl_panel_title.setStyleSheet("font-size: 13px; font-weight: bold; color: #f1f5f9; border: none; background: transparent;")
+        head_box.addWidget(self.lbl_panel_title)
+        head_box.addStretch()
+        layout.addLayout(head_box)
 
-        self.lbl_family = QLabel(LanguageManager.tr("font_family"))
-        layout.addWidget(self.lbl_family)
+        # --- YAZI TİPİ BÖLÜMÜ ---
         self.cmb_family = QComboBox()
         self.cmb_family.addItems(["Arial", "Times New Roman", "Courier New", "Segoe UI", "Calibri", "Georgia", "Verdana"])
         self.cmb_family.currentTextChanged.connect(self._on_family_change)
@@ -963,6 +982,8 @@ class TextSettingsPopup(BaseSettingsPopup):
         self.update_preview()
 
     def retranslate_ui(self):
+        if hasattr(self, 'lbl_panel_title'):
+            self.lbl_panel_title.setText(LanguageManager.tr("panel_text"))
         if hasattr(self, 'lbl_size'):
             self.lbl_size.setText(LanguageManager.tr("font_size"))
         if hasattr(self, 'lbl_family'):
@@ -1474,25 +1495,161 @@ class TextFloatingFormatHUD(QFrame):
             self.target_text_item.open_link_dialog()
 
 
-# --- 7. ÇİZİM AYAR PENCERELERİ ---
+# --- 7. ÇİZİM AYAR PENCERELERİ & FAVORİLER ---
+
+DEFAULT_PEN_PRESETS = []
+DEFAULT_HL_PRESETS = []
+
+
+def build_fountain_pen_path(raw_pts, base_width=6.0):
+    path = QPainterPath()
+    if not raw_pts:
+        return path
+    if len(raw_pts) == 1:
+        path.addEllipse(raw_pts[0], max(0.8, base_width / 2.0), max(0.8, base_width / 2.0))
+        return path
+
+    nib_angle = math.radians(40.0)
+    left_pts = []
+    right_pts = []
+    n = len(raw_pts)
+
+    for i in range(n):
+        pt = raw_pts[i]
+        if i == 0:
+            dx = raw_pts[1].x() - pt.x()
+            dy = raw_pts[1].y() - pt.y()
+        elif i == n - 1:
+            dx = pt.x() - raw_pts[i - 1].x()
+            dy = pt.y() - raw_pts[i - 1].y()
+        else:
+            dx = raw_pts[i + 1].x() - raw_pts[i - 1].x()
+            dy = raw_pts[i + 1].y() - raw_pts[i - 1].y()
+
+        seg_len = math.hypot(dx, dy)
+        if seg_len < 1e-4:
+            dx = 1.0
+            dy = 0.0
+            seg_len = 1.0
+
+        theta = math.atan2(dy, dx)
+        down_factor = max(0.0, dy / seg_len)
+
+        # Flex fountain pen: downstroke expands with dy > 0, upstroke stays fine hairline
+        w = max(1.8, min(base_width * 2.5, base_width * (0.32 + 1.65 * (down_factor ** 1.15))))
+
+        nx = (-math.sin(theta) * 0.45 - math.sin(nib_angle) * 0.55) * (w / 2.0)
+        ny = (math.cos(theta) * 0.45 + math.cos(nib_angle) * 0.55) * (w / 2.0)
+
+        left_pts.append(QPointF(pt.x() + nx, pt.y() + ny))
+        right_pts.append(QPointF(pt.x() - nx, pt.y() - ny))
+
+    path.moveTo(left_pts[0])
+    for lp in left_pts[1:]:
+        path.lineTo(lp)
+    for rp in reversed(right_pts):
+        path.lineTo(rp)
+    path.closeSubpath()
+    return path
+
+
+_PENCIL_TEXTURE_CACHE = {}
+_PENCIL_FRINGE_CACHE = {}
+
+_PENCIL_TEX_SIZE = 64
+_PENCIL_BODY_INTENSITIES = bytearray(_PENCIL_TEX_SIZE * _PENCIL_TEX_SIZE)
+_PENCIL_FRINGE_INTENSITIES = bytearray(_PENCIL_TEX_SIZE * _PENCIL_TEX_SIZE)
+
+# Precalculate multi-frequency paper tooth noise once at module load
+_rng = random.Random(777)
+for _py in range(_PENCIL_TEX_SIZE):
+    for _px in range(_PENCIL_TEX_SIZE):
+        _idx = _py * _PENCIL_TEX_SIZE + _px
+        _n1 = math.sin(_px * 0.22 + _py * 0.15) * math.cos(_py * 0.22 - _px * 0.1)
+        _n2 = math.sin(_px * 0.55 + _py * 0.35) * math.sin(_py * 0.55)
+        _speckle = _rng.random()
+        _tooth = (_n1 * 0.3 + _n2 * 0.2 + 0.5) * 0.4 + _speckle * 0.6
+
+        if _tooth > 0.22:
+            _norm_t = (_tooth - 0.22) / 0.78
+            _PENCIL_BODY_INTENSITIES[_idx] = int(min(255, 85 + (_norm_t ** 1.1) * 170))
+
+        if _tooth > 0.45 and _rng.random() > 0.25:
+            _norm_f = (_tooth - 0.45) / 0.55
+            _PENCIL_FRINGE_INTENSITIES[_idx] = int(min(150, 35 + _norm_f * 115))
+
+
+def _build_fast_pencil_pixmap(r: int, g: int, b: int, eff_alpha: float, intensities: bytearray) -> QPixmap:
+    size = _PENCIL_TEX_SIZE
+    buf = bytearray(size * size * 4)
+    lut_b = bytearray(256)
+    lut_g = bytearray(256)
+    lut_r = bytearray(256)
+    lut_a = bytearray(256)
+    for raw_a in range(256):
+        a = int(raw_a * eff_alpha)
+        if a > 255: a = 255
+        lut_a[raw_a] = a
+        af_val = a / 255.0
+        lut_b[raw_a] = int(b * af_val)
+        lut_g[raw_a] = int(g * af_val)
+        lut_r[raw_a] = int(r * af_val)
+
+    buf_view = memoryview(buf)
+    for i, raw_a in enumerate(intensities):
+        if raw_a > 0:
+            offset = i * 4
+            buf_view[offset] = lut_b[raw_a]
+            buf_view[offset + 1] = lut_g[raw_a]
+            buf_view[offset + 2] = lut_r[raw_a]
+            buf_view[offset + 3] = lut_a[raw_a]
+
+    img = QImage(buf, size, size, size * 4, QImage.Format.Format_ARGB32_Premultiplied).copy()
+    return QPixmap.fromImage(img)
+
+
+def get_graphite_lead_texture(color: QColor, alpha_scale: float = 1.0) -> QPixmap:
+    r, g, b = color.red(), color.green(), color.blue()
+    eff_alpha = min(1.0, max(0.04, color.alphaF() * float(alpha_scale)))
+    key = (r, g, b, round(eff_alpha, 3))
+    if key in _PENCIL_TEXTURE_CACHE:
+        return _PENCIL_TEXTURE_CACHE[key]
+    pix = _build_fast_pencil_pixmap(r, g, b, eff_alpha, _PENCIL_BODY_INTENSITIES)
+    _PENCIL_TEXTURE_CACHE[key] = pix
+    return pix
+
+
+def get_graphite_fringe_texture(color: QColor, alpha_scale: float = 1.0) -> QPixmap:
+    r, g, b = color.red(), color.green(), color.blue()
+    eff_alpha = min(1.0, max(0.04, color.alphaF() * float(alpha_scale)))
+    key = (r, g, b, round(eff_alpha, 3))
+    if key in _PENCIL_FRINGE_CACHE:
+        return _PENCIL_FRINGE_CACHE[key]
+    pix = _build_fast_pencil_pixmap(r, g, b, eff_alpha, _PENCIL_FRINGE_INTENSITIES)
+    _PENCIL_FRINGE_CACHE[key] = pix
+    return pix
+
+
 class StrokePreviewWidget(QFrame):
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, width=210, height=48):
         super().__init__(parent)
-        self.setFixedSize(210, 48)
+        self.setFixedSize(width, height)
         self.setStyleSheet("background-color: transparent; border: none; border-radius: 6px;")
         self.color = QColor(255, 235, 59, 120)
         self.thickness = 20
         self.is_eraser = False
         self.eraser_mode = "stroke"
         self.line_style = "solid"
+        self.is_hl = False
 
-    def update_style(self, color, thickness, is_eraser=False, eraser_mode="stroke", line_style="solid", is_hl=False):
+    def update_style(self, color, thickness, is_eraser=False, eraser_mode="stroke", line_style="solid", is_hl=False, pen_type="solid"):
         self.color = color
         self.thickness = thickness
         self.is_eraser = is_eraser
         self.eraser_mode = eraser_mode
         self.line_style = line_style
         self.is_hl = is_hl
+        self.pen_type = pen_type
         self.update()
 
     def paintEvent(self, event):
@@ -1507,7 +1664,7 @@ class StrokePreviewWidget(QFrame):
         p.drawRoundedRect(QRectF(0.5, 0.5, w - 1.0, h - 1.0), 6.0, 6.0)
 
         mid_y = h / 2.0
-        start_x, end_x = 18.0, w - 18.0
+        start_x, end_x = max(12.0, w * 0.08), min(w - 12.0, w * 0.92)
 
         if self.is_eraser:
             if self.eraser_mode == "stroke":
@@ -1524,6 +1681,7 @@ class StrokePreviewWidget(QFrame):
             cap = Qt.PenCapStyle.SquareCap if getattr(self, 'is_hl', False) else Qt.PenCapStyle.RoundCap
             join = Qt.PenJoinStyle.BevelJoin if getattr(self, 'is_hl', False) else Qt.PenJoinStyle.RoundJoin
             is_arrow = (self.line_style == "arrow")
+            is_pencil = (getattr(self, 'pen_type', 'solid') == "pencil" or self.line_style == "pencil")
 
             if self.line_style == "dash":
                 style = Qt.PenStyle.DashLine
@@ -1536,48 +1694,819 @@ class StrokePreviewWidget(QFrame):
                 join = Qt.PenJoinStyle.MiterJoin
 
             # Soft contrast under-stroke if color is bright (e.g. yellow highlighter, white)
-            if self.color.lightnessF() > 0.65:
+            max_stroke_thick = max(1.0, min(float(self.thickness), h - 8.0))
+            if self.color.lightnessF() > 0.65 and not is_pencil and self.line_style != "calligraphy":
                 under_col = QColor(40, 50, 70, 40)
-                under_pen = QPen(under_col, min(self.thickness + 2.0, 32.0), style, cap, join)
+                under_pen = QPen(under_col, min(max_stroke_thick + 2.0, h - 4.0), style, cap, join)
                 p.setPen(under_pen)
                 if is_arrow:
-                    arrow_len = max(8.0, min(18.0, self.thickness * 2.2 + 6.0))
+                    arrow_len = max(8.0, min(18.0, max_stroke_thick * 2.2 + 6.0))
                     line_end_x = max(start_x + 10.0, end_x - arrow_len * 0.7)
                     p.drawLine(QPointF(start_x, mid_y), QPointF(line_end_x, mid_y))
-                elif self.line_style == "calligraphy":
-                    path = QPainterPath()
-                    path.moveTo(start_x, mid_y + 4.0)
-                    path.cubicTo(start_x + 45.0, mid_y - 8.0, end_x - 45.0, mid_y + 8.0, end_x, mid_y - 4.0)
-                    p.strokePath(path, under_pen)
                 else:
                     p.drawLine(QPointF(start_x, mid_y), QPointF(end_x, mid_y))
 
-            pen = QPen(self.color, min(self.thickness, 30), style, cap, join)
-            p.setPen(pen)
+            if self.line_style == "calligraphy":
+                fp_pts = []
+                steps = 50
+                w_span = end_x - start_x
+                for s in range(steps + 1):
+                    t = s / float(steps)
+                    px = start_x + t * w_span
+                    py = mid_y - 6.0 * math.sin(t * 2.0 * math.pi)
+                    fp_pts.append(QPointF(px, py))
+                fp_path = build_fountain_pen_path(fp_pts, base_width=max_stroke_thick)
+                p.setPen(Qt.PenStyle.NoPen)
+                p.setBrush(QBrush(self.color))
+                p.drawPath(fp_path)
+            elif is_pencil:
+                base_c = QColor(self.color)
+                tex = get_graphite_lead_texture(base_c)
+                tex_fringe = get_graphite_fringe_texture(base_c)
 
-            if is_arrow:
-                arrow_len = max(8.0, min(18.0, self.thickness * 2.2 + 6.0))
+                if self.line_style in ("pencil", "solid"):
+                    pencil_pts = []
+                    steps = 60
+                    w_span = end_x - start_x
+                    for s in range(steps + 1):
+                        t = s / float(steps)
+                        px = start_x + t * w_span
+                        py = mid_y - 4.5 * math.sin(t * 2.0 * math.pi)
+                        pencil_pts.append(QPointF(px, py))
+
+                    p_lead = QPainterPath()
+                    p_lead.moveTo(pencil_pts[0])
+                    for i, pt in enumerate(pencil_pts[1:]):
+                        jx = ((i * 17) % 7 - 3) * 0.05 * max_stroke_thick
+                        jy = ((i * 23) % 7 - 3) * 0.05 * max_stroke_thick
+                        p_lead.lineTo(pt.x() + jx, pt.y() + jy)
+
+                    pen_fringe = QPen(QBrush(tex_fringe), max_stroke_thick * 1.28, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin)
+                    p.strokePath(p_lead, pen_fringe)
+
+                    pen_lead = QPen(QBrush(tex), max_stroke_thick, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin)
+                    p.strokePath(p_lead, pen_lead)
+
+                    pen_core = QPen(QBrush(tex), max(0.6, max_stroke_thick * 0.58), Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin)
+                    p.strokePath(p_lead, pen_core)
+
+                elif self.line_style == "arrow":
+                    arrow_len = max(8.0, min(18.0, max_stroke_thick * 2.2 + 6.0))
+                    p_arrow = QPainterPath()
+                    p_arrow.moveTo(QPointF(start_x, mid_y))
+                    p_arrow.lineTo(QPointF(end_x, mid_y))
+                    p_arrow.moveTo(QPointF(end_x - arrow_len, mid_y - arrow_len * 0.55))
+                    p_arrow.lineTo(QPointF(end_x, mid_y))
+                    p_arrow.lineTo(QPointF(end_x - arrow_len, mid_y + arrow_len * 0.55))
+
+                    pen_fringe = QPen(QBrush(tex_fringe), max_stroke_thick * 1.28, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin)
+                    p.strokePath(p_arrow, pen_fringe)
+
+                    pen_lead = QPen(QBrush(tex), max_stroke_thick, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin)
+                    p.strokePath(p_arrow, pen_lead)
+
+                else:
+                    # Dash, Dot, DashDot (single clean graphite textured path)
+                    p_line = QPainterPath()
+                    p_line.moveTo(QPointF(start_x, mid_y))
+                    p_line.lineTo(QPointF(end_x, mid_y))
+
+                    pen_tex = QPen(QBrush(tex), max_stroke_thick, Qt.PenStyle.CustomDashLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin)
+                    if self.line_style == "dash":
+                        pen_tex.setDashPattern([2.2, 1.5])
+                    elif self.line_style == "dot":
+                        pen_tex.setDashPattern([0.01, 1.9])
+                    elif self.line_style == "dashdot":
+                        pen_tex.setDashPattern([2.2, 1.4, 0.01, 1.4])
+                    p.strokePath(p_line, pen_tex)
+
+            elif is_arrow:
+                pen = QPen(self.color, max_stroke_thick, style, cap, join)
+                p.setPen(pen)
+                arrow_len = max(8.0, min(18.0, max_stroke_thick * 2.2 + 6.0))
                 line_end_x = max(start_x + 10.0, end_x - arrow_len * 0.7)
                 p.drawLine(QPointF(start_x, mid_y), QPointF(line_end_x, mid_y))
-
                 # Arrowhead wings
-                p.setPen(QPen(self.color, max(2.0, min(self.thickness * 0.85, 7.0)), Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
+                p.setPen(QPen(self.color, max(2.0, min(max_stroke_thick * 0.85, 7.0)), Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
                 p.drawLine(QPointF(end_x, mid_y), QPointF(end_x - arrow_len, mid_y - arrow_len * 0.55))
                 p.drawLine(QPointF(end_x, mid_y), QPointF(end_x - arrow_len, mid_y + arrow_len * 0.55))
-            elif self.line_style == "calligraphy":
-                path = QPainterPath()
-                path.moveTo(start_x, mid_y + 4.0)
-                path.cubicTo(start_x + 45.0, mid_y - 8.0, end_x - 45.0, mid_y + 8.0, end_x, mid_y - 4.0)
-                p.strokePath(path, pen)
+            elif self.line_style == "brush":
+                pen = QPen(self.color, max_stroke_thick, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin)
+                p.setPen(pen)
+                p.drawLine(QPointF(start_x, mid_y), QPointF(end_x, mid_y))
             else:
+                pen = QPen(self.color, max_stroke_thick, style, cap, join)
+                p.setPen(pen)
                 p.drawLine(QPointF(start_x, mid_y), QPointF(end_x, mid_y))
 
         p.end()
 
 
+class ModernToggleSwitch(QCheckBox):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setFixedSize(40, 22)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.accent_color = QColor("#3b82f6")
+
+    def apply_theme(self, theme_name: str, spec: dict):
+        if spec and "accent" in spec:
+            self.accent_color = QColor(spec["accent"])
+            self.update()
+
+    def paintEvent(self, event):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        checked = self.isChecked()
+        bg_col = self.accent_color if checked else QColor(255, 255, 255, 45)
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(QBrush(bg_col))
+        p.drawRoundedRect(QRectF(0, 1, 40, 20), 10, 10)
+        
+        thumb_x = 21.0 if checked else 3.0
+        p.setBrush(QBrush(QColor("#ffffff")))
+        p.drawEllipse(QRectF(thumb_x, 3.0, 16.0, 16.0))
+        p.end()
+
+
+class ModernValueSlider(QSlider):
+    def __init__(self, orientation=Qt.Orientation.Horizontal, parent=None):
+        super().__init__(orientation, parent)
+        self.setFixedHeight(32)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.theme_accent = QColor("#38bdf8")
+        self.theme_thumb = QColor("#505663")
+
+    def apply_theme(self, theme_name: str, spec: dict):
+        if spec:
+            if "accent" in spec:
+                self.theme_accent = QColor(spec["accent"])
+            if "page_bg" in spec:
+                self.theme_thumb = QColor(spec["page_bg"])
+            elif "tb_bg" in spec:
+                self.theme_thumb = QColor(spec["tb_bg"])
+            self.update()
+
+    def paintEvent(self, event):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        w, h = float(self.width()), float(self.height())
+        val_range = max(1, self.maximum() - self.minimum())
+        ratio = max(0.0, min(1.0, (self.value() - self.minimum()) / val_range))
+        
+        thumb_r = 13.0
+        track_margin = thumb_r + 2.0
+        track_w = max(1.0, w - track_margin * 2.0)
+        track_h = 14.0
+        track_y = (h - track_h) / 2.0
+        track_rect = QRectF(track_margin, track_y, track_w, track_h)
+        radius = track_h / 2.0
+
+        # Inactive capsule track matching screenshot
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(QBrush(QColor(255, 255, 255, 25)))
+        p.drawRoundedRect(track_rect, radius, radius)
+
+        # Subtle tick dots along track
+        dot_count = 10
+        p.setBrush(QBrush(QColor(255, 255, 255, 50)))
+        for i in range(1, dot_count):
+            dot_x = track_margin + (track_w / dot_count) * i
+            p.drawEllipse(QPointF(dot_x, h / 2.0), 1.5, 1.5)
+        
+        # Circle thumb with number inside
+        thumb_x = track_margin + track_w * ratio
+        p.setBrush(QBrush(self.theme_thumb))
+        p.setPen(QPen(QColor(255, 255, 255, 50), 1.0))
+        p.drawEllipse(QPointF(thumb_x, h / 2.0), thumb_r, thumb_r)
+        
+        p.setPen(QPen(QColor("#ffffff")))
+        font = QFont("Segoe UI", 9, QFont.Weight.Bold)
+        p.setFont(font)
+        p.drawText(QRectF(thumb_x - thumb_r, h / 2.0 - thumb_r, thumb_r * 2.0, thumb_r * 2.0), 
+                   Qt.AlignmentFlag.AlignCenter, str(self.value()))
+        p.end()
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._update_val_from_mouse(event.pos().x())
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event):
+        if event.buttons() & Qt.MouseButton.LeftButton:
+            self._update_val_from_mouse(event.pos().x())
+        super().mouseMoveEvent(event)
+
+    def _update_val_from_mouse(self, x):
+        thumb_r = 13.0
+        track_margin = thumb_r + 2.0
+        track_w = max(1.0, float(self.width()) - track_margin * 2.0)
+        ratio = max(0.0, min(1.0, (float(x) - track_margin) / track_w))
+        new_val = int(round(self.minimum() + ratio * (self.maximum() - self.minimum())))
+        self.setValue(new_val)
+
+
+class ModernOpacitySlider(QSlider):
+    """
+    Boya Yoğunluğu (Opacity/Alpha) kaydırıcısı:
+    - Kapsül formunda koyu saydamlık dama tahtası (checkerboard pattern)
+    - Seçili aktif renge göre soldan sağa lineer opaklık gradyanı
+    - Aktif renkle boyanmış ve içinde yüzde değerini gösteren dairesel tutamaç
+    """
+    def __init__(self, orientation=Qt.Orientation.Horizontal, parent=None):
+        super().__init__(orientation, parent)
+        self.setFixedHeight(32)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.active_color = QColor("#10b981")
+
+    def set_active_color(self, color: QColor):
+        if color:
+            self.active_color = QColor(color.red(), color.green(), color.blue(), 255)
+            self.update()
+
+    def apply_theme(self, theme_name: str, spec: dict):
+        self.update()
+
+    def paintEvent(self, event):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        w, h = float(self.width()), float(self.height())
+        val_range = max(1, self.maximum() - self.minimum())
+        ratio = max(0.0, min(1.0, (self.value() - self.minimum()) / val_range))
+
+        thumb_r = 13.0
+        track_margin = thumb_r + 2.0
+        track_w = max(1.0, w - track_margin * 2.0)
+        track_h = 14.0
+        track_y = (h - track_h) / 2.0
+        track_rect = QRectF(track_margin, track_y, track_w, track_h)
+        radius = track_h / 2.0
+
+        # 1. Kapsül maskeleme (Clip path)
+        track_path = QPainterPath()
+        track_path.addRoundedRect(track_rect, radius, radius)
+        p.save()
+        p.setClipPath(track_path)
+
+        # 2. Saydamlık hissi veren koyu dama tahtası deseni
+        sq_size = 4.0
+        p.setPen(Qt.PenStyle.NoPen)
+        p.fillRect(track_rect, QColor(16, 20, 26))
+        p.setBrush(QBrush(QColor(32, 40, 52)))
+        
+        start_x = track_rect.left()
+        end_x = track_rect.right()
+        start_y = track_rect.top()
+        end_y = track_rect.bottom()
+        
+        x = start_x
+        col_idx = 0
+        while x < end_x:
+            y = start_y
+            row_idx = col_idx % 2
+            while y < end_y:
+                if row_idx % 2 == 1:
+                    p.drawRect(QRectF(x, y, min(sq_size, end_x - x), min(sq_size, end_y - y)))
+                y += sq_size
+                row_idx += 1
+            x += sq_size
+            col_idx += 1
+
+        # 3. Aktif renk gradyanı: solda saydam (%5), sağda tam opak (%100)
+        r = self.active_color.red()
+        g = self.active_color.green()
+        b = self.active_color.blue()
+        grad = QLinearGradient(track_rect.left(), 0, track_rect.right(), 0)
+        grad.setColorAt(0.0, QColor(r, g, b, 5))
+        grad.setColorAt(0.25, QColor(r, g, b, 55))
+        grad.setColorAt(0.70, QColor(r, g, b, 190))
+        grad.setColorAt(1.0, QColor(r, g, b, 255))
+        p.setBrush(QBrush(grad))
+        p.drawRect(track_rect)
+        p.restore()
+
+        # 4. İnce kapsül dış kenarlık
+        p.setPen(QPen(QColor(255, 255, 255, 25), 1.0))
+        p.setBrush(Qt.BrushStyle.NoBrush)
+        p.drawRoundedRect(track_rect, radius, radius)
+
+        # 5. Aktif renkli dairesel tutamaç ve kontrast kontrollü metin
+        thumb_x = track_margin + track_w * ratio
+        p.setBrush(QBrush(self.active_color))
+        p.setPen(QPen(QColor(255, 255, 255, 60), 1.2))
+        p.drawEllipse(QPointF(thumb_x, h / 2.0), thumb_r, thumb_r)
+
+        lum = (r * 299 + g * 587 + b * 114) / 1000
+        txt_col = QColor("#0f172a") if lum > 175 else QColor("#ffffff")
+        p.setPen(QPen(txt_col))
+        font = QFont("Segoe UI", 9, QFont.Weight.Bold)
+        p.setFont(font)
+        p.drawText(QRectF(thumb_x - thumb_r, h / 2.0 - thumb_r, thumb_r * 2.0, thumb_r * 2.0),
+                   Qt.AlignmentFlag.AlignCenter, str(self.value()))
+        p.end()
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._update_val_from_mouse(event.pos().x())
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event):
+        if event.buttons() & Qt.MouseButton.LeftButton:
+            self._update_val_from_mouse(event.pos().x())
+        super().mouseMoveEvent(event)
+
+    def _update_val_from_mouse(self, x):
+        thumb_r = 13.0
+        track_margin = thumb_r + 2.0
+        track_w = max(1.0, float(self.width()) - track_margin * 2.0)
+        ratio = max(0.0, min(1.0, (float(x) - track_margin) / track_w))
+        new_val = int(round(self.minimum() + ratio * (self.maximum() - self.minimum())))
+        self.setValue(new_val)
+
+
+class LineStylePill(QPushButton):
+    def __init__(self, style_key: str, label: str = "", on_click=None, parent=None):
+        super().__init__(parent)
+        self.style_key = style_key
+        self.label = label
+        self.on_click = on_click
+        self.setCheckable(True)
+        self.setFixedSize(50, 28)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.theme_checked_bg = QColor("#3e4450")
+        self.theme_checked_border = QColor(255, 255, 255, 90)
+        if label:
+            self.setToolTip(label)
+        if on_click:
+            self.clicked.connect(lambda: self.on_click(self.style_key))
+
+    def apply_theme(self, theme_name: str, spec: dict):
+        if spec:
+            self.theme_checked_bg = QColor(spec.get("page_bg", "#3e4450"))
+            self.theme_checked_border = QColor(spec.get("accent", "#60a5fa"))
+            self.update()
+
+    def paintEvent(self, event):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        w, h = float(self.width()), float(self.height())
+        cx, cy = w / 2.0, h / 2.0
+
+        if self.isChecked():
+            p.setPen(QPen(self.theme_checked_border, 1.4))
+            p.setBrush(QBrush(self.theme_checked_bg))
+        else:
+            p.setPen(Qt.PenStyle.NoPen)
+            p.setBrush(QBrush(QColor(255, 255, 255, 18)))
+        p.drawRoundedRect(QRectF(0.5, 0.5, w - 1.0, h - 1.0), 14.0, 14.0)
+
+        stroke_col = QColor("#ffffff") if self.isChecked() else QColor("#cbd5e1")
+        if self.style_key == "solid":
+            p.setPen(QPen(stroke_col, 2.2, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+            p.drawLine(QPointF(cx - 12.0, cy), QPointF(cx + 12.0, cy))
+        elif self.style_key == "calligraphy":
+            path = QPainterPath()
+            path.moveTo(cx - 12.0, cy + 2.0)
+            path.cubicTo(cx - 4.0, cy - 4.0, cx + 4.0, cy + 4.0, cx + 12.0, cy - 2.0)
+            p.setPen(QPen(stroke_col, 3.2, Qt.PenStyle.SolidLine, Qt.PenCapStyle.FlatCap))
+            p.strokePath(path, p.pen())
+        elif self.style_key == "pencil":
+            p.setPen(QPen(QColor(stroke_col.red(), stroke_col.green(), stroke_col.blue(), 180), 2.8, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+            p.drawLine(QPointF(cx - 12.0, cy), QPointF(cx + 12.0, cy))
+            p.setPen(Qt.PenStyle.NoPen)
+            p.setBrush(QBrush(stroke_col))
+            for i in range(-10, 11, 4):
+                p.drawEllipse(QPointF(cx + i, cy + ((i * 7) % 3 - 1) * 0.7), 0.7, 0.7)
+        elif self.style_key == "brush":
+            p.setPen(QPen(stroke_col, 5.0, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
+            p.drawLine(QPointF(cx - 12.0, cy), QPointF(cx + 12.0, cy))
+        elif self.style_key == "dash":
+            p.setPen(QPen(stroke_col, 2.6, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+            p.drawLine(QPointF(cx - 12.0, cy), QPointF(cx - 3.0, cy))
+            p.drawLine(QPointF(cx + 3.0, cy), QPointF(cx + 12.0, cy))
+        elif self.style_key == "dot":
+            p.setPen(Qt.PenStyle.NoPen)
+            p.setBrush(QBrush(stroke_col))
+            for i in range(5):
+                p.drawEllipse(QPointF(cx - 10.0 + i * 5.0, cy), 1.5, 1.5)
+        elif self.style_key == "arrow":
+            p.setPen(QPen(stroke_col, 2.2, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+            p.drawLine(QPointF(cx - 12.0, cy), QPointF(cx + 8.0, cy))
+            p.drawLine(QPointF(cx + 8.0, cy), QPointF(cx + 4.0, cy - 3.5))
+            p.drawLine(QPointF(cx + 8.0, cy), QPointF(cx + 4.0, cy + 3.5))
+        p.end()
+
+
+class CircularColorSwatch(QPushButton):
+    def __init__(self, color_hex: str, on_click=None, parent=None):
+        super().__init__(parent)
+        self.color_hex = color_hex
+        self.on_click = on_click
+        self.is_active = False
+        self.setFixedSize(26, 26)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setToolTip(color_hex)
+        if on_click:
+            self.clicked.connect(lambda: self.on_click(self.color_hex))
+
+    def set_active(self, active: bool):
+        self.is_active = active
+        self.update()
+
+    def paintEvent(self, event):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        col = QColor(self.color_hex)
+        rect = QRectF(1.0, 1.0, 24.0, 24.0)
+        cx, cy = 13.0, 13.0
+
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(QBrush(col))
+        p.drawEllipse(rect)
+
+        if self.is_active:
+            p.setPen(QPen(QColor(255, 255, 255, 180), 1.6))
+            p.setBrush(Qt.BrushStyle.NoBrush)
+            p.drawEllipse(QRectF(0.5, 0.5, 25.0, 25.0))
+
+            check_path = QPainterPath()
+            check_path.moveTo(cx - 4.5, cy + 0.5)
+            check_path.lineTo(cx - 1.0, cy + 4.0)
+            check_path.lineTo(cx + 4.5, cy - 3.5)
+
+            if col.lightnessF() > 0.65:
+                p.setPen(QPen(QColor(0, 0, 0, 180), 2.8, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
+                p.drawPath(check_path)
+            p.setPen(QPen(QColor("#ffffff"), 1.8, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
+            p.drawPath(check_path)
+        else:
+            p.setPen(QPen(QColor(255, 255, 255, 35), 1.0))
+            p.setBrush(Qt.BrushStyle.NoBrush)
+            p.drawEllipse(rect)
+        p.end()
+
+
+class PenRackItem(QWidget):
+    def __init__(self, pen_type: str, label: str = "", on_click=None, parent=None):
+        super().__init__(parent)
+        self.pen_type = pen_type
+        self.label = label
+        self.on_click = on_click
+        self.is_active = False
+        self.is_hovered = False
+        self.active_color = QColor("#e60214")
+        self.setFixedSize(50, 72)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        if label:
+            self.setToolTip(label)
+
+    def set_active(self, active: bool, color = None):
+        self.is_active = active
+        if color is not None:
+            if isinstance(color, str):
+                self.active_color = QColor(color)
+            elif isinstance(color, QColor):
+                self.active_color = color
+        self.update()
+
+    def enterEvent(self, event):
+        self.is_hovered = True
+        self.update()
+        super().enterEvent(event)
+
+    def leaveEvent(self, event):
+        self.is_hovered = False
+        self.update()
+        super().leaveEvent(event)
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            if self.on_click:
+                self.on_click(self.pen_type)
+        super().mousePressEvent(event)
+
+    def paintEvent(self, event):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        
+        cx = float(self.width()) / 2.0
+        if self.is_active:
+            base_y = 4.0
+        elif self.is_hovered:
+            base_y = 7.0
+        else:
+            base_y = 10.0
+
+        active_col = self.active_color if isinstance(self.active_color, QColor) else QColor(self.active_color)
+        
+        # Flourish dotted arc above active pen (as in reference image)
+        if self.is_active:
+            p.setPen(QPen(active_col, 1.4, Qt.PenStyle.DotLine, Qt.PenCapStyle.RoundCap))
+            p.setBrush(Qt.BrushStyle.NoBrush)
+            arc_path = QPainterPath()
+            arc_path.moveTo(cx - 10.0, base_y - 2.0)
+            arc_path.cubicTo(cx - 5.0, base_y - 9.0, cx + 5.0, base_y - 1.0, cx + 11.0, base_y - 7.0)
+            p.drawPath(arc_path)
+
+        if self.pen_type == "calligraphy":
+            self._paint_fountain_pen(p, cx, base_y)
+        elif self.pen_type == "highlighter":
+            self._paint_chisel_pen(p, cx, base_y)
+        elif self.pen_type == "marker":
+            self._paint_marker_pen(p, cx, base_y)
+        elif self.pen_type == "solid":
+            self._paint_felt_pen(p, cx, base_y)
+        elif self.pen_type in ("pencil", "dash"):
+            self._paint_pencil(p, cx, base_y)
+        else: # brush or arrow
+            self._paint_brush_pen(p, cx, base_y)
+        p.end()
+
+    def _paint_marker_pen(self, p, cx, base_y):
+        barrel_col = QColor("#1e293b") if not self.is_active else QColor("#334155")
+        p.setPen(Qt.PenStyle.NoPen)
+        # Geniş marker gövdesi
+        p.setBrush(QBrush(barrel_col))
+        p.drawRoundedRect(QRectF(cx - 7.5, base_y + 22.0, 15.0, 42.0), 3.0, 3.0)
+        
+        # Renk indikatör şeridi
+        tip_col = self.active_color if isinstance(self.active_color, QColor) else QColor(self.active_color)
+        p.setBrush(QBrush(tip_col))
+        p.drawRect(QRectF(cx - 7.5, base_y + 36.0, 15.0, 4.0))
+
+        # Yaka / Konik manşon
+        p.setBrush(QBrush(QColor("#0f172a")))
+        p.drawRoundedRect(QRectF(cx - 6.5, base_y + 16.0, 13.0, 7.0), 1.5, 1.5)
+
+        # Yuvarlak keçeli uç (Bullet tip)
+        p.setBrush(QBrush(tip_col))
+        tip_path = QPainterPath()
+        tip_path.moveTo(cx - 3.5, base_y + 16.0)
+        tip_path.lineTo(cx - 3.5, base_y + 9.0)
+        tip_path.quadTo(cx, base_y + 2.0, cx + 3.5, base_y + 9.0)
+        tip_path.lineTo(cx + 3.5, base_y + 16.0)
+        tip_path.closeSubpath()
+        p.drawPath(tip_path)
+
+    def _paint_fountain_pen(self, p, cx, base_y):
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(QBrush(QColor("#334155")))
+        p.drawRoundedRect(QRectF(cx - 6.0, base_y + 26.0, 12.0, 38.0), 3.0, 3.0)
+        p.setBrush(QBrush(QColor("#0f172a")))
+        p.drawRoundedRect(QRectF(cx - 7.0, base_y + 22.0, 14.0, 6.0), 1.5, 1.5)
+        
+        nib = QPainterPath()
+        nib.moveTo(cx - 7.0, base_y + 22.0)
+        nib.lineTo(cx - 8.0, base_y + 14.0)
+        nib.lineTo(cx, base_y + 3.0)
+        nib.lineTo(cx + 8.0, base_y + 14.0)
+        nib.lineTo(cx + 7.0, base_y + 22.0)
+        nib.closeSubpath()
+        nib_col = self.active_color if self.is_active else QColor("#cbd5e1")
+        p.setBrush(QBrush(nib_col))
+        p.drawPath(nib)
+        
+        p.setPen(QPen(QColor(0, 0, 0, 140), 1.2))
+        p.drawLine(QPointF(cx, base_y + 3.0), QPointF(cx, base_y + 16.0))
+        p.drawEllipse(QPointF(cx, base_y + 16.0), 1.2, 1.2)
+
+    def _paint_chisel_pen(self, p, cx, base_y):
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(QBrush(QColor("#334155")))
+        p.drawRoundedRect(QRectF(cx - 7.0, base_y + 24.0, 14.0, 40.0), 2.0, 2.0)
+        
+        ring_col = self.active_color if self.is_active else QColor("#06b6d4")
+        p.setBrush(QBrush(ring_col))
+        p.drawRoundedRect(QRectF(cx - 8.0, base_y + 20.0, 16.0, 5.0), 1.5, 1.5)
+        
+        chisel = QPainterPath()
+        chisel.moveTo(cx - 6.0, base_y + 20.0)
+        chisel.lineTo(cx - 5.0, base_y + 8.0)
+        chisel.lineTo(cx + 4.0, base_y + 4.0)
+        chisel.lineTo(cx + 6.0, base_y + 6.0)
+        chisel.lineTo(cx + 6.0, base_y + 20.0)
+        chisel.closeSubpath()
+        p.setBrush(QBrush(ring_col))
+        p.drawPath(chisel)
+
+    def _paint_felt_pen(self, p, cx, base_y):
+        barrel_col = self.active_color if self.is_active else QColor("#475569")
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(QBrush(barrel_col))
+        p.drawRoundedRect(QRectF(cx - 6.5, base_y + 22.0, 13.0, 42.0), 3.0, 3.0)
+        
+        p.setBrush(QBrush(QColor("#64748b")))
+        p.drawRoundedRect(QRectF(cx - 6.0, base_y + 16.0, 12.0, 7.0), 1.5, 1.5)
+        
+        cone = QPainterPath()
+        cone.moveTo(cx - 5.0, base_y + 16.0)
+        cone.lineTo(cx - 1.8, base_y + 7.0)
+        cone.lineTo(cx + 1.8, base_y + 7.0)
+        cone.lineTo(cx + 5.0, base_y + 16.0)
+        cone.closeSubpath()
+        p.setBrush(QBrush(QColor("#94a3b8")))
+        p.drawPath(cone)
+        
+        p.setBrush(QBrush(barrel_col))
+        p.drawRoundedRect(QRectF(cx - 1.5, base_y + 3.0, 3.0, 5.0), 1.0, 1.0)
+
+    def _paint_pencil(self, p, cx, base_y):
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(QBrush(QColor("#1e293b")))
+        p.drawRoundedRect(QRectF(cx - 6.0, base_y + 28.0, 12.0, 36.0), 2.0, 2.0)
+        p.setBrush(QBrush(QColor("#0f172a")))
+        p.drawRect(QRectF(cx - 6.0, base_y + 24.0, 12.0, 5.0))
+        
+        wood = QPainterPath()
+        wood.moveTo(cx - 6.0, base_y + 24.0)
+        wood.lineTo(cx, base_y + 7.0)
+        wood.lineTo(cx + 6.0, base_y + 24.0)
+        wood.closeSubpath()
+        p.setBrush(QBrush(QColor("#d4b886")))
+        p.drawPath(wood)
+        
+        graphite = QPainterPath()
+        graphite.moveTo(cx - 2.5, base_y + 14.0)
+        graphite.lineTo(cx, base_y + 7.0)
+        graphite.lineTo(cx + 2.5, base_y + 14.0)
+        graphite.closeSubpath()
+        tip_col = self.active_color if self.is_active else QColor("#1e293b")
+        p.setBrush(QBrush(tip_col))
+        p.drawPath(graphite)
+
+    def _paint_brush_pen(self, p, cx, base_y):
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(QBrush(QColor("#334155")))
+        p.drawRoundedRect(QRectF(cx - 6.0, base_y + 28.0, 12.0, 36.0), 2.0, 2.0)
+        
+        brush_col = self.active_color if self.is_active else QColor("#f43f5e")
+        p.setBrush(QBrush(brush_col))
+        p.drawRoundedRect(QRectF(cx - 6.5, base_y + 24.0, 13.0, 5.0), 1.5, 1.5)
+        
+        p.setBrush(QBrush(QColor("#94a3b8")))
+        p.drawRoundedRect(QRectF(cx - 5.5, base_y + 18.0, 11.0, 7.0), 1.5, 1.5)
+        
+        hair = QPainterPath()
+        hair.moveTo(cx - 5.0, base_y + 18.0)
+        hair.cubicTo(cx - 6.5, base_y + 12.0, cx - 1.5, base_y + 5.0, cx, base_y + 3.0)
+        hair.cubicTo(cx + 1.5, base_y + 5.0, cx + 6.5, base_y + 12.0, cx + 5.0, base_y + 18.0)
+        hair.closeSubpath()
+        p.setBrush(QBrush(brush_col))
+        p.drawPath(hair)
+
+
+class ToolPresetCard(QFrame):
+    def __init__(self, preset: dict, is_hl: bool, is_active: bool, on_select, on_delete, parent=None, spec: dict = None):
+        super().__init__(parent)
+        self.preset = preset
+        self.is_hl = is_hl
+        self.is_active = is_active
+        self.on_select = on_select
+        self.on_delete = on_delete
+        self.current_spec = spec or POPUP_THEME_SPECS.get("gray", {})
+        self.setObjectName("ToolPresetCard")
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._init_ui()
+        self.update_active_state(is_active)
+
+    def _init_ui(self):
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(8, 6, 8, 6)
+        layout.setSpacing(4)
+
+        self.preview = StrokePreviewWidget(parent=self, width=280, height=34)
+        c = QColor(self.preset.get("color", "#000000"))
+        opac = int(self.preset.get("opacity", 100))
+        c.setAlpha(int(opac * 2.55))
+        thick = int(self.preset.get("thickness", 3))
+        st = self.preset.get("line_style", "solid")
+        self.preview.update_style(
+            color=c,
+            thickness=thick,
+            is_eraser=False,
+            eraser_mode="stroke",
+            line_style=st,
+            is_hl=self.is_hl
+        )
+        self.preview.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+        layout.addWidget(self.preview)
+
+        info_row = QHBoxLayout()
+        info_row.setContentsMargins(2, 0, 2, 0)
+        info_row.setSpacing(4)
+
+        desc = self._format_desc()
+        text_col = self.current_spec.get('tab_text', '#94a3b8')
+        self.lbl_info = QLabel(desc, parent=self)
+        self.lbl_info.setStyleSheet(f"font-size: 11px; color: {text_col}; font-weight: normal; border: none; background: transparent;")
+        info_row.addWidget(self.lbl_info)
+
+        info_row.addStretch()
+
+        self.lbl_active = QLabel("✓", parent=self)
+        self.lbl_active.setStyleSheet("font-size: 11px; font-weight: bold; color: #10b981; border: none; background: transparent;")
+        self.lbl_active.setVisible(self.is_active)
+        info_row.addWidget(self.lbl_active)
+
+        self.btn_del = QPushButton(parent=self)
+        self.btn_del.setFixedSize(20, 20)
+        self.btn_del.setIcon(ModernIconFactory.icon_trash(color=text_col))
+        self.btn_del.setToolTip(LanguageManager.tr("delete_preset_tip"))
+        self.btn_del.setStyleSheet("""
+            QPushButton {
+                background: transparent;
+                border: none;
+                border-radius: 3px;
+                padding: 0px;
+            }
+            QPushButton:hover {
+                background: rgba(239, 68, 68, 0.25);
+            }
+        """)
+        self.btn_del.clicked.connect(self._on_delete_clicked)
+        info_row.addWidget(self.btn_del)
+
+        layout.addLayout(info_row)
+
+    def _format_desc(self) -> str:
+        thick = self.preset.get("thickness", 3)
+        opac = self.preset.get("opacity", 100)
+        st = self.preset.get("line_style", "solid")
+        snap = self.preset.get("snap_straight", False)
+
+        style_names = {
+            "solid": LanguageManager.tr("pen_style_solid"),
+            "dash": LanguageManager.tr("pen_style_dash"),
+            "dot": LanguageManager.tr("pen_style_dot"),
+            "dashdot": LanguageManager.tr("pen_style_dashdot"),
+            "arrow": LanguageManager.tr("pen_style_arrow"),
+            "calligraphy": LanguageManager.tr("pen_style_calligraphy"),
+        }
+        st_name = style_names.get(st, st)
+        if self.is_hl:
+            text = f"{thick}px • %{opac}"
+        else:
+            text = f"{thick}px • {st_name}"
+        if snap:
+            snap_lbl = LanguageManager.tr("straighten_lines")
+            text += f" • {snap_lbl}"
+        return text
+
+    def apply_theme(self, theme_name: str, spec: dict = None):
+        if not spec:
+            spec = POPUP_THEME_SPECS.get(theme_name, POPUP_THEME_SPECS.get("gray", {}))
+        self.current_spec = spec
+        if hasattr(self, 'lbl_info'):
+            self.lbl_info.setStyleSheet(f"font-size: 11px; color: {spec.get('tab_text', '#94a3b8')}; font-weight: normal; border: none; background: transparent;")
+        if hasattr(self, 'btn_del'):
+            self.btn_del.setIcon(ModernIconFactory.icon_trash(color=spec.get('tab_text', '#94a3b8')))
+        self.update_active_state(self.is_active)
+
+    def update_active_state(self, is_active: bool):
+        self.is_active = is_active
+        self.lbl_active.setVisible(is_active)
+        spec = getattr(self, 'current_spec', {})
+        accent = spec.get('accent', '#3b82f6')
+        tb_border = spec.get('tb_border', 'rgba(255, 255, 255, 0.08)')
+        btn_hover = spec.get('btn_hover', 'rgba(255, 255, 255, 0.08)')
+        if is_active:
+            self.setStyleSheet(f"""
+                QFrame#ToolPresetCard {{
+                    background-color: rgba(59, 130, 246, 0.15);
+                    border: 1.5px solid {accent};
+                    border-radius: 10px;
+                }}
+                QFrame#ToolPresetCard:hover {{
+                    background-color: rgba(59, 130, 246, 0.22);
+                    border: 1.5px solid {accent};
+                }}
+            """)
+        else:
+            self.setStyleSheet(f"""
+                QFrame#ToolPresetCard {{
+                    background-color: rgba(255, 255, 255, 0.04);
+                    border: 1px solid {tb_border};
+                    border-radius: 10px;
+                }}
+                QFrame#ToolPresetCard:hover {{
+                    background-color: {btn_hover};
+                    border: 1px solid rgba(255, 255, 255, 0.2);
+                }}
+            """)
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            if self.on_select:
+                self.on_select(self.preset)
+        super().mousePressEvent(event)
+
+    def _on_delete_clicked(self):
+        if self.on_delete:
+            self.on_delete(self.preset.get("id"))
+
+
 class ToolSettingsPopup(BaseSettingsPopup):
     def __init__(self, parent=None, has_color=True, has_opacity=True, is_eraser=False, is_hl=False, on_change_callback=None, tool_name=None):
-        super().__init__(parent)
         self.on_change_callback = on_change_callback
         self.has_color = has_color
         self.has_opacity = has_opacity
@@ -1587,30 +2516,522 @@ class ToolSettingsPopup(BaseSettingsPopup):
         self.eraser_mode = "stroke"
         self.line_style = "solid"
         self.snap_straight = False
-        # Note: self.setStyleSheet is handled dynamically by BaseSettingsPopup.apply_theme
+        self.preset_cards = []
+        self.rack_items = {}
+        self.style_container = None
+        self.current_pen_type = "solid"
+        self.pen_settings = self._load_pen_settings()
+        self.hl_settings = self._load_hl_settings()
+        super().__init__(parent)
+        self.setWindowFlags(Qt.WindowType.Tool | Qt.WindowType.FramelessWindowHint | Qt.WindowType.NoDropShadowWindowHint)
+        self._anchor_widget = None
 
         if self.is_hl:
-            self.thickness = 18
-            self.opacity = 40
+            settings = QSettings("AuraPDF", "PDFViewer")
+            self.hl_type = settings.value("active_hl_type", "highlighter")
+            if self.hl_type not in self.hl_settings:
+                self.hl_type = "highlighter"
+            cfg = self.hl_settings.get(self.hl_type, {})
+            self.thickness = cfg.get("thickness", 18 if self.hl_type == "highlighter" else 12)
+            self.opacity = cfg.get("opacity", 40 if self.hl_type == "highlighter" else 60)
+            self.line_style = cfg.get("line_style", "solid" if self.hl_type == "highlighter" else "marker")
+            saved_col = cfg.get("color", "#EBDF00" if self.hl_type == "highlighter" else "#16C44B")
+            self.color = QColor(saved_col)
+            self.color.setAlpha(int(self.opacity * 2.55))
         elif self.tool_name == "pen":
-            self.thickness = 3
-            self.opacity = 100
+            settings = QSettings("AuraPDF", "PDFViewer")
+            self.current_pen_type = settings.value("active_pen_type", "solid")
+            if self.current_pen_type not in self.pen_settings:
+                self.current_pen_type = "solid"
+            cfg = self.pen_settings.get(self.current_pen_type, {})
+            default_thick = 6 if self.current_pen_type == "calligraphy" else (3 if self.current_pen_type == "pencil" else (8 if self.current_pen_type == "brush" else 2))
+            self.thickness = cfg.get("thickness", default_thick)
+            self.opacity = cfg.get("opacity", 100)
+            saved_st = cfg.get("line_style", self.current_pen_type)
+            if self.current_pen_type == "calligraphy":
+                self.line_style = "calligraphy"
+            elif self.current_pen_type == "brush":
+                self.line_style = "brush"
+            elif self.current_pen_type == "pencil":
+                self.line_style = saved_st if saved_st in ("pencil", "dash", "dot", "arrow") else "pencil"
+            elif self.current_pen_type == "solid":
+                self.line_style = saved_st if saved_st in ("solid", "dash", "dot", "arrow") else "solid"
+            else:
+                self.line_style = saved_st
+            saved_col = cfg.get("color", "#e60214")
+            self.color = QColor(saved_col)
+            self.color.setAlpha(int(self.opacity * 2.55) if self.has_opacity else 255)
         elif self.is_eraser:
             self.thickness = 24
             self.opacity = 100
+            self.color = QColor(255, 235, 59, 255)
         else:
             self.thickness = 18
             self.opacity = 40
+            self.color = QColor(255, 235, 59, int(self.opacity * 2.55))
 
-        self.color = QColor(255, 235, 59, int(self.opacity * 2.55))
+        # Modern tablet floating card appearance
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+        self.setObjectName("SleekToolPopup")
 
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(14, 12, 14, 12)
+        # Container card layout
+        root_layout = QVBoxLayout(self)
+        root_layout.setContentsMargins(0, 0, 0, 0)
+
+        self.card_frame = QFrame(self)
+        self.card_frame.setObjectName("SleekCardFrame")
+        self.card_frame.setStyleSheet("""
+            QFrame#SleekCardFrame {
+                background-color: #212327;
+                border: 1px solid rgba(255, 255, 255, 0.09);
+                border-radius: 18px;
+            }
+            QToolTip {
+                background-color: #1e293b;
+                color: #f8fafc;
+                border: 1px solid rgba(255, 255, 255, 0.18);
+                border-radius: 6px;
+                padding: 4px 8px;
+                font-size: 11px;
+            }
+        """)
+        root_layout.addWidget(self.card_frame)
+
+        layout = QVBoxLayout(self.card_frame)
+        layout.setContentsMargins(16, 14, 16, 14)
         layout.setSpacing(10)
 
-        if self.is_eraser:
-            self.lbl_mode = QLabel(LanguageManager.tr("eraser_mode"))
-            layout.addWidget(self.lbl_mode)
+        if self.tool_name in ("pen", "highlighter"):
+            self.setFixedWidth(330)
+            self.presets = self._load_presets_from_settings()
+            self._presets_dirty = False
+
+            # --- TOP HEADER: Title ... Close ---
+            header_layout = QHBoxLayout()
+            header_layout.setContentsMargins(0, 0, 0, 4)
+            header_layout.setSpacing(6)
+
+            self.lbl_title = QLabel(self._get_title_for_tab(0))
+            self.lbl_title.setObjectName("ToolPanelTitle")
+            self.lbl_title.setStyleSheet("font-size: 14px; font-weight: bold; color: #f1f5f9; border: none; background: transparent;")
+            header_layout.addWidget(self.lbl_title)
+
+            header_layout.addStretch()
+
+            self.btn_close = QPushButton()
+            self.btn_close.setFixedSize(28, 28)
+            self.btn_close.setCursor(Qt.CursorShape.PointingHandCursor)
+            self.btn_close.setIcon(ModernIconFactory.icon_close("#94a3b8"))
+            self.btn_close.setStyleSheet("""
+                QPushButton {
+                    background: rgba(255, 255, 255, 0.05);
+                    border: none;
+                    border-radius: 14px;
+                    padding: 0px;
+                }
+                QPushButton:hover {
+                    background: rgba(255, 255, 255, 0.15);
+                }
+            """)
+            self.btn_close.clicked.connect(self.close)
+            header_layout.addWidget(self.btn_close)
+
+            layout.addLayout(header_layout)
+
+            # Navigation buttons (to be added to bottom footer)
+            self.btn_mode_pens = QPushButton()
+            self.btn_mode_pens.setFixedSize(30, 30)
+            self.btn_mode_pens.setCursor(Qt.CursorShape.PointingHandCursor)
+            self.btn_mode_pens.setIcon(ModernIconFactory.icon_pen_rack("#e2e8f0"))
+            self.btn_mode_pens.setToolTip(LanguageManager.tr("tab_customize"))
+            self.btn_mode_pens.setStyleSheet("""
+                QPushButton {
+                    background: transparent;
+                    border: none;
+                    border-radius: 6px;
+                    padding: 0px;
+                }
+                QPushButton:hover {
+                    background: rgba(255, 255, 255, 0.1);
+                }
+            """)
+            self.btn_mode_pens.clicked.connect(lambda: self._set_active_tab(0))
+
+            # Starred Pen Button: Toggles / opens the list of favorite pens and options
+            self.btn_fav_list = QPushButton()
+            self.btn_fav_list.setFixedSize(30, 30)
+            self.btn_fav_list.setCursor(Qt.CursorShape.PointingHandCursor)
+            self.btn_fav_list.setIcon(ModernIconFactory.icon_pen_star(color="#cbd5e1", star_color="#facc15"))
+            self.btn_fav_list.setToolTip(LanguageManager.tr("fav_pen_list_tip"))
+            self.btn_fav_list.setStyleSheet("""
+                QPushButton {
+                    background: transparent;
+                    border: none;
+                    border-radius: 6px;
+                    padding: 0px;
+                }
+                QPushButton:hover {
+                    background: rgba(255, 255, 255, 0.1);
+                }
+            """)
+            self.btn_fav_list.clicked.connect(self._toggle_favorites_tab)
+            self.btn_mode_star = self.btn_fav_list  # Backward-compatible alias
+
+            # Star Button: Directly adds or removes active settings to/from favorites
+            self.btn_add_fav = QPushButton()
+            self.btn_add_fav.setFixedSize(30, 30)
+            self.btn_add_fav.setCursor(Qt.CursorShape.PointingHandCursor)
+            self.btn_add_fav.setIcon(ModernIconFactory.icon_star(filled=False, color="#94a3b8"))
+            self.btn_add_fav.setToolTip(LanguageManager.tr("add_to_fav_tip"))
+            self.btn_add_fav.setStyleSheet("""
+                QPushButton {
+                    background: transparent;
+                    border: none;
+                    border-radius: 6px;
+                    padding: 0px;
+                }
+                QPushButton:hover {
+                    background: rgba(255, 255, 255, 0.1);
+                }
+            """)
+            self.btn_add_fav.clicked.connect(self._on_star_add_clicked)
+
+            # Stacked widget for pages: Page 0 = Pen Setup, Page 1 = Favorites
+            self.stack = QStackedWidget(self)
+
+            # === PAGE 0: MAIN TOOL SETTINGS ===
+            self.page_customize = QWidget()
+            cust_layout = QVBoxLayout(self.page_customize)
+            cust_layout.setContentsMargins(0, 0, 0, 0)
+            cust_layout.setSpacing(10)
+
+            # 1. Pen Rack Row
+            pen_rack_box = QHBoxLayout()
+            pen_rack_box.setContentsMargins(0, 4, 0, 2)
+            pen_rack_box.setSpacing(4)
+
+            if self.is_hl:
+                pen_rack_box.addStretch()
+                pen_types = [
+                    ("highlighter", LanguageManager.tr("pen_highlighter")),
+                    ("marker", LanguageManager.tr("pen_marker")),
+                ]
+                for p_type, p_label in pen_types:
+                    item = PenRackItem(p_type, label=p_label, on_click=self._on_rack_pen_selected, parent=self.page_customize)
+                    pen_rack_box.addWidget(item)
+                    self.rack_items[p_type] = item
+                pen_rack_box.addStretch()
+            else:
+                pen_types = [
+                    ("calligraphy", LanguageManager.tr("pen_fountain")),
+                    ("solid", LanguageManager.tr("pen_ballpoint")),
+                    ("pencil", LanguageManager.tr("pen_pencil")),
+                    ("brush", LanguageManager.tr("pen_brush")),
+                ]
+                for p_type, p_label in pen_types:
+                    item = PenRackItem(p_type, label=p_label, on_click=self._on_rack_pen_selected, parent=self.page_customize)
+                    pen_rack_box.addWidget(item)
+                    self.rack_items[p_type] = item
+            cust_layout.addLayout(pen_rack_box)
+
+            # Subtle horizontal divider line
+            self.div_line = QFrame()
+            self.div_line.setFixedHeight(1)
+            self.div_line.setStyleSheet("background-color: rgba(255, 255, 255, 0.07); border: none;")
+            cust_layout.addWidget(self.div_line)
+
+            # 2. Thickness Control Row: [ - ] [ Value Slider with number in thumb ] [ + ]
+            thick_row = QHBoxLayout()
+            thick_row.setContentsMargins(0, 0, 0, 0)
+            thick_row.setSpacing(8)
+
+            btn_thick_minus = QPushButton()
+            btn_thick_minus.setFixedSize(28, 28)
+            btn_thick_minus.setIcon(ModernIconFactory.icon_minus("#cbd5e1"))
+            btn_thick_minus.setCursor(Qt.CursorShape.PointingHandCursor)
+            btn_thick_minus.setStyleSheet("""
+                QPushButton {
+                    background: transparent;
+                    border: none;
+                    border-radius: 14px;
+                }
+                QPushButton:hover {
+                    background: rgba(255, 255, 255, 0.1);
+                }
+            """)
+            btn_thick_minus.clicked.connect(lambda: self.slider_thick.setValue(max(self.slider_thick.minimum(), self.slider_thick.value() - 1)))
+            thick_row.addWidget(btn_thick_minus)
+
+            self.slider_thick = ModernValueSlider(Qt.Orientation.Horizontal, parent=self.page_customize)
+            self.slider_thick.setRange(1, 50 if not self.is_hl else 70)
+            self.slider_thick.setValue(self.thickness)
+            self.slider_thick.valueChanged.connect(self._on_thick_change)
+            thick_row.addWidget(self.slider_thick)
+
+            btn_thick_plus = QPushButton()
+            btn_thick_plus.setFixedSize(28, 28)
+            btn_thick_plus.setIcon(ModernIconFactory.icon_plus("#cbd5e1"))
+            btn_thick_plus.setCursor(Qt.CursorShape.PointingHandCursor)
+            btn_thick_plus.setStyleSheet("""
+                QPushButton {
+                    background: transparent;
+                    border: none;
+                    border-radius: 14px;
+                }
+                QPushButton:hover {
+                    background: rgba(255, 255, 255, 0.1);
+                }
+            """)
+            btn_thick_plus.clicked.connect(lambda: self.slider_thick.setValue(min(self.slider_thick.maximum(), self.slider_thick.value() + 1)))
+            thick_row.addWidget(btn_thick_plus)
+            cust_layout.addLayout(thick_row)
+
+            # 3. Paint Intensity / Opacity Control Row: [ - ] [ Opacity Slider with checkerboard & gradient ] [ + ]
+            if self.has_opacity:
+                opac_row = QHBoxLayout()
+                opac_row.setContentsMargins(0, 0, 0, 0)
+                opac_row.setSpacing(8)
+
+                btn_opac_minus = QPushButton()
+                btn_opac_minus.setFixedSize(28, 28)
+                btn_opac_minus.setIcon(ModernIconFactory.icon_minus("#cbd5e1"))
+                btn_opac_minus.setCursor(Qt.CursorShape.PointingHandCursor)
+                btn_opac_minus.setStyleSheet("""
+                    QPushButton {
+                        background: transparent;
+                        border: none;
+                        border-radius: 14px;
+                    }
+                    QPushButton:hover {
+                        background: rgba(255, 255, 255, 0.1);
+                    }
+                """)
+                btn_opac_minus.clicked.connect(lambda: self.slider_opac.setValue(max(self.slider_opac.minimum(), self.slider_opac.value() - 5)))
+                opac_row.addWidget(btn_opac_minus)
+
+                self.slider_opac = ModernOpacitySlider(Qt.Orientation.Horizontal, parent=self.page_customize)
+                self.slider_opac.setRange(5, 100)
+                self.slider_opac.setValue(self.opacity)
+                self.slider_opac.set_active_color(self.color)
+                self.slider_opac.valueChanged.connect(self._on_opac_change)
+                opac_row.addWidget(self.slider_opac)
+
+                btn_opac_plus = QPushButton()
+                btn_opac_plus.setFixedSize(28, 28)
+                btn_opac_plus.setIcon(ModernIconFactory.icon_plus("#cbd5e1"))
+                btn_opac_plus.setCursor(Qt.CursorShape.PointingHandCursor)
+                btn_opac_plus.setStyleSheet("""
+                    QPushButton {
+                        background: transparent;
+                        border: none;
+                        border-radius: 14px;
+                    }
+                    QPushButton:hover {
+                        background: rgba(255, 255, 255, 0.1);
+                    }
+                """)
+                btn_opac_plus.clicked.connect(lambda: self.slider_opac.setValue(min(self.slider_opac.maximum(), self.slider_opac.value() + 5)))
+                opac_row.addWidget(btn_opac_plus)
+                cust_layout.addLayout(opac_row)
+
+            # 4. Straighten lines (Çizgileri Düzleştir) Toggle Row
+            snap_row = QHBoxLayout()
+            snap_row.setContentsMargins(4, 4, 4, 2)
+            snap_row.setSpacing(8)
+
+            self.lbl_snap = QLabel(LanguageManager.tr("straighten_lines"))
+            self.lbl_snap.setStyleSheet("font-size: 13px; color: #f1f5f9; font-weight: normal; border: none; background: transparent;")
+            snap_row.addWidget(self.lbl_snap)
+            snap_row.addStretch()
+
+            self.switch_snap = ModernToggleSwitch(parent=self.page_customize)
+            self.switch_snap.setChecked(self.snap_straight)
+            self.switch_snap.toggled.connect(self._on_snap_toggled)
+            self.chk_snap = self.switch_snap  # Compatibility alias for viewer sync
+            snap_row.addWidget(self.switch_snap)
+            cust_layout.addLayout(snap_row)
+
+            # 5. Line Style Pills Row (Only for Pen)
+            self.style_buttons = {}
+            self.style_container = None
+            if not self.is_hl:
+                self.style_container = QWidget(parent=self.page_customize)
+                style_row = QHBoxLayout(self.style_container)
+                style_row.setContentsMargins(0, 0, 0, 0)
+                style_row.setSpacing(6)
+                line_style_defs = [
+                    ("solid", LanguageManager.tr("pen_style_solid")),
+                    ("calligraphy", LanguageManager.tr("pen_style_calligraphy")),
+                    ("dash", LanguageManager.tr("pen_style_dash")),
+                    ("dot", LanguageManager.tr("pen_style_dot")),
+                    ("arrow", LanguageManager.tr("pen_style_arrow")),
+                ]
+                for st_key, st_label in line_style_defs:
+                    pill = LineStylePill(st_key, label=st_label, on_click=self._set_line_style, parent=self.style_container)
+                    pill.setChecked(st_key == self.line_style)
+                    style_row.addWidget(pill)
+                    self.style_buttons[st_key] = pill
+                cust_layout.addWidget(self.style_container)
+                self._update_line_styles_visibility()
+
+            # 5. Color Swatches Row with Eyedropper & Palette buttons
+            colors_row = QHBoxLayout()
+            colors_row.setContentsMargins(0, 4, 0, 0)
+            colors_row.setSpacing(6)
+
+            # Both Pen and Highlighter use the same palette of fixed colors
+            swatch_colors = ["#e60214", "#151515", "#7289FF", "#16C44B", "#EBDF00", "#ffffff", "#64748b"]
+
+            self.swatch_widgets = []
+            active_hex = self.color.name(QColor.NameFormat.HexRgb).lower()
+            for hex_code in swatch_colors:
+                sw = CircularColorSwatch(hex_code, on_click=self._on_swatch_clicked, parent=self.page_customize)
+                sw.set_active(hex_code.lower() == active_hex)
+                colors_row.addWidget(sw)
+                self.swatch_widgets.append(sw)
+
+            colors_row.addStretch()
+
+            # Eyedropper / Screen picker button
+            self.btn_eyedropper = QPushButton()
+            self.btn_eyedropper.setFixedSize(26, 26)
+            self.btn_eyedropper.setCursor(Qt.CursorShape.PointingHandCursor)
+            self.btn_eyedropper.setIcon(ModernIconFactory.icon_eyedropper("#cbd5e1"))
+            self.btn_eyedropper.setStyleSheet("""
+                QPushButton {
+                    background: rgba(255, 255, 255, 0.08);
+                    border: 1px solid rgba(255, 255, 255, 0.15);
+                    border-radius: 13px;
+                }
+                QPushButton:hover {
+                    background: rgba(255, 255, 255, 0.18);
+                }
+            """)
+            self.btn_eyedropper.clicked.connect(self._open_eyedropper_picker)
+            colors_row.addWidget(self.btn_eyedropper)
+
+            # Palette grid button (open full color dialog)
+            self.btn_palette = QPushButton()
+            self.btn_palette.setFixedSize(26, 26)
+            self.btn_palette.setCursor(Qt.CursorShape.PointingHandCursor)
+            self.btn_palette.setIcon(ModernIconFactory.icon_palette_grid())
+            self.btn_palette.setStyleSheet("""
+                QPushButton {
+                    background: transparent;
+                    border: 1px solid rgba(255, 255, 255, 0.15);
+                    border-radius: 13px;
+                }
+                QPushButton:hover {
+                    background: rgba(255, 255, 255, 0.1);
+                }
+            """)
+            self.btn_palette.clicked.connect(self._open_palette_dialog)
+            colors_row.addWidget(self.btn_palette)
+
+            cust_layout.addLayout(colors_row)
+
+            # Live Stroke Preview for instant feedback
+            self.preview = StrokePreviewWidget(parent=self.page_customize, width=296, height=36)
+            cust_layout.addWidget(self.preview)
+
+            # === PAGE 1: FAVORITES / SAVED PENS ===
+            self.page_favorites = QWidget()
+            fav_layout = QVBoxLayout(self.page_favorites)
+            fav_layout.setContentsMargins(0, 0, 0, 0)
+            fav_layout.setSpacing(10)
+
+            self.fav_scroll = QScrollArea()
+            self.fav_scroll.setWidgetResizable(True)
+            self.fav_scroll.setFixedHeight(275)
+            self.fav_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+            self.fav_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+            self.fav_scroll.viewport().setStyleSheet("background: transparent; border: none;")
+            self.fav_scroll.setStyleSheet("""
+                QScrollArea, QScrollArea > QWidget, QScrollArea > QWidget > QWidget {
+                    border: none;
+                    background: transparent;
+                }
+                QScrollBar:vertical {
+                    width: 5px;
+                    background: transparent;
+                    margin: 0px;
+                }
+                QScrollBar::handle:vertical {
+                    background: rgba(255, 255, 255, 0.2);
+                    border-radius: 2.5px;
+                    min-height: 20px;
+                }
+                QScrollBar::handle:vertical:hover {
+                    background: rgba(255, 255, 255, 0.4);
+                }
+                QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+                    height: 0px;
+                }
+            """)
+
+            self.presets_container = QWidget()
+            self.presets_container.setStyleSheet("background: transparent; border: none;")
+            self.presets_container_layout = QVBoxLayout(self.presets_container)
+            self.presets_container_layout.setContentsMargins(0, 0, 4, 0)
+            self.presets_container_layout.setSpacing(6)
+            self.fav_scroll.setWidget(self.presets_container)
+            fav_layout.addWidget(self.fav_scroll)
+
+            self.stack.addWidget(self.page_customize)
+            self.stack.addWidget(self.page_favorites)
+            layout.addWidget(self.stack)
+
+            # --- BOTTOM FOOTER: Navigation & Favorites Buttons ---
+            self.footer_div = QFrame()
+            self.footer_div.setFixedHeight(1)
+            self.footer_div.setStyleSheet("background-color: rgba(255, 255, 255, 0.07); border: none;")
+            layout.addWidget(self.footer_div)
+
+            footer_layout = QHBoxLayout()
+            footer_layout.setContentsMargins(0, 2, 0, 0)
+            footer_layout.setSpacing(8)
+
+            footer_layout.addWidget(self.btn_mode_pens)
+            footer_layout.addWidget(self.btn_fav_list)
+            footer_layout.addWidget(self.btn_add_fav)
+            footer_layout.addStretch()
+            layout.addLayout(footer_layout)
+
+            self._rebuild_presets_list()
+            self._update_pen_rack()
+            self.update_preview()
+
+        elif self.is_eraser:
+            self.setFixedWidth(280)
+            header_layout = QHBoxLayout()
+            header_layout.setContentsMargins(0, 0, 0, 4)
+
+            self.lbl_eraser_title = QLabel(LanguageManager.tr("panel_eraser"))
+            self.lbl_eraser_title.setObjectName("EraserPanelTitle")
+            self.lbl_eraser_title.setStyleSheet("font-size: 14px; font-weight: bold; color: #f1f5f9; border: none; background: transparent;")
+            header_layout.addWidget(self.lbl_eraser_title)
+
+            header_layout.addStretch()
+
+            self.btn_close = QPushButton()
+            self.btn_close.setFixedSize(26, 26)
+            self.btn_close.setCursor(Qt.CursorShape.PointingHandCursor)
+            self.btn_close.setIcon(ModernIconFactory.icon_close("#94a3b8"))
+            self.btn_close.setStyleSheet("""
+                QPushButton {
+                    background: rgba(255, 255, 255, 0.05);
+                    border: none;
+                    border-radius: 13px;
+                    padding: 0px;
+                }
+                QPushButton:hover {
+                    background: rgba(255, 255, 255, 0.15);
+                }
+            """)
+            self.btn_close.clicked.connect(self.close)
+            header_layout.addWidget(self.btn_close)
+            layout.addLayout(header_layout)
+
             mode_box = QHBoxLayout()
             self.btn_mode_stroke = QPushButton(LanguageManager.tr("eraser_stroke"))
             self.btn_mode_stroke.setProperty("class", "segment-btn")
@@ -1628,112 +3049,666 @@ class ToolSettingsPopup(BaseSettingsPopup):
             mode_box.addWidget(self.btn_mode_area)
             layout.addLayout(mode_box)
 
-        if self.tool_name == "pen":
-            lbl_key = "pen_style_label"
-            self.lbl_style = QLabel(LanguageManager.tr(lbl_key))
-            layout.addWidget(self.lbl_style)
+            thick_row = QHBoxLayout()
+            thick_row.setSpacing(8)
 
-            grid_styles = QGridLayout()
-            grid_styles.setSpacing(5)
+            btn_thick_minus = QPushButton()
+            btn_thick_minus.setFixedSize(28, 28)
+            btn_thick_minus.setIcon(ModernIconFactory.icon_minus("#cbd5e1"))
+            btn_thick_minus.setCursor(Qt.CursorShape.PointingHandCursor)
+            btn_thick_minus.setStyleSheet("QPushButton { background: transparent; border: none; border-radius: 14px; } QPushButton:hover { background: rgba(255, 255, 255, 0.1); }")
+            btn_thick_minus.clicked.connect(lambda: self.slider_thick.setValue(max(self.slider_thick.minimum(), self.slider_thick.value() - 2)))
+            thick_row.addWidget(btn_thick_minus)
 
-            self.style_buttons = {}
-            styles_data = [
-                ("solid", LanguageManager.tr("pen_style_solid")),
-                ("dash", LanguageManager.tr("pen_style_dash")),
-                ("dot", LanguageManager.tr("pen_style_dot")),
-                ("dashdot", LanguageManager.tr("pen_style_dashdot")),
-                ("arrow", LanguageManager.tr("pen_style_arrow")),
-                ("calligraphy", LanguageManager.tr("pen_style_calligraphy")),
-            ]
+            self.slider_thick = ModernValueSlider(Qt.Orientation.Horizontal, parent=self)
+            self.slider_thick.setRange(5, 70)
+            self.slider_thick.setValue(self.thickness)
+            self.slider_thick.valueChanged.connect(self._on_thick_change)
+            thick_row.addWidget(self.slider_thick)
 
-            for idx, (st_key, st_text) in enumerate(styles_data):
-                btn_st = QPushButton(st_text)
-                btn_st.setProperty("class", "segment-btn")
-                btn_st.setCheckable(True)
-                if st_key == self.line_style:
-                    btn_st.setChecked(True)
-                btn_st.clicked.connect(lambda _, k=st_key: self._set_line_style(k))
-                row = idx // 3
-                col = idx % 3
-                grid_styles.addWidget(btn_st, row, col)
-                self.style_buttons[st_key] = btn_st
+            btn_thick_plus = QPushButton()
+            btn_thick_plus.setFixedSize(28, 28)
+            btn_thick_plus.setIcon(ModernIconFactory.icon_plus("#cbd5e1"))
+            btn_thick_plus.setCursor(Qt.CursorShape.PointingHandCursor)
+            btn_thick_plus.setStyleSheet("QPushButton { background: transparent; border: none; border-radius: 14px; } QPushButton:hover { background: rgba(255, 255, 255, 0.1); }")
+            btn_thick_plus.clicked.connect(lambda: self.slider_thick.setValue(min(self.slider_thick.maximum(), self.slider_thick.value() + 2)))
+            thick_row.addWidget(btn_thick_plus)
+            layout.addLayout(thick_row)
 
-            layout.addLayout(grid_styles)
+            self.preview = StrokePreviewWidget(parent=self, width=248, height=36)
+            layout.addWidget(self.preview)
+            self.update_preview()
 
-        if self.tool_name in ("pen", "highlighter"):
-
-            snap_key = "ruler_lock" if self.is_hl else "pen_ruler_lock"
-            self.chk_snap = QCheckBox(LanguageManager.tr(snap_key))
-            self.chk_snap.setChecked(self.snap_straight)
-            self.chk_snap.toggled.connect(self._on_snap_toggled)
-            layout.addWidget(self.chk_snap)
-
-        self.lbl_thick = QLabel(LanguageManager.tr("thickness"))
-        layout.addWidget(self.lbl_thick)
-        thick_box = QHBoxLayout()
-        self.slider_thick = QSlider(Qt.Orientation.Horizontal)
-        self.slider_thick.setRange(1, 70)
-        self.slider_thick.setValue(self.thickness)
-        self.lbl_thick_val = QLabel(f"{self.thickness} px")
-        self.lbl_thick_val.setFixedWidth(40)
-        thick_box.addWidget(self.slider_thick)
-        thick_box.addWidget(self.lbl_thick_val)
-        layout.addLayout(thick_box)
-        self.slider_thick.valueChanged.connect(self._on_thick_change)
-
-        if self.has_opacity:
-            self.lbl_opac = QLabel(LanguageManager.tr("opacity_label"))
-            layout.addWidget(self.lbl_opac)
-            opac_box = QHBoxLayout()
-            self.slider_opac = QSlider(Qt.Orientation.Horizontal)
-            self.slider_opac.setRange(10, 100)
-            self.slider_opac.setValue(self.opacity)
-            self.lbl_opac_val = QLabel(LanguageManager.tr("percent_format", val=self.opacity))
-            self.lbl_opac_val.setFixedWidth(40)
-            opac_box.addWidget(self.slider_opac)
-            opac_box.addWidget(self.lbl_opac_val)
-            layout.addLayout(opac_box)
-            self.slider_opac.valueChanged.connect(self._on_opac_change)
-
-        if self.has_color:
-            self.lbl_color = QLabel(LanguageManager.tr("color_label"))
-            layout.addWidget(self.lbl_color)
-            if self.is_hl:
-                default_pal = ["#ffeb3b", "#00e676", "#29b6f6", "#ff5252", "#ab47bc", "#ff9800"]
-                def_custom = "#ffeb3b"
-                def_active = "#ffeb3b"
-            else:
-                default_pal = ["#000000", "#388bfd", "#e53935", "#2ea043", "#f1e05a", "#a371f7"]
-                def_custom = "#388bfd"
-                def_active = "#388bfd"
-
-            self.palette_widget = ModernColorPaletteWidget(
-                tool_name=self.tool_name,
-                default_palette=default_pal,
-                default_custom=def_custom,
-                default_active=def_active,
-                on_color_changed=self._on_palette_color_changed,
-                parent=self
-            )
-            layout.addWidget(self.palette_widget)
-
-            # Initialize color from palette widget
-            initial_hex = self.palette_widget.active_color
-            alpha = int(self.opacity * 2.55) if self.has_opacity else 255
-            self.color = QColor(initial_hex)
-            self.color.setAlpha(alpha)
-
-        self.lbl_preview = QLabel(LanguageManager.tr("preview"))
-        layout.addWidget(self.lbl_preview)
-        self.preview = StrokePreviewWidget()
-        layout.addWidget(self.preview)
-        self.update_preview()
-
-        if self.is_eraser:
             self.btn_clear_all = QPushButton(LanguageManager.tr("clear_all_drawings"))
             self.btn_clear_all.setObjectName("ClearBtn")
             self.btn_clear_all.clicked.connect(self._on_clear_all_drawings)
             layout.addWidget(self.btn_clear_all)
+
+        settings = QSettings("AuraPDF", "PDFViewer")
+        current_th = settings.value("app_theme", "gray")
+        if current_th == "navy":
+            current_th = "gray"
+        spec = POPUP_THEME_SPECS.get(current_th, POPUP_THEME_SPECS["gray"])
+        self.apply_theme(current_th, spec)
+
+    def apply_theme(self, theme_name: str = "gray", spec: dict = None):
+        if theme_name == "navy":
+            theme_name = "gray"
+        if not spec:
+            spec = POPUP_THEME_SPECS.get(theme_name, POPUP_THEME_SPECS.get("gray", {}))
+        self.current_spec = spec
+        self.current_theme = theme_name
+
+        tb_bg = spec.get("tb_bg", "#212327")
+        tb_border = spec.get("tb_border", "rgba(255, 255, 255, 0.09)")
+        main_text = spec.get("main_text", "#f1f5f9")
+        btn_hover = spec.get("btn_hover", "rgba(255, 255, 255, 0.1)")
+        accent = spec.get("accent", "#38bdf8")
+        tab_text = spec.get("tab_text", "#94a3b8")
+
+        if hasattr(self, 'card_frame') and self.card_frame:
+            self.card_frame.setStyleSheet(f"""
+                QFrame#SleekCardFrame {{
+                    background-color: {tb_bg};
+                    border: 1px solid {tb_border};
+                    border-radius: 18px;
+                }}
+                QToolTip {{
+                    background-color: {tb_bg};
+                    color: {main_text};
+                    border: 1px solid {tb_border};
+                    border-radius: 6px;
+                    padding: 4px 8px;
+                    font-size: 11px;
+                }}
+            """)
+
+        if hasattr(self, 'div_line') and self.div_line:
+            self.div_line.setStyleSheet(f"background-color: {tb_border}; border: none;")
+
+        if hasattr(self, 'lbl_snap') and self.lbl_snap:
+            self.lbl_snap.setStyleSheet(f"font-size: 13px; color: {main_text}; font-weight: normal; border: none; background: transparent;")
+
+        if hasattr(self, 'lbl_title') and self.lbl_title:
+            self.lbl_title.setStyleSheet(f"font-size: 14px; font-weight: bold; color: {main_text}; border: none; background: transparent;")
+
+        if hasattr(self, 'lbl_eraser_title') and self.lbl_eraser_title:
+            self.lbl_eraser_title.setStyleSheet(f"font-size: 14px; font-weight: bold; color: {main_text}; border: none; background: transparent;")
+
+        if hasattr(self, 'footer_div') and self.footer_div:
+            self.footer_div.setStyleSheet(f"background-color: {tb_border}; border: none;")
+
+        if hasattr(self, 'slider_thick') and hasattr(self.slider_thick, 'apply_theme'):
+            self.slider_thick.apply_theme(theme_name, spec)
+
+        if hasattr(self, 'slider_opac') and hasattr(self.slider_opac, 'apply_theme'):
+            self.slider_opac.apply_theme(theme_name, spec)
+
+        if hasattr(self, 'switch_snap') and hasattr(self.switch_snap, 'apply_theme'):
+            self.switch_snap.apply_theme(theme_name, spec)
+
+        for pill in getattr(self, 'style_buttons', {}).values():
+            if hasattr(pill, 'apply_theme'):
+                pill.apply_theme(theme_name, spec)
+
+        for card in getattr(self, 'preset_cards', []):
+            if hasattr(card, 'apply_theme'):
+                card.apply_theme(theme_name, spec)
+
+        if hasattr(self, 'btn_close') and self.btn_close:
+            self.btn_close.setIcon(ModernIconFactory.icon_close(tab_text))
+
+        if hasattr(self, 'btn_mode_pens') and self.btn_mode_pens:
+            self.btn_mode_pens.setIcon(ModernIconFactory.icon_pen_rack(main_text))
+
+        if getattr(self, 'is_eraser', False):
+            segment_style = f"""
+                QPushButton {{
+                    background-color: rgba(255, 255, 255, 0.05);
+                    color: {main_text};
+                    border: 1px solid {tb_border};
+                    border-radius: 8px;
+                    padding: 6px 12px;
+                    font-size: 12px;
+                    font-weight: 500;
+                }}
+                QPushButton:hover {{
+                    background-color: {btn_hover};
+                }}
+                QPushButton:checked {{
+                    background-color: {accent};
+                    color: #ffffff;
+                    border: 1px solid {accent};
+                    font-weight: bold;
+                }}
+            """
+            if hasattr(self, 'btn_mode_stroke') and self.btn_mode_stroke:
+                self.btn_mode_stroke.setStyleSheet(segment_style)
+            if hasattr(self, 'btn_mode_area') and self.btn_mode_area:
+                self.btn_mode_area.setStyleSheet(segment_style)
+            if hasattr(self, 'btn_clear_all') and self.btn_clear_all:
+                self.btn_clear_all.setStyleSheet(f"""
+                    QPushButton#ClearBtn {{
+                        background-color: rgba(239, 68, 68, 0.12);
+                        color: #f87171;
+                        border: 1px solid rgba(239, 68, 68, 0.3);
+                        border-radius: 8px;
+                        padding: 7px 12px;
+                        font-size: 12px;
+                        font-weight: 600;
+                    }}
+                    QPushButton#ClearBtn:hover {{
+                        background-color: #ef4444;
+                        color: #ffffff;
+                    }}
+                """)
+
+        curr_tab = self.stack.currentIndex() if hasattr(self, 'stack') else 0
+        self._set_active_tab(curr_tab)
+        self._update_star_btn_state()
+
+    def _toggle_favorites_tab(self):
+        if not hasattr(self, 'stack'):
+            return
+        new_idx = 1 if self.stack.currentIndex() == 0 else 0
+        self._set_active_tab(new_idx)
+
+    def _get_title_for_tab(self, idx: int) -> str:
+        if idx == 1:
+            return LanguageManager.tr("panel_fav_hl") if self.is_hl else LanguageManager.tr("panel_fav_pens")
+        return LanguageManager.tr("panel_highlighter") if self.is_hl else LanguageManager.tr("panel_pen")
+
+    def _set_active_tab(self, idx: int):
+        if not hasattr(self, 'stack'):
+            return
+        if idx == 1 and getattr(self, '_presets_dirty', False):
+            self._rebuild_presets_list()
+            self._presets_dirty = False
+        self.stack.setCurrentIndex(idx)
+        if hasattr(self, 'lbl_title'):
+            self.lbl_title.setText(self._get_title_for_tab(idx))
+        spec = getattr(self, 'current_spec', {})
+        btn_hover = spec.get('btn_hover', 'rgba(255, 255, 255, 0.12)')
+        accent = spec.get('accent', '#38bdf8')
+        main_text = spec.get('main_text', '#e2e8f0')
+
+        if hasattr(self, 'btn_mode_pens'):
+            if idx == 0:
+                self.btn_mode_pens.setStyleSheet(f"""
+                    QPushButton {{
+                        background: {btn_hover};
+                        border: 1px solid rgba(255, 255, 255, 0.15);
+                        border-radius: 6px;
+                        padding: 0px;
+                    }}
+                """)
+            else:
+                self.btn_mode_pens.setStyleSheet(f"""
+                    QPushButton {{
+                        background: transparent;
+                        border: none;
+                        border-radius: 6px;
+                        padding: 0px;
+                    }}
+                    QPushButton:hover {{
+                        background: {btn_hover};
+                    }}
+                """)
+
+        if hasattr(self, 'btn_fav_list'):
+            if idx == 1:
+                self.btn_fav_list.setStyleSheet(f"""
+                    QPushButton {{
+                        background: {btn_hover};
+                        border: 1px solid rgba(255, 255, 255, 0.15);
+                        border-radius: 6px;
+                        padding: 0px;
+                    }}
+                """)
+                self.btn_fav_list.setIcon(ModernIconFactory.icon_pen_star(color=accent, star_color="#facc15"))
+            else:
+                self.btn_fav_list.setStyleSheet(f"""
+                    QPushButton {{
+                        background: transparent;
+                        border: none;
+                        border-radius: 6px;
+                        padding: 0px;
+                    }}
+                    QPushButton:hover {{
+                        background: {btn_hover};
+                    }}
+                """)
+                self.btn_fav_list.setIcon(ModernIconFactory.icon_pen_star(color=main_text, star_color="#facc15"))
+
+        if idx == 1:
+            self._update_preset_cards_active_state()
+
+    def _on_star_add_clicked(self):
+        matching = next((p for p in getattr(self, 'presets', []) if self._matches_active_settings(p)), None)
+        if matching:
+            self._delete_preset(matching.get("id"))
+        else:
+            self._save_current_as_preset()
+        self._update_star_btn_state()
+
+    def _update_star_btn_state(self):
+        if not hasattr(self, 'btn_add_fav'):
+            return
+        is_fav = any(self._matches_active_settings(p) for p in getattr(self, 'presets', []))
+        if is_fav:
+            self.btn_add_fav.setIcon(ModernIconFactory.icon_star(filled=True, color="#facc15"))
+            self.btn_add_fav.setToolTip(LanguageManager.tr("already_in_fav_tip"))
+        else:
+            spec = getattr(self, 'current_spec', {})
+            col = spec.get('tab_text', '#94a3b8')
+            self.btn_add_fav.setIcon(ModernIconFactory.icon_star(filled=False, color=col))
+            self.btn_add_fav.setToolTip(LanguageManager.tr("add_to_fav_tip"))
+
+    def _load_pen_settings(self) -> dict:
+        defaults = {
+            "calligraphy": {"thickness": 6, "opacity": 100, "line_style": "calligraphy", "color": "#151515"},
+            "solid": {"thickness": 2, "opacity": 100, "line_style": "solid", "color": "#e60214"},
+            "pencil": {"thickness": 3, "opacity": 100, "line_style": "pencil", "color": "#2c2c2e"},
+            "brush": {"thickness": 8, "opacity": 100, "line_style": "brush", "color": "#7289FF"},
+        }
+        settings = QSettings("AuraPDF", "PDFViewer")
+        raw = settings.value("pen_type_settings", None)
+        if raw and isinstance(raw, str):
+            try:
+                data = json.loads(raw)
+                for k, v in data.items():
+                    if k in defaults and isinstance(v, dict):
+                        defaults[k].update(v)
+            except Exception:
+                pass
+        return defaults
+
+    def _save_pen_settings(self):
+        settings = QSettings("AuraPDF", "PDFViewer")
+        try:
+            settings.setValue("pen_type_settings", json.dumps(self.pen_settings))
+        except Exception:
+            pass
+
+    def _load_hl_settings(self) -> dict:
+        defaults = {
+            "highlighter": {"thickness": 18, "opacity": 40, "line_style": "solid", "color": "#EBDF00"},
+            "marker": {"thickness": 12, "opacity": 60, "line_style": "marker", "color": "#16C44B"},
+        }
+        settings = QSettings("AuraPDF", "PDFViewer")
+        raw = settings.value("hl_type_settings", None)
+        if raw and isinstance(raw, str):
+            try:
+                data = json.loads(raw)
+                for k, v in data.items():
+                    if k in defaults and isinstance(v, dict):
+                        defaults[k].update(v)
+            except Exception:
+                pass
+        return defaults
+
+    def _save_hl_settings(self):
+        settings = QSettings("AuraPDF", "PDFViewer")
+        try:
+            settings.setValue("hl_type_settings", json.dumps(self.hl_settings))
+        except Exception:
+            pass
+
+    def _update_line_styles_visibility(self):
+        if self.is_hl or not hasattr(self, 'style_container') or self.style_container is None:
+            return
+
+        p_type = getattr(self, 'current_pen_type', 'solid')
+
+        # 1. Dolma kalem seçildiğinde çizgi stilleri seçeneği çıkmasın
+        # 4. Fırça kalemde hiçbir stil çıkmasın
+        if p_type in ("calligraphy", "brush"):
+            self.style_container.setVisible(False)
+            return
+
+        # 2. Tükenmez kalem seçeneğinde ise de kaligrafi uç çıkmasın
+        # 3. Kurşun kalemde ise kaligrafi çıkmasın
+        self.style_container.setVisible(True)
+        if "calligraphy" in self.style_buttons:
+            self.style_buttons["calligraphy"].setVisible(False)
+        if "solid" in self.style_buttons:
+            self.style_buttons["solid"].setVisible(True)
+        if "dash" in self.style_buttons:
+            self.style_buttons["dash"].setVisible(True)
+        if "dot" in self.style_buttons:
+            self.style_buttons["dot"].setVisible(True)
+        if "arrow" in self.style_buttons:
+            self.style_buttons["arrow"].setVisible(True)
+
+        active_key = "solid" if self.line_style in ("pencil", "solid") else self.line_style
+        for k, btn in self.style_buttons.items():
+            btn.setChecked(k == active_key)
+            btn.update()
+
+    def _on_rack_pen_selected(self, pen_type: str):
+        if self.is_hl:
+            self.hl_type = pen_type
+            settings = QSettings("AuraPDF", "PDFViewer")
+            settings.setValue("active_hl_type", pen_type)
+            cfg = self.hl_settings.get(pen_type, {})
+            self.thickness = cfg.get("thickness", 18 if pen_type == "highlighter" else 12)
+            self.opacity = cfg.get("opacity", 40 if pen_type == "highlighter" else 60)
+            self.line_style = cfg.get("line_style", "solid" if pen_type == "highlighter" else "marker")
+            saved_col = cfg.get("color", "#EBDF00" if pen_type == "highlighter" else "#16C44B")
+            self.color = QColor(saved_col)
+            self.color.setAlpha(int(self.opacity * 2.55))
+
+            if hasattr(self, 'slider_thick'):
+                self.slider_thick.blockSignals(True)
+                self.slider_thick.setValue(self.thickness)
+                self.slider_thick.blockSignals(False)
+            if hasattr(self, 'slider_opac') and self.has_opacity:
+                self.slider_opac.blockSignals(True)
+                self.slider_opac.setValue(self.opacity)
+                self.slider_opac.blockSignals(False)
+                if hasattr(self.slider_opac, 'set_active_color'):
+                    self.slider_opac.set_active_color(self.color)
+            self._update_swatches_state()
+            self._update_pen_rack()
+            self.update_preview()
+            self._update_star_btn_state()
+            if self.on_change_callback:
+                self.on_change_callback()
+            return
+
+        self.current_pen_type = pen_type
+        settings = QSettings("AuraPDF", "PDFViewer")
+        settings.setValue("active_pen_type", pen_type)
+        cfg = self.pen_settings.get(pen_type, {})
+        default_thick = 6 if pen_type == "calligraphy" else (3 if pen_type == "pencil" else (8 if pen_type == "brush" else 2))
+        self.thickness = cfg.get("thickness", default_thick)
+        self.opacity = cfg.get("opacity", 100)
+        saved_st = cfg.get("line_style", pen_type)
+        saved_col = cfg.get("color", "#e60214")
+        self.color = QColor(saved_col)
+        self.color.setAlpha(int(self.opacity * 2.55) if self.has_opacity else 255)
+
+        if pen_type == "calligraphy":
+            self.line_style = "calligraphy"
+        elif pen_type == "brush":
+            self.line_style = "brush"
+        elif pen_type == "pencil":
+            self.line_style = saved_st if saved_st in ("pencil", "dash", "dot", "arrow") else "pencil"
+        elif pen_type == "solid":
+            self.line_style = saved_st if saved_st in ("solid", "dash", "dot", "arrow") else "solid"
+
+        if hasattr(self, 'slider_thick'):
+            self.slider_thick.blockSignals(True)
+            self.slider_thick.setValue(self.thickness)
+            self.slider_thick.blockSignals(False)
+        if hasattr(self, 'slider_opac') and self.has_opacity:
+            self.slider_opac.blockSignals(True)
+            self.slider_opac.setValue(self.opacity)
+            self.slider_opac.blockSignals(False)
+            if hasattr(self.slider_opac, 'set_active_color'):
+                self.slider_opac.set_active_color(self.color)
+
+        self._update_swatches_state()
+        self._update_line_styles_visibility()
+        self._update_pen_rack()
+        self.update_preview()
+        self._update_star_btn_state()
+        if self.on_change_callback:
+            self.on_change_callback()
+
+    def _update_pen_rack(self):
+        for p_type, item in getattr(self, 'rack_items', {}).items():
+            is_active = False
+            if self.is_hl:
+                is_active = (p_type == getattr(self, 'hl_type', 'highlighter'))
+            else:
+                is_active = (p_type == getattr(self, 'current_pen_type', 'solid'))
+            item.set_active(is_active, self.color)
+
+    def _on_swatch_clicked(self, hex_val: str):
+        alpha = int(self.opacity * 2.55) if self.has_opacity else 255
+        self.color = QColor(hex_val)
+        self.color.setAlpha(alpha)
+        if self.is_hl:
+            if hasattr(self, 'hl_settings') and hasattr(self, 'hl_type'):
+                if self.hl_type not in self.hl_settings:
+                    self.hl_settings[self.hl_type] = {}
+                self.hl_settings[self.hl_type]["color"] = hex_val
+                self._save_hl_settings()
+        else:
+            if hasattr(self, 'pen_settings') and hasattr(self, 'current_pen_type'):
+                if self.current_pen_type not in self.pen_settings:
+                    self.pen_settings[self.current_pen_type] = {}
+                self.pen_settings[self.current_pen_type]["color"] = hex_val
+                self._save_pen_settings()
+        if hasattr(self, 'slider_opac') and hasattr(self.slider_opac, 'set_active_color'):
+            self.slider_opac.set_active_color(self.color)
+        self._update_swatches_state()
+        self._update_pen_rack()
+        self.update_preview()
+        self._update_preset_cards_active_state()
+        self._update_star_btn_state()
+        if self.on_change_callback:
+            self.on_change_callback()
+
+    def _update_swatches_state(self):
+        active_hex = self.color.name(QColor.NameFormat.HexRgb).lower()
+        for sw in getattr(self, 'swatch_widgets', []):
+            sw.set_active(sw.color_hex.lower() == active_hex)
+
+    def _open_eyedropper_picker(self):
+        col = QColorDialog.getColor(self.color, self, LanguageManager.tr("color_label"))
+        if col.isValid():
+            self._on_swatch_clicked(col.name(QColor.NameFormat.HexRgb))
+
+    def _open_palette_dialog(self):
+        col = QColorDialog.getColor(self.color, self, LanguageManager.tr("color_label"))
+        if col.isValid():
+            self._on_swatch_clicked(col.name(QColor.NameFormat.HexRgb))
+
+    def _load_presets_from_settings(self) -> list:
+        settings = QSettings("AuraPDF", "PDFViewer")
+        key = f"tool_presets_{self.tool_name}"
+        raw = settings.value(key, None)
+        if raw is not None and isinstance(raw, str) and raw.strip():
+            try:
+                data = json.loads(raw)
+                if isinstance(data, list):
+                    return [p for p in data if not str(p.get("id", "")).startswith("pen-default-") and not str(p.get("id", "")).startswith("hl-default-")]
+            except Exception:
+                pass
+        return []
+
+    def _save_presets_to_settings(self):
+        settings = QSettings("AuraPDF", "PDFViewer")
+        key = f"tool_presets_{self.tool_name}"
+        try:
+            settings.setValue(key, json.dumps(self.presets))
+        except Exception:
+            pass
+
+    def _save_current_as_preset(self):
+        hex_col = self.color.name(QColor.NameFormat.HexRgb)
+        st = getattr(self, 'line_style', 'solid')
+        snap = getattr(self, 'snap_straight', False)
+
+        already_saved = any(self._matches_active_settings(p) for p in getattr(self, 'presets', []))
+        if not already_saved:
+            new_preset = {
+                "id": str(uuid.uuid4()),
+                "color": hex_col,
+                "thickness": self.thickness,
+                "opacity": self.opacity if self.has_opacity else 100,
+                "line_style": st,
+                "snap_straight": snap,
+            }
+            self.presets.insert(0, new_preset)
+            self._save_presets_to_settings()
+            self._presets_dirty = True
+            if hasattr(self, 'stack') and self.stack.currentIndex() == 1:
+                self._rebuild_presets_list()
+                self._presets_dirty = False
+
+        self._show_preset_saved_feedback()
+        self._update_star_btn_state()
+
+    def _show_preset_saved_feedback(self):
+        if hasattr(self, 'btn_add_fav'):
+            self.btn_add_fav.setIcon(ModernIconFactory.icon_star(filled=True, color="#facc15"))
+
+    def _delete_preset(self, preset_id: str):
+        self.presets = [p for p in self.presets if p.get("id") != preset_id]
+        self._save_presets_to_settings()
+        self._presets_dirty = True
+        if hasattr(self, 'stack') and self.stack.currentIndex() == 1:
+            self._rebuild_presets_list()
+            self._presets_dirty = False
+        self._update_star_btn_state()
+
+    def _apply_preset(self, preset: dict):
+        hex_col = preset.get("color", "#000000")
+        thick = int(preset.get("thickness", 3))
+        opac = int(preset.get("opacity", 100))
+        line_st = preset.get("line_style", "solid")
+        snap = bool(preset.get("snap_straight", False))
+
+        self.thickness = thick
+        if hasattr(self, 'slider_thick'):
+            self.slider_thick.blockSignals(True)
+            self.slider_thick.setValue(thick)
+            self.slider_thick.blockSignals(False)
+
+        if self.has_opacity and hasattr(self, 'slider_opac'):
+            self.opacity = opac
+            self.slider_opac.blockSignals(True)
+            self.slider_opac.setValue(opac)
+            self.slider_opac.blockSignals(False)
+
+        alpha = int(self.opacity * 2.55) if self.has_opacity else 255
+        self.color = QColor(hex_col)
+        self.color.setAlpha(alpha)
+
+        if hasattr(self, 'slider_opac') and hasattr(self.slider_opac, 'set_active_color'):
+            self.slider_opac.set_active_color(self.color)
+
+        self._set_line_style(line_st)
+        if not self.is_hl:
+            if line_st == "calligraphy":
+                self.current_pen_type = "calligraphy"
+            elif line_st == "brush":
+                self.current_pen_type = "brush"
+            elif line_st == "pencil":
+                self.current_pen_type = "pencil"
+            elif line_st in ("solid", "dash", "dot", "arrow"):
+                self.current_pen_type = "solid"
+            self._update_line_styles_visibility()
+
+        if self.is_hl:
+            if hasattr(self, 'hl_settings') and hasattr(self, 'hl_type'):
+                if self.hl_type not in self.hl_settings:
+                    self.hl_settings[self.hl_type] = {}
+                self.hl_settings[self.hl_type]["thickness"] = self.thickness
+                self.hl_settings[self.hl_type]["opacity"] = self.opacity
+                self.hl_settings[self.hl_type]["color"] = hex_col
+                self.hl_settings[self.hl_type]["line_style"] = self.line_style
+                self._save_hl_settings()
+        else:
+            if hasattr(self, 'pen_settings') and hasattr(self, 'current_pen_type'):
+                if self.current_pen_type not in self.pen_settings:
+                    self.pen_settings[self.current_pen_type] = {}
+                self.pen_settings[self.current_pen_type]["thickness"] = self.thickness
+                self.pen_settings[self.current_pen_type]["opacity"] = self.opacity
+                self.pen_settings[self.current_pen_type]["color"] = hex_col
+                self.pen_settings[self.current_pen_type]["line_style"] = self.line_style
+                self._save_pen_settings()
+
+        if hasattr(self, 'switch_snap'):
+            self.snap_straight = snap
+            self.switch_snap.blockSignals(True)
+            self.switch_snap.setChecked(snap)
+            self.switch_snap.blockSignals(False)
+            p = self.parent()
+            if hasattr(p, 'sync_ruler_state'):
+                p.sync_ruler_state()
+
+        self._update_swatches_state()
+        self._update_pen_rack()
+        self.update_preview()
+        self._update_preset_cards_active_state()
+        self._update_star_btn_state()
+
+        if self.on_change_callback:
+            self.on_change_callback()
+
+    def _matches_active_settings(self, preset: dict) -> bool:
+        hex_col = self.color.name(QColor.NameFormat.HexRgb).lower()
+        preset_col = str(preset.get("color", "")).lower()
+        if hex_col != preset_col:
+            return False
+        if int(preset.get("thickness", -1)) != int(self.thickness):
+            return False
+        if self.has_opacity and int(preset.get("opacity", -1)) != int(self.opacity):
+            return False
+        if self.tool_name == "pen":
+            if preset.get("line_style", "solid") != getattr(self, "line_style", "solid"):
+                return False
+        return True
+
+    def _update_preset_cards_active_state(self):
+        for card in getattr(self, 'preset_cards', []):
+            card.update_active_state(self._matches_active_settings(card.preset))
+
+    def _rebuild_presets_list(self):
+        if not hasattr(self, 'presets_container_layout'):
+            return
+
+        while self.presets_container_layout.count():
+            item = self.presets_container_layout.takeAt(0)
+            widget = item.widget()
+            if widget:
+                widget.hide()
+                widget.deleteLater()
+
+        self.preset_cards = []
+
+        if not self.presets:
+            empty_box = QWidget(parent=self.presets_container)
+            empty_layout = QVBoxLayout(empty_box)
+            empty_layout.setContentsMargins(10, 30, 10, 30)
+            empty_layout.setSpacing(6)
+
+            spec = getattr(self, 'current_spec', {})
+            text_col = spec.get('tab_text', '#94a3b8')
+
+            lbl_empty = QLabel(LanguageManager.tr("no_presets_yet"), parent=empty_box)
+            lbl_empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            lbl_empty.setStyleSheet(f"font-size: 12px; font-weight: bold; color: {text_col};")
+            empty_layout.addWidget(lbl_empty)
+
+            lbl_hint = QLabel(LanguageManager.tr("no_presets_hint"), parent=empty_box)
+            lbl_hint.setWordWrap(True)
+            lbl_hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            lbl_hint.setStyleSheet(f"font-size: 11px; color: {text_col};")
+            empty_layout.addWidget(lbl_hint)
+
+            self.presets_container_layout.addWidget(empty_box)
+            return
+
+        for p in self.presets:
+            is_active = self._matches_active_settings(p)
+            card = ToolPresetCard(
+                preset=p,
+                is_hl=self.is_hl,
+                is_active=is_active,
+                on_select=self._apply_preset,
+                on_delete=self._delete_preset,
+                parent=self.presets_container,
+                spec=getattr(self, 'current_spec', None)
+            )
+            self.presets_container_layout.addWidget(card)
+            self.preset_cards.append(card)
+
+        self.presets_container_layout.addStretch()
 
     def _on_clear_all_drawings(self):
         self.close()
@@ -1742,63 +3717,66 @@ class ToolSettingsPopup(BaseSettingsPopup):
             p.clear_all_drawings()
 
     def retranslate_ui(self):
-        if hasattr(self, 'lbl_mode'):
-            self.lbl_mode.setText(LanguageManager.tr("eraser_mode"))
+        if hasattr(self, 'lbl_title') and hasattr(self, 'stack'):
+            self.lbl_title.setText(self._get_title_for_tab(self.stack.currentIndex()))
+        if hasattr(self, 'lbl_eraser_title'):
+            self.lbl_eraser_title.setText(LanguageManager.tr("panel_eraser"))
+        if hasattr(self, 'btn_fav_save_current'):
+            self.btn_fav_save_current.setText(LanguageManager.tr("save_preset_btn"))
+        if hasattr(self, 'lbl_fav_title'):
+            self.lbl_fav_title.setText(LanguageManager.tr("tab_favorites"))
+        if hasattr(self, 'btn_fav_list'):
+            self.btn_fav_list.setToolTip(LanguageManager.tr("fav_pen_list_tip"))
+        if hasattr(self, 'btn_mode_pens'):
+            self.btn_mode_pens.setToolTip(LanguageManager.tr("tab_customize"))
+        if hasattr(self, 'lbl_snap'):
+            self.lbl_snap.setText(LanguageManager.tr("straighten_lines"))
         if hasattr(self, 'btn_mode_stroke'):
             self.btn_mode_stroke.setText(LanguageManager.tr("eraser_stroke"))
         if hasattr(self, 'btn_mode_area'):
             self.btn_mode_area.setText(LanguageManager.tr("eraser_area"))
-        if hasattr(self, 'lbl_style'):
-            if self.tool_name == "pen":
-                self.lbl_style.setText(LanguageManager.tr("pen_style_label"))
-        if hasattr(self, 'style_buttons'):
-            btn_texts = {
-                "solid": LanguageManager.tr("pen_style_solid"),
-                "dash": LanguageManager.tr("pen_style_dash"),
-                "dot": LanguageManager.tr("pen_style_dot"),
-                "dashdot": LanguageManager.tr("pen_style_dashdot"),
-                "arrow": LanguageManager.tr("pen_style_arrow"),
-                "calligraphy": LanguageManager.tr("pen_style_calligraphy"),
-            }
-            for k, btn in self.style_buttons.items():
-                if k in btn_texts:
-                    btn.setText(btn_texts[k])
-        if hasattr(self, 'lbl_thick'):
-            self.lbl_thick.setText(LanguageManager.tr("thickness"))
-        if hasattr(self, 'lbl_opac'):
-            self.lbl_opac.setText(LanguageManager.tr("opacity_label"))
-        if hasattr(self, 'lbl_opac_val'):
-            self.lbl_opac_val.setText(LanguageManager.tr("percent_format", val=self.opacity))
-        if hasattr(self, 'lbl_color'):
-            self.lbl_color.setText(LanguageManager.tr("color_label"))
-        if hasattr(self, 'lbl_preview'):
-            self.lbl_preview.setText(LanguageManager.tr("preview"))
         if hasattr(self, 'btn_clear_all'):
             self.btn_clear_all.setText(LanguageManager.tr("clear_all_drawings"))
-        if hasattr(self, 'chk_snap'):
-            snap_txt = LanguageManager.tr("pen_ruler_lock") if self.tool_name == "pen" else LanguageManager.tr("ruler_lock")
-            self.chk_snap.setText(snap_txt)
-        if hasattr(self, 'palette_widget'):
-            self.palette_widget.retranslate_ui()
+        if hasattr(self, 'presets_container'):
+            self._rebuild_presets_list()
+        self._update_star_btn_state()
 
     def _set_eraser_mode(self, mode):
         self.eraser_mode = mode
         self.btn_mode_stroke.setChecked(mode == "stroke")
         self.btn_mode_area.setChecked(mode == "area")
-        for btn in (self.btn_mode_stroke, self.btn_mode_area):
-            btn.style().unpolish(btn)
-            btn.style().polish(btn)
         self.update_preview()
         if self.on_change_callback:
             self.on_change_callback()
 
     def _set_line_style(self, style_key):
-        self.line_style = style_key
+        if getattr(self, 'current_pen_type', 'solid') == "pencil":
+            self.line_style = "pencil" if style_key == "solid" else style_key
+        else:
+            self.line_style = style_key
+
+        if self.is_hl:
+            if hasattr(self, 'hl_settings') and hasattr(self, 'hl_type'):
+                if self.hl_type not in self.hl_settings:
+                    self.hl_settings[self.hl_type] = {}
+                self.hl_settings[self.hl_type]["line_style"] = self.line_style
+                self._save_hl_settings()
+        else:
+            if hasattr(self, 'pen_settings'):
+                p_type = getattr(self, 'current_pen_type', 'solid')
+                if p_type not in self.pen_settings:
+                    self.pen_settings[p_type] = {}
+                self.pen_settings[p_type]["line_style"] = self.line_style
+                self._save_pen_settings()
+
+        active_key = "solid" if self.line_style in ("pencil", "solid") else self.line_style
         for k, btn in getattr(self, 'style_buttons', {}).items():
-            btn.setChecked(k == style_key)
-            btn.style().unpolish(btn)
-            btn.style().polish(btn)
+            btn.setChecked(k == active_key)
+            btn.update()
+        self._update_pen_rack()
         self.update_preview()
+        self._update_preset_cards_active_state()
+        self._update_star_btn_state()
         if self.on_change_callback:
             self.on_change_callback()
 
@@ -1807,63 +3785,179 @@ class ToolSettingsPopup(BaseSettingsPopup):
         p = self.parent()
         if hasattr(p, 'sync_ruler_state'):
             p.sync_ruler_state()
-
-    def _on_palette_color_changed(self, col):
-        alpha = int(self.opacity * 2.55) if self.has_opacity else 255
-        self.color = QColor(col.red(), col.green(), col.blue(), alpha)
-        self.update_preview()
-        if self.on_change_callback:
-            self.on_change_callback()
+        self._update_preset_cards_active_state()
+        self._update_star_btn_state()
 
     def set_thickness(self, new_val):
         self.thickness = max(1, min(int(new_val), 70))
-        self.slider_thick.blockSignals(True)
-        self.slider_thick.setValue(self.thickness)
-        self.slider_thick.blockSignals(False)
-        self.lbl_thick_val.setText(f"{self.thickness} px")
+        if hasattr(self, 'slider_thick'):
+            self.slider_thick.blockSignals(True)
+            self.slider_thick.setValue(self.thickness)
+            self.slider_thick.blockSignals(False)
+        if self.is_hl:
+            if hasattr(self, 'hl_settings') and hasattr(self, 'hl_type'):
+                if self.hl_type not in self.hl_settings:
+                    self.hl_settings[self.hl_type] = {}
+                self.hl_settings[self.hl_type]["thickness"] = self.thickness
+                self._save_hl_settings()
+        else:
+            if hasattr(self, 'pen_settings') and hasattr(self, 'current_pen_type'):
+                if self.current_pen_type not in self.pen_settings:
+                    self.pen_settings[self.current_pen_type] = {}
+                self.pen_settings[self.current_pen_type]["thickness"] = self.thickness
+                self._save_pen_settings()
         self.update_preview()
+        self._update_preset_cards_active_state()
+        self._update_star_btn_state()
         if self.on_change_callback:
             self.on_change_callback()
 
     def _on_thick_change(self, val):
         self.thickness = val
-        self.lbl_thick_val.setText(f"{val} px")
+        if self.is_hl:
+            if hasattr(self, 'hl_settings') and hasattr(self, 'hl_type'):
+                if self.hl_type not in self.hl_settings:
+                    self.hl_settings[self.hl_type] = {}
+                self.hl_settings[self.hl_type]["thickness"] = val
+                self._save_hl_settings()
+        else:
+            if hasattr(self, 'pen_settings') and hasattr(self, 'current_pen_type'):
+                if self.current_pen_type not in self.pen_settings:
+                    self.pen_settings[self.current_pen_type] = {}
+                self.pen_settings[self.current_pen_type]["thickness"] = val
+                self._save_pen_settings()
         self.update_preview()
+        self._update_preset_cards_active_state()
+        self._update_star_btn_state()
         if self.on_change_callback:
             self.on_change_callback()
 
     def _on_opac_change(self, val):
         self.opacity = val
-        self.lbl_opac_val.setText(LanguageManager.tr("percent_format", val=val))
         self.color.setAlpha(int(val * 2.55))
+        if self.is_hl:
+            if hasattr(self, 'hl_settings') and hasattr(self, 'hl_type'):
+                if self.hl_type not in self.hl_settings:
+                    self.hl_settings[self.hl_type] = {}
+                self.hl_settings[self.hl_type]["opacity"] = val
+                self._save_hl_settings()
+        else:
+            if hasattr(self, 'pen_settings') and hasattr(self, 'current_pen_type'):
+                if self.current_pen_type not in self.pen_settings:
+                    self.pen_settings[self.current_pen_type] = {}
+                self.pen_settings[self.current_pen_type]["opacity"] = val
+                self._save_pen_settings()
         self.update_preview()
+        self._update_preset_cards_active_state()
+        self._update_star_btn_state()
+        if self.on_change_callback:
+            self.on_change_callback()
 
     def set_quick_color(self, hex_code):
-        if hasattr(self, 'palette_widget'):
-            self.palette_widget.set_color_external(hex_code)
+        alpha = int(self.opacity * 2.55) if self.has_opacity else 255
+        self.color = QColor(hex_code)
+        self.color.setAlpha(alpha)
+        if self.is_hl:
+            if hasattr(self, 'hl_settings') and hasattr(self, 'hl_type'):
+                if self.hl_type not in self.hl_settings:
+                    self.hl_settings[self.hl_type] = {}
+                self.hl_settings[self.hl_type]["color"] = hex_code
+                self._save_hl_settings()
         else:
-            alpha = int(self.opacity * 2.55) if self.has_opacity else 255
-            self.color = QColor(hex_code)
-            self.color.setAlpha(alpha)
-            self.update_preview()
+            if hasattr(self, 'pen_settings') and hasattr(self, 'current_pen_type'):
+                if self.current_pen_type not in self.pen_settings:
+                    self.pen_settings[self.current_pen_type] = {}
+                self.pen_settings[self.current_pen_type]["color"] = hex_code
+                self._save_pen_settings()
+        if hasattr(self, 'slider_opac') and hasattr(self.slider_opac, 'set_active_color'):
+            self.slider_opac.set_active_color(self.color)
+        self._update_swatches_state()
+        self._update_pen_rack()
+        self.update_preview()
+        self._update_preset_cards_active_state()
+        self._update_star_btn_state()
+        if self.on_change_callback:
+            self.on_change_callback()
 
     def choose_custom_color(self):
-        if hasattr(self, 'palette_widget'):
-            self.palette_widget._open_picker_dialog()
+        self._open_palette_dialog()
 
     def update_preview(self):
+        p_type = getattr(self, 'current_pen_type', 'solid') if not self.is_hl else 'highlighter'
         self.preview.update_style(
             self.color, self.thickness, self.is_eraser, self.eraser_mode, 
-            getattr(self, 'line_style', 'solid'), is_hl=self.is_hl
+            getattr(self, 'line_style', 'solid'), is_hl=self.is_hl, pen_type=p_type
         )
 
-    def show_at(self, global_pos: QPoint):
-        if hasattr(self, 'chk_snap'):
-            self.chk_snap.blockSignals(True)
-            self.chk_snap.setChecked(self.snap_straight)
-            self.chk_snap.blockSignals(False)
+    def show_below(self, button_widget):
+        self._anchor_widget = button_widget
+        point = button_widget.mapToGlobal(QPoint(0, button_widget.height() + 4))
+        self.move(point)
+        if hasattr(self, 'switch_snap'):
+            self.switch_snap.blockSignals(True)
+            self.switch_snap.setChecked(self.snap_straight)
+            self.switch_snap.blockSignals(False)
+        self._update_swatches_state()
+        self._update_pen_rack()
+        self._update_line_styles_visibility()
         self.update_preview()
+        self._update_preset_cards_active_state()
+        if hasattr(self, 'slider_opac') and hasattr(self.slider_opac, 'set_active_color'):
+            self.slider_opac.set_active_color(self.color)
+        self.show()
+        self.raise_()
+        self.activateWindow()
+        QApplication.instance().installEventFilter(self)
+
+    def show_at(self, global_pos: QPoint):
+        self._anchor_widget = None
+        if hasattr(self, 'switch_snap'):
+            self.switch_snap.blockSignals(True)
+            self.switch_snap.setChecked(self.snap_straight)
+            self.switch_snap.blockSignals(False)
+        self._update_swatches_state()
+        self._update_pen_rack()
+        self._update_line_styles_visibility()
+        self.update_preview()
+        self._update_preset_cards_active_state()
+        if hasattr(self, 'slider_opac') and hasattr(self.slider_opac, 'set_active_color'):
+            self.slider_opac.set_active_color(self.color)
         super().show_at(global_pos)
+        self.raise_()
+        self.activateWindow()
+        QApplication.instance().installEventFilter(self)
+
+    def hideEvent(self, event):
+        QApplication.instance().removeEventFilter(self)
+        super().hideEvent(event)
+
+    def closeEvent(self, event):
+        QApplication.instance().removeEventFilter(self)
+        super().closeEvent(event)
+
+    def eventFilter(self, obj, event):
+        if self.isVisible() and event.type() in (QEvent.Type.MouseButtonPress, QEvent.Type.NonClientAreaMouseButtonPress):
+            if isinstance(obj, QWidget) and (self.isAncestorOf(obj) or obj == self):
+                return False
+            if QApplication.activeModalWidget() is not None:
+                return False
+            if hasattr(event, 'globalPosition'):
+                click_pos = event.globalPosition().toPoint()
+            elif hasattr(event, 'globalPos'):
+                click_pos = event.globalPos()
+            else:
+                from PyQt6.QtGui import QCursor
+                click_pos = QCursor.pos()
+            if self.frameGeometry().contains(click_pos):
+                return False
+            if getattr(self, '_anchor_widget', None) and self._anchor_widget.isVisible():
+                btn_topleft = self._anchor_widget.mapToGlobal(QPoint(0, 0))
+                btn_rect = QRect(btn_topleft, self._anchor_widget.size())
+                if btn_rect.contains(click_pos):
+                    return False
+            self.close()
+            return False
+        return super().eventFilter(obj, event)
 
 
 class FloatingHUDPreview(QWidget):
@@ -1900,12 +3994,13 @@ class FloatingHUDPreview(QWidget):
             self.text_color = QColor(spec.get('main_text', '#e0e0e0'))
             self.update()
 
-    def show_preview(self, pos, color, thickness, is_eraser=False, eraser_mode="stroke", line_style="solid"):
+    def show_preview(self, pos, color, thickness, is_eraser=False, eraser_mode="stroke", line_style="solid", pen_type="solid"):
         self.color = color
         self.thickness = thickness
         self.is_eraser = is_eraser
         self.line_style = line_style
-        self.move(pos.x() + 20, pos.y() - 35)
+        self.pen_type = pen_type
+        self.move(int(pos.x()) + 20, int(pos.y()) - 35)
         self.show()
         self.update()
         self.hide_timer.start(1000)
@@ -1940,9 +4035,60 @@ class FloatingHUDPreview(QWidget):
             elif line_st == "calligraphy":
                 cap = Qt.PenCapStyle.FlatCap
                 join = Qt.PenJoinStyle.MiterJoin
+            elif line_st == "brush":
+                cap = Qt.PenCapStyle.RoundCap
+                join = Qt.PenJoinStyle.RoundJoin
 
-            p.setPen(QPen(self.color, min(self.thickness, 26), style, cap, join))
-            p.drawLine(QPointF(20, mid_y), QPointF(self.width() - 20, mid_y))
+            is_pencil = (getattr(self, 'pen_type', 'solid') == "pencil" or line_st == "pencil")
+            if is_pencil:
+                thick_val = float(min(self.thickness, 26))
+                base_c = QColor(self.color)
+                tex = get_graphite_lead_texture(base_c)
+                tex_fringe = get_graphite_fringe_texture(base_c)
+
+                if line_st == "arrow":
+                    arrow_len = max(8.0, min(16.0, thick_val * 2.0 + 4.0))
+                    p_arrow = QPainterPath()
+                    p_arrow.moveTo(QPointF(20.0, mid_y))
+                    p_arrow.lineTo(QPointF(self.width() - 20.0, mid_y))
+                    p_arrow.moveTo(QPointF(self.width() - 20.0 - arrow_len, mid_y - arrow_len * 0.55))
+                    p_arrow.lineTo(QPointF(self.width() - 20.0, mid_y))
+                    p_arrow.lineTo(QPointF(self.width() - 20.0 - arrow_len, mid_y + arrow_len * 0.55))
+
+                    pen_fringe = QPen(QBrush(tex_fringe), thick_val * 1.28, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin)
+                    p.strokePath(p_arrow, pen_fringe)
+
+                    pen_lead = QPen(QBrush(tex), thick_val, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin)
+                    p.strokePath(p_arrow, pen_lead)
+                elif line_st in ("dash", "dot", "dashdot"):
+                    p_line = QPainterPath()
+                    p_line.moveTo(QPointF(20.0, mid_y))
+                    p_line.lineTo(QPointF(self.width() - 20.0, mid_y))
+                    pen_tex = QPen(QBrush(tex), thick_val, Qt.PenStyle.CustomDashLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin)
+                    if line_st == "dash":
+                        pen_tex.setDashPattern([2.2, 1.5])
+                    elif line_st == "dot":
+                        pen_tex.setDashPattern([0.01, 1.9])
+                    elif line_st == "dashdot":
+                        pen_tex.setDashPattern([2.2, 1.4, 0.01, 1.4])
+                    p.strokePath(p_line, pen_tex)
+                else:
+                    pencil_pts = [QPointF(20.0, mid_y), QPointF(self.width() - 20.0, mid_y)]
+                    p_base = QPainterPath()
+                    p_base.moveTo(pencil_pts[0])
+                    p_base.lineTo(pencil_pts[1])
+
+                    pen_fringe = QPen(QBrush(tex_fringe), thick_val * 1.28, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin)
+                    p.strokePath(p_base, pen_fringe)
+
+                    pen_lead = QPen(QBrush(tex), thick_val, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin)
+                    p.strokePath(p_base, pen_lead)
+
+                    pen_core = QPen(QBrush(tex), max(0.6, thick_val * 0.58), Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin)
+                    p.strokePath(p_base, pen_core)
+            else:
+                p.setPen(QPen(self.color, min(self.thickness, 26), style, cap, join))
+                p.drawLine(QPointF(20, mid_y), QPointF(self.width() - 20, mid_y))
 
 
 # --- 7. LAZER İŞARETÇİ AYARLARI PANELİ (POINTER SETTINGS POPUP) ---
@@ -1968,16 +4114,20 @@ class PointerSettingsPopup(BaseSettingsPopup):
 
         h_mode = QHBoxLayout()
         h_mode.setSpacing(6)
+
+        self.mode_group = QButtonGroup(self)
+        self.mode_group.setExclusive(True)
+
         self.btn_mode_single = QPushButton(LanguageManager.tr("pointer_mode_single"))
-        self.btn_mode_single.setProperty("class", "segment-btn")
         self.btn_mode_single.setCheckable(True)
         self.btn_mode_single.setChecked(True)
         self.btn_mode_single.clicked.connect(lambda: self._set_mode("single"))
+        self.mode_group.addButton(self.btn_mode_single, 0)
 
         self.btn_mode_rainbow = QPushButton(LanguageManager.tr("pointer_mode_rainbow"))
-        self.btn_mode_rainbow.setProperty("class", "segment-btn")
         self.btn_mode_rainbow.setCheckable(True)
         self.btn_mode_rainbow.clicked.connect(lambda: self._set_mode("rainbow"))
+        self.mode_group.addButton(self.btn_mode_rainbow, 1)
 
         h_mode.addWidget(self.btn_mode_single)
         h_mode.addWidget(self.btn_mode_rainbow)
@@ -1990,12 +4140,12 @@ class PointerSettingsPopup(BaseSettingsPopup):
         v_col.setContentsMargins(0, 0, 0, 0)
         v_col.setSpacing(6)
 
-        default_pal = ["#ff1744", "#ff9100", "#ffea00", "#00e676", "#2979ff", "#d500f9"]
+        default_pal = ["#e60214", "#151515", "#7289FF", "#16C44B", "#EBDF00", "#ffffff", "#64748b"]
         self.palette_widget = ModernColorPaletteWidget(
             tool_name=self.tool_name,
             default_palette=default_pal,
-            default_custom="#ff1744",
-            default_active="#ff1744",
+            default_custom="#e60214",
+            default_active="#e60214",
             on_color_changed=self._on_palette_color_changed,
             parent=self.color_container
         )
@@ -2003,6 +4153,7 @@ class PointerSettingsPopup(BaseSettingsPopup):
         layout.addWidget(self.color_container)
 
         self.color = QColor(self.palette_widget.active_color)
+        self._update_mode_buttons_style()
 
         # 3. Kaybolma Süresi Slider'ı
         h_fade = QHBoxLayout()
@@ -2036,6 +4187,48 @@ class PointerSettingsPopup(BaseSettingsPopup):
         self.slider_thick.valueChanged.connect(self._on_thick_change)
         layout.addWidget(self.slider_thick)
 
+    def _update_mode_buttons_style(self):
+        if not hasattr(self, 'btn_mode_single') or not hasattr(self, 'btn_mode_rainbow'):
+            return
+        accent_col = "#0284c7"
+        active_style = f"""
+            QPushButton {{
+                background-color: {accent_col};
+                color: #ffffff;
+                border: 1px solid {accent_col};
+                border-radius: 6px;
+                padding: 5px 12px;
+                font-weight: bold;
+                font-size: 11px;
+            }}
+        """
+        inactive_style = """
+            QPushButton {{
+                background-color: rgba(255, 255, 255, 0.05);
+                color: #94a3b8;
+                border: 1px solid rgba(255, 255, 255, 0.1);
+                border-radius: 6px;
+                padding: 5px 12px;
+                font-weight: 500;
+                font-size: 11px;
+            }}
+            QPushButton:hover {{
+                background-color: rgba(255, 255, 255, 0.12);
+                color: #ffffff;
+            }}
+        """
+        mode = getattr(self, 'mode', 'single')
+        if mode == "single":
+            self.btn_mode_single.setStyleSheet(active_style)
+            self.btn_mode_rainbow.setStyleSheet(inactive_style)
+        else:
+            self.btn_mode_single.setStyleSheet(inactive_style)
+            self.btn_mode_rainbow.setStyleSheet(active_style)
+
+    def apply_theme(self, theme_name: str, spec: dict = None):
+        super().apply_theme(theme_name, spec)
+        self._update_mode_buttons_style()
+
     def _on_palette_color_changed(self, col):
         self.color = col
         if self.on_change_callback:
@@ -2043,11 +4236,18 @@ class PointerSettingsPopup(BaseSettingsPopup):
 
     def _set_mode(self, mode):
         self.mode = mode
+        self.btn_mode_single.blockSignals(True)
+        self.btn_mode_rainbow.blockSignals(True)
         self.btn_mode_single.setChecked(mode == "single")
         self.btn_mode_rainbow.setChecked(mode == "rainbow")
+        self.btn_mode_single.blockSignals(False)
+        self.btn_mode_rainbow.blockSignals(False)
+        self._update_mode_buttons_style()
+
         self.color_container.setVisible(mode == "single")
         self.adjustSize()
         if self.on_change_callback:
+            self.on_change_callback()
             self.on_change_callback()
 
     def _set_quick_color(self, hex_code):

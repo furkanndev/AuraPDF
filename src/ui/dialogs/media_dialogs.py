@@ -21,7 +21,8 @@ from PyQt6.QtMultimedia import (QMediaCaptureSession, QAudioInput, QMediaRecorde
 from PyQt6.QtSvg import QSvgRenderer
 
 from src.core.i18n import LanguageManager
-from src.ui.dialog_theme import get_dialog_theme_stylesheet
+from src.ui.dialog_theme import get_dialog_theme_stylesheet, get_current_theme, THEME_PALETTES
+from src.ui.icons import ModernIconFactory
 
 
 TABLE_PRESETS = [
@@ -1464,17 +1465,20 @@ class GifThumbnailsWorker(QThread):
 class WhatsAppCategoryTab(QWidget):
     clicked = pyqtSignal(str)
 
-    def __init__(self, cat_id: str, icon_text: str, tooltip: str = "", parent=None):
+    def __init__(self, cat_id: str, icon_text: str, tooltip: str = "", accent: str = "#60a5fa", muted: str = "#94a3b8", text_col: str = "#f1f5f9", parent=None):
         super().__init__(parent)
         self.cat_id = cat_id
         self.is_active = False
         self.raw_icon = icon_text
+        self.accent = accent
+        self.muted = muted
+        self.text_col = text_col
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setToolTip(tooltip)
         self.setFixedHeight(34)
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(6, 0, 6, 0)
+        layout.setContentsMargins(4, 0, 4, 0)
         layout.setSpacing(2)
         layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
@@ -1484,15 +1488,15 @@ class WhatsAppCategoryTab(QWidget):
 
         self.indicator = QFrame()
         self.indicator.setFixedHeight(3)
-        self.indicator.setStyleSheet("background-color: transparent; border-radius: 1px;")
+        self.indicator.setStyleSheet("background-color: transparent; border-radius: 1.5px;")
         layout.addWidget(self.indicator)
         
         self.set_active(False)
 
     def _render_svg(self, svg_str: str, color: str):
-        svg_str = svg_str.replace("currentColor", color)
-        renderer = QSvgRenderer(QByteArray(svg_str.encode("utf-8")))
-        pixmap = QPixmap(24, 24)
+        svg_colored = svg_str.replace("currentColor", color)
+        renderer = QSvgRenderer(QByteArray(svg_colored.encode("utf-8")))
+        pixmap = QPixmap(22, 22)
         pixmap.fill(Qt.GlobalColor.transparent)
         painter = QPainter(pixmap)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
@@ -1503,18 +1507,30 @@ class WhatsAppCategoryTab(QWidget):
 
     def set_active(self, active: bool):
         self.is_active = active
-        color = "#ffffff" if active else "#8696a0"
+        color = self.accent if active else self.muted
         
         if self.raw_icon.startswith("<svg"):
             self._render_svg(self.raw_icon, color)
         else:
             self.lbl_icon.setText(self.raw_icon)
-            self.lbl_icon.setStyleSheet(f"font-size: 18px; color: {color};")
+            self.lbl_icon.setStyleSheet(f"font-size: 16px; color: {color};")
             
         if active:
-            self.indicator.setStyleSheet(" border-radius: 1px;")
+            self.indicator.setStyleSheet(f"background-color: {self.accent}; border-radius: 1.5px;")
         else:
-            self.indicator.setStyleSheet("background-color: transparent; border-radius: 1px;")
+            self.indicator.setStyleSheet("background-color: transparent; border-radius: 1.5px;")
+
+    def enterEvent(self, event):
+        if not self.is_active:
+            if self.raw_icon.startswith("<svg"):
+                self._render_svg(self.raw_icon, self.text_col)
+        super().enterEvent(event)
+
+    def leaveEvent(self, event):
+        if not self.is_active:
+            if self.raw_icon.startswith("<svg"):
+                self._render_svg(self.raw_icon, self.muted)
+        super().leaveEvent(event)
 
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
@@ -1533,11 +1549,12 @@ class GifThumbnailCard(QFrame):
     doubleClicked = pyqtSignal(str)  # url
     _THUMB_CACHE: Dict[str, bytes] = {}
 
-    def __init__(self, item, card_idx: int = 0, parent=None):
+    def __init__(self, item, card_idx: int = 0, accent: str = "#60a5fa", parent=None):
         super().__init__(parent)
         self.card_idx = card_idx
         self.item = item
         self.url = item if isinstance(item, str) else item.get("url", "")
+        self.accent = accent
         self.is_selected = False
         self._gif_data: Optional[bytes] = None
         self._movie: Optional[QMovie] = None
@@ -1623,20 +1640,20 @@ class GifThumbnailCard(QFrame):
 
     def _update_style(self, hovered: bool):
         if self.is_selected:
-            self.setStyleSheet("""
-                QFrame {
+            self.setStyleSheet(f"""
+                QFrame {{
                     background-color: rgba(56, 189, 248, 0.2);
-                    border: 2px solid #38bdf8;
+                    border: 2px solid {self.accent};
                     border-radius: 4px;
-                }
+                }}
             """)
         elif hovered:
-            self.setStyleSheet("""
-                QFrame {
+            self.setStyleSheet(f"""
+                QFrame {{
                     background-color: rgba(255, 255, 255, 0.08);
-                    border: 1.5px solid #00a884;
+                    border: 1.5px solid {self.accent};
                     border-radius: 4px;
-                }
+                }}
             """)
         else:
             self.setStyleSheet("""
@@ -1761,6 +1778,18 @@ class EmojiGifPickerDialog(QDialog):
             "✅", "✔️", "❌", "❎", "➕", "➖", "➗", "❓", "❗", "‼️", "🔥", "💧", "⚡", "🌈", "🎉", "🎊",
             "🔔", "🔕", "📢", "📣", "💰", "💵", "💳", "💎", "🔒", "🔓", "🔍", "🔎", "📌", "📍", "📎", "🔗"
         ],
+        "Seyahat": [
+            "🚗", "🚕", "🚙", "🚌", "🚎", "🏎️", "🚓", "🚑", "🚒", "🚐", "🛻", "🚚", "🚛", "🚜", "🏍️", "🛵",
+            "🚲", "🛺", "🚨", "🚔", "🚍", "🚘", "🚖", "🚆", "🚅", "🚄", "🚈", "🚂", "🚆", "🚇", "🚊", "🚉",
+            "✈️", "🛫", "🛬", "🛩️", "🚀", "🛸", "🚁", "⛵", "🚤", "🛥️", "🛳️", "⛴️", "🚢", "⚓", "⛽", "🚧",
+            "🚦", "🚥", "🗺️", "🗿", "🗽", "🗼", "🏰", "🏯", "🏟️", "🎡", "🎢", "🏖️", "🏝️", "🏜️", "🌋", "🏔️"
+        ],
+        "Nesneler": [
+            "💡", "🔦", "🕯️", "📱", "📲", "💻", "⌨️", "🖥️", "🖨️", "🖱️", "📷", "📸", "📹", "📺", "📻", "🎙️",
+            "⏰", "⏱️", "⏲️", "⏳", "⌛", "📡", "🔋", "🔌", "🧯", "🛢️", "💸", "💵", "💴", "💶", "💷", "🪙",
+            "💰", "💳", "💎", "⚖️", "🪜", "🧰", "🔧", "🔨", "⚒️", "🛠️", "⛏️", "🔩", "⚙️", "🧱", "⛓️", "🧲",
+            "🔫", "💣", "🧨", "🔪", "🗡️", "⚔️", "🛡️", "🔑", "🗝️", "🔒", "🔓", "🔏", "🔐", "📦", "📫", "📪"
+        ],
         "Bayraklar": [
             "🇹🇷", "🇦🇿", "🇺🇸", "🇬🇧", "🇩🇪", "🇫🇷", "🇮🇹", "🇪🇸", "🇷🇺", "🇯🇵", "🇨🇳", "🇰🇷", "🇧🇷", "🇨🇦", "🇦🇺", "🇮🇳",
             "🇲🇽", "🇸🇦", "🇵🇦", "🇪🇬", "🇮🇶", "🇮🇷", "🇸🇾", "🇬🇷", "🇧🇬", "🇷🇴", "🇷🇸", "🇦🇹", "🇨🇭", "🇳🇱", "🇵🇹", "🇸🇪",
@@ -1786,41 +1815,65 @@ class EmojiGifPickerDialog(QDialog):
         ("tv", SVG_TV, "TV")
     ]
 
+    # 9 Vektörel Emoji İkonu (Kullanıcının paylaştığı görseldeki ikon setine birebir uygun)
+    SVG_RECENT = '<svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15 15"/></svg>'
+    SVG_SMILEY = '<svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><circle cx="9" cy="9.5" r="1.2" fill="currentColor" stroke="none"/><circle cx="15" cy="9.5" r="1.2" fill="currentColor" stroke="none"/></svg>'
+    SVG_NATURE = '<svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="10" cy="14" rx="4" ry="5"/><line x1="7" y1="13" x2="13" y2="13"/><line x1="7" y1="16" x2="13" y2="16"/><path d="M10 9V7"/><path d="M8.5 7.5L7 6"/><path d="M11.5 7.5L13 6"/><path d="M6 12C4 10 4 7 7 8"/><path d="M14 12C16 10 16 7 13 8"/><circle cx="18" cy="6" r="1.5"/><circle cx="18" cy="3.5" r="1"/><circle cx="20.5" cy="6" r="1"/><circle cx="18" cy="8.5" r="1"/><circle cx="15.5" cy="6" r="1"/></svg>'
+    SVG_FOOD = '<svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 8h1.5a3.5 3.5 0 0 1 0 7H17"/><path d="M4 8h13v7a4 4 0 0 1-4 4H8a4 4 0 0 1-4-4V8z"/><line x1="3" y1="21" x2="18" y2="21"/><path d="M8.5 8v4.5"/><rect x="7" y="12.5" width="3" height="3.5" rx="0.5"/></svg>'
+    SVG_ACTIVITY = '<svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="12" y1="3" x2="12" y2="21"/><path d="M5.5 5.5a13 13 0 0 1 0 13"/><path d="M18.5 5.5a13 13 0 0 0 0 13"/></svg>'
+    SVG_TRAVEL = '<svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="7" rx="2"/><path d="M5 11l2-5h10l2 5"/><circle cx="7" cy="15" r="1.5"/><circle cx="17" cy="15" r="1.5"/><line x1="10" y1="15" x2="14" y2="15"/><line x1="5" y1="18" x2="5" y2="20"/><line x1="19" y1="18" x2="19" y2="20"/></svg>'
+    SVG_OBJECTS = '<svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18h6"/><path d="M10 21h4"/><path d="M12 2a7 7 0 0 0-7 7c0 2.6 1.4 4.8 3.5 6h7c2.1-1.2 3.5-3.4 3.5-6a7 7 0 0 0-7-7z"/></svg>'
+    SVG_SYMBOLS = '<svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5h5M6.5 5v4"/><path d="M15 4v5l3-1"/><circle cx="14" cy="9" r="1.5"/><path d="M5 17c1.5 0 2-1 2-2s-.7-1.5-1.5-1.5S4 14.5 4 16c0 1.5 1 2.5 2.5 2.5 1 0 1.5-.5 2-1.5"/><circle cx="14" cy="14" r="1"/><circle cx="18" cy="18" r="1"/><line x1="18.5" y1="13.5" x2="13.5" y2="18.5"/></svg>'
+    SVG_FLAGS = '<svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="21" x2="5" y2="3"/><path d="M5 4h12l-2 4 2 4H5"/></svg>'
+
     EMOJI_CATEGORIES_LIST = [
-        ("populer", "🔥", "Popüler"),
-        ("Yüzler", "😀", "Yüzler"),
-        ("İnsanlar", "🧑", "İnsanlar"),
-        ("Doğa", "🐶", "Doğa"),
-        ("Yiyecek", "🍔", "Yiyecek"),
-        ("Aktiviteler", "⚽", "Aktiviteler"),
-        ("Semboller", "💡", "Semboller"),
-        ("Bayraklar", "🚩", "Bayraklar")
+        ("populer", SVG_RECENT, "emoji_cat_recent"),
+        ("Yüzler", SVG_SMILEY, "emoji_cat_smileys"),
+        ("Doğa", SVG_NATURE, "emoji_cat_animals"),
+        ("Yiyecek", SVG_FOOD, "emoji_cat_food"),
+        ("Aktiviteler", SVG_ACTIVITY, "emoji_cat_activities"),
+        ("Seyahat", SVG_TRAVEL, "emoji_cat_travel"),
+        ("Nesneler", SVG_OBJECTS, "emoji_cat_objects"),
+        ("Semboller", SVG_SYMBOLS, "emoji_cat_symbols"),
+        ("Bayraklar", SVG_FLAGS, "emoji_cat_flags")
     ]
 
     def __init__(self, parent=None):
         super().__init__(parent)
+        self.theme_palette = THEME_PALETTES.get(get_current_theme(parent), THEME_PALETTES.get("gray", {}))
+        self.accent = self.theme_palette.get("accent", "#60a5fa")
+        self.dialog_bg = self.theme_palette.get("bg", "#2b2d30")
+        self.card_bg = self.theme_palette.get("card", "#35383c")
+        self.border_col = self.theme_palette.get("border", "#444850")
+        self.text_col = self.theme_palette.get("text", "#f1f5f9")
+        self.muted_col = self.theme_palette.get("muted", "#94a3b8")
+
         self.setWindowTitle("GIF & Emoji")
         self.setFixedSize(450, 560)
-        self.setStyleSheet(get_dialog_theme_stylesheet(self) + """
-            QDialog {
-                
-            }
-            QScrollBar:vertical {
-                background: #111b21;
-                width: 5px;
+        self.setStyleSheet(get_dialog_theme_stylesheet(self) + f"""
+            QDialog {{
+                background-color: {self.dialog_bg};
+                color: {self.text_col};
+            }}
+            QScrollBar:vertical {{
+                background: transparent;
+                width: 6px;
                 margin: 0px;
-            }
-            QScrollBar::handle:vertical {
-                background: #374248;
-                border-radius: 2.5px;
-                min-height: 20px;
-            }
-            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+            }}
+            QScrollBar::handle:vertical {{
+                background: {self.border_col};
+                border-radius: 3px;
+                min-height: 24px;
+            }}
+            QScrollBar::handle:vertical:hover {{
+                background: {self.muted_col};
+            }}
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{
                 height: 0px;
-            }
-            QScrollBar:horizontal {
+            }}
+            QScrollBar:horizontal {{
                 height: 0px;
-            }
+            }}
         """)
 
         self.selected_emoji: Optional[str] = None
@@ -1853,21 +1906,25 @@ class EmojiGifPickerDialog(QDialog):
         layout.setContentsMargins(12, 10, 12, 8)
         layout.setSpacing(8)
 
-        # 1. Üst Kategori Çubuğu (Aktif kategorinin altında yeşil çizgi)
+        # 1. Üst Kategori Çubuğu (Aktif kategorinin altında tema accent renginde çizgi)
         self.top_cat_bar = QHBoxLayout()
         self.top_cat_bar.setSpacing(2)
         self.top_cat_bar.setContentsMargins(0, 0, 0, 0)
         self.top_cat_widgets: List[WhatsAppCategoryTab] = []
         layout.addLayout(self.top_cat_bar)
 
-        # 2. Arama Çubuğu (Yeşil Çerçeveli WhatsApp Pill)
+        # 2. Arama Çubuğu (Temaya Uyumlu Pill)
         self.search_box = QFrame()
-        self.search_box.setStyleSheet("""
-            QFrame {
-                
-                border: 1.5px solid #00a884;
+        self.search_box.setObjectName("search_box")
+        self.search_box.setStyleSheet(f"""
+            QFrame#search_box {{
+                background-color: {self.card_bg};
+                border: 1.5px solid {self.border_col};
                 border-radius: 17px;
-            }
+            }}
+            QFrame#search_box:focus-within {{
+                border: 1.5px solid {self.accent};
+            }}
         """)
         sb_layout = QHBoxLayout(self.search_box)
         sb_layout.setContentsMargins(14, 4, 12, 4)
@@ -1876,14 +1933,17 @@ class EmojiGifPickerDialog(QDialog):
         self.txt_search = QLineEdit()
         self.txt_search.setPlaceholderText("Search GIFs via GIPHY")
         self.txt_search.setClearButtonEnabled(True)
-        self.txt_search.setStyleSheet("""
-            QLineEdit {
+        self.txt_search.setStyleSheet(f"""
+            QLineEdit {{
                 background: transparent;
                 border: none;
-                
+                color: {self.text_col};
                 font-size: 13px;
                 padding-left: 2px;
-            }
+            }}
+            QLineEdit::placeholder {{
+                color: {self.muted_col};
+            }}
         """)
         self.txt_search.returnPressed.connect(self._on_search_triggered)
         self.txt_search.textChanged.connect(self._on_search_text_changed)
@@ -1927,23 +1987,27 @@ class EmojiGifPickerDialog(QDialog):
 
         layout.addWidget(self.stacked, 1)
 
-        # 4. Alt WhatsApp Mod Değiştirici: [ 😄 | GIF ] (Stickers kaldırıldı)
+        # 4. Alt Mod Değiştirici: [ 😄 | GIF ]
         bottom_bar = QHBoxLayout()
         bottom_bar.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         pill = QFrame()
-        pill.setStyleSheet("""
-            QFrame {
-                background-color: rgba(255, 255, 255, 0.05);
-                border: 1px solid rgba(255, 255, 255, 0.12);
+        pill.setObjectName("mode_pill")
+        pill.setStyleSheet(f"""
+            QFrame#mode_pill {{
+                background-color: {self.card_bg};
+                border: 1px solid {self.border_col};
                 border-radius: 17px;
-            }
+            }}
         """)
         pill_layout = QHBoxLayout(pill)
         pill_layout.setContentsMargins(6, 3, 6, 3)
         pill_layout.setSpacing(4)
 
-        self.btn_mode_emoji = QPushButton("😄")
+        self.btn_mode_emoji = QPushButton()
+        self.btn_mode_emoji.setIcon(ModernIconFactory.icon_emoji(self.muted_col))
+        self.btn_mode_emoji.setIconSize(QSize(18, 18))
+        self.btn_mode_emoji.setToolTip("Emoji")
         self.btn_mode_gif = QPushButton("GIF")
 
         for b in [self.btn_mode_emoji, self.btn_mode_gif]:
@@ -1978,47 +2042,60 @@ class EmojiGifPickerDialog(QDialog):
             self.txt_search.setPlaceholderText("Search GIFs via GIPHY")
 
     def _update_pill_styles(self):
-        normal_style = """
-            QPushButton {
+        normal_style = f"""
+            QPushButton {{
                 background: transparent;
                 border: none;
-                color: #94a3b8;
+                color: {self.muted_col};
                 font-size: 13px;
                 font-weight: bold;
-                padding: 4px 14px;
+                padding: 4px 16px;
                 border-radius: 14px;
-            }
-            QPushButton:hover {
-                color: #ffffff;
+            }}
+            QPushButton:hover {{
+                color: {self.text_col};
                 background-color: rgba(255, 255, 255, 0.08);
-            }
+            }}
         """
-        active_style = """
-            QPushButton {
-                background-color: rgba(255, 255, 255, 0.15);
-                border: 1px solid rgba(255, 255, 255, 0.2);
+        active_style = f"""
+            QPushButton {{
+                background-color: {self.accent};
+                border: 1px solid {self.accent};
                 color: #ffffff;
                 font-size: 13px;
                 font-weight: bold;
-                padding: 4px 14px;
+                padding: 4px 16px;
                 border-radius: 14px;
-            }
+            }}
         """
-        self.btn_mode_emoji.setStyleSheet(active_style if self._current_mode == "emoji" else normal_style)
-        self.btn_mode_gif.setStyleSheet(active_style if self._current_mode == "gif" else normal_style)
+        if self._current_mode == "emoji":
+            self.btn_mode_emoji.setIcon(ModernIconFactory.icon_emoji("#ffffff"))
+            self.btn_mode_emoji.setStyleSheet(active_style)
+            self.btn_mode_gif.setStyleSheet(normal_style)
+        else:
+            self.btn_mode_emoji.setIcon(ModernIconFactory.icon_emoji(self.muted_col))
+            self.btn_mode_emoji.setStyleSheet(normal_style)
+            self.btn_mode_gif.setStyleSheet(active_style)
 
     def _rebuild_top_categories(self):
         while self.top_cat_bar.count():
             it = self.top_cat_bar.takeAt(0)
             w = it.widget()
             if w:
-                w.setParent(None)
+                w.hide()
                 w.deleteLater()
         self.top_cat_widgets.clear()
 
         cats = self.EMOJI_CATEGORIES_LIST if self._current_mode == "emoji" else self.GIF_CATEGORIES
         for idx, (cid, icon_text, tt) in enumerate(cats):
-            item = WhatsAppCategoryTab(cid, icon_text, tt)
+            item = WhatsAppCategoryTab(
+                cid,
+                icon_text,
+                LanguageManager.tr(tt) if tt.startswith("emoji_cat_") else tt,
+                accent=self.accent,
+                muted=self.muted_col,
+                text_col=self.text_col
+            )
             item.clicked.connect(self._on_top_category_clicked)
             self.top_cat_bar.addWidget(item)
             self.top_cat_widgets.append(item)
@@ -2063,7 +2140,7 @@ class EmojiGifPickerDialog(QDialog):
             it = self.emoji_grid.takeAt(0)
             w = it.widget()
             if w:
-                w.setParent(None)
+                w.hide()
                 w.deleteLater()
         self._current_emoji_list = emoji_list
         self._rendered_emoji_count = 0
@@ -2092,7 +2169,7 @@ class EmojiGifPickerDialog(QDialog):
                     margin: 0px !important;
                 }
                 QPushButton:hover {
-                    
+                    background-color: rgba(255, 255, 255, 0.12);
                 }
             """)
             btn.clicked.connect(lambda ch, e=em: self._select_emoji(e))
@@ -2221,7 +2298,7 @@ class EmojiGifPickerDialog(QDialog):
 
         for i, url in enumerate(new_urls):
             card_id = start_idx + i
-            card = GifThumbnailCard(url, card_idx=card_id)
+            card = GifThumbnailCard(url, card_idx=card_id, accent=self.accent)
             card.clicked.connect(self._on_gif_card_clicked)
             card.doubleClicked.connect(self._on_gif_card_double_clicked)
 

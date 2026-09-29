@@ -96,8 +96,8 @@ CURSOR_PRESETS = {
 THEME_CURSOR_MAPPINGS = {
     "dark": "apple",
     "vice_city": "vice_city",
-    "gray": "notion",
-    "navy": "vscode",
+    "gray": "apple",
+    "navy": "apple",
     "emerald": "google_docs",
     "purple": "figma",
     "crimson": "canva",
@@ -105,7 +105,7 @@ THEME_CURSOR_MAPPINGS = {
 }
 
 def get_recommended_preset_for_theme(theme_name: str) -> str:
-    """Aktif temaya en uygun popüler imleç setini döner."""
+    """Aktif temaya en uygun popüler imleç setini döner (Varsayılan: Apple)."""
     return THEME_CURSOR_MAPPINGS.get(theme_name, "apple")
 
 

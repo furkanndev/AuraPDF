@@ -944,6 +944,204 @@ class ModernIconFactory:
         return QIcon(pix)
 
     @staticmethod
+    def icon_star(filled: bool = True, color: str = None) -> QIcon:
+        pix, p = ModernIconFactory._base()
+        cx, cy = 13.0, 13.0
+        r_out = 9.0
+        r_in = 4.2
+        path = QPainterPath()
+        for i in range(10):
+            angle = -math.pi / 2.0 + i * (math.pi / 5.0)
+            r = r_out if i % 2 == 0 else r_in
+            x = cx + r * math.cos(angle)
+            y = cy + r * math.sin(angle)
+            if i == 0:
+                path.moveTo(x, y)
+            else:
+                path.lineTo(x, y)
+        path.closeSubpath()
+        stroke_color = QColor(color or ('#facc15' if filled else '#cbd5e1'))
+        fill_color = QColor(color or '#facc15') if filled else QColor(0, 0, 0, 0)
+        p.setPen(QPen(stroke_color, 1.5, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
+        p.setBrush(QBrush(fill_color))
+        p.drawPath(path)
+        p.end()
+        return QIcon(pix)
+
+    @staticmethod
+    def icon_trash(color: str = None) -> QIcon:
+        pix, p = ModernIconFactory._base()
+        col = QColor(color or '#ef4444')
+        p.setPen(QPen(col, 1.4, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
+        p.drawLine(QPointF(6.0, 8.0), QPointF(20.0, 8.0))
+        p.drawLine(QPointF(10.5, 8.0), QPointF(10.5, 6.0))
+        p.drawLine(QPointF(10.5, 6.0), QPointF(15.5, 6.0))
+        p.drawLine(QPointF(15.5, 6.0), QPointF(15.5, 8.0))
+        body = QPainterPath()
+        body.moveTo(7.5, 8.0)
+        body.lineTo(8.5, 20.5)
+        body.lineTo(17.5, 20.5)
+        body.lineTo(18.5, 8.0)
+        p.drawPath(body)
+        p.drawLine(QPointF(11.0, 11.0), QPointF(11.0, 17.5))
+        p.drawLine(QPointF(15.0, 11.0), QPointF(15.0, 17.5))
+        p.end()
+        return QIcon(pix)
+
+    @staticmethod
+    def icon_close(color: str = None) -> QIcon:
+        pix, p = ModernIconFactory._base()
+        col = QColor(color or "#94a3b8")
+        p.setPen(QPen(col, 1.8, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+        p.drawLine(QPointF(8.0, 8.0), QPointF(18.0, 18.0))
+        p.drawLine(QPointF(18.0, 8.0), QPointF(8.0, 18.0))
+        p.end()
+        return QIcon(pix)
+
+    @staticmethod
+    def icon_minus(color: str = None) -> QIcon:
+        pix, p = ModernIconFactory._base()
+        col = QColor(color or "#cbd5e1")
+        p.setPen(QPen(col, 2.0, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+        p.drawLine(QPointF(7.0, 13.0), QPointF(19.0, 13.0))
+        p.end()
+        return QIcon(pix)
+
+    @staticmethod
+    def icon_plus(color: str = None) -> QIcon:
+        pix, p = ModernIconFactory._base()
+        col = QColor(color or "#cbd5e1")
+        p.setPen(QPen(col, 2.0, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+        p.drawLine(QPointF(7.0, 13.0), QPointF(19.0, 13.0))
+        p.drawLine(QPointF(13.0, 7.0), QPointF(13.0, 19.0))
+        p.end()
+        return QIcon(pix)
+
+    @staticmethod
+    def icon_eyedropper(color: str = None) -> QIcon:
+        pix, p = ModernIconFactory._base()
+        col = QColor(color or "#cbd5e1")
+        p.save()
+        p.translate(13, 13)
+        p.rotate(45)
+        p.setPen(QPen(col, 1.4, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
+        p.setBrush(Qt.BrushStyle.NoBrush)
+        p.drawRoundedRect(QRectF(-2.5, -4.0, 5.0, 10.0), 1.0, 1.0)
+        p.setBrush(QBrush(col))
+        p.drawRoundedRect(QRectF(-3.5, -9.0, 7.0, 5.0), 2.0, 2.0)
+        tip = QPainterPath()
+        tip.moveTo(-1.5, 6.0)
+        tip.lineTo(0.0, 9.0)
+        tip.lineTo(1.5, 6.0)
+        p.drawPath(tip)
+        p.restore()
+        p.end()
+        return QIcon(pix)
+
+    @staticmethod
+    def icon_palette_grid(color: str = None) -> QIcon:
+        pix, p = ModernIconFactory._base()
+        p.setPen(QPen(QColor("#475569"), 1.2))
+        p.setBrush(QBrush(QColor(30, 41, 59, 120)))
+        p.drawEllipse(QRectF(3.5, 3.5, 19.0, 19.0))
+        colors = [
+            "#ef4444", "#f97316", "#facc15",
+            "#22c55e", "#06b6d4", "#3b82f6",
+            "#a855f7", "#ec4899", "#f43f5e"
+        ]
+        p.setPen(Qt.PenStyle.NoPen)
+        idx = 0
+        for row in range(3):
+            for col in range(3):
+                cx = 8.5 + col * 4.5
+                cy = 8.5 + row * 4.5
+                p.setBrush(QBrush(QColor(colors[idx % len(colors)])))
+                p.drawEllipse(QPointF(cx, cy), 1.6, 1.6)
+                idx += 1
+        p.end()
+        return QIcon(pix)
+
+    @staticmethod
+    def icon_pen_rack(color: str = None) -> QIcon:
+        pix, p = ModernIconFactory._base()
+        col = QColor(color or "#94a3b8")
+        p.setPen(QPen(col, 1.4, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+        for offset_x in (6.5, 13.0, 19.5):
+            path = QPainterPath()
+            path.moveTo(offset_x - 2.5, 18.0)
+            path.lineTo(offset_x - 2.5, 10.0)
+            path.lineTo(offset_x, 5.0)
+            path.lineTo(offset_x + 2.5, 10.0)
+            path.lineTo(offset_x + 2.5, 18.0)
+            p.drawPath(path)
+        p.end()
+        return QIcon(pix)
+
+    @staticmethod
+    def icon_pen_star(color: str = None, star_color: str = None) -> QIcon:
+        pix, p = ModernIconFactory._base()
+        col = QColor(color or "#cbd5e1")
+        st_col = QColor(star_color or color or "#cbd5e1")
+        p.setPen(QPen(col, 1.5, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
+
+        # Tilted pen shaft and nib (pointing to bottom-left)
+        pen_path = QPainterPath()
+        pen_path.moveTo(6.0, 18.0)
+        pen_path.lineTo(6.5, 14.5)
+        pen_path.lineTo(13.5, 6.0)
+        pen_path.arcTo(QRectF(12.5, 4.0, 6.0, 5.0), 135, 180)
+        pen_path.lineTo(11.0, 15.0)
+        pen_path.lineTo(6.0, 18.0)
+        p.drawPath(pen_path)
+
+        # Star outline at the bottom right
+        p.setPen(QPen(st_col, 1.4, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
+        cx, cy = 16.5, 16.5
+        r_out, r_in = 4.6, 2.1
+        star_path = QPainterPath()
+        for i in range(10):
+            r = r_out if i % 2 == 0 else r_in
+            angle = -math.pi / 2.0 + i * (math.pi / 5.0)
+            x = cx + r * math.cos(angle)
+            y = cy + r * math.sin(angle)
+            if i == 0:
+                star_path.moveTo(x, y)
+            else:
+                star_path.lineTo(x, y)
+        star_path.closeSubpath()
+        p.drawPath(star_path)
+        p.end()
+        return QIcon(pix)
+
+    @staticmethod
+    def icon_brush(color: str = None) -> QIcon:
+        pix, p = ModernIconFactory._base()
+        col = QColor(color or "#38bdf8")
+        # Handle (angled wooden handle from top-right towards center)
+        p.setPen(QPen(QColor("#94a3b8"), 1.8, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+        p.drawLine(QPointF(20.0, 5.0), QPointF(14.0, 11.0))
+        # Ferrule (silver collar)
+        p.setPen(QPen(QColor("#cbd5e1"), 2.2, Qt.PenStyle.SolidLine, Qt.PenCapStyle.SquareCap))
+        p.drawLine(QPointF(13.5, 11.5), QPointF(11.5, 13.5))
+        # Brush head / bristles (accent colored)
+        path = QPainterPath()
+        path.moveTo(11.5, 13.5)
+        path.lineTo(7.5, 17.5)
+        path.quadTo(5.0, 20.0, 5.5, 20.5)
+        path.quadTo(6.0, 21.0, 8.5, 18.5)
+        path.lineTo(13.5, 11.5)
+        path.closeSubpath()
+        p.setBrush(QBrush(col))
+        p.setPen(QPen(col, 1.0, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
+        p.drawPath(path)
+        # Small paint dab at the tip
+        p.setBrush(QBrush(col))
+        p.setPen(Qt.PenStyle.NoPen)
+        p.drawEllipse(QRectF(4.0, 19.5, 3.0, 3.0))
+        p.end()
+        return QIcon(pix)
+
+    @staticmethod
     def icon_attachment():
         pix, p = ModernIconFactory._base()
         p.save()
@@ -1038,25 +1236,183 @@ class ModernIconFactory:
         return QIcon(pix)
 
     @staticmethod
-    def icon_emoji():
+    def icon_emoji(color: str = None) -> QIcon:
         pix, p = ModernIconFactory._base()
-        accent = QColor("#f59e0b")
-        # Face circle
-        p.setPen(QPen(accent, 1.6, Qt.PenStyle.SolidLine))
+        col = QColor(color or "#e2e8f0")
+        accent = QColor("#f59e0b") if not color else col
+        # Crisp modern vector outline circle
+        p.setPen(QPen(col, 1.6, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
         p.setBrush(Qt.BrushStyle.NoBrush)
-        p.drawEllipse(QRectF(4.5, 4.5, 17.0, 17.0))
+        p.drawEllipse(QRectF(4.0, 4.0, 18.0, 18.0))
         # Eyes
-        p.setBrush(QBrush(accent))
         p.setPen(Qt.PenStyle.NoPen)
-        p.drawEllipse(QRectF(8.5, 9.5, 2.2, 2.8))
-        p.drawEllipse(QRectF(15.3, 9.5, 2.2, 2.8))
-        # Smiling mouth curve
+        p.setBrush(QBrush(accent))
+        p.drawEllipse(QRectF(8.2, 9.2, 2.3, 2.5))
+        p.drawEllipse(QRectF(15.5, 9.2, 2.3, 2.5))
+        # Crisp vector smile curve
         p.setBrush(Qt.BrushStyle.NoBrush)
-        p.setPen(QPen(accent, 1.5, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+        p.setPen(QPen(accent, 1.5, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
         path = QPainterPath()
-        path.arcMoveTo(QRectF(8.0, 11.5, 10.0, 7.0), 210)
-        path.arcTo(QRectF(8.0, 11.5, 10.0, 7.0), 210, 120)
+        path.moveTo(8.5, 14.5)
+        path.quadTo(13.0, 18.5, 17.5, 14.5)
         p.drawPath(path)
+        p.end()
+        return QIcon(pix)
+
+    @staticmethod
+    def icon_menu_voice_recording(color: str = None) -> QIcon:
+        pix, p = ModernIconFactory._base()
+        col = QColor(color or "#f1f5f9")
+        pen = QPen(col, 1.6, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin)
+        p.setPen(pen)
+        p.setBrush(Qt.BrushStyle.NoBrush)
+        p.drawRoundedRect(QRectF(10.0, 4.0, 6.0, 11.0), 3.0, 3.0)
+        path = QPainterPath()
+        path.arcMoveTo(QRectF(7.0, 7.0, 12.0, 10.5), 190)
+        path.arcTo(QRectF(7.0, 7.0, 12.0, 10.5), 190, 160)
+        p.drawPath(path)
+        p.drawLine(QPointF(13.0, 17.5), QPointF(13.0, 21.0))
+        p.drawLine(QPointF(9.5, 21.0), QPointF(16.5, 21.0))
+        p.end()
+        return QIcon(pix)
+
+    @staticmethod
+    def icon_menu_image(color: str = None) -> QIcon:
+        pix, p = ModernIconFactory._base()
+        col = QColor(color or "#f1f5f9")
+        pen = QPen(col, 1.5, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin)
+        p.setPen(pen)
+        p.setBrush(Qt.BrushStyle.NoBrush)
+        p.drawRoundedRect(QRectF(3.5, 4.5, 19.0, 17.0), 3.0, 3.0)
+        p.drawEllipse(QRectF(14.8, 7.5, 3.4, 3.4))
+        m = QPainterPath()
+        m.moveTo(3.5, 18.0)
+        m.lineTo(8.5, 12.5)
+        m.lineTo(13.0, 16.5)
+        m.lineTo(16.0, 13.5)
+        m.lineTo(22.5, 18.5)
+        p.drawPath(m)
+        p.end()
+        return QIcon(pix)
+
+    @staticmethod
+    def icon_menu_camera(color: str = None) -> QIcon:
+        pix, p = ModernIconFactory._base()
+        col = QColor(color or "#f1f5f9")
+        pen = QPen(col, 1.5, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin)
+        p.setPen(pen)
+        p.setBrush(Qt.BrushStyle.NoBrush)
+        p.drawRoundedRect(QRectF(3.5, 7.5, 19.0, 14.0), 3.0, 3.0)
+        p.drawRoundedRect(QRectF(8.0, 5.0, 5.0, 3.0), 1.0, 1.0)
+        p.drawEllipse(QRectF(9.5, 11.0, 7.0, 7.0))
+        p.setBrush(QBrush(col))
+        p.setPen(Qt.PenStyle.NoPen)
+        p.drawEllipse(QRectF(12.0, 13.5, 2.0, 2.0))
+        p.end()
+        return QIcon(pix)
+
+    @staticmethod
+    def icon_menu_scan(color: str = None) -> QIcon:
+        pix, p = ModernIconFactory._base()
+        col = QColor(color or "#f1f5f9")
+        pen = QPen(col, 1.5, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin)
+        p.setPen(pen)
+        p.setBrush(Qt.BrushStyle.NoBrush)
+        p.drawLine(QPointF(4.0, 8.5), QPointF(4.0, 5.0))
+        p.drawLine(QPointF(4.0, 5.0), QPointF(7.5, 5.0))
+        p.drawLine(QPointF(18.5, 5.0), QPointF(22.0, 5.0))
+        p.drawLine(QPointF(22.0, 5.0), QPointF(22.0, 8.5))
+        p.drawLine(QPointF(4.0, 17.5), QPointF(4.0, 21.0))
+        p.drawLine(QPointF(4.0, 21.0), QPointF(7.5, 21.0))
+        p.drawLine(QPointF(18.5, 21.0), QPointF(22.0, 21.0))
+        p.drawLine(QPointF(22.0, 21.0), QPointF(22.0, 17.5))
+        p.drawRoundedRect(QRectF(8.0, 8.0, 10.0, 10.0), 1.5, 1.5)
+        p.drawLine(QPointF(10.5, 11.0), QPointF(15.5, 11.0))
+        p.drawLine(QPointF(10.5, 14.0), QPointF(13.5, 14.0))
+        p.end()
+        return QIcon(pix)
+
+    @staticmethod
+    def icon_menu_audio(color: str = None) -> QIcon:
+        pix, p = ModernIconFactory._base()
+        col = QColor(color or "#f1f5f9")
+        pen = QPen(col, 1.6, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin)
+        p.setPen(pen)
+        p.setBrush(Qt.BrushStyle.NoBrush)
+        p.save()
+        p.translate(8.5, 17.0)
+        p.rotate(-25)
+        p.setBrush(QBrush(col))
+        p.drawEllipse(QRectF(-3.2, -2.2, 6.4, 4.4))
+        p.restore()
+        p.drawLine(QPointF(11.5, 16.5), QPointF(11.5, 5.5))
+        path = QPainterPath()
+        path.moveTo(11.5, 5.5)
+        path.cubicTo(16.5, 7.0, 18.0, 11.0, 17.0, 13.5)
+        p.drawPath(path)
+        p.end()
+        return QIcon(pix)
+
+    @staticmethod
+    def icon_menu_drawing(color: str = None) -> QIcon:
+        pix, p = ModernIconFactory._base()
+        col = QColor(color or "#f1f5f9")
+        pen = QPen(col, 1.5, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin)
+        p.setPen(pen)
+        p.setBrush(Qt.BrushStyle.NoBrush)
+        path = QPainterPath()
+        path.moveTo(6.0, 12.0)
+        path.cubicTo(4.0, 6.0, 12.0, 3.5, 18.0, 6.0)
+        path.cubicTo(23.0, 8.0, 23.0, 16.0, 18.0, 19.5)
+        path.cubicTo(14.0, 22.0, 12.0, 17.0, 9.0, 17.0)
+        path.cubicTo(6.5, 17.0, 7.0, 15.0, 6.0, 12.0)
+        p.drawPath(path)
+        p.drawEllipse(QRectF(15.0, 13.5, 3.0, 3.0))
+        p.drawEllipse(QRectF(9.0, 7.5, 2.0, 2.0))
+        p.drawEllipse(QRectF(14.0, 7.0, 2.0, 2.0))
+        p.drawEllipse(QRectF(8.0, 12.0, 2.0, 2.0))
+        p.end()
+        return QIcon(pix)
+
+    @staticmethod
+    def icon_menu_sticky_note(color: str = None) -> QIcon:
+        pix, p = ModernIconFactory._base()
+        col = QColor(color or "#f1f5f9")
+        pen = QPen(col, 1.5, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin)
+        p.setPen(pen)
+        p.setBrush(Qt.BrushStyle.NoBrush)
+        path = QPainterPath()
+        path.moveTo(4.5, 7.0)
+        path.quadTo(4.5, 4.5, 7.0, 4.5)
+        path.lineTo(19.0, 4.5)
+        path.quadTo(21.5, 4.5, 21.5, 7.0)
+        path.lineTo(21.5, 14.5)
+        path.lineTo(15.5, 20.5)
+        path.lineTo(7.0, 20.5)
+        path.quadTo(4.5, 20.5, 4.5, 18.0)
+        path.closeSubpath()
+        p.drawPath(path)
+        flap = QPainterPath()
+        flap.moveTo(15.5, 20.5)
+        flap.lineTo(15.5, 15.0)
+        flap.quadTo(15.5, 14.5, 16.0, 14.5)
+        flap.lineTo(21.5, 14.5)
+        p.drawPath(flap)
+        p.end()
+        return QIcon(pix)
+
+    @staticmethod
+    def icon_menu_table(color: str = None) -> QIcon:
+        pix, p = ModernIconFactory._base()
+        col = QColor(color or "#f1f5f9")
+        pen = QPen(col, 1.5, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin)
+        p.setPen(pen)
+        p.setBrush(Qt.BrushStyle.NoBrush)
+        p.drawRoundedRect(QRectF(4.0, 5.0, 18.0, 16.0), 2.5, 2.5)
+        p.drawLine(QPointF(4.0, 10.5), QPointF(22.0, 10.5))
+        p.drawLine(QPointF(4.0, 15.5), QPointF(22.0, 15.5))
+        p.drawLine(QPointF(10.0, 5.0), QPointF(10.0, 21.0))
+        p.drawLine(QPointF(16.0, 5.0), QPointF(16.0, 21.0))
         p.end()
         return QIcon(pix)
 

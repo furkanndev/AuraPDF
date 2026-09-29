@@ -12,7 +12,7 @@ import pymupdf as fitz
 from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
                              QLabel, QLineEdit, QToolButton, QMessageBox, 
                              QFileDialog, QMenu, QStackedLayout, QSizePolicy, QLayout, QDialog, QApplication)
-from PyQt6.QtGui import (QIcon, QIntValidator, QShortcut, QKeySequence, QColor, QPen)
+from PyQt6.QtGui import (QIcon, QIntValidator, QShortcut, QKeySequence, QColor, QPen, QBrush)
 from PyQt6.QtCore import Qt, QPoint, QSettings, QTimer, QEvent
 
 from src.core.i18n import LanguageManager
@@ -285,7 +285,7 @@ class ModernPDFViewer(QMainWindow):
     def _init_shortcuts(self):
         # Statik global kısayollar
         QShortcut(QKeySequence("Escape"), self, activated=self.exit_to_select_mode)
-        QShortcut(QKeySequence("Ctrl+N"), self, activated=self.new_blank_document)
+        QShortcut(QKeySequence("Ctrl+N"), self, activated=lambda: self.show_new_page_dialog(force_new_doc=True))
         QShortcut(QKeySequence("Ctrl+O"), self, activated=self.open_pdf)
         QShortcut(QKeySequence("Ctrl+F"), self, activated=self.toggle_search_bar)
         QShortcut(QKeySequence("F3"), self, activated=self.find_next)
@@ -709,38 +709,67 @@ class ModernPDFViewer(QMainWindow):
 
         insert_menu = QMenu(self.btn_insert)
         insert_menu.setStyleSheet("""
-            QMenu { background-color: #242426; color: #f1f5f9; border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 6px; padding: 4px; }
-            QMenu::item { padding: 6px 20px; border-radius: 4px; }
-            QMenu::item:selected { background-color: #0284c7; color: #ffffff; }
+            QMenu {
+                background-color: #1f1f23;
+                color: #f1f5f9;
+                border: 1px solid rgba(255, 255, 255, 0.12);
+                border-radius: 10px;
+                padding: 6px 4px;
+            }
+            QMenu::item {
+                padding: 8px 22px 8px 14px;
+                border-radius: 6px;
+                font-size: 13px;
+                font-weight: 500;
+                margin: 1px 4px;
+            }
+            QMenu::item:selected {
+                background-color: rgba(255, 255, 255, 0.08);
+                color: #ffffff;
+            }
+            QMenu::separator {
+                height: 1px;
+                background-color: rgba(255, 255, 255, 0.1);
+                margin: 4px 10px;
+            }
         """)
 
         self.menu_insert_blank = None
         self.insert_blank_actions = []
 
-        act_table = insert_menu.addAction(ModernIconFactory.icon_table(), "  " + LanguageManager.tr("insert_table"))
-        act_table.triggered.connect(self.show_insert_table_dialog)
-
-        act_emoji = insert_menu.addAction(ModernIconFactory.icon_emoji(), "  " + LanguageManager.tr("insert_emoji"))
-        act_emoji.triggered.connect(self.show_insert_emoji_dialog)
+        # 1. Voice recording
+        act_voice_rec = insert_menu.addAction(ModernIconFactory.icon_menu_voice_recording(), "  " + LanguageManager.tr("insert_voice_recording"))
+        act_voice_rec.triggered.connect(self.show_insert_audio_dialog)
 
         insert_menu.addSeparator()
 
-        act_img = insert_menu.addAction(ModernIconFactory.icon_image(), "  " + LanguageManager.tr("insert_image"))
+        # 2. Image
+        act_img = insert_menu.addAction(ModernIconFactory.icon_menu_image(), "  " + LanguageManager.tr("insert_image"))
         act_img.triggered.connect(lambda: self.show_insert_image_dialog(default_tab=0))
 
-        insert_menu.addSeparator()
+        # 3. Camera / Video
+        act_camera = insert_menu.addAction(ModernIconFactory.icon_menu_camera(), "  " + LanguageManager.tr("insert_camera"))
+        act_camera.triggered.connect(self.show_insert_video_dialog)
 
-        act_audio = insert_menu.addAction(ModernIconFactory.icon_mic(), "  " + LanguageManager.tr("insert_audio"))
-        act_audio.triggered.connect(self.show_insert_audio_dialog)
+        # 4. Audio file
+        act_audio_file = insert_menu.addAction(ModernIconFactory.icon_menu_audio(), "  " + LanguageManager.tr("insert_audio_file"))
+        act_audio_file.triggered.connect(self.show_insert_audio_file_picker)
 
-        act_video = insert_menu.addAction(ModernIconFactory.icon_video(), "  " + LanguageManager.tr("insert_video"))
-        act_video.triggered.connect(self.show_insert_video_dialog)
+        # 5. GIF & Emoji
+        act_drawing = insert_menu.addAction(ModernIconFactory.icon_menu_drawing(), "  " + LanguageManager.tr("insert_drawing"))
+        act_drawing.triggered.connect(self.show_insert_emoji_dialog)
 
-        self.act_insert_table = act_table
-        self.act_insert_emoji = act_emoji
+        # 6. Table
+        act_table = insert_menu.addAction(ModernIconFactory.icon_menu_table(), "  " + LanguageManager.tr("insert_table"))
+        act_table.triggered.connect(self.show_insert_table_dialog)
+
+        self.act_voice_rec = act_voice_rec
         self.act_insert_img = act_img
-        self.act_insert_audio = act_audio
-        self.act_insert_video = act_video
+        self.act_camera = act_camera
+        self.act_audio_file = act_audio_file
+        self.act_drawing = act_drawing
+        self.act_insert_emoji = act_drawing
+        self.act_insert_table = act_table
 
         self.btn_insert.setMenu(insert_menu)
         self._add_toolbar_widget(self.btn_insert, "btn_insert")
@@ -1121,6 +1150,33 @@ class ModernPDFViewer(QMainWindow):
                 QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {{ width: 0px; }}
             """)
 
+        if hasattr(self, 'btn_insert') and hasattr(self.btn_insert, 'menu') and self.btn_insert.menu():
+            self.btn_insert.menu().setStyleSheet(f"""
+                QMenu {{
+                    background-color: {spec['tb_bg']};
+                    color: {spec['main_text']};
+                    border: 1px solid rgba(255, 255, 255, 0.12);
+                    border-radius: 10px;
+                    padding: 6px 4px;
+                }}
+                QMenu::item {{
+                    padding: 8px 22px 8px 14px;
+                    border-radius: 6px;
+                    font-size: 13px;
+                    font-weight: 500;
+                    margin: 1px 4px;
+                }}
+                QMenu::item:selected {{
+                    background-color: {spec['accent']};
+                    color: #ffffff;
+                }}
+                QMenu::separator {{
+                    height: 1px;
+                    background-color: {spec['tb_border']};
+                    margin: 4px 10px;
+                }}
+            """)
+
         if hasattr(self, 'lbl_zoom') and hasattr(self.lbl_zoom, 'apply_theme'):
             self.lbl_zoom.apply_theme(theme_name)
 
@@ -1238,16 +1294,24 @@ class ModernPDFViewer(QMainWindow):
         if hasattr(self, 'insert_blank_actions') and self.insert_blank_actions:
             for act, key in self.insert_blank_actions:
                 act.setText(LanguageManager.tr(key))
-        if hasattr(self, 'act_insert_table'):
-            self.act_insert_table.setText("  " + LanguageManager.tr("insert_table"))
-        if hasattr(self, 'act_insert_emoji'):
-            self.act_insert_emoji.setText("  " + LanguageManager.tr("insert_emoji"))
+        if hasattr(self, 'act_voice_rec'):
+            self.act_voice_rec.setText("  " + LanguageManager.tr("insert_voice_recording"))
         if hasattr(self, 'act_insert_img'):
             self.act_insert_img.setText("  " + LanguageManager.tr("insert_image"))
+        if hasattr(self, 'act_camera'):
+            self.act_camera.setText("  " + LanguageManager.tr("insert_camera"))
+        if hasattr(self, 'act_audio_file'):
+            self.act_audio_file.setText("  " + LanguageManager.tr("insert_audio_file"))
+        if hasattr(self, 'act_drawing'):
+            self.act_drawing.setText("  " + LanguageManager.tr("insert_drawing"))
+        if hasattr(self, 'act_insert_emoji'):
+            self.act_insert_emoji.setText("  " + LanguageManager.tr("insert_drawing"))
+        if hasattr(self, 'act_insert_table'):
+            self.act_insert_table.setText("  " + LanguageManager.tr("insert_table"))
         if hasattr(self, 'act_insert_audio'):
-            self.act_insert_audio.setText("  " + LanguageManager.tr("insert_audio"))
+            self.act_insert_audio.setText("  " + LanguageManager.tr("insert_voice_recording"))
         if hasattr(self, 'act_insert_video'):
-            self.act_insert_video.setText("  " + LanguageManager.tr("insert_video"))
+            self.act_insert_video.setText("  " + LanguageManager.tr("insert_camera"))
 
         for popup_name in ('cursor_popup', 'hl_popup', 'pen_popup', 'eraser_popup', 'text_popup', 'selection_popup', 'pointer_popup', 'hl_ruler_popup', 'ruler_popup'):
             if hasattr(self, popup_name):
@@ -1410,10 +1474,13 @@ class ModernPDFViewer(QMainWindow):
             self.txt_page.setText(str(len(tab_doc.doc)))
         self.statusBar().showMessage(LanguageManager.tr("blank_page_added", page=len(tab_doc.doc)), 3000)
 
-    def new_blank_document(self, template_type="blank", width=None, height=None):
+    def new_blank_document(self, template_type=None, width=None, height=None, create_page=True):
         try:
+            if template_type is None:
+                settings = QSettings("AuraPDF", "PDFViewer")
+                template_type = settings.value("default_page_template", "blank")
             self.new_doc_counter += 1
-            tab_doc = PDFTabDocument(None, self, initial_style=template_type, initial_width=width, initial_height=height)
+            tab_doc = PDFTabDocument(None, self, initial_style=template_type, initial_width=width, initial_height=height, create_initial_page=create_page)
             view_bg = self.get_theme_view_bg()
             tab_doc.view.setStyleSheet(f"background-color: {view_bg}; border: none;")
             title = LanguageManager.tr("untitled_numbered", n=self.new_doc_counter)
@@ -1423,14 +1490,27 @@ class ModernPDFViewer(QMainWindow):
             tab_doc.update_tab_title()
             self.update_view_mode_button()
             self.lbl_zoom.setText(f" {LanguageManager.tr('percent_format', val=int(tab_doc.zoom_level * 100))} ")
-            self.statusBar().showMessage(LanguageManager.tr("blank_page_added", page=1), 3000)
+            total_pages = len(tab_doc.doc) if tab_doc.doc is not None else 0
+            if hasattr(self, 'lbl_total') and self.lbl_total:
+                self.lbl_total.setText(LanguageManager.tr("page_of", total=total_pages))
+            if hasattr(self, 'txt_page') and self.txt_page:
+                self.txt_page.setText(str(total_pages if total_pages > 0 else 0))
+            if total_pages > 0:
+                self.statusBar().showMessage(LanguageManager.tr("blank_page_added", page=total_pages), 3000)
+            else:
+                self.statusBar().showMessage(LanguageManager.tr("new_blank_doc_created"), 3000)
+            if hasattr(self, 'thumbnails_dock') and self.thumbnails_dock:
+                self.thumbnails_dock.load_thumbnails_lazy()
         except Exception as e:
             QMessageBox.critical(self, LanguageManager.tr("error"), str(e))
 
-    def show_new_page_dialog(self, default_style: str = "blank", force_new_doc: bool = False):
+    def show_new_page_dialog(self, default_style: Optional[str] = None, force_new_doc: bool = False):
         """Kullanıcının görsel şablon kartları arasından stil, yön, boyut ve konum
         seçerek sayfalar eklemesini veya yeni belge oluşturmasını sağlar."""
         try:
+            if default_style is None:
+                settings = QSettings("AuraPDF", "PDFViewer")
+                default_style = settings.value("default_page_template", "blank")
             from src.ui.dialogs.new_page_dialog import NewPageDialog
             dlg = NewPageDialog(self, default_style=default_style, force_new_doc=force_new_doc)
             if dlg.exec():
@@ -1446,7 +1526,7 @@ class ModernPDFViewer(QMainWindow):
                     # Yeni belge oluştur
                     for i in range(count):
                         if i == 0:
-                            self.new_blank_document(template_type=style, width=w, height=h)
+                            self.new_blank_document(template_type=style, width=w, height=h, create_page=True)
                         else:
                             curr_tab = self.get_current_tab_doc()
                             if curr_tab and curr_tab.doc is not None:
@@ -1470,6 +1550,26 @@ class ModernPDFViewer(QMainWindow):
                     if hasattr(self, 'txt_page') and self.txt_page:
                         self.txt_page.setText(str(target_page + 1))
                     self.statusBar().showMessage(LanguageManager.tr("blank_page_added", page=target_page + 1), 3000)
+        except Exception as e:
+            QMessageBox.critical(self, LanguageManager.tr("error"), str(e))
+
+    def show_change_page_style_dialog(self, page_idx: Optional[int] = None):
+        """Mevcut sayfanın veya tüm sayfaların şablonunu değiştirmek için diyalog açar."""
+        tab_doc = self.get_current_tab_doc()
+        if not tab_doc or tab_doc.doc is None or len(tab_doc.doc) == 0:
+            QMessageBox.information(self, LanguageManager.tr("info"), LanguageManager.tr("no_active_tab"))
+            return
+        if page_idx is None:
+            page_idx = tab_doc.current_page_idx
+
+        try:
+            from src.ui.dialogs.new_page_dialog import ChangePageStyleDialog
+            dlg = ChangePageStyleDialog(self, current_page_idx=page_idx, total_pages=len(tab_doc.doc))
+            if dlg.exec():
+                new_style, all_pages = dlg.get_selected_style()
+                tab_doc.change_page_style(page_idx, new_style, all_pages=all_pages)
+                msg = LanguageManager.tr("page_style_changed_all", style=new_style) if all_pages else LanguageManager.tr("page_style_changed_single", page=page_idx + 1, style=new_style)
+                self.statusBar().showMessage(msg, 3500)
         except Exception as e:
             QMessageBox.critical(self, LanguageManager.tr("error"), str(e))
 
@@ -1599,15 +1699,23 @@ class ModernPDFViewer(QMainWindow):
         hl_col = getattr(self.hl_popup, 'color', None)
         pointer_col = getattr(self.pointer_popup, 'color', None) if hasattr(self, 'pointer_popup') else None
 
+        hl_type = getattr(self.hl_popup, 'hl_type', 'highlighter') if hasattr(self, 'hl_popup') else 'highlighter'
+        hl_cursor_style = "figma_marker" if hl_type == 'marker' else None
+        pointer_popup = getattr(self, 'pointer_popup', None)
+        if pointer_popup and getattr(pointer_popup, 'mode', 'single') == 'rainbow':
+            pointer_cursor = CursorFactory.get_pointer_cursor(QColor("#7289FF"))
+        else:
+            pointer_cursor = CursorFactory.get_pointer_cursor(pointer_col)
+
         cursors = {
             'select': Qt.CursorShape.ArrowCursor,
             'pan': CursorFactory.get_pan_cursor(),
             'pen': CursorFactory.get_pen_cursor(pen_col),
-            'highlighter': CursorFactory.get_highlighter_cursor(hl_col),
+            'highlighter': CursorFactory.get_highlighter_cursor(hl_col, style=hl_cursor_style),
             'eraser': CursorFactory.get_eraser_cursor(self.eraser_popup.thickness, self.eraser_popup.eraser_mode),
             'text': CursorFactory.get_text_cursor(),
             'selection_tool': CursorFactory.get_selection_cursor(self.selection_shape_mode),
-            'pointer': CursorFactory.get_pointer_cursor(pointer_col),
+            'pointer': pointer_cursor,
             'ruler': CursorFactory.get_ruler_cursor()
         }
         vp.setCursor(cursors.get(self.current_tool, Qt.CursorShape.ArrowCursor))
@@ -1615,6 +1723,8 @@ class ModernPDFViewer(QMainWindow):
     def get_current_pen(self):
         if self.current_tool == 'pen':
             st = getattr(self.pen_popup, 'line_style', 'solid')
+            p_type = getattr(self.pen_popup, 'current_pen_type', 'solid')
+            is_pencil = (p_type == 'pencil' or st == 'pencil')
             style = Qt.PenStyle.SolidLine
             cap = Qt.PenCapStyle.RoundCap
             join = Qt.PenJoinStyle.RoundJoin
@@ -1627,12 +1737,36 @@ class ModernPDFViewer(QMainWindow):
             elif st == 'calligraphy':
                 cap = Qt.PenCapStyle.FlatCap
                 join = Qt.PenJoinStyle.MiterJoin
+            elif st in ('pencil', 'brush') or is_pencil:
+                cap = Qt.PenCapStyle.RoundCap
+                join = Qt.PenJoinStyle.RoundJoin
+
+            if is_pencil:
+                from src.document.tab_document import get_graphite_lead_texture
+                tex = get_graphite_lead_texture(self.pen_popup.color)
+                pen = QPen(QBrush(tex), self.pen_popup.thickness, Qt.PenStyle.SolidLine, cap, join)
+                if st == 'dash':
+                    pen.setStyle(Qt.PenStyle.CustomDashLine)
+                    pen.setDashPattern([2.2, 1.5])
+                elif st == 'dot':
+                    pen.setStyle(Qt.PenStyle.CustomDashLine)
+                    pen.setDashPattern([0.01, 1.9])
+                elif st == 'dashdot':
+                    pen.setStyle(Qt.PenStyle.CustomDashLine)
+                    pen.setDashPattern([2.2, 1.4, 0.01, 1.4])
+                return pen
+
             return QPen(self.pen_popup.color, self.pen_popup.thickness, style, cap, join)
         elif self.current_tool == 'highlighter':
+            hl_type = getattr(self.hl_popup, 'hl_type', 'highlighter') if hasattr(self, 'hl_popup') else 'highlighter'
             st = getattr(self.hl_popup, 'line_style', 'solid')
             style = Qt.PenStyle.SolidLine
-            cap = Qt.PenCapStyle.SquareCap
-            join = Qt.PenJoinStyle.BevelJoin
+            if hl_type == 'marker':
+                cap = Qt.PenCapStyle.RoundCap
+                join = Qt.PenJoinStyle.RoundJoin
+            else:
+                cap = Qt.PenCapStyle.SquareCap
+                join = Qt.PenJoinStyle.BevelJoin
             if st == 'dash':
                 style = Qt.PenStyle.DashLine
             elif st == 'dot':
@@ -1642,9 +1776,6 @@ class ModernPDFViewer(QMainWindow):
             elif st == 'calligraphy':
                 cap = Qt.PenCapStyle.FlatCap
                 join = Qt.PenJoinStyle.MiterJoin
-            elif st == 'solid':
-                cap = Qt.PenCapStyle.SquareCap
-                join = Qt.PenJoinStyle.BevelJoin
             return QPen(self.hl_popup.color, self.hl_popup.thickness, style, cap, join)
         return QPen()
 
@@ -1886,6 +2017,47 @@ class ModernPDFViewer(QMainWindow):
                     title=title or "Video"
                 )
 
+    def show_insert_audio_file_picker(self):
+        tab_doc = self.get_current_tab_doc()
+        if not tab_doc or not tab_doc.doc or len(tab_doc.doc) == 0:
+            QMessageBox.warning(self, LanguageManager.tr("warning"), "Lütfen önce bir PDF belgesi açın.")
+            return
+        from PyQt6.QtWidgets import QFileDialog
+        path, _ = QFileDialog.getOpenFileName(
+            self,
+            LanguageManager.tr("insert_audio_file"),
+            "",
+            "Audio Files (*.mp3 *.wav *.m4a *.aac *.ogg *.flac);;All Files (*.*)"
+        )
+        if path and os.path.isfile(path):
+            try:
+                with open(path, "rb") as f:
+                    audio_bytes = f.read()
+                filename = os.path.basename(path)
+                ext = os.path.splitext(filename)[1].lstrip('.').lower() or "mp3"
+                tab_doc.add_audio(
+                    audio_bytes=audio_bytes,
+                    title=filename,
+                    duration_sec=0.0,
+                    format=ext
+                )
+            except Exception as e:
+                QMessageBox.warning(self, LanguageManager.tr("warning"), f"Ses dosyası eklenemedi: {e}")
+
+    def insert_sticky_note(self):
+        tab_doc = self.get_current_tab_doc()
+        if not tab_doc or not tab_doc.doc or len(tab_doc.doc) == 0:
+            QMessageBox.warning(self, LanguageManager.tr("warning"), "Lütfen önce bir PDF belgesi açın.")
+            return
+        self.set_tool_state('text')
+        center_scene = tab_doc.view.mapToScene(tab_doc.view.viewport().rect().center())
+        page_idx = tab_doc.current_page_idx
+        for p_i, p_b in tab_doc.page_positions.items():
+            if p_b['top'] <= center_scene.y() <= p_b['bottom']:
+                page_idx = p_i
+                break
+        tab_doc.create_inline_text(center_scene, page_idx)
+
     def show_toolbox_menu(self):
         menu = QMenu(self)
         def add_section_label(m, text):
@@ -1968,7 +2140,7 @@ class ModernPDFViewer(QMainWindow):
         act_epub = menu.addAction(ModernIconFactory.icon_epub(), LanguageManager.tr("epub_action"))
         act_mobi = menu.addAction(ModernIconFactory.icon_mobi(), LanguageManager.tr("mobi_action"))
 
-        act_new_blank.triggered.connect(self.new_blank_document)
+        act_new_blank.triggered.connect(lambda checked=False: self.show_new_page_dialog(force_new_doc=True))
         act_content_editor.triggered.connect(self.open_pdf_content_editor)
         act_ocr.triggered.connect(self.open_pdf_ocr_dialog)
         act_redact.triggered.connect(self.open_pdf_redaction_dialog)
