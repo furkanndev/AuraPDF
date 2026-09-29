@@ -5520,7 +5520,8 @@ class PDFWatermarkDialog(QDialog):
         self.rad_all_pages = QRadioButton(LanguageManager.tr("watermark_pages_all"))
         self.rad_all_pages.setChecked(True)
         tab_doc_init = getattr(self.main_window, 'get_current_tab_doc', lambda: None)()
-        cur_p_init = (tab_doc_init.current_page + 1) if (tab_doc_init and tab_doc_init.doc and len(tab_doc_init.doc) > 0) else 1
+        cur_p_idx = getattr(tab_doc_init, 'current_page_idx', getattr(tab_doc_init, 'current_page', 0)) if tab_doc_init else 0
+        cur_p_init = (cur_p_idx + 1) if (tab_doc_init and tab_doc_init.doc and len(tab_doc_init.doc) > 0) else 1
         self.rad_current_page = QRadioButton(f"{LanguageManager.tr('watermark_pages_current', default='Yalnızca Mevcut Sayfa')} ({cur_p_init})")
         self.rad_first_page = QRadioButton(LanguageManager.tr("watermark_pages_first"))
         self.rad_custom_pages = QRadioButton(LanguageManager.tr("watermark_pages_custom"))
@@ -5789,7 +5790,7 @@ class PDFWatermarkDialog(QDialog):
         self.lbl_preview.positionChanged.connect(lambda pos: self.update_preview())
         v_box.addWidget(self.lbl_preview)
         v_prev.addWidget(frame_box)
-        self.preview_current_page = 0
+        self.preview_current_page = getattr(tab_doc_init, 'current_page_idx', getattr(tab_doc_init, 'current_page', 0)) if tab_doc_init else 0
         self.preview_total_pages  = 1
         h_nav = QHBoxLayout()
         h_nav.setSpacing(6)
@@ -5968,7 +5969,7 @@ class PDFWatermarkDialog(QDialog):
         norm_pos = getattr(self.lbl_preview, 'norm_pos', QPointF(0.5, 0.5))
 
         tab_doc = getattr(self.main_window, 'get_current_tab_doc', lambda: None)()
-        curr_p_idx = getattr(tab_doc, 'current_page', 0) if tab_doc else 0
+        curr_p_idx = getattr(tab_doc, 'current_page_idx', getattr(tab_doc, 'current_page', 0)) if tab_doc else 0
 
         pages_mode = "all"
         if hasattr(self, 'rad_current_page') and self.rad_current_page.isChecked():
@@ -6681,7 +6682,7 @@ class PDFWatermarkDialog(QDialog):
 
                 old_bytes = tab_doc.doc.tobytes()
                 old_drawings = [dict(d) for d in getattr(tab_doc, 'drawings', [])]
-                old_page = getattr(tab_doc, 'current_page', 0)
+                old_page = getattr(tab_doc, 'current_page_idx', getattr(tab_doc, 'current_page', 0))
                 old_has_watermark = getattr(tab_doc, 'has_watermark', False)
                 old_settings = copy.deepcopy(getattr(tab_doc, 'watermark_settings', None))
                 old_pre_bytes = getattr(tab_doc, 'pre_watermark_bytes', None)
@@ -6772,7 +6773,7 @@ class PDFWatermarkDialog(QDialog):
             if is_active_tab and tab_doc and tab_doc.doc:
                 old_bytes = tab_doc.doc.tobytes()
                 old_drawings = [dict(d) for d in getattr(tab_doc, 'drawings', [])]
-                old_page = getattr(tab_doc, 'current_page', 0)
+                old_page = getattr(tab_doc, 'current_page_idx', getattr(tab_doc, 'current_page', 0))
                 old_has_watermark = getattr(tab_doc, 'has_watermark', False)
                 old_settings = copy.deepcopy(getattr(tab_doc, 'watermark_settings', None))
                 old_pre_bytes = getattr(tab_doc, 'pre_watermark_bytes', None)
@@ -7040,7 +7041,8 @@ class PDFBackgroundDialog(QDialog):
         self.rad_all_pages.setChecked(True)
 
         tab_doc_bg = getattr(self.main_window, 'get_current_tab_doc', lambda: None)()
-        cur_p_num = (tab_doc_bg.current_page + 1) if (tab_doc_bg and tab_doc_bg.doc and len(tab_doc_bg.doc) > 0) else 1
+        cur_p_idx = getattr(tab_doc_bg, 'current_page_idx', getattr(tab_doc_bg, 'current_page', 0)) if tab_doc_bg else 0
+        cur_p_num = (cur_p_idx + 1) if (tab_doc_bg and tab_doc_bg.doc and len(tab_doc_bg.doc) > 0) else 1
         self.rad_current_page = QRadioButton(f"{LanguageManager.tr('background_pages_current', default='Yalnızca Mevcut Sayfa')} (Sayfa {cur_p_num})")
 
         self.rad_skip_first = QRadioButton(LanguageManager.tr("background_pages_skip_first"))
@@ -7155,7 +7157,7 @@ class PDFBackgroundDialog(QDialog):
         v_box.addWidget(self.lbl_preview)
         v_prev.addWidget(frame_box)
 
-        self.preview_current_page = 0
+        self.preview_current_page = getattr(tab_doc_bg, 'current_page_idx', getattr(tab_doc_bg, 'current_page', 0)) if tab_doc_bg else 0
         self.preview_total_pages = 1
 
         # Sayfa Gezinti Çubuğu (Tüm sayfalara bakabilme)
@@ -7477,7 +7479,7 @@ class PDFBackgroundDialog(QDialog):
                 total_pages = len(doc)
 
                 if hasattr(self, 'rad_current_page') and self.rad_current_page.isChecked():
-                    curr_p = getattr(tab_doc, 'current_page', 0)
+                    curr_p = getattr(tab_doc, 'current_page_idx', getattr(tab_doc, 'current_page', 0))
                     pages_to_process = [max(0, min(curr_p, total_pages - 1))]
                 elif self.rad_all_pages.isChecked():
                     pages_to_process = list(range(total_pages))
@@ -7533,7 +7535,7 @@ class PDFBackgroundDialog(QDialog):
                 old_bytes = tab_doc.doc.tobytes()
                 new_bytes = doc.tobytes()
                 old_drawings = [dict(d) for d in getattr(tab_doc, 'drawings', [])]
-                old_page = getattr(tab_doc, 'current_page', 0)
+                old_page = getattr(tab_doc, 'current_page_idx', getattr(tab_doc, 'current_page', 0))
 
                 tab_doc.doc.close()
                 tab_doc.doc = doc
@@ -7595,7 +7597,7 @@ class PDFBackgroundDialog(QDialog):
 
             total_pages = len(doc)
             if hasattr(self, 'rad_current_page') and self.rad_current_page.isChecked():
-                curr_p = getattr(tab_doc, 'current_page', 0) if tab_doc else 0
+                curr_p = getattr(tab_doc, 'current_page_idx', getattr(tab_doc, 'current_page', 0)) if tab_doc else 0
                 pages_to_process = [max(0, min(curr_p, total_pages - 1))]
             elif self.rad_all_pages.isChecked():
                 pages_to_process = list(range(total_pages))

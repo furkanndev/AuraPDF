@@ -3954,6 +3954,14 @@ class PDFTabDocument(QWidget):
             traceback.print_exc()
 
     # --- Sayfa Yönetimi ---
+    @property
+    def current_page(self) -> int:
+        return getattr(self, 'current_page_idx', 0)
+
+    @current_page.setter
+    def current_page(self, page_idx: int):
+        self.current_page_idx = page_idx
+
     def go_to_page(self, page_idx):
         if self.doc is not None and 0 <= page_idx < len(self.doc):
             self.current_page_idx = page_idx
