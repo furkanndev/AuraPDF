@@ -738,6 +738,17 @@ class ModernIconFactory:
         return QIcon(pix)
 
     @staticmethod
+    def icon_update():
+        pix, p = ModernIconFactory._base()
+        p.setPen(QPen(QColor("#38bdf8"), 1.8, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
+        p.setBrush(Qt.BrushStyle.NoBrush)
+        p.drawArc(4, 4, 18, 18, 45 * 16, 260 * 16)
+        p.drawLine(15, 4, 18, 7)
+        p.drawLine(15, 10, 18, 7)
+        p.end()
+        return QIcon(pix)
+
+    @staticmethod
     def icon_fullscreen():
         pix, p = ModernIconFactory._base()
         p.setPen(QPen(QColor("#a8b2c1"), 1.8, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))

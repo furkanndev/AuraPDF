@@ -276,6 +276,13 @@ class ModernPDFViewer(QMainWindow):
         self.retranslate_ui()
         self.update_viewport_cursor()
 
+        # Otomatik Güncelleme Denetimi (Başlangıç ve Periyodik Kontrol)
+        QTimer.singleShot(3500, self.check_updates_background)
+        self._periodic_update_timer = QTimer(self)
+        self._periodic_update_timer.setInterval(4 * 3600 * 1000)  # Her 4 saatte bir kontrol
+        self._periodic_update_timer.timeout.connect(self.check_updates_background)
+        self._periodic_update_timer.start()
+
     def get_current_tab_doc(self) -> Optional[PDFTabDocument]:
         if not hasattr(self, 'tab_widget') or self.tab_widget is None:
             return None
@@ -883,6 +890,8 @@ class ModernPDFViewer(QMainWindow):
         self.btn_settings.setText("")
         self.btn_settings.setToolTip(LanguageManager.tr("settings_tooltip"))
         self.btn_settings.clicked.connect(self.open_settings_dialog)
+        self.btn_settings.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.btn_settings.customContextMenuRequested.connect(self.show_settings_context_menu)
         self._add_toolbar_widget(self.btn_settings, "btn_settings")
 
         self.btn_fullscreen = DraggableToolButton()
@@ -1058,10 +1067,55 @@ class ModernPDFViewer(QMainWindow):
         point = target.mapToGlobal(QPoint(0, target.height() + 4))
         menu.exec(point)
 
-    def open_settings_dialog(self):
+    def show_settings_context_menu(self, pos):
+        menu = QMenu(self)
+        menu.setStyleSheet("""
+            QMenu { background-color: #242424; color: #ffffff; border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 6px; padding: 4px; }
+            QMenu::item { padding: 6px 20px; border-radius: 4px; font-size: 13px; }
+            QMenu::item:selected { background-color: #3b82f6; }
+        """)
+        act_settings = menu.addAction(ModernIconFactory.icon_settings(), LanguageManager.tr("settings_title"))
+        act_settings.triggered.connect(lambda: self.open_settings_dialog())
+
+        act_updates = menu.addAction(ModernIconFactory.icon_update(), LanguageManager.tr("updates_section_title"))
+        act_updates.triggered.connect(lambda: self.open_settings_dialog(initial_tab="updates"))
+
+        target = getattr(self, 'btn_settings', self)
+        point = target.mapToGlobal(pos)
+        menu.exec(point)
+
+    def open_settings_dialog(self, initial_tab: Optional[str] = None):
         from src.ui.dialogs.settings_dialog import ModernSettingsDialog
         dlg = ModernSettingsDialog(self)
+        if initial_tab == "updates" and hasattr(dlg, 'sidebar'):
+            dlg.sidebar.setCurrentRow(7)
         dlg.exec()
+
+    def check_updates_background(self):
+        settings = QSettings("AuraPDF", "PDFViewer")
+        if not settings.value("auto_check_updates", True, type=bool):
+            return
+
+        freq = settings.value("update_frequency", "startup")
+        import time
+        now_epoch = int(time.time())
+        last_epoch = int(settings.value("last_update_check_epoch", 0))
+
+        if freq == "daily" and (now_epoch - last_epoch) < 86400:
+            return
+        elif freq == "weekly" and (now_epoch - last_epoch) < 604800:
+            return
+
+        from src.core.updater import UpdateChecker
+        self._bg_updater = UpdateChecker(parent=self)
+        self._bg_updater.check_finished.connect(self._on_bg_update_finished)
+        self._bg_updater.start()
+
+    def _on_bg_update_finished(self, update_info):
+        if getattr(update_info, 'has_update', False):
+            from src.ui.dialogs.update_dialog import UpdateDialog
+            dlg = UpdateDialog(update_info, parent=self)
+            dlg.exec()
 
     def apply_theme(self, theme_name: str = "gray"):
         if theme_name == "navy":

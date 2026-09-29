@@ -843,7 +843,8 @@ class ModernSettingsDialog(QDialog):
             (LanguageManager.tr("settings_tab_author"), self._build_author_tab),
             (LanguageManager.tr("settings_tab_lang"), self._build_lang_tab),
             (LanguageManager.tr("settings_tab_toolbar"), self._build_toolbar_tab),
-            (LanguageManager.tr("cursor_settings_title"), self._build_cursor_tab)
+            (LanguageManager.tr("cursor_settings_title"), self._build_cursor_tab),
+            (LanguageManager.tr("settings_tab_updates"), self._build_updates_tab)
         ]
         
         for name, build_func in pages:
@@ -1001,6 +1002,14 @@ class ModernSettingsDialog(QDialog):
 
         # İmleç ayarları
         self._reset_cursors_to_apple()
+
+        # Güncelleme ayarları
+        if hasattr(self, 'chk_auto_update'):
+            self.chk_auto_update.setChecked(True)
+        if hasattr(self, 'cmb_update_freq'):
+            self._set_cmb_data(self.cmb_update_freq, "startup")
+        if hasattr(self, 'txt_github_token'):
+            self.txt_github_token.setText("")
 
         # 3. Kaydet & Ana Uygulamaya Uygula
         self.apply_settings()
@@ -1618,6 +1627,109 @@ class ModernSettingsDialog(QDialog):
         scroll.setWidget(scroll_widget)
         layout_main.addWidget(scroll)
 
+    # ----------------------------------------------------
+    # SEKME: YAZILIM GÜNCELLEMELERİ (UPDATES)
+    # ----------------------------------------------------
+    def _build_updates_tab(self, parent_widget):
+        layout = QVBoxLayout(parent_widget)
+        layout.setContentsMargins(18, 18, 18, 18)
+        layout.setSpacing(14)
+
+        lbl_title = QLabel(LanguageManager.tr("updates_section_title"))
+        lbl_title.setStyleSheet("font-size: 15px; font-weight: bold;")
+        layout.addWidget(lbl_title)
+
+        # Kart 1: Sürüm Bilgisi ve Manuel Denetim
+        card_status = QFrame()
+        card_status.setProperty("class", "card")
+        card_status_layout = QVBoxLayout(card_status)
+        card_status_layout.setSpacing(12)
+
+        from src.core.updater import CURRENT_VERSION, UpdateChecker
+        self.lbl_update_ver = QLabel(LanguageManager.tr("updates_current_version", version=CURRENT_VERSION))
+        self.lbl_update_ver.setStyleSheet("font-size: 14px; font-weight: 600; color: #38bdf8;")
+        card_status_layout.addWidget(self.lbl_update_ver)
+
+        last_time = self.settings.value("last_update_check_time", "")
+        last_str = LanguageManager.tr("updates_last_checked", time=last_time) if last_time else LanguageManager.tr("updates_never_checked")
+        self.lbl_update_last = QLabel(last_str)
+        self.lbl_update_last.setStyleSheet("font-size: 12px; color: #94a3b8;")
+        card_status_layout.addWidget(self.lbl_update_last)
+
+        h_btn_box = QHBoxLayout()
+        self.btn_check_updates = QPushButton(LanguageManager.tr("updates_btn_check"))
+        self.btn_check_updates.setIcon(ModernIconFactory.icon_update())
+        self.btn_check_updates.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_check_updates.setObjectName("PrimaryBtn")
+        self.btn_check_updates.clicked.connect(self._on_manual_check_updates)
+        h_btn_box.addWidget(self.btn_check_updates)
+        h_btn_box.addStretch()
+        card_status_layout.addLayout(h_btn_box)
+
+        layout.addWidget(card_status)
+
+        # Kart 2: Otomatik Güncelleme Seçenekleri
+        card_opts = QFrame()
+        card_opts.setProperty("class", "card")
+        card_opts_layout = QVBoxLayout(card_opts)
+        card_opts_layout.setSpacing(10)
+
+        self.chk_auto_update = QCheckBox(LanguageManager.tr("updates_auto_check"))
+        self.chk_auto_update.setChecked(True)
+        card_opts_layout.addWidget(self.chk_auto_update)
+
+        h_freq = QHBoxLayout()
+        h_freq.addWidget(QLabel(LanguageManager.tr("updates_frequency_label")))
+        self.cmb_update_freq = QComboBox()
+        self.cmb_update_freq.addItem(LanguageManager.tr("updates_freq_startup"), "startup")
+        self.cmb_update_freq.addItem(LanguageManager.tr("updates_freq_daily"), "daily")
+        self.cmb_update_freq.addItem(LanguageManager.tr("updates_freq_weekly"), "weekly")
+        h_freq.addWidget(self.cmb_update_freq)
+        h_freq.addStretch()
+        card_opts_layout.addLayout(h_freq)
+
+        card_opts_layout.addSpacing(8)
+        lbl_token = QLabel(LanguageManager.tr("updates_token_label"))
+        lbl_token.setStyleSheet("font-size: 12px; font-weight: 500;")
+        card_opts_layout.addWidget(lbl_token)
+
+        self.txt_github_token = QLineEdit()
+        self.txt_github_token.setEchoMode(QLineEdit.EchoMode.PasswordEchoOnEdit)
+        self.txt_github_token.setPlaceholderText("ghp_... (Opsiyonel)")
+        card_opts_layout.addWidget(self.txt_github_token)
+
+        lbl_token_desc = QLabel(LanguageManager.tr("updates_token_tip"))
+        lbl_token_desc.setStyleSheet("font-size: 11px; color: #94a3b8;")
+        card_opts_layout.addWidget(lbl_token_desc)
+
+        layout.addWidget(card_opts)
+        layout.addStretch()
+
+    def _on_manual_check_updates(self):
+        self.btn_check_updates.setEnabled(False)
+        self.btn_check_updates.setText(LanguageManager.tr("updates_checking"))
+        token = self.txt_github_token.text().strip()
+        from src.core.updater import UpdateChecker
+        self._manual_checker = UpdateChecker(custom_token=token, parent=self)
+        self._manual_checker.check_finished.connect(self._on_check_finished)
+        self._manual_checker.check_failed.connect(self._on_check_failed)
+        self._manual_checker.start()
+
+    def _on_check_finished(self, update_info):
+        self.btn_check_updates.setEnabled(True)
+        self.btn_check_updates.setText(LanguageManager.tr("updates_btn_check"))
+        last_time = self.settings.value("last_update_check_time", "")
+        if last_time and hasattr(self, 'lbl_update_last'):
+            self.lbl_update_last.setText(LanguageManager.tr("updates_last_checked", time=last_time))
+        from src.ui.dialogs.update_dialog import UpdateDialog
+        dlg = UpdateDialog(update_info, parent=self)
+        dlg.exec()
+
+    def _on_check_failed(self, err_msg):
+        self.btn_check_updates.setEnabled(True)
+        self.btn_check_updates.setText(LanguageManager.tr("updates_btn_check"))
+        QMessageBox.warning(self, LanguageManager.tr("updates_error_title"), err_msg)
+
     def _set_cmb_data(self, cmb: QComboBox, data_val):
         idx = cmb.findData(data_val)
         if idx >= 0:
@@ -1797,6 +1909,15 @@ class ModernSettingsDialog(QDialog):
         self.chk_auto_cursor_theme.setChecked(self.settings.value("auto_match_theme_cursor", True, type=bool))
         self._update_cursor_preview()
 
+        # 8. Güncelleme Ayarlarını Yükle
+        if hasattr(self, 'chk_auto_update'):
+            self.chk_auto_update.setChecked(self.settings.value("auto_check_updates", True, type=bool))
+        if hasattr(self, 'cmb_update_freq'):
+            saved_freq = self.settings.value("update_frequency", "startup")
+            self._set_cmb_data(self.cmb_update_freq, saved_freq)
+        if hasattr(self, 'txt_github_token'):
+            self.txt_github_token.setText(self.settings.value("github_token", ""))
+
     def apply_settings(self):
         # 1. Tema Kaydet & Uygula
         selected_theme = "gray"
@@ -1873,6 +1994,14 @@ class ModernSettingsDialog(QDialog):
 
         if hasattr(self.main_window, 'update_viewport_cursor'):
             self.main_window.update_viewport_cursor()
+
+        # 8. Güncelleme Ayarlarını Kaydet
+        if hasattr(self, 'chk_auto_update'):
+            self.settings.setValue("auto_check_updates", self.chk_auto_update.isChecked())
+        if hasattr(self, 'cmb_update_freq'):
+            self.settings.setValue("update_frequency", self.cmb_update_freq.currentData())
+        if hasattr(self, 'txt_github_token'):
+            self.settings.setValue("github_token", self.txt_github_token.text().strip())
 
         # Görsel geribildirim
         if hasattr(self, 'btn_apply'):
