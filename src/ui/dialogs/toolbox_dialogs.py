@@ -5174,6 +5174,9 @@ def apply_watermark_to_doc(doc: fitz.Document, settings: dict):
     pages_mode = settings.get("pages_mode", "all")
     if pages_mode == "first":
         pages_to_process = [0]
+    elif pages_mode == "current":
+        curr_p = int(settings.get("current_page_idx", 0))
+        pages_to_process = [max(0, min(curr_p, total_pages - 1))]
     elif pages_mode == "custom":
         pages_to_process = parse_page_range(settings.get("custom_pages", ""), total_pages)
     else:
@@ -5516,6 +5519,9 @@ class PDFWatermarkDialog(QDialog):
         h_pg = QHBoxLayout()
         self.rad_all_pages = QRadioButton(LanguageManager.tr("watermark_pages_all"))
         self.rad_all_pages.setChecked(True)
+        tab_doc_init = getattr(self.main_window, 'get_current_tab_doc', lambda: None)()
+        cur_p_init = (tab_doc_init.current_page + 1) if (tab_doc_init and tab_doc_init.doc and len(tab_doc_init.doc) > 0) else 1
+        self.rad_current_page = QRadioButton(f"{LanguageManager.tr('watermark_pages_current', default='Yalnızca Mevcut Sayfa')} ({cur_p_init})")
         self.rad_first_page = QRadioButton(LanguageManager.tr("watermark_pages_first"))
         self.rad_custom_pages = QRadioButton(LanguageManager.tr("watermark_pages_custom"))
         self.txt_custom_pages = QLineEdit()
@@ -5523,6 +5529,7 @@ class PDFWatermarkDialog(QDialog):
         self.txt_custom_pages.setEnabled(False)
         self.rad_custom_pages.toggled.connect(self.txt_custom_pages.setEnabled)
         h_pg.addWidget(self.rad_all_pages)
+        h_pg.addWidget(self.rad_current_page)
         h_pg.addWidget(self.rad_first_page)
         h_pg.addWidget(self.rad_custom_pages)
         h_pg.addWidget(self.txt_custom_pages, stretch=1)
@@ -5842,18 +5849,6 @@ class PDFWatermarkDialog(QDialog):
                 desktop = os.path.join(os.path.expanduser("~"), "Desktop")
                 self.txt_dst.setText(os.path.join(desktop, f"{doc_title}_filigranli.pdf"))
 
-    def _is_active_tab_doc(self, src_path=None) -> bool:
-        tab_doc = getattr(self.main_window, 'get_current_tab_doc', lambda: None)()
-        if not tab_doc or tab_doc.doc is None or len(tab_doc.doc) == 0:
-            return False
-        if src_path is None:
-            src_path = self.txt_src.text().strip()
-        if getattr(tab_doc, 'file_path', None) and os.path.isfile(src_path):
-            return os.path.abspath(tab_doc.file_path) == os.path.abspath(src_path)
-        if not getattr(tab_doc, 'file_path', None) and (src_path.startswith("[") or not src_path):
-            return True
-        return False
-
         self.txt_src.textChanged.connect(self._on_source_changed)
         self.txt_watermark.textChanged.connect(self.update_preview)
         self.spn_fontsize.valueChanged.connect(self.update_preview)
@@ -5878,6 +5873,18 @@ class PDFWatermarkDialog(QDialog):
                 self._restore_saved_watermark_settings(tab_doc2.watermark_settings)
 
         self.update_preview()
+
+    def _is_active_tab_doc(self, src_path=None) -> bool:
+        tab_doc = getattr(self.main_window, 'get_current_tab_doc', lambda: None)()
+        if not tab_doc or tab_doc.doc is None or len(tab_doc.doc) == 0:
+            return False
+        if src_path is None:
+            src_path = self.txt_src.text().strip()
+        if getattr(tab_doc, 'file_path', None) and os.path.isfile(src_path):
+            return os.path.abspath(tab_doc.file_path) == os.path.abspath(src_path)
+        if not getattr(tab_doc, 'file_path', None) and (src_path.startswith("[") or not src_path):
+            return True
+        return False
 
     def _on_preview_width_changed(self, new_w):
         val = max(10, min(3000, new_w))
@@ -5960,8 +5967,13 @@ class PDFWatermarkDialog(QDialog):
         is_text = (self.tab_widget.currentIndex() == 0)
         norm_pos = getattr(self.lbl_preview, 'norm_pos', QPointF(0.5, 0.5))
 
+        tab_doc = getattr(self.main_window, 'get_current_tab_doc', lambda: None)()
+        curr_p_idx = getattr(tab_doc, 'current_page', 0) if tab_doc else 0
+
         pages_mode = "all"
-        if self.rad_first_page.isChecked():
+        if hasattr(self, 'rad_current_page') and self.rad_current_page.isChecked():
+            pages_mode = "current"
+        elif self.rad_first_page.isChecked():
             pages_mode = "first"
         elif self.rad_custom_pages.isChecked():
             pages_mode = "custom"
@@ -5970,6 +5982,7 @@ class PDFWatermarkDialog(QDialog):
             "type": "text" if is_text else "image",
             "layer": "overlay" if self.rad_layer_overlay.isChecked() else "underlay",
             "pages_mode": pages_mode,
+            "current_page_idx": curr_p_idx,
             "custom_pages": self.txt_custom_pages.text().strip(),
             "norm_pos_x": float(norm_pos.x()),
             "norm_pos_y": float(norm_pos.y()),
@@ -7025,6 +7038,11 @@ class PDFBackgroundDialog(QDialog):
         v_pages = QVBoxLayout(grp_pages)
         self.rad_all_pages = QRadioButton(LanguageManager.tr("background_pages_all"))
         self.rad_all_pages.setChecked(True)
+
+        tab_doc_bg = getattr(self.main_window, 'get_current_tab_doc', lambda: None)()
+        cur_p_num = (tab_doc_bg.current_page + 1) if (tab_doc_bg and tab_doc_bg.doc and len(tab_doc_bg.doc) > 0) else 1
+        self.rad_current_page = QRadioButton(f"{LanguageManager.tr('background_pages_current', default='Yalnızca Mevcut Sayfa')} (Sayfa {cur_p_num})")
+
         self.rad_skip_first = QRadioButton(LanguageManager.tr("background_pages_skip_first"))
         self.rad_first_page = QRadioButton(LanguageManager.tr("background_pages_first"))
         self.rad_custom_pages = QRadioButton(LanguageManager.tr("background_pages_custom"))
@@ -7032,6 +7050,7 @@ class PDFBackgroundDialog(QDialog):
         self.txt_custom_pages.setPlaceholderText("1-5, 8, 12")
 
         v_pages.addWidget(self.rad_all_pages)
+        v_pages.addWidget(self.rad_current_page)
         v_pages.addWidget(self.rad_skip_first)
         v_pages.addWidget(self.rad_first_page)
         h_cp = QHBoxLayout()
@@ -7062,11 +7081,16 @@ class PDFBackgroundDialog(QDialog):
         btn_cancel.clicked.connect(self.reject)
         h_bot.addWidget(btn_cancel)
 
-        btn_apply = QPushButton(LanguageManager.tr("background_btn_apply"))
-        btn_apply.setObjectName("PrimaryBtn")
-        btn_apply.setMinimumHeight(30)
-        btn_apply.clicked.connect(self.execute_background)
-        h_bot.addWidget(btn_apply)
+        self.btn_save_as = QPushButton(LanguageManager.tr("watermark_btn_save_as", default="Farklı Kaydet..."))
+        self.btn_save_as.setMinimumHeight(30)
+        self.btn_save_as.clicked.connect(lambda: self.execute_background(to_file=True))
+        h_bot.addWidget(self.btn_save_as)
+
+        self.btn_apply = QPushButton(LanguageManager.tr("watermark_btn_apply_doc", default="Açık Belgeye Uygula"))
+        self.btn_apply.setObjectName("PrimaryBtn")
+        self.btn_apply.setMinimumHeight(30)
+        self.btn_apply.clicked.connect(lambda: self.execute_background(to_file=False))
+        h_bot.addWidget(self.btn_apply)
 
         # Sol Kolon Konteyneri (Kaydırma Alanı + Sabit Alt Butonlar)
         left_container = QWidget()
@@ -7188,13 +7212,20 @@ class PDFBackgroundDialog(QDialog):
         main_layout.addWidget(left_container, 1)
         main_layout.addWidget(grp_preview, 0)
 
-        # Aktif sekme varsa hazırla
-        if (tab_doc := self.main_window.get_current_tab_doc()) and tab_doc.file_path:
-            p = tab_doc.file_path
-            self.txt_src.setText(p)
-            base_dir = os.path.dirname(p)
-            base_name, _ = os.path.splitext(os.path.basename(p))
-            self.txt_dst.setText(os.path.join(base_dir, f"{base_name}_arkaplanli.pdf"))
+        # Aktif sekme varsa hazırla (kayıtlı veya boş belge)
+        tab_doc = getattr(self.main_window, 'get_current_tab_doc', lambda: None)()
+        if tab_doc and tab_doc.doc and len(tab_doc.doc) > 0:
+            if getattr(tab_doc, 'file_path', None):
+                p = tab_doc.file_path
+                self.txt_src.setText(p)
+                base_dir = os.path.dirname(p)
+                base_name, _ = os.path.splitext(os.path.basename(p))
+                self.txt_dst.setText(os.path.join(base_dir, f"{base_name}_arkaplanli.pdf"))
+            else:
+                doc_title = getattr(tab_doc, 'custom_title', None) or LanguageManager.tr("new_blank_doc")
+                self.txt_src.setText(f"[{doc_title}]")
+                desktop = os.path.join(os.path.expanduser("~"), "Desktop")
+                self.txt_dst.setText(os.path.join(desktop, f"{doc_title}_arkaplanli.pdf"))
 
         # Önizleme sinyalleri bağlantısı
         self.txt_src.textChanged.connect(self._on_source_changed)
@@ -7205,6 +7236,18 @@ class PDFBackgroundDialog(QDialog):
         self.tab_widget.currentChanged.connect(self.update_preview)
 
         self.update_preview()
+
+    def _is_active_tab_doc(self, src_path=None) -> bool:
+        tab_doc = getattr(self.main_window, 'get_current_tab_doc', lambda: None)()
+        if not tab_doc or tab_doc.doc is None or len(tab_doc.doc) == 0:
+            return False
+        if src_path is None:
+            src_path = self.txt_src.text().strip()
+        if getattr(tab_doc, 'file_path', None) and os.path.isfile(src_path):
+            return os.path.abspath(tab_doc.file_path) == os.path.abspath(src_path)
+        if not getattr(tab_doc, 'file_path', None) and (src_path.startswith("[") or not src_path):
+            return True
+        return False
 
     def _on_source_changed(self):
         self.preview_current_page = 0
@@ -7306,9 +7349,23 @@ class PDFBackgroundDialog(QDialog):
                     p.setOpacity(1.0)
                     
         has_rendered_doc = False
-        if src_path and os.path.isfile(src_path):
+        tab_doc = getattr(self.main_window, 'get_current_tab_doc', lambda: None)()
+        is_active_tab = self._is_active_tab_doc(src_path)
+        doc = None
+        should_close_doc = False
+
+        if is_active_tab and tab_doc and tab_doc.doc:
+            doc = tab_doc.doc
+            should_close_doc = False
+        elif src_path and os.path.isfile(src_path):
             try:
                 doc = fitz.open(src_path)
+                should_close_doc = True
+            except Exception:
+                doc = None
+
+        if doc:
+            try:
                 if not doc.is_encrypted or doc.authenticate("") > 0:
                     total = len(doc)
                     self.preview_total_pages = max(1, total)
@@ -7333,9 +7390,11 @@ class PDFBackgroundDialog(QDialog):
                     has_rendered_doc = True
                     if hasattr(self, 'lbl_preview_info'):
                         self.lbl_preview_info.setText(LanguageManager.tr("preview_page_counter", cur=self.preview_current_page + 1, total=self.preview_total_pages))
-                doc.close()
             except Exception:
                 pass
+            finally:
+                if should_close_doc:
+                    doc.close()
 
         if not has_rendered_doc:
             if hasattr(self, 'lbl_preview_info'):
@@ -7367,32 +7426,178 @@ class PDFBackgroundDialog(QDialog):
         p.end()
         self.lbl_preview.setPixmap(canvas)
 
-    def execute_background(self):
+    def execute_background(self, to_file=False):
         src_path = self.txt_src.text().strip()
-        dst_path = self.txt_dst.text().strip()
-        if not src_path or not os.path.isfile(src_path):
+        is_active_tab = self._is_active_tab_doc(src_path)
+
+        if not is_active_tab and (not src_path or not os.path.isfile(src_path)):
             QMessageBox.warning(self, LanguageManager.tr("warning"), LanguageManager.tr("encrypt_err_no_file"))
             return
-        if not dst_path:
-            dst_path, _ = QFileDialog.getSaveFileName(self, LanguageManager.tr("save_dialog_title"), src_path.replace(".pdf", "_arkaplanli.pdf"), "PDF (*.pdf)")
+
+        is_color_tab = self.tab_widget.currentIndex() == 0
+
+        # Görsel arka plan kontrolü
+        img_stream = None
+        aspect = 1.0
+        fit_mode = "fill"
+        if not is_color_tab:
+            img_path = self.txt_img_src.text().strip()
+            if not img_path or not os.path.isfile(img_path):
+                QMessageBox.warning(self, LanguageManager.tr("warning"), LanguageManager.tr("watermark_err_no_image"))
+                return
+
+            base_img = QImage(img_path)
+            if base_img.isNull():
+                QMessageBox.warning(self, LanguageManager.tr("warning"), LanguageManager.tr("watermark_err_no_image"))
+                return
+
+            opacity = float(self.sld_img_op.value()) / 100.0
+            fit_mode = self.cmb_fit.currentData()
+
+            res_img = QImage(base_img.size(), QImage.Format.Format_ARGB32)
+            res_img.fill(Qt.GlobalColor.transparent)
+            p = QPainter(res_img)
+            p.setOpacity(opacity)
+            p.drawImage(0, 0, base_img)
+            p.end()
+
+            ba = QByteArray()
+            buf = QBuffer(ba)
+            buf.open(QIODevice.OpenModeFlag.WriteOnly)
+            res_img.save(buf, "PNG")
+            img_stream = bytes(ba)
+            aspect = base_img.height() / max(1, base_img.width())
+
+        tab_doc = getattr(self.main_window, 'get_current_tab_doc', lambda: None)()
+
+        # 1. Açık Belgeye Doğrudan Uygula (Hafızadaki Boş veya Kayıtlı Belge)
+        if not to_file and is_active_tab and tab_doc and tab_doc.doc:
+            try:
+                doc = fitz.open("pdf", tab_doc.doc.tobytes())
+                total_pages = len(doc)
+
+                if hasattr(self, 'rad_current_page') and self.rad_current_page.isChecked():
+                    curr_p = getattr(tab_doc, 'current_page', 0)
+                    pages_to_process = [max(0, min(curr_p, total_pages - 1))]
+                elif self.rad_all_pages.isChecked():
+                    pages_to_process = list(range(total_pages))
+                elif self.rad_skip_first.isChecked():
+                    pages_to_process = list(range(1, total_pages))
+                elif self.rad_first_page.isChecked():
+                    pages_to_process = [0]
+                else:
+                    pages_to_process = parse_page_range(self.txt_custom_pages.text().strip(), total_pages)
+
+                if not pages_to_process:
+                    doc.close()
+                    QMessageBox.warning(self, LanguageManager.tr("warning"), "Lütfen geçerli en az bir sayfa belirleyin.")
+                    return
+
+                if is_color_tab:
+                    opacity = float(self.sld_opacity.value()) / 100.0
+                    r_norm = self.current_bg_color.redF()
+                    g_norm = self.current_bg_color.greenF()
+                    b_norm = self.current_bg_color.blueF()
+                    for page_idx in pages_to_process:
+                        page = doc[page_idx]
+                        if page.rotation != 0:
+                            page.remove_rotation()
+                        page.draw_rect(
+                            page.rect,
+                            fill=(r_norm, g_norm, b_norm),
+                            color=None,
+                            fill_opacity=opacity,
+                            overlay=False
+                        )
+                else:
+                    for page_idx in pages_to_process:
+                        page = doc[page_idx]
+                        if page.rotation != 0:
+                            page.remove_rotation()
+                        rect = page.rect
+                        if fit_mode == "fill":
+                            target_rect = rect
+                        else:
+                            page_aspect = rect.height / max(1.0, rect.width)
+                            if aspect > page_aspect:
+                                th = rect.height
+                                tw = th / aspect
+                            else:
+                                tw = rect.width
+                                th = tw * aspect
+                            cx = (rect.x0 + rect.x1) / 2.0
+                            cy = (rect.y0 + rect.y1) / 2.0
+                            target_rect = fitz.Rect(cx - tw / 2.0, cy - th / 2.0, cx + tw / 2.0, cy + th / 2.0)
+                        page.insert_image(target_rect, stream=img_stream, overlay=False)
+
+                old_bytes = tab_doc.doc.tobytes()
+                new_bytes = doc.tobytes()
+                old_drawings = [dict(d) for d in getattr(tab_doc, 'drawings', [])]
+                old_page = getattr(tab_doc, 'current_page', 0)
+
+                tab_doc.doc.close()
+                tab_doc.doc = doc
+                if hasattr(tab_doc, 'hide_managed_annotations'):
+                    tab_doc.hide_managed_annotations()
+                tab_doc.set_modified(True)
+                tab_doc.render_pages_init()
+                tab_doc.rerender_visible_pages()
+
+                curr_p = max(0, min(old_page, len(doc) - 1))
+                tab_doc.go_to_page(curr_p)
+                if hasattr(self.main_window, 'thumbnails_dock') and self.main_window.thumbnails_dock:
+                    if self.main_window.thumbnails_dock.isVisible():
+                        self.main_window.thumbnails_dock.load_thumbnails_lazy()
+                        self.main_window.thumbnails_dock.select_page(curr_p)
+
+                tab_doc.push_undo_action({
+                    "type": "reorder_pages",
+                    "old_bytes": old_bytes,
+                    "old_drawings": old_drawings,
+                    "old_page": curr_p,
+                    "new_bytes": new_bytes,
+                    "new_drawings": [dict(d) for d in getattr(tab_doc, 'drawings', [])],
+                    "new_page": curr_p,
+                    "new_order": list(range(len(tab_doc.doc)))
+                })
+
+                QMessageBox.information(self, LanguageManager.tr("success"), LanguageManager.tr("background_success_apply", default="Arka plan açık belgeye başarıyla uygulandı!"))
+                self.accept()
+                return
+            except Exception as e:
+                QMessageBox.critical(self, LanguageManager.tr("error"), str(e))
+                return
+
+        # 2. Farklı Kaydet (Dosyaya Yazma)
+        dst_path = self.txt_dst.text().strip()
+        if not dst_path or is_active_tab:
+            default_name = "belge_arkaplanli.pdf"
+            if is_active_tab and tab_doc:
+                doc_title = getattr(tab_doc, 'custom_title', None) or "Adsiz"
+                default_name = f"{doc_title}_arkaplanli.pdf"
+            dst_path, _ = QFileDialog.getSaveFileName(self, LanguageManager.tr("save_dialog_title"), dst_path or default_name, "PDF (*.pdf)")
             if not dst_path:
                 return
             self.txt_dst.setText(dst_path)
 
-        is_color_tab = self.tab_widget.currentIndex() == 0
-
         try:
-            doc = fitz.open(src_path)
-            if doc.is_encrypted:
-                from PyQt6.QtWidgets import QInputDialog
-                pw, ok = QInputDialog.getText(self, LanguageManager.tr("password_required_title"), LanguageManager.tr("encrypt_current_pw"), QLineEdit.EchoMode.Password)
-                if not ok or doc.authenticate(pw) <= 0:
-                    doc.close()
-                    QMessageBox.warning(self, LanguageManager.tr("error"), LanguageManager.tr("encrypt_err_wrong_pw"))
-                    return
+            if is_active_tab and tab_doc and tab_doc.doc:
+                doc = fitz.open("pdf", tab_doc.doc.tobytes())
+            else:
+                doc = fitz.open(src_path)
+                if doc.is_encrypted:
+                    from PyQt6.QtWidgets import QInputDialog
+                    pw, ok = QInputDialog.getText(self, LanguageManager.tr("password_required_title"), LanguageManager.tr("encrypt_current_pw"), QLineEdit.EchoMode.Password)
+                    if not ok or doc.authenticate(pw) <= 0:
+                        doc.close()
+                        QMessageBox.warning(self, LanguageManager.tr("error"), LanguageManager.tr("encrypt_err_wrong_pw"))
+                        return
 
             total_pages = len(doc)
-            if self.rad_all_pages.isChecked():
+            if hasattr(self, 'rad_current_page') and self.rad_current_page.isChecked():
+                curr_p = getattr(tab_doc, 'current_page', 0) if tab_doc else 0
+                pages_to_process = [max(0, min(curr_p, total_pages - 1))]
+            elif self.rad_all_pages.isChecked():
                 pages_to_process = list(range(total_pages))
             elif self.rad_skip_first.isChecked():
                 pages_to_process = list(range(1, total_pages))
@@ -7407,7 +7612,6 @@ class PDFBackgroundDialog(QDialog):
                 return
 
             if is_color_tab:
-                # Düz renk arka plan
                 opacity = float(self.sld_opacity.value()) / 100.0
                 r_norm = self.current_bg_color.redF()
                 g_norm = self.current_bg_color.greenF()
@@ -7422,40 +7626,9 @@ class PDFBackgroundDialog(QDialog):
                         fill=(r_norm, g_norm, b_norm),
                         color=None,
                         fill_opacity=opacity,
-                        overlay=False  # İçeriğin arkasına yerleştir
+                        overlay=False
                     )
             else:
-                # Görsel arka plan
-                img_path = self.txt_img_src.text().strip()
-                if not img_path or not os.path.isfile(img_path):
-                    doc.close()
-                    QMessageBox.warning(self, LanguageManager.tr("warning"), LanguageManager.tr("watermark_err_no_image"))
-                    return
-
-                base_img = QImage(img_path)
-                if base_img.isNull():
-                    doc.close()
-                    QMessageBox.warning(self, LanguageManager.tr("warning"), LanguageManager.tr("watermark_err_no_image"))
-                    return
-
-                opacity = float(self.sld_img_op.value()) / 100.0
-                fit_mode = self.cmb_fit.currentData()
-
-                res_img = QImage(base_img.size(), QImage.Format.Format_ARGB32)
-                res_img.fill(Qt.GlobalColor.transparent)
-                p = QPainter(res_img)
-                p.setOpacity(opacity)
-                p.drawImage(0, 0, base_img)
-                p.end()
-
-                ba = QByteArray()
-                buf = QBuffer(ba)
-                buf.open(QIODevice.OpenModeFlag.WriteOnly)
-                res_img.save(buf, "PNG")
-                img_stream = bytes(ba)
-
-                aspect = base_img.height() / max(1, base_img.width())
-
                 for page_idx in pages_to_process:
                     page = doc[page_idx]
                     if page.rotation != 0:
@@ -7464,7 +7637,6 @@ class PDFBackgroundDialog(QDialog):
                     if fit_mode == "fill":
                         target_rect = rect
                     else:
-                        # Orantılı sığdır
                         page_aspect = rect.height / max(1.0, rect.width)
                         if aspect > page_aspect:
                             th = rect.height
@@ -7475,7 +7647,6 @@ class PDFBackgroundDialog(QDialog):
                         cx = (rect.x0 + rect.x1) / 2.0
                         cy = (rect.y0 + rect.y1) / 2.0
                         target_rect = fitz.Rect(cx - tw / 2.0, cy - th / 2.0, cx + tw / 2.0, cy + th / 2.0)
-
                     page.insert_image(target_rect, stream=img_stream, overlay=False)
 
             doc.save(dst_path, garbage=3, deflate=True)

@@ -595,11 +595,14 @@ class LanguageManager:
             "background_fit_fill": "Sayfayı Tam Doldur (Stretch / Fill)",
             "background_fit_proportional": "Orantılı Sığdır (Keep Aspect Ratio)",
             "background_pages_all": "Tüm Sayfalar",
+            "background_pages_current": "Yalnızca Mevcut Sayfa",
+            "watermark_pages_current": "Yalnızca Mevcut Sayfa",
             "background_pages_skip_first": "İlk Sayfa Hariç (Kapak Hariç)",
             "background_pages_first": "Yalnızca İlk Sayfa",
             "background_pages_custom": "Özel Aralık (Örn: 1-3, 7):",
             "background_btn_apply": "Arka Planı Ekle ve Kaydet",
             "background_success": "Arka plan başarıyla uygulandı:\n{path}",
+            "background_success_apply": "Arka plan açık belgeye başarıyla uygulandı!",
 
             # Mesajlar
             "error": "Hata",
@@ -1724,11 +1727,14 @@ class LanguageManager:
             "background_fit_fill": "Fill Page (Stretch / Fill)",
             "background_fit_proportional": "Proportional Fit (Keep Aspect Ratio)",
             "background_pages_all": "All Pages",
+            "background_pages_current": "Current Page Only",
+            "watermark_pages_current": "Current Page Only",
             "background_pages_skip_first": "Except First Page (Exclude Cover)",
             "background_pages_first": "First Page Only",
             "background_pages_custom": "Custom Range (e.g. 1-3, 7):",
             "background_btn_apply": "Apply Background & Save",
             "background_success": "Background successfully applied:\n{path}",
+            "background_success_apply": "Background applied to open document successfully!",
 
             # Messages
             "error": "Error",
