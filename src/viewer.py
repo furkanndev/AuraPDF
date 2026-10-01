@@ -1036,9 +1036,9 @@ class ModernPDFViewer(QMainWindow):
         self.btn_new_tab = DraggableToolButton()
         self.btn_new_tab.setObjectName("btn_new_tab")
         self.btn_new_tab.setIcon(ModernIconFactory.icon_new_document())
-        self.btn_new_tab.setText(" " + LanguageManager.tr("untitled_doc"))
+        self.btn_new_tab.setText(" " + LanguageManager.tr("new_document"))
         self.btn_new_tab.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
-        self.btn_new_tab.setToolTip(LanguageManager.tr("untitled_doc") + " (Ctrl+N)")
+        self.btn_new_tab.setToolTip(LanguageManager.tr("new_document") + " (Ctrl+N)")
         self.btn_new_tab.clicked.connect(lambda: self.show_new_page_dialog(force_new_doc=True))
         self._add_toolbar_widget(self.btn_new_tab, "btn_new_tab")
 
@@ -1721,8 +1721,8 @@ class ModernPDFViewer(QMainWindow):
             self.btn_doc_props.setText(" " + LanguageManager.tr("doc_properties"))
             self.btn_doc_props.setToolTip(LanguageManager.tr("doc_properties") + " (Ctrl+D)")
         if hasattr(self, 'btn_new_tab'):
-            self.btn_new_tab.setText(" " + LanguageManager.tr("untitled_doc"))
-            self.btn_new_tab.setToolTip(LanguageManager.tr("untitled_doc") + " (Ctrl+N)")
+            self.btn_new_tab.setText(" " + LanguageManager.tr("new_document"))
+            self.btn_new_tab.setToolTip(LanguageManager.tr("new_document") + " (Ctrl+N)")
         if hasattr(self, 'btn_close_tab'):
             self.btn_close_tab.setText(" " + LanguageManager.tr("close_tab"))
             self.btn_close_tab.setToolTip(LanguageManager.tr("close_tab") + " (Ctrl+W)")
