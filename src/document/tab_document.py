@@ -5,13 +5,15 @@ import hashlib
 import random
 import pymupdf as fitz
 from typing import List, Dict, Optional, Any
+import urllib.parse
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QGraphicsView, QGraphicsScene, 
                              QGraphicsTextItem, QMessageBox, QGraphicsItem, QMenu, QInputDialog,
-                             QGraphicsItemGroup, QGraphicsPathItem)
+                             QGraphicsItemGroup, QGraphicsPathItem, QApplication, QLineEdit,
+                             QCheckBox, QComboBox, QGraphicsProxyWidget)
 from PyQt6.QtGui import (QImage, QPixmap, QPen, QColor, QPainter, QPainterPath, QPainterPathStroker,
                          QBrush, QLinearGradient, QRadialGradient, QFont,
-                         QFontMetrics, QFontMetricsF, QTransform)
-from PyQt6.QtCore import (Qt, QRectF, QPointF, QPoint, QTimer, QLineF, QEvent, QSettings)
+                         QFontMetrics, QFontMetricsF, QTransform, QDesktopServices)
+from PyQt6.QtCore import (Qt, QRectF, QPointF, QPoint, QTimer, QLineF, QEvent, QSettings, QUrl)
 
 from src.core.i18n import LanguageManager
 from src.ui.icons import ModernIconFactory
@@ -879,6 +881,24 @@ class PDFTabDocument(QWidget):
         self.pointer_fade_timer = QTimer(self)
         self.pointer_fade_timer.setInterval(35)
         self.pointer_fade_timer.timeout.connect(self._on_pointer_fade_step)
+
+        # --- V3 YENİ ÖZELLİKLER (V3 NEW FEATURES) ---
+        self.reading_color_mode: str = "normal"  # "normal", "dark", "sepia"
+        self.nav_history: List[tuple] = []  # [(page_idx, scroll_y), ...]
+        self.nav_history_idx: int = -1
+        self._nav_recording_disabled: bool = False
+
+        # Metin Seçimi ve İşaretleme (Text Selection & Markup)
+        self.selected_text: str = ""
+        self.selected_text_rects: List[tuple] = []
+        self.selected_text_items: List[QGraphicsItem] = []
+        self.is_selecting_text: bool = False
+        self.text_selection_start: Optional[QPointF] = None
+        self.text_selection_page_idx: Optional[int] = None
+        self.text_selection_hud = None
+
+        # Etkileşimli Form Alanları (AcroForms)
+        self.interactive_form_proxies: List[QGraphicsProxyWidget] = []
 
         self._setup_ui()
         self._load_annotations_from_doc()
@@ -2842,6 +2862,16 @@ class PDFTabDocument(QWidget):
         self.scene.clear()
         self.page_positions.clear()
 
+        brush_col = QColor(255, 255, 255)
+        pen_col = QColor(40, 40, 40)
+        mode = getattr(self, 'reading_color_mode', 'normal')
+        if mode == 'dark':
+            brush_col = QColor(24, 24, 26)
+            pen_col = QColor(50, 50, 56)
+        elif mode == 'sepia':
+            brush_col = QColor(246, 238, 220)
+            pen_col = QColor(90, 77, 63)
+
         if self.page_view_mode == "double":
             y_offset = 15
             num_pages = len(self.doc)
@@ -2850,7 +2880,7 @@ class PDFTabDocument(QWidget):
                 p_rect1 = self.doc[i].rect
                 w1, h1 = p_rect1.width * self.base_render_dpi, p_rect1.height * self.base_render_dpi
 
-                bg_rect1 = self.scene.addRect(0, y_offset, w1, h1, QPen(QColor(40, 40, 40), 1), QBrush(QColor(255, 255, 255)))
+                bg_rect1 = self.scene.addRect(0, y_offset, w1, h1, QPen(pen_col, 1), QBrush(brush_col))
                 bg_rect1.setZValue(-2)
                 bg_rect1.setFlag(QGraphicsItem.GraphicsItemFlag.ItemClipsChildrenToShape, True)
 
@@ -2871,7 +2901,7 @@ class PDFTabDocument(QWidget):
                     w2, h2 = p_rect2.width * self.base_render_dpi, p_rect2.height * self.base_render_dpi
                     x2 = w1 + self.PAGE_MARGIN
 
-                    bg_rect2 = self.scene.addRect(x2, y_offset, w2, h2, QPen(QColor(40, 40, 40), 1), QBrush(QColor(255, 255, 255)))
+                    bg_rect2 = self.scene.addRect(x2, y_offset, w2, h2, QPen(pen_col, 1), QBrush(brush_col))
                     bg_rect2.setZValue(-2)
                     bg_rect2.setFlag(QGraphicsItem.GraphicsItemFlag.ItemClipsChildrenToShape, True)
 
@@ -2897,7 +2927,7 @@ class PDFTabDocument(QWidget):
                 p_rect = self.doc[idx].rect
                 w, h = p_rect.width * self.base_render_dpi, p_rect.height * self.base_render_dpi
 
-                bg_rect = self.scene.addRect(0, y_offset, w, h, QPen(QColor(40, 40, 40), 1), QBrush(QColor(255, 255, 255)))
+                bg_rect = self.scene.addRect(0, y_offset, w, h, QPen(pen_col, 1), QBrush(brush_col))
                 bg_rect.setZValue(-2)
                 bg_rect.setFlag(QGraphicsItem.GraphicsItemFlag.ItemClipsChildrenToShape, True)
 
@@ -2916,6 +2946,7 @@ class PDFTabDocument(QWidget):
         for record in self.drawings:
             self.restore_drawing_item(record)
         self.init_bookmark_ribbons()
+        self._load_interactive_form_widgets()
         self.scene.setSceneRect(self.scene.itemsBoundingRect().adjusted(-20, -10, 20, 20))
 
     def init_bookmark_ribbons(self):
@@ -3099,11 +3130,21 @@ class PDFTabDocument(QWidget):
         target_scale = self.base_render_dpi * self.zoom_level
         mat = fitz.Matrix(target_scale, target_scale)
 
+        mode = getattr(self, 'reading_color_mode', 'normal')
+
         for idx, pinfo in self.page_positions.items():
             if not (pinfo['bottom'] < buffer_top or pinfo['top'] > buffer_bottom):
                 if force or abs(pinfo.get('rendered_zoom', 0.0) - self.zoom_level) > 0.05 or pinfo['item'].pixmap().isNull():
                     pix = self.doc[idx].get_pixmap(matrix=mat)
+                    if mode == 'dark':
+                        pix.invert_irect()
                     qimg = QImage(pix.samples, pix.width, pix.height, pix.stride, QImage.Format.Format_RGB888)
+                    if mode == 'sepia':
+                        p_sepia = QPainter(qimg)
+                        p_sepia.setCompositionMode(QPainter.CompositionMode.CompositionMode_Multiply)
+                        p_sepia.fillRect(qimg.rect(), QColor(246, 238, 220))
+                        p_sepia.end()
+
                     pinfo['item'].setPixmap(QPixmap.fromImage(qimg))
                     pinfo['item'].setScale(1.0 / self.zoom_level)
                     pinfo['rendered_zoom'] = self.zoom_level
@@ -3112,6 +3153,30 @@ class PDFTabDocument(QWidget):
                 if dist > 2500:
                     pinfo['item'].setPixmap(QPixmap())
                     pinfo['rendered_zoom'] = 0.0
+
+    def set_reading_color_mode(self, mode: str):
+        if mode not in ("normal", "dark", "sepia"):
+            mode = "normal"
+        self.reading_color_mode = mode
+        bg_col = QColor(255, 255, 255)
+        border_col = QColor(40, 40, 40)
+        scene_bg = "#181818"
+        if mode == "dark":
+            bg_col = QColor(24, 24, 26)
+            border_col = QColor(50, 50, 56)
+            scene_bg = "#0f0f10"
+        elif mode == "sepia":
+            bg_col = QColor(246, 238, 220)
+            border_col = QColor(90, 77, 63)
+            scene_bg = "#221e1a"
+
+        self.view.setStyleSheet(f"background-color: {scene_bg}; border: none;")
+        for idx, pinfo in self.page_positions.items():
+            if 'bg_rect' in pinfo and pinfo['bg_rect']:
+                pinfo['bg_rect'].setBrush(QBrush(bg_col))
+                pinfo['bg_rect'].setPen(QPen(border_col, 1))
+
+        self.rerender_visible_pages(force=True)
 
     def reload_from_disk(self):
         if not self.file_path or not os.path.isfile(self.file_path):
@@ -3202,6 +3267,20 @@ class PDFTabDocument(QWidget):
             if first_page_w > 0 and viewport_w > 100:
                 target_zoom = viewport_w / first_page_w
                 self.apply_zoom(target_zoom)
+
+    def fit_to_page(self):
+        if not self.page_positions or self.doc is None:
+            return
+        cur_p = self.page_positions.get(self.current_page_idx, self.page_positions.get(0, {}))
+        pw = cur_p.get('width', 595.0)
+        ph = cur_p.get('height', 842.0)
+        viewport_w = self.view.viewport().width() - 40
+        viewport_h = self.view.viewport().height() - 40
+        if pw > 0 and ph > 0 and viewport_w > 100 and viewport_h > 100:
+            target_zoom = min(viewport_w / pw, viewport_h / ph)
+            self.apply_zoom(target_zoom)
+            self.go_to_page(self.current_page_idx)
+
     def on_scroll_change(self):
         self.update_current_page_indicator()
         self.rerender_timer.start(150)
@@ -3962,14 +4041,55 @@ class PDFTabDocument(QWidget):
     def current_page(self, page_idx: int):
         self.current_page_idx = page_idx
 
+    def record_nav_position(self):
+        if getattr(self, '_nav_recording_disabled', False) or self.doc is None:
+            return
+        pos = (self.current_page_idx, self.view.verticalScrollBar().value())
+        if self.nav_history and 0 <= self.nav_history_idx < len(self.nav_history):
+            last = self.nav_history[self.nav_history_idx]
+            if last[0] == pos[0] and abs(last[1] - pos[1]) < 40:
+                return
+        self.nav_history = self.nav_history[:self.nav_history_idx + 1]
+        self.nav_history.append(pos)
+        if len(self.nav_history) > 60:
+            self.nav_history.pop(0)
+        self.nav_history_idx = len(self.nav_history) - 1
+
+    def nav_back(self):
+        if self.nav_history_idx > 0:
+            self._nav_recording_disabled = True
+            try:
+                self.nav_history_idx -= 1
+                page, scroll_y = self.nav_history[self.nav_history_idx]
+                self.go_to_page(page)
+                self.view.verticalScrollBar().setValue(scroll_y)
+            finally:
+                self._nav_recording_disabled = False
+
+    def nav_forward(self):
+        if self.nav_history_idx < len(self.nav_history) - 1:
+            self._nav_recording_disabled = True
+            try:
+                self.nav_history_idx += 1
+                page, scroll_y = self.nav_history[self.nav_history_idx]
+                self.go_to_page(page)
+                self.view.verticalScrollBar().setValue(scroll_y)
+            finally:
+                self._nav_recording_disabled = False
+
     def go_to_page(self, page_idx):
         if self.doc is not None and 0 <= page_idx < len(self.doc):
+            self.record_nav_position()
             self.current_page_idx = page_idx
             if page_idx in self.page_positions:
                 self.view.verticalScrollBar().setValue(int(self.page_positions[page_idx]['top'] * self.zoom_level))
                 if self.page_view_mode == "double":
                     self.view.horizontalScrollBar().setValue(int(self.page_positions[page_idx].get('left', 0.0) * self.zoom_level))
+            self.record_nav_position()
             self.update_current_page_indicator()
+
+    def scroll_to_page(self, page_idx):
+        self.go_to_page(page_idx)
 
     def get_page_at_pos(self, pos_or_y):
         if hasattr(pos_or_y, 'x') and hasattr(pos_or_y, 'y'):
@@ -4466,7 +4586,55 @@ class PDFTabDocument(QWidget):
                 self.zoom_in() if event.angleDelta().y() > 0 else self.zoom_out()
                 return True
 
-        if tool == 'select': return super().eventFilter(source, event)
+        if tool == 'select':
+            # 1. Klavye Kısayolları (Ctrl+C ile panoya kopyalama)
+            if event.type() == QEvent.Type.KeyPress:
+                if event.key() == Qt.Key.Key_C and (event.modifiers() & Qt.KeyboardModifier.ControlModifier):
+                    if getattr(self, 'selected_text', ''):
+                        self.copy_selected_text()
+                        return True
+
+            # 2. Fare Gezinme (Hover): Köprüleri (Hyperlinks) algıla ve I-Beam/El imleci göster
+            elif event.type() == QEvent.Type.MouseMove and not (event.buttons() & Qt.MouseButton.LeftButton):
+                pos = self.view.mapToScene(event.pos())
+                self._handle_select_hover(pos)
+
+            # 3. Fare Tıklama (Press): Köprü tıklaması veya metin seçimi başlatma
+            elif event.type() == QEvent.Type.MouseButtonPress:
+                if event.button() == Qt.MouseButton.LeftButton:
+                    pos = self.view.mapToScene(event.pos())
+                    # Önce tıklanabilir bağlantı var mı kontrol et
+                    if self._handle_link_click(pos):
+                        return True
+                    # Çizim veya medya nesnesi tıklandıysa standart seçime bırak
+                    items = self.scene.items(pos)
+                    from src.document.media_items import (PDFTableItem, PDFResizableImageItem, PDFAudioItem, PDFVideoItem)
+                    if any(isinstance(it, (BookmarkRibbonItem, PDFTableItem, PDFResizableImageItem, PDFAudioItem, PDFVideoItem)) for it in items):
+                        self.clear_text_selection()
+                        return super().eventFilter(source, event)
+                    # Metin seçimini başlat
+                    self._start_text_selection(pos)
+                    return True
+                elif event.button() == Qt.MouseButton.RightButton:
+                    if getattr(self, 'selected_text', ''):
+                        self._show_text_context_menu(self.view.viewport().mapToGlobal(event.pos()))
+                        return True
+
+            # 4. Fare Sürükleme (Move with Left Button): Metin seçimi güncelleme
+            elif event.type() == QEvent.Type.MouseMove and (event.buttons() & Qt.MouseButton.LeftButton):
+                if getattr(self, 'is_selecting_text', False):
+                    pos = self.view.mapToScene(event.pos())
+                    self._update_text_selection(pos)
+                    return True
+
+            # 5. Fare Bırakma (Release): Metin seçimini tamamla ve mini çubuğu göster
+            elif event.type() == QEvent.Type.MouseButtonRelease and event.button() == Qt.MouseButton.LeftButton:
+                if getattr(self, 'is_selecting_text', False):
+                    pos = self.view.mapToScene(event.pos())
+                    self._finish_text_selection(pos, event.pos())
+                    return True
+
+            return super().eventFilter(source, event)
 
         if tool == 'pointer':
             if event.type() == QEvent.Type.MouseMove:
@@ -4563,6 +4731,380 @@ class PDFTabDocument(QWidget):
             return self._handle_mouse_release(event, tool)
 
         return super().eventFilter(source, event)
+
+    # --- V3 METİN SEÇİMİ, KÖPRÜ VE ETKİLEŞİMLİ FORM YÖNETİMİ ---
+    def _handle_select_hover(self, scene_pos: QPointF):
+        if not self.doc:
+            return
+        p_idx = self.get_page_at_pos(scene_pos)
+        if p_idx is None or p_idx >= len(self.doc):
+            self.view.viewport().setCursor(Qt.CursorShape.ArrowCursor)
+            self.view.setToolTip("")
+            return
+
+        pinfo = self.page_positions.get(p_idx, {})
+        scale = self.base_render_dpi
+        pleft, ptop = pinfo.get('left', 0.0), pinfo.get('top', 0.0)
+        pdf_pt = fitz.Point((scene_pos.x() - pleft) / scale, (scene_pos.y() - ptop) / scale)
+
+        # 1. Köprü Kontrolü (Hyperlinks)
+        try:
+            page = self.doc[p_idx]
+            links = page.get_links()
+            for l in links:
+                if l['from'].contains(pdf_pt):
+                    self.view.viewport().setCursor(Qt.CursorShape.PointingHandCursor)
+                    tip = l.get('uri') or f"Sayfa {l.get('page', 0) + 1}'e git"
+                    self.view.setToolTip(tip)
+                    return
+        except Exception:
+            pass
+
+        # 2. Metin İmleci (I-Beam Cursor)
+        self.view.viewport().setCursor(Qt.CursorShape.IBeamCursor)
+        self.view.setToolTip("")
+
+    def _handle_link_click(self, scene_pos: QPointF) -> bool:
+        if not self.doc:
+            return False
+        p_idx = self.get_page_at_pos(scene_pos)
+        if p_idx is None or p_idx >= len(self.doc):
+            return False
+
+        pinfo = self.page_positions.get(p_idx, {})
+        scale = self.base_render_dpi
+        pleft, ptop = pinfo.get('left', 0.0), pinfo.get('top', 0.0)
+        pdf_pt = fitz.Point((scene_pos.x() - pleft) / scale, (scene_pos.y() - ptop) / scale)
+
+        try:
+            page = self.doc[p_idx]
+            for l in page.get_links():
+                if l['from'].contains(pdf_pt):
+                    if l.get('uri'):
+                        QDesktopServices.openUrl(QUrl(l['uri']))
+                        return True
+                    elif l.get('page') is not None:
+                        self.record_nav_position()
+                        self.go_to_page(l['page'])
+                        return True
+        except Exception:
+            pass
+        return False
+
+    def _start_text_selection(self, scene_pos: QPointF):
+        self.clear_text_selection()
+        p_idx = self.get_page_at_pos(scene_pos)
+        if p_idx is not None and self.doc and 0 <= p_idx < len(self.doc):
+            self.is_selecting_text = True
+            self.text_selection_start = scene_pos
+            self.text_selection_page_idx = p_idx
+
+    def _update_text_selection(self, scene_pos: QPointF):
+        if not getattr(self, 'is_selecting_text', False) or self.text_selection_page_idx is None:
+            return
+        p_idx = self.text_selection_page_idx
+        if not self.doc or p_idx >= len(self.doc):
+            return
+
+        pinfo = self.page_positions.get(p_idx, {})
+        scale = self.base_render_dpi
+        pleft, ptop = pinfo.get('left', 0.0), pinfo.get('top', 0.0)
+
+        pt_start = fitz.Point((self.text_selection_start.x() - pleft) / scale, (self.text_selection_start.y() - ptop) / scale)
+        pt_end = fitz.Point((scene_pos.x() - pleft) / scale, (scene_pos.y() - ptop) / scale)
+
+        try:
+            words = self.doc[p_idx].get_text("words")
+        except Exception:
+            words = []
+        if not words:
+            return
+
+        def word_dist(pt, w):
+            cx = (w[0] + w[2]) / 2.0
+            cy = (w[1] + w[3]) / 2.0
+            return (pt.x - cx)**2 + (pt.y - cy)**2
+
+        i1 = min(range(len(words)), key=lambda i: word_dist(pt_start, words[i]))
+        i2 = min(range(len(words)), key=lambda i: word_dist(pt_end, words[i]))
+        start_i, end_i = min(i1, i2), max(i1, i2)
+        sel_words = words[start_i:end_i + 1]
+
+        for it in self.selected_text_items:
+            if it.scene() == self.scene:
+                self.scene.removeItem(it)
+        self.selected_text_items.clear()
+        self.selected_text_rects.clear()
+
+        lines_dict = {}
+        for w in sel_words:
+            lines_dict.setdefault((w[5], w[6]), []).append(w)
+
+        lines_text = []
+        for (b_no, l_no), line_w in lines_dict.items():
+            lines_text.append(" ".join(w[4] for w in line_w))
+            lx0 = min(w[0] for w in line_w)
+            ly0 = min(w[1] for w in line_w)
+            lx1 = max(w[2] for w in line_w)
+            ly1 = max(w[3] for w in line_w)
+            pdf_rect = fitz.Rect(lx0, ly0, lx1, ly1)
+            scene_rect = QRectF(lx0 * scale + pleft, ly0 * scale + ptop, (lx1 - lx0) * scale, (ly1 - ly0) * scale)
+
+            rect_item = self.scene.addRect(
+                scene_rect,
+                QPen(Qt.PenStyle.NoPen),
+                QBrush(QColor(2, 132, 199, 90))
+            )
+            rect_item.setZValue(6)
+            self.selected_text_items.append(rect_item)
+            self.selected_text_rects.append((p_idx, scene_rect, pdf_rect))
+
+        self.selected_text = "\n".join(lines_text)
+
+    def _finish_text_selection(self, scene_pos: QPointF, viewport_pos: QPoint):
+        self.is_selecting_text = False
+        if getattr(self, 'selected_text', '').strip():
+            if not hasattr(self, 'text_selection_hud') or self.text_selection_hud is None:
+                from src.ui.popups import PDFTextSelectionHUD
+                self.text_selection_hud = PDFTextSelectionHUD(self.view.viewport(), self)
+            self.text_selection_hud.show_at_pos(viewport_pos)
+        else:
+            self.clear_text_selection()
+
+    def _show_text_context_menu(self, global_pos: QPoint):
+        menu = QMenu(self)
+        menu.setStyleSheet("""
+            QMenu { background-color: #242426; color: #f1f5f9; border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 6px; padding: 4px; }
+            QMenu::item { padding: 6px 18px; border-radius: 4px; font-size: 12px; }
+            QMenu::item:selected { background-color: #0284c7; color: #ffffff; }
+        """)
+
+        act_copy = menu.addAction(ModernIconFactory.icon_cursor(), LanguageManager.tr("copy") + " (Ctrl+C)")
+        act_hl = menu.addAction(ModernIconFactory.icon_highlighter(), LanguageManager.tr("text_markup_highlight"))
+        act_ul = menu.addAction(LanguageManager.tr("text_markup_underline"))
+        act_so = menu.addAction(LanguageManager.tr("text_markup_strikeout"))
+        menu.addSeparator()
+        act_speak = menu.addAction(ModernIconFactory.icon_speech(), LanguageManager.tr("read_aloud"))
+        act_search = menu.addAction(ModernIconFactory.icon_search(), LanguageManager.tr("text_search_google"))
+        act_trans = menu.addAction(LanguageManager.tr("text_translate_google"))
+
+        chosen = menu.exec(global_pos)
+        if chosen == act_copy:
+            self.copy_selected_text()
+        elif chosen == act_hl:
+            self.highlight_selected_text()
+        elif chosen == act_ul:
+            self.underline_selected_text()
+        elif chosen == act_so:
+            self.strikeout_selected_text()
+        elif chosen == act_speak:
+            self.speak_selected_text()
+        elif chosen == act_search:
+            self.search_selected_text()
+        elif chosen == act_trans:
+            self.translate_selected_text()
+
+    def clear_text_selection(self):
+        for it in getattr(self, 'selected_text_items', []):
+            if it.scene() == self.scene:
+                self.scene.removeItem(it)
+        self.selected_text_items = []
+        self.selected_text_rects = []
+        self.selected_text = ""
+        if getattr(self, 'text_selection_hud', None):
+            self.text_selection_hud.hide()
+
+    def copy_selected_text(self):
+        if self.selected_text:
+            QApplication.clipboard().setText(self.selected_text)
+            if hasattr(self.main_window, 'statusBar') and self.main_window.statusBar():
+                self.main_window.statusBar().showMessage(LanguageManager.tr("text_copied_to_clipboard"), 3000)
+            elif hasattr(self.main_window, 'show_osd_message'):
+                self.main_window.show_osd_message(LanguageManager.tr("text_copied_to_clipboard"))
+
+    def highlight_selected_text(self, color=(1.0, 0.9, 0.2)):
+        if not self.selected_text_rects or not self.doc:
+            return
+        pages = {}
+        for p_idx, s_rect, pdf_rect in self.selected_text_rects:
+            pages.setdefault(p_idx, []).append(pdf_rect)
+        for p_idx, rects in pages.items():
+            try:
+                page = self.doc[p_idx]
+                annot = page.add_highlight_annot(rects)
+                annot.set_colors(stroke=color)
+                annot.update()
+            except Exception:
+                pass
+        self.set_modified(True)
+        self.clear_text_selection()
+        self.rerender_visible_pages(force=True)
+        if hasattr(self.main_window, 'dock_thumbs') and self.main_window.dock_thumbs:
+            self.main_window.dock_thumbs.load_comments()
+        elif hasattr(self.main_window, 'thumbnails_dock') and self.main_window.thumbnails_dock:
+            self.main_window.thumbnails_dock.load_comments()
+
+    def underline_selected_text(self, color=(0.1, 0.5, 0.9)):
+        if not self.selected_text_rects or not self.doc:
+            return
+        pages = {}
+        for p_idx, s_rect, pdf_rect in self.selected_text_rects:
+            pages.setdefault(p_idx, []).append(pdf_rect)
+        for p_idx, rects in pages.items():
+            try:
+                page = self.doc[p_idx]
+                annot = page.add_underline_annot(rects)
+                annot.set_colors(stroke=color)
+                annot.update()
+            except Exception:
+                pass
+        self.set_modified(True)
+        self.clear_text_selection()
+        self.rerender_visible_pages(force=True)
+        if hasattr(self.main_window, 'dock_thumbs') and self.main_window.dock_thumbs:
+            self.main_window.dock_thumbs.load_comments()
+        elif hasattr(self.main_window, 'thumbnails_dock') and self.main_window.thumbnails_dock:
+            self.main_window.thumbnails_dock.load_comments()
+
+    def strikeout_selected_text(self, color=(0.9, 0.2, 0.2)):
+        if not self.selected_text_rects or not self.doc:
+            return
+        pages = {}
+        for p_idx, s_rect, pdf_rect in self.selected_text_rects:
+            pages.setdefault(p_idx, []).append(pdf_rect)
+        for p_idx, rects in pages.items():
+            try:
+                page = self.doc[p_idx]
+                annot = page.add_strikeout_annot(rects)
+                annot.set_colors(stroke=color)
+                annot.update()
+            except Exception:
+                pass
+        self.set_modified(True)
+        self.clear_text_selection()
+        self.rerender_visible_pages(force=True)
+        if hasattr(self.main_window, 'dock_thumbs') and self.main_window.dock_thumbs:
+            self.main_window.dock_thumbs.load_comments()
+        elif hasattr(self.main_window, 'thumbnails_dock') and self.main_window.thumbnails_dock:
+            self.main_window.thumbnails_dock.load_comments()
+
+    def search_selected_text(self):
+        if not self.selected_text:
+            return
+        q = urllib.parse.quote(self.selected_text.strip())
+        QDesktopServices.openUrl(QUrl(f"https://www.google.com/search?q={q}"))
+
+    def translate_selected_text(self):
+        if not self.selected_text:
+            return
+        q = urllib.parse.quote(self.selected_text.strip())
+        QDesktopServices.openUrl(QUrl(f"https://translate.google.com/?sl=auto&tl=tr&text={q}"))
+
+    def speak_selected_text(self):
+        if not self.selected_text:
+            return
+        if hasattr(self.main_window, 'speech_engine') and self.main_window.speech_engine:
+            self.main_window.speech_engine.speak(self.selected_text)
+
+    def _load_interactive_form_widgets(self):
+        for p in getattr(self, 'interactive_form_proxies', []):
+            try:
+                if p.scene() == self.scene:
+                    self.scene.removeItem(p)
+            except Exception:
+                pass
+        self.interactive_form_proxies = []
+
+        if not self.doc:
+            return
+
+        for p_idx in range(len(self.doc)):
+            page = self.doc[p_idx]
+            pinfo = self.page_positions.get(p_idx)
+            if not pinfo:
+                continue
+            pleft = pinfo.get('left', 0.0)
+            ptop = pinfo.get('top', 0.0)
+            scale = self.base_render_dpi
+
+            try:
+                for w in page.widgets():
+                    r = w.rect
+                    sx = r.x0 * scale + pleft
+                    sy = r.y0 * scale + ptop
+                    sw = max(24.0, (r.x1 - r.x0) * scale)
+                    sh = max(16.0, (r.y1 - r.y0) * scale)
+
+                    if w.field_type == fitz.PDF_WIDGET_TYPE_TEXT:
+                        txt_edit = QLineEdit(w.field_value or "")
+                        txt_edit.setStyleSheet("""
+                            QLineEdit {
+                                background-color: rgba(255, 255, 255, 0.92);
+                                color: #111827;
+                                border: 1.5px solid #0284c7;
+                                border-radius: 3px;
+                                padding: 2px 4px;
+                                font-size: 11px;
+                            }
+                            QLineEdit:focus {
+                                border: 2px solid #38bdf8;
+                                background-color: #ffffff;
+                            }
+                        """)
+                        txt_edit.setGeometry(0, 0, int(sw), int(sh))
+                        def make_text_updater(p_num, f_name):
+                            return lambda val: self._on_form_field_changed(p_num, f_name, val)
+                        txt_edit.textChanged.connect(make_text_updater(p_idx, w.field_name))
+                        proxy = self.scene.addWidget(txt_edit)
+                        proxy.setPos(sx, sy)
+                        proxy.setZValue(4)
+                        self.interactive_form_proxies.append(proxy)
+
+                    elif w.field_type == fitz.PDF_WIDGET_TYPE_CHECKBOX:
+                        chk = QCheckBox()
+                        chk.setChecked(bool(w.field_value))
+                        def make_chk_updater(p_num, f_name):
+                            return lambda state: self._on_form_field_changed(p_num, f_name, bool(state))
+                        chk.stateChanged.connect(make_chk_updater(p_idx, w.field_name))
+                        proxy = self.scene.addWidget(chk)
+                        proxy.setPos(sx, sy)
+                        proxy.setZValue(4)
+                        self.interactive_form_proxies.append(proxy)
+
+                    elif w.field_type == fitz.PDF_WIDGET_TYPE_COMBOBOX:
+                        cmb = QComboBox()
+                        try:
+                            choices = w.choice_values or []
+                            for c in choices:
+                                cmb.addItem(str(c))
+                            if w.field_value:
+                                cmb.setCurrentText(str(w.field_value))
+                        except Exception:
+                            pass
+                        cmb.setStyleSheet("background: #ffffff; color: #000; border: 1px solid #0284c7; font-size: 11px;")
+                        def make_cmb_updater(p_num, f_name):
+                            return lambda txt: self._on_form_field_changed(p_num, f_name, txt)
+                        cmb.currentTextChanged.connect(make_cmb_updater(p_idx, w.field_name))
+                        proxy = self.scene.addWidget(cmb)
+                        proxy.setPos(sx, sy)
+                        proxy.setZValue(4)
+                        self.interactive_form_proxies.append(proxy)
+            except Exception:
+                pass
+
+    def _on_form_field_changed(self, page_idx, field_name, val):
+        if not self.doc or page_idx >= len(self.doc):
+            return
+        try:
+            page = self.doc[page_idx]
+            for w in page.widgets():
+                if w.field_name == field_name:
+                    w.field_value = val
+                    w.update()
+                    break
+            self.set_modified(True)
+        except Exception:
+            pass
 
     def _handle_mouse_hover(self, event, tool):
         pos = self.view.mapToScene(event.pos())

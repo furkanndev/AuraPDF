@@ -16,7 +16,7 @@ from datetime import datetime
 from typing import Optional, Tuple
 from PyQt6.QtCore import QThread, pyqtSignal, QSettings
 
-CURRENT_VERSION = "2.0.0"
+CURRENT_VERSION = "3.0.0"
 GITHUB_REPO = "furkanndev/AuraPDF"
 
 

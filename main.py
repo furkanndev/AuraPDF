@@ -72,6 +72,8 @@ _LAZY_EXPORTS = {
     "ImageInsertDialog": ("src.ui.dialogs.media_dialogs", "ImageInsertDialog"),
     "AudioRecordDialog": ("src.ui.dialogs.media_dialogs", "AudioRecordDialog"),
     "VideoInsertDialog": ("src.ui.dialogs.media_dialogs", "VideoInsertDialog"),
+    "ModernCategoryBar": ("src.ui.ribbon_bar", "ModernCategoryBar"),
+    "CATEGORY_ITEMS": ("src.ui.ribbon_bar", "CATEGORY_ITEMS"),
 }
 
 __all__ = [
@@ -91,7 +93,8 @@ __all__ = [
     "PDFTabDocument", "ModernLaserPointerItem", "ModernPDFViewer",
     "PDFTableItem", "PDFResizableImageItem", "PDFAudioItem", "PDFVideoItem",
     "TableInsertDialog", "EmojiGifPickerDialog", "ImageInsertDialog",
-    "AudioRecordDialog", "VideoInsertDialog"
+    "AudioRecordDialog", "VideoInsertDialog",
+    "ModernCategoryBar", "CATEGORY_ITEMS"
 ]
 
 

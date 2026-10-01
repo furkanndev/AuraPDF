@@ -35,6 +35,8 @@ TOOLBAR_ITEMS_META = {
     "btn_contents": ("tb_item_contents", ModernIconFactory.icon_contents),
     "btn_undo": ("tb_item_undo", ModernIconFactory.icon_undo),
     "btn_redo": ("tb_item_redo", ModernIconFactory.icon_redo),
+    "btn_nav_back": ("tb_item_nav_back", ModernIconFactory.icon_nav_back),
+    "btn_nav_forward": ("tb_item_nav_forward", ModernIconFactory.icon_nav_forward),
     "btn_cursor": ("tb_item_cursor", ModernIconFactory.icon_cursor),
     "btn_selection": ("tb_item_selection", ModernIconFactory.icon_select_rect),
     "btn_hl": ("tb_item_hl", ModernIconFactory.icon_highlighter),
@@ -43,9 +45,12 @@ TOOLBAR_ITEMS_META = {
     "btn_eraser": ("tb_item_eraser", ModernIconFactory.icon_eraser),
     "btn_pointer": ("tb_item_pointer", ModernIconFactory.icon_pointer),
     "lbl_zoom": ("tb_item_zoom", None),
+    "btn_fit_page": ("tb_item_fit_page", ModernIconFactory.icon_fit_page),
     "page_widget": ("tb_item_page_nav", None),
     "btn_rotate": ("tb_item_rotate", ModernIconFactory.icon_rotate),
     "btn_view_mode": ("tb_item_view_mode", ModernIconFactory.icon_view_single),
+    "btn_reading_mode": ("tb_item_reading_mode", ModernIconFactory.icon_reading_mode),
+    "btn_speech": ("tb_item_speech", ModernIconFactory.icon_speech),
     "btn_search": ("tb_item_search", ModernIconFactory.icon_search),
     "btn_print": ("tb_item_print", ModernIconFactory.icon_print),
     "btn_save": ("tb_item_save", ModernIconFactory.icon_save),
@@ -57,12 +62,12 @@ TOOLBAR_ITEMS_META = {
 }
 
 DEFAULT_TOOLBAR_LAYOUT = [
-    "btn_contents", "btn_undo", "btn_redo", "sep_1",
+    "btn_contents", "btn_undo", "btn_redo", "btn_nav_back", "btn_nav_forward", "sep_1",
     "btn_cursor", "btn_selection", "btn_hl", "btn_pen",
     "btn_text", "btn_insert", "btn_eraser", "btn_pointer", "sep_2",
-    "lbl_zoom",
+    "lbl_zoom", "btn_fit_page",
     "spacer_left",
-    "page_widget", "btn_rotate", "btn_view_mode",
+    "page_widget", "btn_rotate", "btn_view_mode", "btn_reading_mode", "btn_speech",
     "spacer_right",
     "btn_search", "sep_3",
     "btn_print", "btn_save", "btn_open", "btn_toolbox", "btn_settings", "btn_fullscreen"
