@@ -1698,8 +1698,55 @@ class ModernIconFactory:
         p.end()
         return QIcon(pix)
 
+    @staticmethod
+    def icon_compress():
+        pix, p = ModernIconFactory._base()
+        # Document outline
+        p.setPen(QPen(QColor('#94a3b8'), 1.4, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+        p.setBrush(QBrush(QColor('#1e293b')))
+        p.drawRoundedRect(QRectF(4.0, 3.0, 18.0, 20.0), 2.0, 2.0)
 
+        # Inward compression arrows
+        p.setPen(QPen(QColor('#38bdf8'), 1.8, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
+        # Top arrow pointing down
+        p.drawLine(QPointF(13.0, 6.0), QPointF(13.0, 11.0))
+        p.drawLine(QPointF(10.5, 8.5), QPointF(13.0, 11.0))
+        p.drawLine(QPointF(15.5, 8.5), QPointF(13.0, 11.0))
 
+        # Bottom arrow pointing up
+        p.drawLine(QPointF(13.0, 20.0), QPointF(13.0, 15.0))
+        p.drawLine(QPointF(10.5, 17.5), QPointF(13.0, 15.0))
+        p.drawLine(QPointF(15.5, 17.5), QPointF(13.0, 15.0))
+
+        # Center compression vise line
+        p.setPen(QPen(QColor('#f59e0b'), 1.5, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+        p.drawLine(QPointF(8.0, 13.0), QPointF(18.0, 13.0))
+
+        p.end()
+        return QIcon(pix)
+
+    @staticmethod
+    def icon_keyboard_shortcuts():
+        pix, p = ModernIconFactory._base()
+        # Keyboard body
+        p.setPen(QPen(QColor('#94a3b8'), 1.4, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
+        p.setBrush(QBrush(QColor('#1e293b')))
+        p.drawRoundedRect(QRectF(3.0, 6.0, 20.0, 14.0), 2.5, 2.5)
+
+        # Key grid
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(QBrush(QColor('#38bdf8')))
+        # Row 1 keys
+        for x in (5.5, 9.5, 13.5, 17.5):
+            p.drawRoundedRect(QRectF(x, 8.5, 2.5, 2.5), 0.5, 0.5)
+        # Row 2 keys
+        for x in (5.5, 9.5, 13.5, 17.5):
+            p.drawRoundedRect(QRectF(x, 12.0, 2.5, 2.5), 0.5, 0.5)
+        # Spacebar
+        p.drawRoundedRect(QRectF(7.5, 15.5, 10.5, 2.0), 0.5, 0.5)
+
+        p.end()
+        return QIcon(pix)
 
 
 def _wrap_icon_methods():

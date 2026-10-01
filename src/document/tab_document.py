@@ -9,7 +9,7 @@ import urllib.parse
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QGraphicsView, QGraphicsScene, 
                              QGraphicsTextItem, QMessageBox, QGraphicsItem, QMenu, QInputDialog,
                              QGraphicsItemGroup, QGraphicsPathItem, QApplication, QLineEdit,
-                             QCheckBox, QComboBox, QGraphicsProxyWidget)
+                             QTextEdit, QCheckBox, QRadioButton, QComboBox, QGraphicsProxyWidget)
 from PyQt6.QtGui import (QImage, QPixmap, QPen, QColor, QPainter, QPainterPath, QPainterPathStroker,
                          QBrush, QLinearGradient, QRadialGradient, QFont,
                          QFontMetrics, QFontMetricsF, QTransform, QDesktopServices)
@@ -5014,6 +5014,7 @@ class PDFTabDocument(QWidget):
             except Exception:
                 pass
         self.interactive_form_proxies = []
+        self._interactive_field_widgets = []
 
         if not self.doc:
             return
@@ -5036,33 +5037,84 @@ class PDFTabDocument(QWidget):
                     sh = max(16.0, (r.y1 - r.y0) * scale)
 
                     if w.field_type == fitz.PDF_WIDGET_TYPE_TEXT:
-                        txt_edit = QLineEdit(w.field_value or "")
-                        txt_edit.setStyleSheet("""
-                            QLineEdit {
-                                background-color: rgba(255, 255, 255, 0.92);
-                                color: #111827;
-                                border: 1.5px solid #0284c7;
-                                border-radius: 3px;
-                                padding: 2px 4px;
-                                font-size: 11px;
-                            }
-                            QLineEdit:focus {
-                                border: 2px solid #38bdf8;
-                                background-color: #ffffff;
-                            }
-                        """)
-                        txt_edit.setGeometry(0, 0, int(sw), int(sh))
-                        def make_text_updater(p_num, f_name):
-                            return lambda val: self._on_form_field_changed(p_num, f_name, val)
-                        txt_edit.textChanged.connect(make_text_updater(p_idx, w.field_name))
-                        proxy = self.scene.addWidget(txt_edit)
-                        proxy.setPos(sx, sy)
-                        proxy.setZValue(4)
-                        self.interactive_form_proxies.append(proxy)
+                        is_multi = sh > 36.0 or bool(getattr(w, 'is_multiline', False))
+                        if is_multi:
+                            txt_edit = QTextEdit()
+                            txt_edit.setPlainText(str(w.field_value or ""))
+                            txt_edit.setStyleSheet("""
+                                QTextEdit {
+                                    background-color: rgba(255, 255, 255, 0.95);
+                                    color: #111827;
+                                    border: 1.5px solid #0284c7;
+                                    border-radius: 3px;
+                                    padding: 2px 4px;
+                                    font-size: 11px;
+                                }
+                                QTextEdit:focus {
+                                    border: 2px solid #38bdf8;
+                                    background-color: #ffffff;
+                                }
+                            """)
+                            txt_edit.setGeometry(0, 0, int(sw), int(sh))
+                            def make_text_updater(p_num, f_name, editor):
+                                return lambda: self._on_form_field_changed(p_num, f_name, editor.toPlainText())
+                            txt_edit.textChanged.connect(make_text_updater(p_idx, w.field_name, txt_edit))
+                            proxy = self.scene.addWidget(txt_edit)
+                            proxy.setPos(sx, sy)
+                            proxy.setZValue(4)
+                            self.interactive_form_proxies.append(proxy)
+                            self._interactive_field_widgets.append({
+                                'page_idx': p_idx,
+                                'field_name': w.field_name,
+                                'widget': txt_edit,
+                                'type': 'multiline'
+                            })
+                        else:
+                            txt_edit = QLineEdit(str(w.field_value or ""))
+                            txt_edit.setStyleSheet("""
+                                QLineEdit {
+                                    background-color: rgba(255, 255, 255, 0.95);
+                                    color: #111827;
+                                    border: 1.5px solid #0284c7;
+                                    border-radius: 3px;
+                                    padding: 2px 4px;
+                                    font-size: 11px;
+                                }
+                                QLineEdit:focus {
+                                    border: 2px solid #38bdf8;
+                                    background-color: #ffffff;
+                                }
+                            """)
+                            txt_edit.setGeometry(0, 0, int(sw), int(sh))
+                            def make_line_updater(p_num, f_name):
+                                return lambda val: self._on_form_field_changed(p_num, f_name, val)
+                            txt_edit.textChanged.connect(make_line_updater(p_idx, w.field_name))
+                            proxy = self.scene.addWidget(txt_edit)
+                            proxy.setPos(sx, sy)
+                            proxy.setZValue(4)
+                            self.interactive_form_proxies.append(proxy)
+                            self._interactive_field_widgets.append({
+                                'page_idx': p_idx,
+                                'field_name': w.field_name,
+                                'widget': txt_edit,
+                                'type': 'text'
+                            })
 
                     elif w.field_type == fitz.PDF_WIDGET_TYPE_CHECKBOX:
                         chk = QCheckBox()
                         chk.setChecked(bool(w.field_value))
+                        chk.setStyleSheet("""
+                            QCheckBox::indicator {
+                                width: 16px;
+                                height: 16px;
+                                border: 1.5px solid #0284c7;
+                                border-radius: 3px;
+                                background-color: rgba(255, 255, 255, 0.95);
+                            }
+                            QCheckBox::indicator:checked {
+                                background-color: #0284c7;
+                            }
+                        """)
                         def make_chk_updater(p_num, f_name):
                             return lambda state: self._on_form_field_changed(p_num, f_name, bool(state))
                         chk.stateChanged.connect(make_chk_updater(p_idx, w.field_name))
@@ -5070,6 +5122,41 @@ class PDFTabDocument(QWidget):
                         proxy.setPos(sx, sy)
                         proxy.setZValue(4)
                         self.interactive_form_proxies.append(proxy)
+                        self._interactive_field_widgets.append({
+                            'page_idx': p_idx,
+                            'field_name': w.field_name,
+                            'widget': chk,
+                            'type': 'checkbox'
+                        })
+
+                    elif w.field_type == getattr(fitz, 'PDF_WIDGET_TYPE_RADIOBUTTON', 4):
+                        rb = QRadioButton()
+                        rb.setChecked(bool(w.field_value))
+                        rb.setStyleSheet("""
+                            QRadioButton::indicator {
+                                width: 16px;
+                                height: 16px;
+                                border: 1.5px solid #0284c7;
+                                border-radius: 8px;
+                                background-color: rgba(255, 255, 255, 0.95);
+                            }
+                            QRadioButton::indicator:checked {
+                                background-color: #0284c7;
+                            }
+                        """)
+                        def make_rb_updater(p_num, f_name):
+                            return lambda state: self._on_form_field_changed(p_num, f_name, bool(state))
+                        rb.toggled.connect(make_rb_updater(p_idx, w.field_name))
+                        proxy = self.scene.addWidget(rb)
+                        proxy.setPos(sx, sy)
+                        proxy.setZValue(4)
+                        self.interactive_form_proxies.append(proxy)
+                        self._interactive_field_widgets.append({
+                            'page_idx': p_idx,
+                            'field_name': w.field_name,
+                            'widget': rb,
+                            'type': 'radio'
+                        })
 
                     elif w.field_type == fitz.PDF_WIDGET_TYPE_COMBOBOX:
                         cmb = QComboBox()
@@ -5081,7 +5168,17 @@ class PDFTabDocument(QWidget):
                                 cmb.setCurrentText(str(w.field_value))
                         except Exception:
                             pass
-                        cmb.setStyleSheet("background: #ffffff; color: #000; border: 1px solid #0284c7; font-size: 11px;")
+                        cmb.setStyleSheet("""
+                            QComboBox {
+                                background-color: rgba(255, 255, 255, 0.95);
+                                color: #111827;
+                                border: 1.5px solid #0284c7;
+                                border-radius: 3px;
+                                padding: 2px 4px;
+                                font-size: 11px;
+                            }
+                        """)
+                        cmb.setGeometry(0, 0, int(sw), int(sh))
                         def make_cmb_updater(p_num, f_name):
                             return lambda txt: self._on_form_field_changed(p_num, f_name, txt)
                         cmb.currentTextChanged.connect(make_cmb_updater(p_idx, w.field_name))
@@ -5089,6 +5186,12 @@ class PDFTabDocument(QWidget):
                         proxy.setPos(sx, sy)
                         proxy.setZValue(4)
                         self.interactive_form_proxies.append(proxy)
+                        self._interactive_field_widgets.append({
+                            'page_idx': p_idx,
+                            'field_name': w.field_name,
+                            'widget': cmb,
+                            'type': 'combo'
+                        })
             except Exception:
                 pass
 
@@ -5105,6 +5208,39 @@ class PDFTabDocument(QWidget):
             self.set_modified(True)
         except Exception:
             pass
+
+    def sync_form_fields(self):
+        """Kullanıcının form alanlarına girdiği son değerleri PyMuPDF widget yapılarına kaydeder."""
+        if not self.doc:
+            return
+        entries = getattr(self, '_interactive_field_widgets', [])
+        for entry in entries:
+            p_idx = entry.get('page_idx')
+            f_name = entry.get('field_name')
+            widget = entry.get('widget')
+            if p_idx is None or p_idx >= len(self.doc) or not widget or not f_name:
+                continue
+
+            val = None
+            if isinstance(widget, QLineEdit):
+                val = widget.text()
+            elif isinstance(widget, QTextEdit):
+                val = widget.toPlainText()
+            elif isinstance(widget, (QCheckBox, QRadioButton)):
+                val = widget.isChecked()
+            elif isinstance(widget, QComboBox):
+                val = widget.currentText()
+
+            if val is not None:
+                try:
+                    page = self.doc[p_idx]
+                    for w in page.widgets():
+                        if w.field_name == f_name:
+                            w.field_value = val
+                            w.update()
+                            break
+                except Exception:
+                    pass
 
     def _handle_mouse_hover(self, event, tool):
         pos = self.view.mapToScene(event.pos())

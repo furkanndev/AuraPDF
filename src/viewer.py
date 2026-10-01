@@ -327,6 +327,8 @@ class ModernPDFViewer(QMainWindow):
         QShortcut(QKeySequence("Ctrl+2"), self, activated=self.fit_to_width)
         QShortcut(QKeySequence("Ctrl+D"), self, activated=self.open_document_properties_dialog)
         QShortcut(QKeySequence("Ctrl+Shift+U"), self, activated=self.toggle_read_aloud)
+        QShortcut(QKeySequence("F1"), self, activated=self.open_shortcuts_dialog)
+        QShortcut(QKeySequence("Ctrl+Shift+C"), self, activated=self.open_compress_dialog)
 
         # Dinamik özelleştirilebilir araç ve fare kısayolları
         self.reload_shortcuts()
@@ -1215,6 +1217,15 @@ class ModernPDFViewer(QMainWindow):
         self.btn_tool_encrypt.clicked.connect(self.open_encrypt_dialog)
         self._add_toolbar_widget(self.btn_tool_encrypt, "btn_tool_encrypt")
 
+        self.btn_tool_compress = DraggableToolButton()
+        self.btn_tool_compress.setObjectName("btn_tool_compress")
+        self.btn_tool_compress.setIcon(ModernIconFactory.icon_compress())
+        self.btn_tool_compress.setText(" " + LanguageManager.tr("compress_action").replace("...", ""))
+        self.btn_tool_compress.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+        self.btn_tool_compress.setToolTip(LanguageManager.tr("compress_action"))
+        self.btn_tool_compress.clicked.connect(self.open_compress_dialog)
+        self._add_toolbar_widget(self.btn_tool_compress, "btn_tool_compress")
+
         # 4. Kategori Ayırıcıları (Separators)
         self._add_toolbar_separator("sep_file_1")
         self._add_toolbar_separator("sep_file_2")
@@ -1775,6 +1786,9 @@ class ModernPDFViewer(QMainWindow):
         if hasattr(self, 'btn_tool_encrypt'):
             self.btn_tool_encrypt.setText(" " + LanguageManager.tr("encrypt_action").replace("...", ""))
             self.btn_tool_encrypt.setToolTip(LanguageManager.tr("encrypt_action"))
+        if hasattr(self, 'btn_tool_compress'):
+            self.btn_tool_compress.setText(" " + LanguageManager.tr("compress_action").replace("...", ""))
+            self.btn_tool_compress.setToolTip(LanguageManager.tr("compress_action"))
 
         if hasattr(self, 'btn_cursor'):
             tip = LanguageManager.tr("cursor_tool_tip") if getattr(self, 'cursor_mode', 'select') == 'select' else LanguageManager.tr("cursor_pan_tip")
@@ -2561,7 +2575,9 @@ class ModernPDFViewer(QMainWindow):
             return
 
         try:
-            # 1. Çizimleri PDF vektör akışına aktar
+            # 1. Etkileşimli formları ve çizimleri PDF vektör akışına aktar
+            if hasattr(tab_doc, 'sync_form_fields'):
+                tab_doc.sync_form_fields()
             tab_doc.export_drawings_to_pdf(tab_doc.doc)
 
             # 2. Yazar üstverisi ayarlarını kontrol et ve gerekirse uygula
@@ -2898,6 +2914,7 @@ class ModernPDFViewer(QMainWindow):
         act_watermark = menu.addAction(ModernIconFactory.icon_watermark(), LanguageManager.tr("watermark_action"))
         act_background = menu.addAction(ModernIconFactory.icon_background(), LanguageManager.tr("background_action"))
         act_encrypt = menu.addAction(ModernIconFactory.icon_lock(), LanguageManager.tr("encrypt_action"))
+        act_compress = menu.addAction(ModernIconFactory.icon_compress(), LanguageManager.tr("compress_action"))
         act_recovery = menu.addAction(ModernIconFactory.icon_recovery(), LanguageManager.tr("recovery_action"))
 
         # 4. Dönüştürme & Dışa Aktarma Grubu
@@ -2907,6 +2924,10 @@ class ModernPDFViewer(QMainWindow):
         act_excel = menu.addAction(ModernIconFactory.icon_excel(), LanguageManager.tr("excel_action"))
         act_epub = menu.addAction(ModernIconFactory.icon_epub(), LanguageManager.tr("epub_action"))
         act_mobi = menu.addAction(ModernIconFactory.icon_mobi(), LanguageManager.tr("mobi_action"))
+
+        # 5. Yardım & Kılavuz
+        menu.addSeparator()
+        act_shortcuts = menu.addAction(ModernIconFactory.icon_keyboard_shortcuts(), LanguageManager.tr("shortcuts_action"))
 
         act_new_blank.triggered.connect(lambda checked=False: self.show_new_page_dialog(force_new_doc=True))
         act_content_editor.triggered.connect(self.open_pdf_content_editor)
@@ -2921,15 +2942,31 @@ class ModernPDFViewer(QMainWindow):
         act_watermark.triggered.connect(self.open_watermark_dialog)
         act_background.triggered.connect(self.open_background_dialog)
         act_encrypt.triggered.connect(self.open_encrypt_dialog)
+        act_compress.triggered.connect(self.open_compress_dialog)
         act_recovery.triggered.connect(self.open_recovery_dialog)
         act_word.triggered.connect(self.open_word_dialog)
         act_pptx.triggered.connect(self.open_pptx_dialog)
         act_excel.triggered.connect(self.open_excel_dialog)
         act_epub.triggered.connect(lambda: self.open_ebook_dialog("epub"))
         act_mobi.triggered.connect(lambda: self.open_ebook_dialog("mobi"))
+        act_shortcuts.triggered.connect(self.open_shortcuts_dialog)
 
         point = self.btn_toolbox.mapToGlobal(QPoint(0, self.btn_toolbox.height() + 4))
         menu.exec(point)
+
+    def open_compress_dialog(self):
+        tab_doc = self.get_current_tab_doc()
+        initial_file = getattr(tab_doc, 'file_path', "") if tab_doc else ""
+        from src.ui.dialogs.pdf_compress_dialog import PDFCompressDialog
+        dlg = PDFCompressDialog(self, default_input_path=initial_file)
+        if dlg.exec() and getattr(dlg, 'compressed_pdf_path', None) and getattr(dlg, 'open_after_compress', True):
+            if os.path.exists(dlg.compressed_pdf_path):
+                self.add_pdf_tab(dlg.compressed_pdf_path)
+
+    def open_shortcuts_dialog(self):
+        from src.ui.dialogs.shortcuts_dialog import KeyboardShortcutsDialog
+        dlg = KeyboardShortcutsDialog(self)
+        dlg.exec()
 
     def open_pdf_compare_dialog(self):
         from src.ui.dialogs.pdf_compare_dialog import PDFCompareDialog
