@@ -28,7 +28,7 @@ from src.ui.icons import ModernIconFactory
 CATEGORY_ITEMS = {
     "cat_file": [
         "btn_open", "btn_save", "btn_save_as", "btn_print", "sep_file_1",
-        "btn_doc_props", "btn_new_tab", "btn_close_tab", "sep_file_2",
+        "btn_doc_props", "btn_tool_compress", "btn_new_tab", "btn_close_tab", "sep_file_2",
         "btn_toolbox", "btn_settings"
     ],
     "cat_home": [
@@ -64,7 +64,7 @@ CATEGORY_ITEMS = {
     ],
     "cat_tools": [
         "btn_toolbox", "sep_tool_1",
-        "btn_tool_organize", "btn_tool_merge", "btn_tool_split", "sep_tool_2",
+        "btn_tool_organize", "btn_tool_merge", "btn_tool_split", "btn_tool_compress", "sep_tool_2",
         "btn_tool_word", "btn_tool_excel", "sep_tool_3",
         "btn_tool_ocr", "btn_tool_editor", "btn_tool_sign", "btn_tool_compare", "btn_tool_redact", "btn_tool_encrypt", "spacer_right",
         "btn_settings"
