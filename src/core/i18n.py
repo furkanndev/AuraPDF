@@ -633,6 +633,8 @@ class LanguageManager:
             "background_btn_apply": "Arka Planı Ekle ve Kaydet",
             "background_success": "Arka plan başarıyla uygulandı:\n{path}",
             "background_success_apply": "Arka plan açık belgeye başarıyla uygulandı!",
+            "background_btn_remove": "Mevcut Arka Planı Kaldır",
+            "background_success_remove": "Arka plan belgeden başarıyla kaldırıldı!",
 
             # Mesajlar
             "error": "Hata",
@@ -1899,6 +1901,8 @@ class LanguageManager:
             "background_btn_apply": "Apply Background & Save",
             "background_success": "Background successfully applied:\n{path}",
             "background_success_apply": "Background applied to open document successfully!",
+            "background_btn_remove": "Remove Existing Background",
+            "background_success_remove": "Background removed from document successfully!",
 
             # Messages
             "error": "Error",
