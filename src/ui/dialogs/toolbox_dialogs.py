@@ -6915,6 +6915,54 @@ class PDFWatermarkDialog(QDialog):
 
 
 class PDFBackgroundDialog(QDialog):
+    @staticmethod
+    def _is_background_stream(stream_bytes: bytes, page_rect) -> bool:
+        if not stream_bytes:
+            return False
+        if b'AuraPDF-Background' in stream_bytes:
+            return True
+        s = stream_bytes.strip()
+        # Eski sürümde eklenen tam sayfa düz renk veya görsel arka planı tespit et
+        if len(s) < 220:
+            w_int = int(page_rect.width)
+            h_int = int(page_rect.height)
+            if b're' in s and (b'f' in s or b'F' in s) and (str(w_int).encode() in s or str(h_int).encode() in s):
+                return True
+            if b'Do' in s and b'cm' in s and len(s) < 140:
+                return True
+        return False
+
+    @classmethod
+    def _remove_page_background(cls, doc, page) -> bool:
+        """Sayfadaki mevcut arka plan akışlarını tespit edip temizler."""
+        try:
+            contents = page.get_contents()
+            if not contents:
+                return False
+            removed = False
+            remaining = []
+            for xref in contents:
+                try:
+                    stream = doc.xref_stream(xref)
+                    if cls._is_background_stream(stream, page.rect):
+                        removed = True
+                        continue
+                except Exception:
+                    pass
+                remaining.append(xref)
+
+            if removed:
+                if len(remaining) == 0:
+                    doc.xref_set_key(page.xref, 'Contents', 'null')
+                elif len(remaining) == 1:
+                    doc.xref_set_key(page.xref, 'Contents', f'{remaining[0]} 0 R')
+                else:
+                    refs = ' '.join(f'{x} 0 R' for x in remaining)
+                    doc.xref_set_key(page.xref, 'Contents', f'[ {refs} ]')
+            return removed
+        except Exception:
+            return False
+
     def __init__(self, main_window):
         super().__init__(main_window)
         self.main_window = main_window
@@ -7082,6 +7130,25 @@ class PDFBackgroundDialog(QDialog):
         btn_cancel.setMinimumHeight(30)
         btn_cancel.clicked.connect(self.reject)
         h_bot.addWidget(btn_cancel)
+
+        self.btn_remove = QPushButton(LanguageManager.tr("background_btn_remove"))
+        self.btn_remove.setMinimumHeight(30)
+        self.btn_remove.setStyleSheet("""
+            QPushButton {
+                background-color: rgba(239, 68, 68, 0.12);
+                color: #ef4444;
+                border: 1px solid rgba(239, 68, 68, 0.3);
+                border-radius: 6px;
+                padding: 4px 10px;
+                font-weight: 600;
+            }
+            QPushButton:hover {
+                background-color: rgba(239, 68, 68, 0.22);
+                border-color: #ef4444;
+            }
+        """)
+        self.btn_remove.clicked.connect(self.remove_background)
+        h_bot.addWidget(self.btn_remove)
 
         self.btn_save_as = QPushButton(LanguageManager.tr("watermark_btn_save_as", default="Farklı Kaydet..."))
         self.btn_save_as.setMinimumHeight(30)
@@ -7357,8 +7424,12 @@ class PDFBackgroundDialog(QDialog):
         should_close_doc = False
 
         if is_active_tab and tab_doc and tab_doc.doc:
-            doc = tab_doc.doc
-            should_close_doc = False
+            try:
+                doc = fitz.open("pdf", tab_doc.doc.tobytes())
+                should_close_doc = True
+            except Exception:
+                doc = tab_doc.doc
+                should_close_doc = False
         elif src_path and os.path.isfile(src_path):
             try:
                 doc = fitz.open(src_path)
@@ -7383,6 +7454,8 @@ class PDFBackgroundDialog(QDialog):
                     self.spn_preview_page.setEnabled(self.preview_total_pages > 1)
 
                     page = doc[self.preview_current_page]
+                    if should_close_doc:
+                        self._remove_page_background(doc, page)
                     rect = page.rect
                     scale = min(target_w / max(1.0, rect.width), target_h / max(1.0, rect.height))
                     mat = fitz.Matrix(scale, scale)
@@ -7500,10 +7573,17 @@ class PDFBackgroundDialog(QDialog):
                     r_norm = self.current_bg_color.redF()
                     g_norm = self.current_bg_color.greenF()
                     b_norm = self.current_bg_color.blueF()
-                    for page_idx in pages_to_process:
-                        page = doc[page_idx]
-                        if page.rotation != 0:
-                            page.remove_rotation()
+
+                for page_idx in pages_to_process:
+                    page = doc[page_idx]
+                    if page.rotation != 0:
+                        page.remove_rotation()
+
+                    # 1. Önceki tüm arka plan akışlarını temizle
+                    self._remove_page_background(doc, page)
+
+                    # 2. Yeni arka planı uygula
+                    if is_color_tab:
                         page.draw_rect(
                             page.rect,
                             fill=(r_norm, g_norm, b_norm),
@@ -7511,11 +7591,7 @@ class PDFBackgroundDialog(QDialog):
                             fill_opacity=opacity,
                             overlay=False
                         )
-                else:
-                    for page_idx in pages_to_process:
-                        page = doc[page_idx]
-                        if page.rotation != 0:
-                            page.remove_rotation()
+                    else:
                         rect = page.rect
                         if fit_mode == "fill":
                             target_rect = rect
@@ -7531,6 +7607,13 @@ class PDFBackgroundDialog(QDialog):
                             cy = (rect.y0 + rect.y1) / 2.0
                             target_rect = fitz.Rect(cx - tw / 2.0, cy - th / 2.0, cx + tw / 2.0, cy + th / 2.0)
                         page.insert_image(target_rect, stream=img_stream, overlay=False)
+
+                    # 3. Eklenen yeni arka plan akışını etiketle
+                    if bg_contents := page.get_contents():
+                        try:
+                            doc.update_stream(bg_contents[0], b'% AuraPDF-Background\n' + doc.xref_stream(bg_contents[0]))
+                        except Exception:
+                            pass
 
                 old_bytes = tab_doc.doc.tobytes()
                 new_bytes = doc.tobytes()
@@ -7619,10 +7702,16 @@ class PDFBackgroundDialog(QDialog):
                 g_norm = self.current_bg_color.greenF()
                 b_norm = self.current_bg_color.blueF()
 
-                for page_idx in pages_to_process:
-                    page = doc[page_idx]
-                    if page.rotation != 0:
-                        page.remove_rotation()
+            for page_idx in pages_to_process:
+                page = doc[page_idx]
+                if page.rotation != 0:
+                    page.remove_rotation()
+
+                # 1. Önceki tüm arka plan akışlarını temizle
+                self._remove_page_background(doc, page)
+
+                # 2. Yeni arka planı uygula
+                if is_color_tab:
                     page.draw_rect(
                         page.rect,
                         fill=(r_norm, g_norm, b_norm),
@@ -7630,11 +7719,7 @@ class PDFBackgroundDialog(QDialog):
                         fill_opacity=opacity,
                         overlay=False
                     )
-            else:
-                for page_idx in pages_to_process:
-                    page = doc[page_idx]
-                    if page.rotation != 0:
-                        page.remove_rotation()
+                else:
                     rect = page.rect
                     if fit_mode == "fill":
                         target_rect = rect
@@ -7651,6 +7736,13 @@ class PDFBackgroundDialog(QDialog):
                         target_rect = fitz.Rect(cx - tw / 2.0, cy - th / 2.0, cx + tw / 2.0, cy + th / 2.0)
                     page.insert_image(target_rect, stream=img_stream, overlay=False)
 
+                # 3. Eklenen yeni arka plan akışını etiketle
+                if bg_contents := page.get_contents():
+                    try:
+                        doc.update_stream(bg_contents[0], b'% AuraPDF-Background\n' + doc.xref_stream(bg_contents[0]))
+                    except Exception:
+                        pass
+
             doc.save(dst_path, garbage=3, deflate=True)
             doc.close()
 
@@ -7660,6 +7752,78 @@ class PDFBackgroundDialog(QDialog):
             self.accept()
         except Exception as e:
             QMessageBox.critical(self, LanguageManager.tr("error"), str(e))
+
+    def remove_background(self):
+        """Seçili sayfalardaki veya tüm belgedeki mevcut arka planı kaldırır."""
+        src_path = self.txt_src.text().strip()
+        is_active_tab = self._is_active_tab_doc(src_path)
+        tab_doc = getattr(self.main_window, 'get_current_tab_doc', lambda: None)()
+
+        if not is_active_tab and (not src_path or not os.path.isfile(src_path)):
+            QMessageBox.warning(self, LanguageManager.tr("warning"), LanguageManager.tr("encrypt_err_no_file"))
+            return
+
+        if is_active_tab and tab_doc and tab_doc.doc:
+            try:
+                doc = fitz.open("pdf", tab_doc.doc.tobytes())
+                total_pages = len(doc)
+                if hasattr(self, 'rad_current_page') and self.rad_current_page.isChecked():
+                    curr_p = getattr(tab_doc, 'current_page_idx', getattr(tab_doc, 'current_page', 0))
+                    pages_to_process = [max(0, min(curr_p, total_pages - 1))]
+                elif self.rad_all_pages.isChecked():
+                    pages_to_process = list(range(total_pages))
+                elif self.rad_skip_first.isChecked():
+                    pages_to_process = list(range(1, total_pages))
+                elif self.rad_first_page.isChecked():
+                    pages_to_process = [0]
+                else:
+                    pages_to_process = parse_page_range(self.txt_custom_pages.text().strip(), total_pages)
+
+                if not pages_to_process:
+                    doc.close()
+                    QMessageBox.warning(self, LanguageManager.tr("warning"), "Lütfen geçerli en az bir sayfa belirleyin.")
+                    return
+
+                for p_idx in pages_to_process:
+                    self._remove_page_background(doc, doc[p_idx])
+
+                old_bytes = tab_doc.doc.tobytes()
+                new_bytes = doc.tobytes()
+                old_drawings = [dict(d) for d in getattr(tab_doc, 'drawings', [])]
+                old_page = getattr(tab_doc, 'current_page_idx', getattr(tab_doc, 'current_page', 0))
+
+                tab_doc.doc.close()
+                tab_doc.doc = doc
+                if hasattr(tab_doc, 'hide_managed_annotations'):
+                    tab_doc.hide_managed_annotations()
+                tab_doc.set_modified(True)
+                tab_doc.render_pages_init()
+                tab_doc.rerender_visible_pages()
+
+                curr_p = max(0, min(old_page, len(doc) - 1))
+                tab_doc.go_to_page(curr_p)
+                if hasattr(self.main_window, 'thumbnails_dock') and self.main_window.thumbnails_dock:
+                    if self.main_window.thumbnails_dock.isVisible():
+                        self.main_window.thumbnails_dock.load_thumbnails_lazy()
+                        self.main_window.thumbnails_dock.select_page(curr_p)
+
+                tab_doc.push_undo_action({
+                    "type": "reorder_pages",
+                    "old_bytes": old_bytes,
+                    "old_drawings": old_drawings,
+                    "old_page": curr_p,
+                    "new_bytes": new_bytes,
+                    "new_drawings": [dict(d) for d in getattr(tab_doc, 'drawings', [])],
+                    "new_page": curr_p,
+                    "new_order": list(range(len(tab_doc.doc)))
+                })
+
+                QMessageBox.information(self, LanguageManager.tr("success"), LanguageManager.tr("background_success_remove"))
+                self.accept()
+                return
+            except Exception as e:
+                QMessageBox.critical(self, LanguageManager.tr("error"), str(e))
+                return
 
 
 class PDFPasswordDialog(QDialog):
