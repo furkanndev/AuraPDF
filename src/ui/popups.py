@@ -4506,4 +4506,151 @@ class RulerMeasurementPopup(BaseSettingsPopup):
         super().show_at(global_pos)
 
 
+class PDFTextSelectionHUD(QFrame):
+    """
+    Kullanıcı PDF sayfasındaki metinleri seçtiğinde beliren,
+    seçili metni kopyalama, vurgulama, altını çizme, üstünü çizme,
+    arama, çeviri ve seslendirme işlemlerini sunan modern floating HUD.
+    """
+    def __init__(self, parent=None, tab_doc=None):
+        super().__init__(parent)
+        self.tab_doc = tab_doc
+        self.setObjectName("PDFTextSelectionHUD")
+        self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating, True)
+        self.setWindowFlags(Qt.WindowType.SubWindow | Qt.WindowType.FramelessWindowHint)
+
+        self.setStyleSheet("""
+            #PDFTextSelectionHUD {
+                background-color: rgba(28, 28, 32, 0.96);
+                border: 1px solid rgba(255, 255, 255, 0.18);
+                border-radius: 8px;
+            }
+            QPushButton {
+                background: transparent;
+                border: none;
+                border-radius: 5px;
+                padding: 4px 6px;
+                color: #e2e8f0;
+                font-size: 11px;
+                font-weight: 500;
+            }
+            QPushButton:hover {
+                background: rgba(255, 255, 255, 0.12);
+                color: #38bdf8;
+            }
+            QPushButton:pressed {
+                background: rgba(2, 132, 199, 0.3);
+            }
+            QFrame#Separator {
+                background: rgba(255, 255, 255, 0.12);
+                width: 1px;
+                max-width: 1px;
+                margin: 4px 2px;
+            }
+        """)
+
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(6, 4, 6, 4)
+        layout.setSpacing(3)
+
+        # 1. Kopyala
+        self.btn_copy = QPushButton("📋 " + LanguageManager.tr("copy") if hasattr(LanguageManager, 'tr') else "📋 Kopyala")
+        self.btn_copy.setToolTip(LanguageManager.tr("text_copied_to_clipboard") + " (Ctrl+C)")
+        self.btn_copy.clicked.connect(self._on_copy)
+        layout.addWidget(self.btn_copy)
+
+        sep1 = QFrame()
+        sep1.setObjectName("Separator")
+        layout.addWidget(sep1)
+
+        # 2. Vurgula (Highlight)
+        self.btn_hl = QPushButton("🟡 " + LanguageManager.tr("text_markup_highlight"))
+        self.btn_hl.setToolTip(LanguageManager.tr("text_markup_highlight"))
+        self.btn_hl.clicked.connect(self._on_highlight)
+        layout.addWidget(self.btn_hl)
+
+        # 3. Altı Çizili (Underline)
+        self.btn_ul = QPushButton("✍️ " + LanguageManager.tr("text_markup_underline"))
+        self.btn_ul.setToolTip(LanguageManager.tr("text_markup_underline"))
+        self.btn_ul.clicked.connect(self._on_underline)
+        layout.addWidget(self.btn_ul)
+
+        # 4. Üstü Çizili (Strikeout)
+        self.btn_so = QPushButton("<s> " + LanguageManager.tr("text_markup_strikeout"))
+        self.btn_so.setToolTip(LanguageManager.tr("text_markup_strikeout"))
+        self.btn_so.clicked.connect(self._on_strikeout)
+        layout.addWidget(self.btn_so)
+
+        sep2 = QFrame()
+        sep2.setObjectName("Separator")
+        layout.addWidget(sep2)
+
+        # 5. Sesli Oku
+        self.btn_speak = QPushButton("🔊 " + LanguageManager.tr("read_aloud"))
+        self.btn_speak.setToolTip(LanguageManager.tr("read_aloud_tip"))
+        self.btn_speak.clicked.connect(self._on_speak)
+        layout.addWidget(self.btn_speak)
+
+        # 6. Web'de Ara
+        self.btn_search = QPushButton("🔍 " + LanguageManager.tr("text_search_google"))
+        self.btn_search.setToolTip(LanguageManager.tr("text_search_google"))
+        self.btn_search.clicked.connect(self._on_search)
+        layout.addWidget(self.btn_search)
+
+        # 7. Çevir
+        self.btn_translate = QPushButton("🌐 " + LanguageManager.tr("text_translate_google"))
+        self.btn_translate.setToolTip(LanguageManager.tr("text_translate_google"))
+        self.btn_translate.clicked.connect(self._on_translate)
+        layout.addWidget(self.btn_translate)
+
+    def _on_copy(self):
+        if self.tab_doc and hasattr(self.tab_doc, 'copy_selected_text'):
+            self.tab_doc.copy_selected_text()
+        self.hide()
+
+    def _on_highlight(self):
+        if self.tab_doc and hasattr(self.tab_doc, 'highlight_selected_text'):
+            self.tab_doc.highlight_selected_text()
+        self.hide()
+
+    def _on_underline(self):
+        if self.tab_doc and hasattr(self.tab_doc, 'underline_selected_text'):
+            self.tab_doc.underline_selected_text()
+        self.hide()
+
+    def _on_strikeout(self):
+        if self.tab_doc and hasattr(self.tab_doc, 'strikeout_selected_text'):
+            self.tab_doc.strikeout_selected_text()
+        self.hide()
+
+    def _on_speak(self):
+        if self.tab_doc and hasattr(self.tab_doc, 'speak_selected_text'):
+            self.tab_doc.speak_selected_text()
+        self.hide()
+
+    def _on_search(self):
+        if self.tab_doc and hasattr(self.tab_doc, 'search_selected_text'):
+            self.tab_doc.search_selected_text()
+        self.hide()
+
+    def _on_translate(self):
+        if self.tab_doc and hasattr(self.tab_doc, 'translate_selected_text'):
+            self.tab_doc.translate_selected_text()
+        self.hide()
+
+    def show_at_pos(self, viewport_pos: QPoint):
+        self.adjustSize()
+        x = viewport_pos.x() - self.width() // 2
+        y = viewport_pos.y() - self.height() - 10
+        # Clamp to viewport bounds
+        if self.parent():
+            x = max(10, min(x, self.parent().width() - self.width() - 10))
+            if y < 10:
+                y = viewport_pos.y() + 25
+        self.move(x, y)
+        self.show()
+        self.raise_()
+
+
+
 

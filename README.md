@@ -6,10 +6,11 @@
 
 <p align="center">
   <strong>Modern, Hızlı ve Güçlü PDF Görüntüleyici & Düzenleyici</strong><br>
-  <em>Python, PyQt6 ve PyMuPDF ile geliştirilmiş zengin özellikli masaüstü PDF aracı.</em>
+  <em>Python, PyQt6 ve PyMuPDF ile geliştirilmiş yeni nesil zengin özellikli masaüstü PDF platformu.</em>
 </p>
 
 <p align="center">
+  <img src="https://img.shields.io/badge/Version-v1.0.0-6366f1?style=flat-square&logo=git" alt="Version" />
   <img src="https://img.shields.io/badge/Python-3.10%2B-blue?style=flat-square&logo=python" alt="Python Version" />
   <img src="https://img.shields.io/badge/GUI-PyQt6-green?style=flat-square&logo=qt" alt="PyQt6" />
   <img src="https://img.shields.io/badge/Engine-PyMuPDF-orange?style=flat-square" alt="PyMuPDF" />
@@ -19,13 +20,52 @@
 
 ---
 
-## 🚀 Özellikler
+## 🚀 v1.0.0 ile Gelen Yenilikler
+
+### 🎯 Doğal Metin Seçimi ve Zengin İşlemler
+- **Metin Seçimi & Kopyalama:** Sayfadaki metinleri fare ile doğal bir şekilde seçin, `Ctrl+C` ile panoya kopyalayın.
+- **Yüzen Hızlı İşlem Çubuğu (Text Selection HUD):** Metin seçildiğinde beliren modern butonlarla anında kopyalama, Google'da arama, Google Çeviri ve sesli dinleme.
+- **PDF Standart İşaretlemeleri:** Seçilen metne doğrudan PDF standardında **Vurgulama (Highlight)**, **Altı Çizili (Underline)** veya **Üstü Çizili (Strikeout)** işaretleri ekleyin.
+
+### 🌐 Tıklanabilir Bağlantılar ve Gezinim Geçmişi
+- **Etkileşimli Köprüler (Hyperlinks):** PDF içindeki web bağlantılarına tek tıkla tarayıcınızda gidin, iç referans bağlantılarıyla ilgili sayfalara atlayın.
+- **Görünüm Geçmişi (Nav Back / Forward):** `Alt+Sol Ok` ve `Alt+Sağ Ok` ile web tarayıcısı gibi önceki ve sonraki sayfa/yakınlaştırma konumlarınıza dönün.
+- **Sayfayı Sığdır:** `Ctrl+0` ile sayfayı tam ekran yüksekliğine sığdırın, `Ctrl+2` ile genişliğe sığdırın.
+
+### 🌓 Okuma Renk Modları
+- **Gündüz Modu (Normal):** Orijinal belge renkleri.
+- **Gece / Karanlık Modu (Dark):** Gece okumaları için yüksek performanslı C-seviyesi renk ters çevirme.
+- **Kitap Tonu (Sepia):** Uzun süreli okumalarda göz yorgunluğunu önleyen sıcak kâğıt tonu.
+
+### 📝 Etkileşimli PDF Form Doldurma (AcroForms)
+- PDF formlarındaki metin kutularını (`Text Fields`), onay kutularını (`Checkboxes`) ve açılır listeleri (`Dropdown / Comboboxes`) doğrudan sayfa üzerinden tıklayarak doldurun ve kaydedin.
+
+### 💬 Yorumlar ve İşaretlemeler Yan Paneli
+- Belgedeki tüm açıklamaları, metin vurgularını ve notları listeleyen 4. sekme ("Yorumlar").
+- Tür ve sayfa bazında filtreleme, tıklandığında anında ilgili işaretlemeye odaklanma.
+
+### 🔊 Sesli Okuma (Text-to-Speech)
+- PyQt6'nın yerleşik ses motoru sayesinde belgelerinizi veya seçtiğiniz paragrafları doğal sesle dinleyin (`Ctrl+Shift+U`).
+
+### ℹ️ Belge Özellikleri ve Güvenlik (`Ctrl+D`)
+- Başlık, yazar, konu ve anahtar kelimeleri görüntüleyin ve düzenleyin.
+- Sayfa boyutları (A4, Letter vb., mm / inç / pt), PDF sürümü, şifreleme ve izin durumunu inceleyin.
+
+### 🔄 Oturum Yönetimi ve Dış Dosya İzleyici
+- **Oturum Geri Yükleme:** Uygulamayı başlattığınızda önceki oturumdaki açık sekmeler ve sayfa konumları otomatik yüklenir.
+- **Son Kapatılan Sekmeyi Aç:** `Ctrl+Shift+T` ile kazara kapattığınız sekmeleri geri açın.
+- **Son Açılan Dosyalar Menüsü:** Dosya menüsünden son çalışılan belgelere hızlı erişim.
+- **Dış Dosya Değişiklik Algılama:** Açık bir PDF dışarıdan güncellendiğinde otomatik olarak algılanır ve yenileme onayı sunulur.
+
+---
+
+## 🌟 Temel Özellikler
 
 ### 📑 Belge Yönetimi ve Görüntüleme
 - **Sekmeli Arayüz (Tabbed Interface):** Birden fazla PDF belgesini tek pencerede kolayca açın ve yönetin.
 - **Akıcı Gezinme:** Sayfa küçük resimleri (Thumbnails dock), yakınlaştırma, döndürme ve tam ekran okuma modları.
-- **Çoklu Dil Desteği:** Türkçe ve İngilizce dil desteği.
-- **Modern Temalar:** Göz yormayan koyu ve açık tema seçenekleri.
+- **Çoklu Dil Desteği:** Türkçe ve İngilizce tam yerelleştirme.
+- **Modern Temalar:** Gray, Nord, Emerald, Purple, Crimson, Vice City gibi özel hazırlanmış temalar.
 
 ### ✏️ Not Alma & Çizim Araçları
 - **Serbest Çizim & Vurgulayıcı:** Ayarlanabilir fırça boyutu, opaklık ve zengin renk paleti.

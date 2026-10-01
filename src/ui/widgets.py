@@ -1888,13 +1888,23 @@ class ThumbnailsDock(QDockWidget):
         self.btn_tab_attachments.setCheckable(True)
         self.btn_tab_attachments.setCursor(Qt.CursorShape.PointingHandCursor)
 
+        self.btn_tab_comments = QToolButton()
+        self.btn_tab_comments.setProperty("class", "SidebarTab")
+        self.btn_tab_comments.setIcon(ModernIconFactory.icon_comments())
+        self.btn_tab_comments.setText(" " + LanguageManager.tr("sidebar_comments"))
+        self.btn_tab_comments.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+        self.btn_tab_comments.setCheckable(True)
+        self.btn_tab_comments.setCursor(Qt.CursorShape.PointingHandCursor)
+
         self.btn_tab_thumbs.clicked.connect(lambda: self.switch_view(0))
         self.btn_tab_bookmarks.clicked.connect(lambda: self.switch_view(1))
         self.btn_tab_attachments.clicked.connect(lambda: self.switch_view(2))
+        self.btn_tab_comments.clicked.connect(lambda: self.switch_view(3))
 
         h_layout.addWidget(self.btn_tab_thumbs, 1)
         h_layout.addWidget(self.btn_tab_bookmarks, 1)
         h_layout.addWidget(self.btn_tab_attachments, 1)
+        h_layout.addWidget(self.btn_tab_comments, 1)
         layout.addWidget(self.header_bar)
 
         # Görünüm katmanları (Stacked Widget)
@@ -2027,6 +2037,28 @@ class ThumbnailsDock(QDockWidget):
         l_att.addWidget(self.lbl_no_attachments)
         self.stacked.addWidget(box_att)
 
+        # 3: Yorumlar & Ek Açıklamalar (Comments & Annotations)
+        box_com = QWidget()
+        l_com = QVBoxLayout(box_com)
+        l_com.setContentsMargins(4, 4, 4, 4)
+        l_com.setSpacing(4)
+
+        self.txt_filter_comments = QLineEdit()
+        self.txt_filter_comments.setPlaceholderText(LanguageManager.tr("search") + "...")
+        self.txt_filter_comments.setStyleSheet("background: rgba(255, 255, 255, 0.06); border: 1px solid rgba(255, 255, 255, 0.12); border-radius: 4px; padding: 4px 6px; color: #f1f5f9; font-size: 11px;")
+        self.txt_filter_comments.textChanged.connect(self._filter_comments)
+        l_com.addWidget(self.txt_filter_comments)
+
+        self.tree_comments = QTreeWidget()
+        self.tree_comments.setHeaderHidden(True)
+        self.tree_comments.itemClicked.connect(self._on_comment_clicked)
+        self.lbl_no_comments = QLabel(LanguageManager.tr("comments_no_items"))
+        self.lbl_no_comments.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.lbl_no_comments.setStyleSheet("color: #71717a; font-size: 11px; padding: 24px;")
+        l_com.addWidget(self.tree_comments)
+        l_com.addWidget(self.lbl_no_comments)
+        self.stacked.addWidget(box_com)
+
         layout.addWidget(self.stacked)
         self.setWidget(container)
 
@@ -2034,6 +2066,7 @@ class ThumbnailsDock(QDockWidget):
         self.btn_tab_thumbs.setChecked(index == 0)
         self.btn_tab_bookmarks.setChecked(index == 1)
         self.btn_tab_attachments.setChecked(index == 2)
+        self.btn_tab_comments.setChecked(index == 3)
         self.stacked.setCurrentIndex(index)
         if index == 0:
             self.load_thumbnails_lazy()
@@ -2041,6 +2074,8 @@ class ThumbnailsDock(QDockWidget):
             self.load_bookmarks()
         elif index == 2:
             self.load_attachments()
+        elif index == 3:
+            self.load_comments()
 
     def showEvent(self, event):
         super().showEvent(event)
@@ -2578,6 +2613,93 @@ class ThumbnailsDock(QDockWidget):
             item = QListWidgetItem(ModernIconFactory.icon_attachment(), display_text)
             item.setData(Qt.ItemDataRole.UserRole, name)
             self.list_attachments.addItem(item)
+
+    def load_comments(self):
+        self.tree_comments.clear()
+        tab_doc = self.main_window.get_current_tab_doc()
+        if not tab_doc or not tab_doc.doc:
+            self.tree_comments.hide()
+            self.lbl_no_comments.show()
+            return
+
+        items_found = 0
+        pages_dict = {}
+
+        # 1. Dokümandaki PyMuPDF ek açıklamaları
+        for p_idx in range(len(tab_doc.doc)):
+            try:
+                page = tab_doc.doc[p_idx]
+                for annot in page.annots():
+                    a_type_name = annot.type[1]
+                    info = annot.info or {}
+                    content = info.get("content", "") or annot.get_text() or a_type_name
+                    pages_dict.setdefault(p_idx, []).append({
+                        "type": a_type_name,
+                        "title": content[:60],
+                        "rect": annot.rect,
+                        "page": p_idx
+                    })
+                    items_found += 1
+            except Exception:
+                pass
+
+        # 2. Sahnede çizilmiş nesneler
+        for d in getattr(tab_doc, 'drawings', []):
+            p_idx = d.get("page", 0)
+            d_type = d.get("type", "çizim")
+            text_preview = d.get("text", "") or d_type
+            pages_dict.setdefault(p_idx, []).append({
+                "type": d_type,
+                "title": str(text_preview)[:60],
+                "rect": None,
+                "y": d.get("y", 0),
+                "page": p_idx
+            })
+            items_found += 1
+
+        if items_found == 0:
+            self.tree_comments.hide()
+            self.lbl_no_comments.show()
+            return
+
+        self.lbl_no_comments.hide()
+        self.tree_comments.show()
+
+        for p_idx in sorted(pages_dict.keys()):
+            annots = pages_dict[p_idx]
+            page_item = QTreeWidgetItem(self.tree_comments)
+            page_item.setText(0, f"Sayfa {p_idx + 1} ({len(annots)})")
+            page_item.setExpanded(True)
+            for a in annots:
+                sub = QTreeWidgetItem(page_item)
+                icon = ModernIconFactory.icon_highlighter() if "high" in a['type'].lower() else ModernIconFactory.icon_comments()
+                sub.setIcon(0, icon)
+                sub.setText(0, f"[{a['type']}] {a['title']}")
+                sub.setData(0, Qt.ItemDataRole.UserRole, a)
+
+    def _on_comment_clicked(self, item, column):
+        data = item.data(0, Qt.ItemDataRole.UserRole)
+        if not data or not isinstance(data, dict):
+            return
+        tab_doc = self.main_window.get_current_tab_doc()
+        if not tab_doc:
+            return
+        p_idx = data.get("page", 0)
+        tab_doc.go_to_page(p_idx)
+
+    def _filter_comments(self, text: str):
+        query = text.strip().lower()
+        for i in range(self.tree_comments.topLevelItemCount()):
+            top = self.tree_comments.topLevelItem(i)
+            match_any = False
+            for j in range(top.childCount()):
+                child = top.child(j)
+                txt = child.text(0).lower()
+                visible = not query or query in txt
+                child.setHidden(not visible)
+                if visible:
+                    match_any = True
+            top.setHidden(not match_any)
 
     def _show_bookmark_context_menu(self, pos):
         item = self.tree_bookmarks.itemAt(pos)
