@@ -1191,13 +1191,24 @@ class PDFTabDocument(QWidget):
         self.save_zoom_setting()
         self.clear_search_highlights()
         self.hide_laser_pointer()
-        if hasattr(self, 'active_fade_controllers'):
+        if hasattr(self, 'active_fade_controllers') and self.active_fade_controllers:
             for c in self.active_fade_controllers:
-                c.get("delay_timer", QTimer()).stop()
-                c.get("fade_timer", QTimer()).stop()
+                try:
+                    if dt := c.get("delay_timer"):
+                        dt.stop()
+                except Exception:
+                    pass
+                try:
+                    if ft := c.get("fade_timer"):
+                        ft.stop()
+                except Exception:
+                    pass
             self.active_fade_controllers.clear()
-        if hasattr(self, 'rerender_timer'):
-            self.rerender_timer.stop()
+        if hasattr(self, 'rerender_timer') and self.rerender_timer:
+            try:
+                self.rerender_timer.stop()
+            except Exception:
+                pass
         try:
             self.view.viewport().removeEventFilter(self)
         except Exception:
