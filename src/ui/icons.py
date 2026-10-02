@@ -1768,3 +1768,6 @@ def _wrap_icon_methods():
                 setattr(ModernIconFactory, attr, staticmethod(make_cached(orig, attr)))
 
 _wrap_icon_methods()
+
+# AuraPDF Marka İsimlendirmesi ile Geriye Dönük Uyumluluk Takma Adı (Alias)
+AuraIconFactory = ModernIconFactory

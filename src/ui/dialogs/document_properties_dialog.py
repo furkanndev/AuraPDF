@@ -18,7 +18,7 @@ from src.core.i18n import LanguageManager
 from src.ui.dialog_theme import get_dialog_theme_stylesheet
 
 
-class ModernDocumentPropertiesDialog(QDialog):
+class AuraDocumentPropertiesDialog(QDialog):
     def __init__(self, tab_doc, main_window=None, parent=None):
         if hasattr(tab_doc, 'doc'):
             self.tab_doc = tab_doc
@@ -320,3 +320,6 @@ class ModernDocumentPropertiesDialog(QDialog):
             self.accept()
         except Exception as e:
             QMessageBox.critical(self, LanguageManager.tr("error"), f"{LanguageManager.tr('error')}: {e}")
+
+# AuraPDF Marka İsimlendirmesi ile Geriye Dönük Uyumluluk Takma Adı (Alias)
+ModernDocumentPropertiesDialog = AuraDocumentPropertiesDialog

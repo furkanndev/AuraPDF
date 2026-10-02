@@ -10,8 +10,8 @@ from PyQt6.QtPrintSupport import QPrinter, QPrintDialog
 from src.core.i18n import LanguageManager
 from src.ui.dialog_theme import get_dialog_theme_stylesheet
 
-# --- 8. MODERN YAZDIRMA & PRINT TO PDF DİYALOĞU ---
-class ModernPrintDialog(QDialog):
+# --- 8. AURA YAZDIRMA & PRINT TO PDF DİYALOĞU ---
+class AuraPrintDialog(QDialog):
     def __init__(self, tab_doc, main_window):
         super().__init__(main_window)
         self.tab_doc = tab_doc
@@ -147,5 +147,8 @@ class ModernPrintDialog(QDialog):
                 painter.end()
                 temp_pdf.close()
                 self.accept()
+
+# AuraPDF Marka İsimlendirmesi ile Geriye Dönük Uyumluluk Takma Adı (Alias)
+ModernPrintDialog = AuraPrintDialog
 
 

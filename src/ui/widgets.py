@@ -3314,7 +3314,7 @@ class ThumbnailsDock(QDockWidget):
 
 
 # --- 11. SÜRÜKLE-BIRAK DESTEKLİ TAB BİLEŞENİ ---
-class ModernTabWidget(QTabWidget):
+class AuraTabWidget(QTabWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setAcceptDrops(True)
@@ -3393,17 +3393,19 @@ class ModernTabWidget(QTabWidget):
             p.drawText(hint_rect, Qt.AlignmentFlag.AlignCenter, text)
             p.end()
 
+ModernTabWidget = AuraTabWidget
 
-# --- 12. MODERN METİN ARAMA ÇUBUĞU (SEARCH BAR) ---
-class ModernSearchBar(QFrame):
+
+# --- 12. AURA METİN ARAMA ÇUBUĞU (SEARCH BAR) ---
+class AuraSearchBar(QFrame):
     def __init__(self, parent_viewer):
         super().__init__(parent_viewer)
         self.viewer = parent_viewer
-        self.setObjectName("ModernSearchBar")
+        self.setObjectName("AuraSearchBar")
         self.setFocusPolicy(Qt.FocusPolicy.ClickFocus)
 
         self.setStyleSheet("""
-            QFrame#ModernSearchBar {
+            QFrame#AuraSearchBar, QFrame#ModernSearchBar {
                 background-color: #252526;
                 border: 1px solid #3c3c3c;
                 border-radius: 8px;
@@ -3663,6 +3665,10 @@ class ModernSearchBar(QFrame):
             event.accept()
             return
         super().keyPressEvent(event)
+
+# AuraPDF Marka İsimlendirmesi ile Geriye Dönük Uyumluluk Takma Adları (Aliases)
+ModernSearchBar = AuraSearchBar
+AuraLinkInputDialog = ModernLinkInputDialog
 
 
 

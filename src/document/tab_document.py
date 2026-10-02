@@ -379,7 +379,7 @@ class BookmarkRibbonItem(QGraphicsItem):
                 self.tab_doc.add_custom_page_bookmark(self.page_idx)
 
 
-class ModernLaserPointerItem(QGraphicsItem):
+class AuraLaserPointerItem(QGraphicsItem):
     """
     Ultra-modern, premium laser pointer graphic preview item.
     Renders:
@@ -485,8 +485,10 @@ class ModernLaserPointerItem(QGraphicsItem):
         painter.setBrush(QBrush(QColor(255, 255, 255, 255)))
         painter.drawEllipse(QRectF(-1.8, -1.8, 3.6, 3.6))
 
+ModernLaserPointerItem = AuraLaserPointerItem
 
-class ModernMeasurementItem(QGraphicsItem):
+
+class AuraMeasurementItem(QGraphicsItem):
     """
     Adobe Acrobat Pro tarzı etkileşimli ve hassas ölçüm cetveli görseli.
     - İki nokta arasında boyut çizgisi (dimension line) çizer.
@@ -728,10 +730,12 @@ class ModernMeasurementItem(QGraphicsItem):
         painter.setPen(QPen(QColor("#ffffff")))
         painter.drawText(badge_rect, Qt.AlignmentFlag.AlignCenter, label_text)
 
+ModernMeasurementItem = AuraMeasurementItem
+
 
 # --- 9. TEKİL SEKME BELGE YÖNETİCİSİ (TAB DOCUMENT) ---
 class PDFTabDocument(QWidget):
-    def __init__(self, file_path: Optional[str], main_window: 'ModernPDFViewer', initial_style: Optional[str] = None, initial_width: Optional[float] = None, initial_height: Optional[float] = None, create_initial_page: bool = False):
+    def __init__(self, file_path: Optional[str], main_window: 'AuraPDFViewer', initial_style: Optional[str] = None, initial_width: Optional[float] = None, initial_height: Optional[float] = None, create_initial_page: bool = False):
         super().__init__()
         self.file_path = file_path
         self.main_window = main_window
