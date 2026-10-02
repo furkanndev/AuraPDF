@@ -713,18 +713,6 @@ class AuraPDFViewer(QMainWindow):
         self.btn_selection.customContextMenuRequested.connect(lambda pos: self.selection_popup.show_below(self.btn_selection))
         self._add_toolbar_widget(self.btn_selection, "btn_selection")
 
-        self.btn_ruler = DraggableToolButton()
-        self.btn_ruler.setObjectName("btn_ruler")
-        self.btn_ruler.setIcon(ModernIconFactory.icon_ruler())
-        self.btn_ruler.setText(" " + LanguageManager.tr("ruler_btn"))
-        self.btn_ruler.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
-        self.btn_ruler.setCheckable(True)
-        self.btn_ruler.setToolTip(LanguageManager.tr("ruler_tool_tip"))
-        self.btn_ruler.clicked.connect(self.handle_ruler_click)
-        self.btn_ruler.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-        self.btn_ruler.customContextMenuRequested.connect(lambda pos: self.ruler_popup.show_below(self.btn_ruler))
-        self._add_toolbar_widget(self.btn_ruler, "btn_ruler")
-
         self.btn_hl = DraggableToolButton()
         self.btn_hl.setIcon(ModernIconFactory.icon_highlighter())
         self.btn_hl.setText(" ⌵")
@@ -1399,8 +1387,6 @@ class AuraPDFViewer(QMainWindow):
         self.btn_selection.setToolTip(LanguageManager.tr("selection_tool_tip"))
         self.btn_hl.setToolTip(LanguageManager.tr("highlighter_tool_tip"))
         self.btn_pen.setToolTip(LanguageManager.tr("pen_tool_tip"))
-        if getattr(self, 'btn_ruler', None) is not None:
-            self.btn_ruler.setToolTip(LanguageManager.tr("ruler_tool_tip"))
         self.btn_text.setToolTip(LanguageManager.tr("text_tool_tip"))
         self.btn_eraser.setToolTip(LanguageManager.tr("eraser_tool_tip"))
         self.btn_pointer.setToolTip(LanguageManager.tr("pointer_tool_tip"))
@@ -1947,12 +1933,6 @@ class AuraPDFViewer(QMainWindow):
         if reply == QMessageBox.StandardButton.Yes:
             tab_doc.clear_all_drawings()
 
-    def handle_ruler_click(self):
-        new_snap = self.btn_ruler.isChecked()
-        self.set_ruler_snap(new_snap)
-        if new_snap and self.current_tool not in ('pen', 'highlighter'):
-            self.set_tool_state('pen')
-
     def set_ruler_snap(self, enabled: bool):
         if hasattr(self, 'hl_popup'):
             self.hl_popup.snap_straight = enabled
@@ -1966,10 +1946,6 @@ class AuraPDFViewer(QMainWindow):
                 self.pen_popup.chk_snap.blockSignals(True)
                 self.pen_popup.chk_snap.setChecked(enabled)
                 self.pen_popup.chk_snap.blockSignals(False)
-        if getattr(self, 'btn_ruler', None):
-            self.btn_ruler.blockSignals(True)
-            self.btn_ruler.setChecked(enabled)
-            self.btn_ruler.blockSignals(False)
         if hasattr(self, 'hl_ruler_popup'):
             self.hl_ruler_popup.refresh_state()
 
@@ -1979,10 +1955,6 @@ class AuraPDFViewer(QMainWindow):
             is_snap = True
         elif hasattr(self, 'pen_popup') and getattr(self.pen_popup, 'snap_straight', False):
             is_snap = True
-        if getattr(self, 'btn_ruler', None):
-            self.btn_ruler.blockSignals(True)
-            self.btn_ruler.setChecked(is_snap)
-            self.btn_ruler.blockSignals(False)
         if hasattr(self, 'hl_ruler_popup'):
             self.hl_ruler_popup.refresh_state()
 
