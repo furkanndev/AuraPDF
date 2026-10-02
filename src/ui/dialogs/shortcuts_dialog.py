@@ -33,7 +33,6 @@ class KeyboardShortcutsDialog(QDialog):
                     ("Alt + Sağ Ok", "Sonraki sayfa görünümüne ilerle"),
                     ("Ctrl + F", "Belge içinde metin ara"),
                     ("F3 / Shift + F3", "Sonraki / önceki arama sonucuna git"),
-                    ("Ctrl + Shift + U", "Metni sesli oku / durdur (TTS)"),
                     ("F11", "Tam ekran modunu aç / kapat"),
                 ]),
                 ("Dosya & Sekmeler", [
@@ -73,7 +72,6 @@ class KeyboardShortcutsDialog(QDialog):
                     ("Alt + Right Arrow", "Navigate forward to next view"),
                     ("Ctrl + F", "Search text inside document"),
                     ("F3 / Shift + F3", "Find next / previous occurrence"),
-                    ("Ctrl + Shift + U", "Read aloud / toggle TTS"),
                     ("F11", "Toggle fullscreen mode"),
                 ]),
                 ("File & Tabs", [

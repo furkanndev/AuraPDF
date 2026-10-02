@@ -50,7 +50,6 @@ TOOLBAR_ITEMS_META = {
     "btn_rotate": ("tb_item_rotate", ModernIconFactory.icon_rotate),
     "btn_view_mode": ("tb_item_view_mode", ModernIconFactory.icon_view_single),
     "btn_reading_mode": ("tb_item_reading_mode", ModernIconFactory.icon_reading_mode),
-    "btn_speech": ("tb_item_speech", ModernIconFactory.icon_speech),
     "btn_search": ("tb_item_search", ModernIconFactory.icon_search),
     "btn_print": ("tb_item_print", ModernIconFactory.icon_print),
     "btn_save": ("tb_item_save", ModernIconFactory.icon_save),
@@ -67,7 +66,7 @@ DEFAULT_TOOLBAR_LAYOUT = [
     "btn_text", "btn_insert", "btn_eraser", "btn_pointer", "sep_2",
     "lbl_zoom", "btn_fit_page",
     "spacer_left",
-    "page_widget", "btn_rotate", "btn_view_mode", "btn_reading_mode", "btn_speech",
+    "page_widget", "btn_rotate", "btn_view_mode", "btn_reading_mode",
     "spacer_right",
     "btn_search", "sep_3",
     "btn_print", "btn_save", "btn_open", "btn_toolbox", "btn_settings", "btn_fullscreen"
