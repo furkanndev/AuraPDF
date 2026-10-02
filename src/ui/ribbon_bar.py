@@ -42,7 +42,7 @@ CATEGORY_ITEMS = {
     "cat_draw": [
         "btn_undo", "btn_redo", "sep_draw_1",
         "btn_cursor", "btn_selection", "sep_draw_2",
-        "btn_pen", "btn_hl", "btn_text", "btn_eraser", "btn_pointer", "btn_ruler", "sep_draw_3",
+        "btn_pen", "btn_hl", "btn_text", "btn_eraser", "btn_pointer", "sep_draw_3",
         "lbl_zoom", "btn_fit_page", "spacer_left",
         "page_widget", "spacer_right",
         "btn_fullscreen"
