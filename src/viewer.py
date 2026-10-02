@@ -21,14 +21,14 @@ from src.core.shortcut_helper import (
     parse_mouse_shortcut,
     clean_modifiers,
 )
-from src.ui.icons import ModernIconFactory
+from src.ui.icons import ModernIconFactory, AuraIconFactory
 from src.ui.cursors import CursorFactory
-from src.ui.widgets import (DraggableToolButton, ReorderableToolBar, ModernTabWidget, 
-                            ThumbnailsDock, ModernSearchBar, FullscreenSlideToolbar)
+from src.ui.widgets import (DraggableToolButton, ReorderableToolBar, ModernTabWidget, AuraTabWidget,
+                            ThumbnailsDock, ModernSearchBar, AuraSearchBar, FullscreenSlideToolbar)
 from src.ui.popups import (SelectionSettingsPopup, TextSettingsPopup, ToolSettingsPopup, 
                            FloatingHUDPreview, PointerSettingsPopup, HighlighterRulerPopup, 
                            CursorPopup, RulerMeasurementPopup)
-from src.ui.dialogs.document_properties_dialog import ModernDocumentPropertiesDialog
+from src.ui.dialogs.document_properties_dialog import ModernDocumentPropertiesDialog, AuraDocumentPropertiesDialog
 from src.document.tab_document import PDFTabDocument
 
 
@@ -238,7 +238,7 @@ class EditableZoomWidget(QWidget):
 
 
 # --- 12. ANA UYGULAMA ---
-class ModernPDFViewer(QMainWindow):
+class AuraPDFViewer(QMainWindow):
     def __init__(self):
         super().__init__()
         settings = QSettings("AuraPDF", "PDFViewer")
@@ -256,7 +256,7 @@ class ModernPDFViewer(QMainWindow):
         self.selection_shape_mode = 'rect'
         self.new_doc_counter = 0
 
-        self.tab_widget = ModernTabWidget(self)
+        self.tab_widget = AuraTabWidget(self)
         self.tab_widget.setTabsClosable(True)
         self.tab_widget.setMovable(True)
         self.tab_widget.tabCloseRequested.connect(self.close_tab)
@@ -264,7 +264,7 @@ class ModernPDFViewer(QMainWindow):
         self.setCentralWidget(self.tab_widget)
 
         self.floating_hud = FloatingHUDPreview()
-        self.search_bar = ModernSearchBar(self)
+        self.search_bar = AuraSearchBar(self)
         self.fullscreen_toolbar = FullscreenSlideToolbar(self)
         app_inst = QApplication.instance()
         if app_inst:
@@ -657,8 +657,8 @@ class ModernPDFViewer(QMainWindow):
         return sep
 
     def _init_toolbar(self):
-        self.toolbar = ReorderableToolBar("Modern Toolbar", self)
-        self.toolbar.setObjectName("ModernToolbar")
+        self.toolbar = ReorderableToolBar("Aura Toolbar", self)
+        self.toolbar.setObjectName("AuraToolbar")
         self.toolbar.setMovable(False)
         self.addToolBar(self.toolbar)
 
@@ -2753,6 +2753,9 @@ class ModernPDFViewer(QMainWindow):
             except Exception:
                 pass
         super().closeEvent(event)
+
+# AuraPDF Marka İsimlendirmesi ile Geriye Dönük Uyumluluk Takma Adı (Alias)
+ModernPDFViewer = AuraPDFViewer
 
 
 

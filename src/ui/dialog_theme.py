@@ -585,4 +585,5 @@ def apply_dialog_theme(dialog: Any, parent: Optional[Any] = None, extra_css: str
     """Belirtilen diyalog nesnesine geçerli tema stilini uygular."""
     dialog.setStyleSheet(get_dialog_theme_stylesheet(parent, extra_css))
 
+apply_aura_dialog_style = apply_dialog_theme
 apply_modern_dialog_style = apply_dialog_theme

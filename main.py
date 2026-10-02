@@ -20,11 +20,20 @@ from PyQt6.QtCore import Qt
 
 # Gerekli ana bileşenleri doğrudan aktar
 from src.core.i18n import LanguageManager
-from src.ui.icons import ModernIconFactory
-from src.viewer import ModernPDFViewer
+from src.ui.icons import ModernIconFactory, AuraIconFactory
+from src.viewer import ModernPDFViewer, AuraPDFViewer
 
 # Diğer sınıfları geriye dönük uyumluluk (backward compatibility) için ihtiyaç anında tembel yükle (Lazy load)
 _LAZY_EXPORTS = {
+    "AuraIconFactory": ("src.ui.icons", "AuraIconFactory"),
+    "AuraPDFViewer": ("src.viewer", "AuraPDFViewer"),
+    "AuraTabWidget": ("src.ui.widgets", "AuraTabWidget"),
+    "AuraSearchBar": ("src.ui.widgets", "AuraSearchBar"),
+    "AuraLaserPointerItem": ("src.document.tab_document", "AuraLaserPointerItem"),
+    "AuraMeasurementItem": ("src.document.tab_document", "AuraMeasurementItem"),
+    "AuraPrintDialog": ("src.ui.dialogs.print_dialog", "AuraPrintDialog"),
+    "AuraSettingsDialog": ("src.ui.dialogs.settings_dialog", "AuraSettingsDialog"),
+    "AuraDocumentPropertiesDialog": ("src.ui.dialogs.document_properties_dialog", "AuraDocumentPropertiesDialog"),
     "CursorFactory": ("src.ui.cursors", "CursorFactory"),
     "DraggableToolButton": ("src.ui.widgets", "DraggableToolButton"),
     "ReorderableToolBar": ("src.ui.widgets", "ReorderableToolBar"),
@@ -63,6 +72,7 @@ _LAZY_EXPORTS = {
     "PDFScanOCRDialog": ("src.ui.dialogs.pdf_ocr_dialog", "PDFScanOCRDialog"),
     "PDFTabDocument": ("src.document.tab_document", "PDFTabDocument"),
     "ModernLaserPointerItem": ("src.document.tab_document", "ModernLaserPointerItem"),
+    "ModernDocumentPropertiesDialog": ("src.ui.dialogs.document_properties_dialog", "ModernDocumentPropertiesDialog"),
     "PDFTableItem": ("src.document.media_items", "PDFTableItem"),
     "PDFResizableImageItem": ("src.document.media_items", "PDFResizableImageItem"),
     "PDFAudioItem": ("src.document.media_items", "PDFAudioItem"),
@@ -78,12 +88,16 @@ _LAZY_EXPORTS = {
 }
 
 __all__ = [
-    "LanguageManager", "ModernIconFactory", "CursorFactory",
+    "LanguageManager", "AuraIconFactory", "ModernIconFactory", "CursorFactory",
+    "AuraPDFViewer", "ModernPDFViewer", "AuraTabWidget", "ModernTabWidget",
+    "AuraSearchBar", "ModernSearchBar",
     "DraggableToolButton", "ReorderableToolBar", "EditableInlineTextItem",
-    "ThumbnailsDock", "ModernTabWidget", "SelectionSettingsPopup",
+    "ThumbnailsDock", "SelectionSettingsPopup",
     "TextSettingsPopup", "TextPreviewWidget", "StrokePreviewWidget",
     "ToolSettingsPopup", "FloatingHUDPreview", "PointerSettingsPopup",
-    "ModernPrintDialog", "get_ebook_convert_path", "EbookConversionThread",
+    "AuraPrintDialog", "ModernPrintDialog", "AuraSettingsDialog", "ModernSettingsDialog",
+    "AuraDocumentPropertiesDialog", "ModernDocumentPropertiesDialog",
+    "get_ebook_convert_path", "EbookConversionThread",
     "PDFMergeListWidget", "PDFMergeDialog", "PDFSplitDialog", "PDFToEbookDialog",
     "PDFToWordDialog", "PDFToPowerPointDialog", "PDFToExcelDialog",
     "PDFEncryptDialog", "PDFPasswordRecoveryDialog", "PDFWatermarkDialog",
@@ -91,7 +105,8 @@ __all__ = [
     "PDFOrganizePagesDialog", "PDFReorderPagesDialog", "PDFPageNumberDialog",
     "PDFContentEditorDialog", "PDFSignatureDialog", "PDFCompareDialog",
     "PDFRedactionDialog", "PDFScanOCRDialog",
-    "PDFTabDocument", "ModernLaserPointerItem", "ModernPDFViewer",
+    "PDFTabDocument", "AuraLaserPointerItem", "ModernLaserPointerItem",
+    "AuraMeasurementItem", "ModernMeasurementItem",
     "PDFTableItem", "PDFResizableImageItem", "PDFAudioItem", "PDFVideoItem",
     "TableInsertDialog", "EmojiGifPickerDialog", "ImageInsertDialog",
     "AudioRecordDialog", "VideoInsertDialog",
@@ -171,7 +186,7 @@ def main():
         pass
 
     app = QApplication(sys.argv)
-    app_icon = ModernIconFactory.icon_app()
+    app_icon = AuraIconFactory.icon_app()
     app.setWindowIcon(app_icon)
 
     # 1. Argümanlardan açılacak dosyaları tespit et (çift tıklanan PDF kitapları)
@@ -190,14 +205,14 @@ def main():
             sys.exit(0)
 
     # 3. Ana Uygulama Penceresini Başlat
-    editor = ModernPDFViewer()
+    viewer = AuraPDFViewer()
 
     # Dosya ilişkilendirmesiyle çift tıklanan PDF'leri doğrudan yeni sekme olarak aç
     for file_path in files_to_open:
-        editor.add_pdf_tab(file_path)
+        viewer.add_pdf_tab(file_path)
 
     # Pencereyi tam ekran (maximized) olarak aç
-    editor.showMaximized()
+    viewer.showMaximized()
 
     # 4. Yerel Sunucuyu Başlat (Sonradan çift tıklanacak PDF'leri yakalamak için)
     server = None
@@ -217,12 +232,12 @@ def main():
                         if item != "__ACTIVATE__":
                             paths = get_pdf_paths_from_args([item])
                             for p in paths:
-                                editor.add_pdf_tab(p)
-                    activate_window(editor)
+                                viewer.add_pdf_tab(p)
+                    activate_window(viewer)
                 client.disconnectFromServer()
 
             server.newConnection.connect(handle_client_connection)
-            editor._local_server = server
+            viewer._local_server = server
 
     sys.exit(app.exec())
 

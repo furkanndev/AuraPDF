@@ -20,7 +20,7 @@ Bu belge, AuraPDF projesinde kod yazan, hata gideren veya yeni özellik gelişti
 * **Gereksiz Emoji Yasağı:**
   * Buton etiketlerinde, sekmelerde, araç çubuğunda, durum çubuklarında, hata veya bilgilendirme diyaloglarında gereksiz ve tutarsız emoji kullanımından kesinlikle kaçınılmalıdır.
 * **Vektörel Çizim İkonları:**
-  * Tüm simgeler `ModernIconFactory` (`src/ui/icons.py`) üzerinden `QPainterPath` / vektörel çizimle üretilmelidir.
+  * Tüm simgeler `AuraIconFactory` (`ModernIconFactory`, `src/ui/icons.py`) üzerinden `QPainterPath` / vektörel çizimle üretilmelidir.
   * İkonlar açık ve koyu tema renklerine duyarlı olmalı, yüksek DPI (retina/ölçekli ekranlar) ekranlarda pikselleşmemelidir.
 
 ---

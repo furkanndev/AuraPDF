@@ -530,7 +530,7 @@ class ModernShortcutEdit(QWidget):
         )
 
 
-class ModernSettingsDialog(QDialog):
+class AuraSettingsDialog(QDialog):
     def __init__(self, main_window=None, parent=None):
         super().__init__(parent or main_window)
         self.main_window = main_window
@@ -2018,5 +2018,8 @@ class ModernSettingsDialog(QDialog):
         self.accept()
 
 
-# Geriye dönük uyumluluk takma adı (Backward compatibility alias)
-SettingsDialog = ModernSettingsDialog
+# Geriye dönük uyumluluk takma adları (Backward compatibility aliases)
+ModernSettingsDialog = AuraSettingsDialog
+SettingsDialog = AuraSettingsDialog
+AuraShortcutButton = ModernShortcutButton
+AuraShortcutEdit = ModernShortcutEdit
