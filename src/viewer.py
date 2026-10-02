@@ -16,7 +16,6 @@ from PyQt6.QtGui import (QIcon, QIntValidator, QShortcut, QKeySequence, QColor, 
 from PyQt6.QtCore import Qt, QPoint, QSettings, QTimer, QEvent, QFileSystemWatcher
 
 from src.core.i18n import LanguageManager
-from src.core.speech_engine import AuraSpeechEngine
 from src.core.shortcut_helper import (
     is_mouse_shortcut,
     parse_mouse_shortcut,
@@ -31,7 +30,6 @@ from src.ui.popups import (SelectionSettingsPopup, TextSettingsPopup, ToolSettin
                            CursorPopup, RulerMeasurementPopup)
 from src.ui.dialogs.document_properties_dialog import ModernDocumentPropertiesDialog
 from src.document.tab_document import PDFTabDocument
-from src.ui.ribbon_bar import ModernCategoryBar, CATEGORY_ITEMS
 
 
 class EditableZoomWidget(QWidget):
@@ -276,8 +274,6 @@ class ModernPDFViewer(QMainWindow):
         self.closed_tabs_history = []
         self.file_watcher = QFileSystemWatcher(self)
         self.file_watcher.fileChanged.connect(self._on_watched_file_changed)
-        self.speech_engine = AuraSpeechEngine(self)
-        self.speech_engine.state_changed.connect(self._on_speech_state_changed)
 
         self._init_popups()
         self._init_docks()
@@ -326,7 +322,6 @@ class ModernPDFViewer(QMainWindow):
         QShortcut(QKeySequence("Ctrl+0"), self, activated=self.fit_to_page)
         QShortcut(QKeySequence("Ctrl+2"), self, activated=self.fit_to_width)
         QShortcut(QKeySequence("Ctrl+D"), self, activated=self.open_document_properties_dialog)
-        QShortcut(QKeySequence("Ctrl+Shift+U"), self, activated=self.toggle_read_aloud)
         QShortcut(QKeySequence("F1"), self, activated=self.open_shortcuts_dialog)
         QShortcut(QKeySequence("Ctrl+Shift+C"), self, activated=self.open_compress_dialog)
 
@@ -662,11 +657,6 @@ class ModernPDFViewer(QMainWindow):
         return sep
 
     def _init_toolbar(self):
-        # 0. Ribbon Kategori Çubuğu (Toolbar'ın üstündeki seçenekler çubuğu: Çizimler, Dosya, Ekle, vb.)
-        self.category_bar = ModernCategoryBar(self)
-        self.setMenuWidget(self.category_bar)
-        self.category_bar.categoryChanged.connect(self.set_active_category)
-
         self.toolbar = ReorderableToolBar("Modern Toolbar", self)
         self.toolbar.setObjectName("ModernToolbar")
         self.toolbar.setMovable(False)
@@ -929,15 +919,6 @@ class ModernPDFViewer(QMainWindow):
         self.btn_reading_mode.setMenu(read_menu)
         self._add_toolbar_widget(self.btn_reading_mode, "btn_reading_mode")
 
-        # Sesli Okuma Butonu (Text-to-Speech)
-        self.btn_speech = DraggableToolButton()
-        self.btn_speech.setObjectName("btn_speech")
-        self.btn_speech.setIcon(ModernIconFactory.icon_speech())
-        self.btn_speech.setCheckable(True)
-        self.btn_speech.setToolTip(LanguageManager.tr("speech_read_aloud"))
-        self.btn_speech.clicked.connect(self.toggle_read_aloud)
-        self._add_toolbar_widget(self.btn_speech, "btn_speech")
-
         spacer_right = QWidget()
         spacer_right.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         self._add_toolbar_widget(spacer_right, "spacer_right")
@@ -1015,315 +996,8 @@ class ModernPDFViewer(QMainWindow):
         self.btn_fullscreen.clicked.connect(self.toggle_fullscreen)
         self._add_toolbar_widget(self.btn_fullscreen, "btn_fullscreen")
 
-        # --- KATEGORİYE ÖZEL EK ARAÇLAR & BUTONLAR ---
-        # 1. Dosya Kategorisi Butonları
-        self.btn_save_as = DraggableToolButton()
-        self.btn_save_as.setObjectName("btn_save_as")
-        self.btn_save_as.setIcon(ModernIconFactory.icon_save())
-        self.btn_save_as.setText(" " + LanguageManager.tr("save_as"))
-        self.btn_save_as.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
-        self.btn_save_as.setToolTip(LanguageManager.tr("save_as") + " (Ctrl+Shift+S)")
-        self.btn_save_as.clicked.connect(self.save_pdf)
-        self._add_toolbar_widget(self.btn_save_as, "btn_save_as")
-
-        self.btn_doc_props = DraggableToolButton()
-        self.btn_doc_props.setObjectName("btn_doc_props")
-        self.btn_doc_props.setIcon(ModernIconFactory.icon_doc_properties())
-        self.btn_doc_props.setText(" " + LanguageManager.tr("doc_properties"))
-        self.btn_doc_props.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
-        self.btn_doc_props.setToolTip(LanguageManager.tr("doc_properties") + " (Ctrl+D)")
-        self.btn_doc_props.clicked.connect(self.open_document_properties_dialog)
-        self._add_toolbar_widget(self.btn_doc_props, "btn_doc_props")
-
-        self.btn_new_tab = DraggableToolButton()
-        self.btn_new_tab.setObjectName("btn_new_tab")
-        self.btn_new_tab.setIcon(ModernIconFactory.icon_new_document())
-        self.btn_new_tab.setText(" " + LanguageManager.tr("new_document"))
-        self.btn_new_tab.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
-        self.btn_new_tab.setToolTip(LanguageManager.tr("new_document") + " (Ctrl+N)")
-        self.btn_new_tab.clicked.connect(lambda: self.show_new_page_dialog(force_new_doc=True))
-        self._add_toolbar_widget(self.btn_new_tab, "btn_new_tab")
-
-        self.btn_close_tab = DraggableToolButton()
-        self.btn_close_tab.setObjectName("btn_close_tab")
-        self.btn_close_tab.setIcon(ModernIconFactory.icon_close())
-        self.btn_close_tab.setText(" " + LanguageManager.tr("close_tab"))
-        self.btn_close_tab.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
-        self.btn_close_tab.setToolTip(LanguageManager.tr("close_tab") + " (Ctrl+W)")
-        self.btn_close_tab.clicked.connect(lambda: self.close_tab(self.tab_widget.currentIndex()))
-        self._add_toolbar_widget(self.btn_close_tab, "btn_close_tab")
-
-        # 2. Ekle Kategorisi Doğrudan Butonları
-        self.btn_insert_img = DraggableToolButton()
-        self.btn_insert_img.setObjectName("btn_insert_img")
-        self.btn_insert_img.setIcon(ModernIconFactory.icon_image())
-        self.btn_insert_img.setText(" " + LanguageManager.tr("insert_image").replace("...", ""))
-        self.btn_insert_img.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
-        self.btn_insert_img.setToolTip(LanguageManager.tr("insert_image"))
-        self.btn_insert_img.clicked.connect(lambda: self.show_insert_image_dialog(default_tab=0))
-        self._add_toolbar_widget(self.btn_insert_img, "btn_insert_img")
-
-        self.btn_insert_voice = DraggableToolButton()
-        self.btn_insert_voice.setObjectName("btn_insert_voice")
-        self.btn_insert_voice.setIcon(ModernIconFactory.icon_menu_voice_recording())
-        self.btn_insert_voice.setText(" " + LanguageManager.tr("insert_voice_recording").replace("...", ""))
-        self.btn_insert_voice.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
-        self.btn_insert_voice.setToolTip(LanguageManager.tr("insert_voice_recording"))
-        self.btn_insert_voice.clicked.connect(self.show_insert_audio_dialog)
-        self._add_toolbar_widget(self.btn_insert_voice, "btn_insert_voice")
-
-        self.btn_insert_camera = DraggableToolButton()
-        self.btn_insert_camera.setObjectName("btn_insert_camera")
-        self.btn_insert_camera.setIcon(ModernIconFactory.icon_menu_camera())
-        self.btn_insert_camera.setText(" " + LanguageManager.tr("insert_camera").replace("...", ""))
-        self.btn_insert_camera.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
-        self.btn_insert_camera.setToolTip(LanguageManager.tr("insert_camera"))
-        self.btn_insert_camera.clicked.connect(self.show_insert_video_dialog)
-        self._add_toolbar_widget(self.btn_insert_camera, "btn_insert_camera")
-
-        self.btn_insert_audio = DraggableToolButton()
-        self.btn_insert_audio.setObjectName("btn_insert_audio")
-        self.btn_insert_audio.setIcon(ModernIconFactory.icon_menu_audio())
-        self.btn_insert_audio.setText(" " + LanguageManager.tr("insert_audio_file").replace("...", ""))
-        self.btn_insert_audio.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
-        self.btn_insert_audio.setToolTip(LanguageManager.tr("insert_audio_file"))
-        self.btn_insert_audio.clicked.connect(self.show_insert_audio_file_picker)
-        self._add_toolbar_widget(self.btn_insert_audio, "btn_insert_audio")
-
-        self.btn_insert_emoji = DraggableToolButton()
-        self.btn_insert_emoji.setObjectName("btn_insert_emoji")
-        self.btn_insert_emoji.setIcon(ModernIconFactory.icon_menu_drawing())
-        self.btn_insert_emoji.setText(" " + LanguageManager.tr("insert_drawing").replace("...", ""))
-        self.btn_insert_emoji.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
-        self.btn_insert_emoji.setToolTip(LanguageManager.tr("insert_drawing"))
-        self.btn_insert_emoji.clicked.connect(self.show_insert_emoji_dialog)
-        self._add_toolbar_widget(self.btn_insert_emoji, "btn_insert_emoji")
-
-        self.btn_insert_table = DraggableToolButton()
-        self.btn_insert_table.setObjectName("btn_insert_table")
-        self.btn_insert_table.setIcon(ModernIconFactory.icon_table())
-        self.btn_insert_table.setText(" " + LanguageManager.tr("insert_table").replace("...", ""))
-        self.btn_insert_table.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
-        self.btn_insert_table.setToolTip(LanguageManager.tr("insert_table"))
-        self.btn_insert_table.clicked.connect(self.show_insert_table_dialog)
-        self._add_toolbar_widget(self.btn_insert_table, "btn_insert_table")
-
-        self.btn_insert_blank = DraggableToolButton()
-        self.btn_insert_blank.setObjectName("btn_insert_blank")
-        self.btn_insert_blank.setIcon(ModernIconFactory.icon_add_page())
-        self.btn_insert_blank.setText(" " + LanguageManager.tr("sidebar_btn_add_blank"))
-        self.btn_insert_blank.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
-        self.btn_insert_blank.setToolTip(LanguageManager.tr("sidebar_btn_add_blank"))
-        self.btn_insert_blank.clicked.connect(self.show_new_page_dialog)
-        self._add_toolbar_widget(self.btn_insert_blank, "btn_insert_blank")
-
-        # 3. Araçlar (Tools) Kategorisi Doğrudan Butonları
-        self.btn_tool_organize = DraggableToolButton()
-        self.btn_tool_organize.setObjectName("btn_tool_organize")
-        self.btn_tool_organize.setIcon(ModernIconFactory.icon_organize())
-        self.btn_tool_organize.setText(" " + LanguageManager.tr("reorder_action").replace("...", ""))
-        self.btn_tool_organize.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
-        self.btn_tool_organize.setToolTip(LanguageManager.tr("reorder_action"))
-        self.btn_tool_organize.clicked.connect(lambda: self.open_organize_dialog(0))
-        self._add_toolbar_widget(self.btn_tool_organize, "btn_tool_organize")
-
-        self.btn_tool_merge = DraggableToolButton()
-        self.btn_tool_merge.setObjectName("btn_tool_merge")
-        self.btn_tool_merge.setIcon(ModernIconFactory.icon_merge())
-        self.btn_tool_merge.setText(" " + LanguageManager.tr("merge_action").replace("...", ""))
-        self.btn_tool_merge.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
-        self.btn_tool_merge.setToolTip(LanguageManager.tr("merge_action"))
-        self.btn_tool_merge.clicked.connect(self.open_merge_dialog)
-        self._add_toolbar_widget(self.btn_tool_merge, "btn_tool_merge")
-
-        self.btn_tool_split = DraggableToolButton()
-        self.btn_tool_split.setObjectName("btn_tool_split")
-        self.btn_tool_split.setIcon(ModernIconFactory.icon_split())
-        self.btn_tool_split.setText(" " + LanguageManager.tr("split_action").replace("...", ""))
-        self.btn_tool_split.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
-        self.btn_tool_split.setToolTip(LanguageManager.tr("split_action"))
-        self.btn_tool_split.clicked.connect(self.open_split_dialog)
-        self._add_toolbar_widget(self.btn_tool_split, "btn_tool_split")
-
-        self.btn_tool_word = DraggableToolButton()
-        self.btn_tool_word.setObjectName("btn_tool_word")
-        self.btn_tool_word.setIcon(ModernIconFactory.icon_word())
-        self.btn_tool_word.setText(" Word")
-        self.btn_tool_word.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
-        self.btn_tool_word.setToolTip(LanguageManager.tr("word_action"))
-        self.btn_tool_word.clicked.connect(self.open_word_dialog)
-        self._add_toolbar_widget(self.btn_tool_word, "btn_tool_word")
-
-        self.btn_tool_excel = DraggableToolButton()
-        self.btn_tool_excel.setObjectName("btn_tool_excel")
-        self.btn_tool_excel.setIcon(ModernIconFactory.icon_excel())
-        self.btn_tool_excel.setText(" Excel")
-        self.btn_tool_excel.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
-        self.btn_tool_excel.setToolTip(LanguageManager.tr("excel_action"))
-        self.btn_tool_excel.clicked.connect(self.open_excel_dialog)
-        self._add_toolbar_widget(self.btn_tool_excel, "btn_tool_excel")
-
-        self.btn_tool_ocr = DraggableToolButton()
-        self.btn_tool_ocr.setObjectName("btn_tool_ocr")
-        self.btn_tool_ocr.setIcon(ModernIconFactory.icon_ocr())
-        self.btn_tool_ocr.setText(" OCR")
-        self.btn_tool_ocr.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
-        self.btn_tool_ocr.setToolTip(LanguageManager.tr("ocr_action"))
-        self.btn_tool_ocr.clicked.connect(self.open_pdf_ocr_dialog)
-        self._add_toolbar_widget(self.btn_tool_ocr, "btn_tool_ocr")
-
-        self.btn_tool_editor = DraggableToolButton()
-        self.btn_tool_editor.setObjectName("btn_tool_editor")
-        self.btn_tool_editor.setIcon(ModernIconFactory.icon_edit_content())
-        self.btn_tool_editor.setText(" " + LanguageManager.tr("content_editor_action").replace("...", ""))
-        self.btn_tool_editor.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
-        self.btn_tool_editor.setToolTip(LanguageManager.tr("content_editor_action"))
-        self.btn_tool_editor.clicked.connect(self.open_pdf_content_editor)
-        self._add_toolbar_widget(self.btn_tool_editor, "btn_tool_editor")
-
-        self.btn_tool_sign = DraggableToolButton()
-        self.btn_tool_sign.setObjectName("btn_tool_sign")
-        self.btn_tool_sign.setIcon(ModernIconFactory.icon_sign())
-        self.btn_tool_sign.setText(" " + LanguageManager.tr("sign_action").replace("...", ""))
-        self.btn_tool_sign.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
-        self.btn_tool_sign.setToolTip(LanguageManager.tr("sign_action"))
-        self.btn_tool_sign.clicked.connect(self.open_signature_dialog)
-        self._add_toolbar_widget(self.btn_tool_sign, "btn_tool_sign")
-
-        self.btn_tool_compare = DraggableToolButton()
-        self.btn_tool_compare.setObjectName("btn_tool_compare")
-        self.btn_tool_compare.setIcon(ModernIconFactory.icon_compare())
-        self.btn_tool_compare.setText(" " + LanguageManager.tr("compare_action").replace("...", ""))
-        self.btn_tool_compare.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
-        self.btn_tool_compare.setToolTip(LanguageManager.tr("compare_action"))
-        self.btn_tool_compare.clicked.connect(self.open_pdf_compare_dialog)
-        self._add_toolbar_widget(self.btn_tool_compare, "btn_tool_compare")
-
-        self.btn_tool_redact = DraggableToolButton()
-        self.btn_tool_redact.setObjectName("btn_tool_redact")
-        self.btn_tool_redact.setIcon(ModernIconFactory.icon_redact())
-        self.btn_tool_redact.setText(" " + LanguageManager.tr("redact_action").replace("...", ""))
-        self.btn_tool_redact.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
-        self.btn_tool_redact.setToolTip(LanguageManager.tr("redact_action"))
-        self.btn_tool_redact.clicked.connect(self.open_pdf_redaction_dialog)
-        self._add_toolbar_widget(self.btn_tool_redact, "btn_tool_redact")
-
-        self.btn_tool_encrypt = DraggableToolButton()
-        self.btn_tool_encrypt.setObjectName("btn_tool_encrypt")
-        self.btn_tool_encrypt.setIcon(ModernIconFactory.icon_lock())
-        self.btn_tool_encrypt.setText(" " + LanguageManager.tr("encrypt_action").replace("...", ""))
-        self.btn_tool_encrypt.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
-        self.btn_tool_encrypt.setToolTip(LanguageManager.tr("encrypt_action"))
-        self.btn_tool_encrypt.clicked.connect(self.open_encrypt_dialog)
-        self._add_toolbar_widget(self.btn_tool_encrypt, "btn_tool_encrypt")
-
-        self.btn_tool_compress = DraggableToolButton()
-        self.btn_tool_compress.setObjectName("btn_tool_compress")
-        self.btn_tool_compress.setIcon(ModernIconFactory.icon_compress())
-        self.btn_tool_compress.setText(" " + LanguageManager.tr("compress_action").replace("...", ""))
-        self.btn_tool_compress.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
-        self.btn_tool_compress.setToolTip(LanguageManager.tr("compress_action"))
-        self.btn_tool_compress.clicked.connect(self.open_compress_dialog)
-        self._add_toolbar_widget(self.btn_tool_compress, "btn_tool_compress")
-
-        # 4. Kategori Ayırıcıları (Separators)
-        self._add_toolbar_separator("sep_file_1")
-        self._add_toolbar_separator("sep_file_2")
-        self._add_toolbar_separator("sep_home_1")
-        self._add_toolbar_separator("sep_home_2")
-        self._add_toolbar_separator("sep_home_3")
-        self._add_toolbar_separator("sep_draw_1")
-        self._add_toolbar_separator("sep_draw_2")
-        self._add_toolbar_separator("sep_draw_3")
-        self._add_toolbar_separator("sep_insert_1")
-        self._add_toolbar_separator("sep_view_1")
-        self._add_toolbar_separator("sep_view_2")
-        self._add_toolbar_separator("sep_view_3")
-        self._add_toolbar_separator("sep_tool_1")
-        self._add_toolbar_separator("sep_tool_2")
-        self._add_toolbar_separator("sep_tool_3")
-
         self.restore_toolbar_order()
         self.update_undo_redo_state()
-
-        # Kaydedilmiş kategori sekmesini geri yükle ve toolbar'ı filtrele
-        settings = QSettings("AuraPDF", "PDFViewer")
-        saved_cat = settings.value("active_toolbar_category", "cat_home")
-        self.set_active_category(saved_cat)
-
-    def _apply_action_order(self, order_list):
-        """Toolbar aksiyonlarını belirtilen sıralamaya göre yeniden dizer."""
-        if not hasattr(self, 'toolbar'):
-            return
-        current_actions = self.toolbar.actions()
-        actions_map = {}
-        for act in current_actions:
-            name = act.objectName()
-            if not name:
-                w = self.toolbar.widgetForAction(act)
-                if w and w.objectName():
-                    name = w.objectName()
-            if name:
-                actions_map[name] = act
-
-        new_order = [actions_map[name] for name in order_list if name in actions_map]
-        for act in current_actions:
-            if act not in new_order:
-                new_order.append(act)
-
-        if new_order != current_actions:
-            for act in current_actions:
-                self.toolbar.removeAction(act)
-            for act in new_order:
-                self.toolbar.addAction(act)
-
-    def set_active_category(self, category: str):
-        """Toolbar'ın üstündeki kategori çubuğundan seçilen kategoriye göre toolbar butonlarını filtreler ve sıralar."""
-        if category not in CATEGORY_ITEMS:
-            category = "cat_home"
-        self.active_category = category
-        settings = QSettings("AuraPDF", "PDFViewer")
-        settings.setValue("active_toolbar_category", category)
-
-        if hasattr(self, 'category_bar') and self.category_bar:
-            self.category_bar.set_active_category(category, trigger_signal=False)
-
-        if category == "cat_all":
-            from src.ui.dialogs.settings_dialog import build_full_toolbar_order, DEFAULT_TOOLBAR_LAYOUT
-            raw = settings.value("toolbar_order", None)
-            if not raw:
-                final_order = list(DEFAULT_TOOLBAR_LAYOUT)
-            else:
-                import json
-                try:
-                    saved_order = json.loads(raw) if isinstance(raw, str) else list(raw)
-                except Exception:
-                    saved_order = []
-                final_order = build_full_toolbar_order(saved_order)
-            self._apply_action_order(final_order)
-
-            default_set = set(DEFAULT_TOOLBAR_LAYOUT)
-            for act in self.toolbar.actions():
-                name = act.objectName()
-                if not name:
-                    w = self.toolbar.widgetForAction(act)
-                    if w and w.objectName():
-                        name = w.objectName()
-                act.setVisible(bool(name and (name in default_set or name in ("sep_1", "sep_2", "sep_3", "spacer_left", "spacer_right"))))
-        else:
-            cat_order = CATEGORY_ITEMS.get(category, [])
-            self._apply_action_order(cat_order)
-            allowed = set(cat_order)
-            for act in self.toolbar.actions():
-                name = act.objectName()
-                if not name:
-                    w = self.toolbar.widgetForAction(act)
-                    if w and w.objectName():
-                        name = w.objectName()
-                act.setVisible(bool(name and name in allowed))
-
-        if not self.toolbar.isVisible() and getattr(self, 'category_bar', None) and not self.category_bar._is_collapsed:
-            self.toolbar.show()
 
     def toggle_fullscreen(self, checked=None):
         going_fullscreen = not self.isFullScreen()
@@ -1351,11 +1025,9 @@ class ModernPDFViewer(QMainWindow):
             else:
                 self._statusbar_was_visible = False
 
-            # 3. Sekme çubuğunu, kategori çubuğunu ve ana araç çubuğunu gizle
+            # 3. Sekme çubuğunu ve ana araç çubuğunu gizle
             self.tab_widget.tabBar().hide()
             self.toolbar.hide()
-            if hasattr(self, 'category_bar') and self.category_bar:
-                self.category_bar.hide()
 
             # 4. Tam ekrana geç
             self.showFullScreen()
@@ -1389,8 +1061,6 @@ class ModernPDFViewer(QMainWindow):
 
             self.tab_widget.tabBar().show()
             self.toolbar.show()
-            if hasattr(self, 'category_bar') and self.category_bar:
-                self.category_bar.show()
 
             sb = self.statusBar()
             if sb and getattr(self, '_statusbar_was_visible', True):
@@ -1626,9 +1296,6 @@ class ModernPDFViewer(QMainWindow):
                 QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {{ width: 0px; }}
             """)
 
-        if hasattr(self, 'category_bar') and self.category_bar:
-            self.category_bar.apply_theme(spec)
-
         if hasattr(self, 'btn_insert') and hasattr(self.btn_insert, 'menu') and self.btn_insert.menu():
             self.btn_insert.menu().setStyleSheet(f"""
                 QMenu {{
@@ -1722,73 +1389,6 @@ class ModernPDFViewer(QMainWindow):
 
     def retranslate_ui(self):
         self.setWindowTitle(LanguageManager.tr("app_title"))
-        if hasattr(self, 'category_bar') and self.category_bar:
-            self.category_bar.retranslate_ui()
-
-        if hasattr(self, 'btn_save_as'):
-            self.btn_save_as.setText(" " + LanguageManager.tr("save_as"))
-            self.btn_save_as.setToolTip(LanguageManager.tr("save_as") + " (Ctrl+Shift+S)")
-        if hasattr(self, 'btn_doc_props'):
-            self.btn_doc_props.setText(" " + LanguageManager.tr("doc_properties"))
-            self.btn_doc_props.setToolTip(LanguageManager.tr("doc_properties") + " (Ctrl+D)")
-        if hasattr(self, 'btn_new_tab'):
-            self.btn_new_tab.setText(" " + LanguageManager.tr("new_document"))
-            self.btn_new_tab.setToolTip(LanguageManager.tr("new_document") + " (Ctrl+N)")
-        if hasattr(self, 'btn_close_tab'):
-            self.btn_close_tab.setText(" " + LanguageManager.tr("close_tab"))
-            self.btn_close_tab.setToolTip(LanguageManager.tr("close_tab") + " (Ctrl+W)")
-
-        if hasattr(self, 'btn_insert_img'):
-            self.btn_insert_img.setText(" " + LanguageManager.tr("insert_image").replace("...", ""))
-            self.btn_insert_img.setToolTip(LanguageManager.tr("insert_image"))
-        if hasattr(self, 'btn_insert_voice'):
-            self.btn_insert_voice.setText(" " + LanguageManager.tr("insert_voice_recording").replace("...", ""))
-            self.btn_insert_voice.setToolTip(LanguageManager.tr("insert_voice_recording"))
-        if hasattr(self, 'btn_insert_camera'):
-            self.btn_insert_camera.setText(" " + LanguageManager.tr("insert_camera").replace("...", ""))
-            self.btn_insert_camera.setToolTip(LanguageManager.tr("insert_camera"))
-        if hasattr(self, 'btn_insert_audio'):
-            self.btn_insert_audio.setText(" " + LanguageManager.tr("insert_audio_file").replace("...", ""))
-            self.btn_insert_audio.setToolTip(LanguageManager.tr("insert_audio_file"))
-        if hasattr(self, 'btn_insert_emoji'):
-            self.btn_insert_emoji.setText(" " + LanguageManager.tr("insert_drawing").replace("...", ""))
-            self.btn_insert_emoji.setToolTip(LanguageManager.tr("insert_drawing"))
-        if hasattr(self, 'btn_insert_table'):
-            self.btn_insert_table.setText(" " + LanguageManager.tr("insert_table").replace("...", ""))
-            self.btn_insert_table.setToolTip(LanguageManager.tr("insert_table"))
-        if hasattr(self, 'btn_insert_blank'):
-            self.btn_insert_blank.setText(" " + LanguageManager.tr("sidebar_btn_add_blank"))
-            self.btn_insert_blank.setToolTip(LanguageManager.tr("sidebar_btn_add_blank"))
-
-        if hasattr(self, 'btn_tool_organize'):
-            self.btn_tool_organize.setText(" " + LanguageManager.tr("reorder_action").replace("...", ""))
-            self.btn_tool_organize.setToolTip(LanguageManager.tr("reorder_action"))
-        if hasattr(self, 'btn_tool_merge'):
-            self.btn_tool_merge.setText(" " + LanguageManager.tr("merge_action").replace("...", ""))
-            self.btn_tool_merge.setToolTip(LanguageManager.tr("merge_action"))
-        if hasattr(self, 'btn_tool_split'):
-            self.btn_tool_split.setText(" " + LanguageManager.tr("split_action").replace("...", ""))
-            self.btn_tool_split.setToolTip(LanguageManager.tr("split_action"))
-        if hasattr(self, 'btn_tool_ocr'):
-            self.btn_tool_ocr.setToolTip(LanguageManager.tr("ocr_action"))
-        if hasattr(self, 'btn_tool_editor'):
-            self.btn_tool_editor.setText(" " + LanguageManager.tr("content_editor_action").replace("...", ""))
-            self.btn_tool_editor.setToolTip(LanguageManager.tr("content_editor_action"))
-        if hasattr(self, 'btn_tool_sign'):
-            self.btn_tool_sign.setText(" " + LanguageManager.tr("sign_action").replace("...", ""))
-            self.btn_tool_sign.setToolTip(LanguageManager.tr("sign_action"))
-        if hasattr(self, 'btn_tool_compare'):
-            self.btn_tool_compare.setText(" " + LanguageManager.tr("compare_action").replace("...", ""))
-            self.btn_tool_compare.setToolTip(LanguageManager.tr("compare_action"))
-        if hasattr(self, 'btn_tool_redact'):
-            self.btn_tool_redact.setText(" " + LanguageManager.tr("redact_action").replace("...", ""))
-            self.btn_tool_redact.setToolTip(LanguageManager.tr("redact_action"))
-        if hasattr(self, 'btn_tool_encrypt'):
-            self.btn_tool_encrypt.setText(" " + LanguageManager.tr("encrypt_action").replace("...", ""))
-            self.btn_tool_encrypt.setToolTip(LanguageManager.tr("encrypt_action"))
-        if hasattr(self, 'btn_tool_compress'):
-            self.btn_tool_compress.setText(" " + LanguageManager.tr("compress_action").replace("...", ""))
-            self.btn_tool_compress.setToolTip(LanguageManager.tr("compress_action"))
 
         if hasattr(self, 'btn_cursor'):
             tip = LanguageManager.tr("cursor_tool_tip") if getattr(self, 'cursor_mode', 'select') == 'select' else LanguageManager.tr("cursor_pan_tip")
@@ -1839,9 +1439,6 @@ class ModernPDFViewer(QMainWindow):
             self.act_read_dark.setText(LanguageManager.tr("reading_mode_dark"))
         if hasattr(self, 'act_read_sepia'):
             self.act_read_sepia.setText(LanguageManager.tr("reading_mode_sepia"))
-        if hasattr(self, 'btn_speech'):
-            tip = LanguageManager.tr("speech_stop") if getattr(self, 'speech_engine', None) and self.speech_engine.is_speaking() else LanguageManager.tr("speech_read_aloud")
-            self.btn_speech.setToolTip(tip)
         if hasattr(self, 'act_open_direct'):
             self.act_open_direct.setText(LanguageManager.tr("open") + " (Ctrl+O)")
         if hasattr(self, 'act_reopen_tab'):
@@ -2042,33 +1639,6 @@ class ModernPDFViewer(QMainWindow):
 
     def set_reading_color_mode(self, mode: str):
         if doc := self.get_current_tab_doc(): doc.set_reading_color_mode(mode)
-
-    def toggle_read_aloud(self):
-        tab_doc = self.get_current_tab_doc()
-        if not tab_doc:
-            return
-        if self.speech_engine.is_speaking():
-            self.speech_engine.stop()
-        else:
-            text_to_speak = ""
-            if hasattr(tab_doc, 'selected_text') and tab_doc.selected_text.strip():
-                text_to_speak = tab_doc.selected_text.strip()
-            elif tab_doc.doc and 0 <= tab_doc.current_page_idx < len(tab_doc.doc):
-                try:
-                    page = tab_doc.doc[tab_doc.current_page_idx]
-                    text_to_speak = page.get_text().strip()
-                except Exception:
-                    text_to_speak = ""
-            if text_to_speak:
-                self.speech_engine.speak(text_to_speak)
-            else:
-                QMessageBox.information(self, LanguageManager.tr("speech_read_aloud"), LanguageManager.tr("no_text_to_read"))
-
-    def _on_speech_state_changed(self, is_speaking: bool):
-        if hasattr(self, 'btn_speech'):
-            self.btn_speech.setChecked(is_speaking)
-            tip = LanguageManager.tr("speech_stop") if is_speaking else LanguageManager.tr("speech_read_aloud")
-            self.btn_speech.setToolTip(tip)
 
     def open_document_properties_dialog(self):
         tab_doc = self.get_current_tab_doc()
@@ -3075,9 +2645,6 @@ class ModernPDFViewer(QMainWindow):
     def save_toolbar_order(self):
         if not hasattr(self, 'toolbar'):
             return
-        # Sadece tüm araçlar (klasik) modundayken toolbar sıralamasını kaydet
-        if getattr(self, 'active_category', 'cat_all') != 'cat_all':
-            return
         order = []
         for act in self.toolbar.actions():
             name = act.objectName()
@@ -3148,10 +2715,6 @@ class ModernPDFViewer(QMainWindow):
             if w:
                 w.show()
 
-        # Mevcut aktif kategori filtresini tekrar uygula
-        if hasattr(self, 'active_category'):
-            self.set_active_category(self.active_category)
-
     def reset_toolbar_order(self):
         settings = QSettings("AuraPDF", "PDFViewer")
         settings.remove("toolbar_order")
@@ -3184,11 +2747,6 @@ class ModernPDFViewer(QMainWindow):
                     event.ignore()
                     return
         self.save_current_session()
-        if hasattr(self, 'speech_engine') and self.speech_engine:
-            try:
-                self.speech_engine.stop()
-            except Exception:
-                pass
         if hasattr(self, '_audio_record_dialog') and self._audio_record_dialog is not None:
             try:
                 self._audio_record_dialog.close()

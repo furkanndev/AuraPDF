@@ -4585,19 +4585,13 @@ class PDFTextSelectionHUD(QFrame):
         sep2.setObjectName("Separator")
         layout.addWidget(sep2)
 
-        # 5. Sesli Oku
-        self.btn_speak = QPushButton("🔊 " + LanguageManager.tr("read_aloud"))
-        self.btn_speak.setToolTip(LanguageManager.tr("read_aloud_tip"))
-        self.btn_speak.clicked.connect(self._on_speak)
-        layout.addWidget(self.btn_speak)
-
-        # 6. Web'de Ara
+        # 5. Web'de Ara
         self.btn_search = QPushButton("🔍 " + LanguageManager.tr("text_search_google"))
         self.btn_search.setToolTip(LanguageManager.tr("text_search_google"))
         self.btn_search.clicked.connect(self._on_search)
         layout.addWidget(self.btn_search)
 
-        # 7. Çevir
+        # 6. Çevir
         self.btn_translate = QPushButton("🌐 " + LanguageManager.tr("text_translate_google"))
         self.btn_translate.setToolTip(LanguageManager.tr("text_translate_google"))
         self.btn_translate.clicked.connect(self._on_translate)
@@ -4621,11 +4615,6 @@ class PDFTextSelectionHUD(QFrame):
     def _on_strikeout(self):
         if self.tab_doc and hasattr(self.tab_doc, 'strikeout_selected_text'):
             self.tab_doc.strikeout_selected_text()
-        self.hide()
-
-    def _on_speak(self):
-        if self.tab_doc and hasattr(self.tab_doc, 'speak_selected_text'):
-            self.tab_doc.speak_selected_text()
         self.hide()
 
     def _on_search(self):

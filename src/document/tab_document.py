@@ -4895,7 +4895,6 @@ class PDFTabDocument(QWidget):
         act_ul = menu.addAction(LanguageManager.tr("text_markup_underline"))
         act_so = menu.addAction(LanguageManager.tr("text_markup_strikeout"))
         menu.addSeparator()
-        act_speak = menu.addAction(ModernIconFactory.icon_speech(), LanguageManager.tr("read_aloud"))
         act_search = menu.addAction(ModernIconFactory.icon_search(), LanguageManager.tr("text_search_google"))
         act_trans = menu.addAction(LanguageManager.tr("text_translate_google"))
 
@@ -4908,8 +4907,6 @@ class PDFTabDocument(QWidget):
             self.underline_selected_text()
         elif chosen == act_so:
             self.strikeout_selected_text()
-        elif chosen == act_speak:
-            self.speak_selected_text()
         elif chosen == act_search:
             self.search_selected_text()
         elif chosen == act_trans:
@@ -5010,13 +5007,6 @@ class PDFTabDocument(QWidget):
             return
         q = urllib.parse.quote(self.selected_text.strip())
         QDesktopServices.openUrl(QUrl(f"https://translate.google.com/?sl=auto&tl=tr&text={q}"))
-
-    def speak_selected_text(self):
-        if not self.selected_text:
-            return
-        if hasattr(self.main_window, 'speech_engine') and self.main_window.speech_engine:
-            self.main_window.speech_engine.speak(self.selected_text)
-
     def _load_interactive_form_widgets(self):
         for p in getattr(self, 'interactive_form_proxies', []):
             try:
