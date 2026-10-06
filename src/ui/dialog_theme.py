@@ -11,70 +11,79 @@ THEME_PALETTES = {
         "accent": "#0284c7",
         "accent_hover": "#0369a1",
         "text": "#0f172a",
-        "muted": "#64748b",
+        "muted": "#475569",
     },
     "dark": {
-        "bg": "#1c1c1e",
-        "card": "#2c2c2e",
-        "border": "#3a3a3c",
-        "accent": "#0071e3",
-        "accent_hover": "#0077ed",
-        "text": "#f5f5f7",
-        "muted": "#888888",
+        "bg": "#121212",
+        "card": "#1c1c1c",
+        "border": "#2e2e2e",
+        "accent": "#388bfd",
+        "accent_hover": "#58a6ff",
+        "text": "#f8fafc",
+        "muted": "#cbd5e1",
     },
     "gray": {
         "bg": "#2b2d30",
         "card": "#35383c",
         "border": "#444850",
         "accent": "#60a5fa",
-        "accent_hover": "#3b82f6",
-        "text": "#f1f5f9",
-        "muted": "#94a3b8",
+        "accent_hover": "#93c5fd",
+        "text": "#f8fafc",
+        "muted": "#cbd5e1",
     },
     "emerald": {
         "bg": "#091a14",
         "card": "#112a21",
         "border": "#1a3d30",
-        "accent": "#10b981",
-        "accent_hover": "#059669",
+        "accent": "#34d399",
+        "accent_hover": "#6ee7b7",
         "text": "#ecfdf5",
-        "muted": "#6ee7b7",
+        "muted": "#c6f6d5",
     },
     "purple": {
         "bg": "#150d22",
         "card": "#201435",
         "border": "#321f52",
-        "accent": "#a855f7",
-        "accent_hover": "#9333ea",
+        "accent": "#c084fc",
+        "accent_hover": "#d8b4fe",
         "text": "#faf5ff",
-        "muted": "#c084fc",
+        "muted": "#e9d5ff",
     },
     "crimson": {
         "bg": "#1d0b10",
         "card": "#2d1118",
         "border": "#441924",
-        "accent": "#f43f5e",
-        "accent_hover": "#e11d48",
+        "accent": "#fb7185",
+        "accent_hover": "#fda4af",
         "text": "#fff1f2",
-        "muted": "#fda4af",
+        "muted": "#fecdd3",
     },
     "nord": {
         "bg": "#181e29",
         "card": "#222b3a",
         "border": "#313e54",
         "accent": "#38bdf8",
-        "accent_hover": "#0ea5e9",
+        "accent_hover": "#7dd3fc",
         "text": "#f0f6fc",
-        "muted": "#89b4fa",
+        "muted": "#cbd5e1",
     },
     "vice_city": {
         "bg": "#160024",
         "card": "#240e3b",
-        "border": "#4a1c72",
+        "border": "#421869",
         "accent": "#ff2a85",
-        "accent_hover": "#ff4d9a",
+        "accent_hover": "#ff66a8",
         "text": "#fdf2f8",
-        "muted": "#00f0ff",
+        "muted": "#f5d0fe",
+    },
+    "apple": {
+        "bg": "#0e1014",
+        "card": "#1a1d24",
+        "border": "#2e3340",
+        "accent": "#38bdf8",
+        "accent_hover": "#7dd3fc",
+        "text": "#f5f5f7",
+        "muted": "#cbd5e1",
     },
 }
 
@@ -386,14 +395,14 @@ def get_dialog_theme_stylesheet(parent: Optional[Any] = None, extra_css: str = "
             }}
             QFrame[class="card"], QFrame.card {{
                 background-color: {pal['card']};
-                border: 1px solid rgba(255, 255, 255, 0.1);
+                border: 1px solid {pal['border']};
                 border-radius: 8px;
             }}
             QGroupBox {{
                 color: {pal['accent']};
                 font-size: 12px;
                 font-weight: bold;
-                border: 1px solid rgba(255, 255, 255, 0.1);
+                border: 1px solid {pal['border']};
                 border-radius: 8px;
                 margin-top: 10px;
                 padding-top: 14px;
@@ -406,7 +415,7 @@ def get_dialog_theme_stylesheet(parent: Optional[Any] = None, extra_css: str = "
             QLineEdit, QTextEdit, QPlainTextEdit, QKeySequenceEdit {{
                 background-color: {pal['bg']};
                 color: {pal['text']};
-                border: 1px solid rgba(255, 255, 255, 0.1);
+                border: 1px solid {pal['border']};
                 border-radius: 6px;
                 padding: 5px 8px;
                 font-size: 12px;
@@ -417,7 +426,7 @@ def get_dialog_theme_stylesheet(parent: Optional[Any] = None, extra_css: str = "
             QComboBox {{
                 background-color: {pal['card']};
                 color: {pal['text']};
-                border: 1px solid rgba(255, 255, 255, 0.1);
+                border: 1px solid {pal['border']};
                 border-radius: 6px;
                 padding: 4px 8px;
             }}
@@ -429,21 +438,21 @@ def get_dialog_theme_stylesheet(parent: Optional[Any] = None, extra_css: str = "
                 color: {pal['text']};
                 selection-background-color: {pal['accent']};
                 selection-color: #ffffff;
-                border: 1px solid rgba(255, 255, 255, 0.1);
+                border: 1px solid {pal['border']};
                 padding: 4px;
                 outline: none;
             }}
             QSpinBox, QDoubleSpinBox {{
                 background-color: {pal['bg']};
-                color: #ffffff;
-                border: 1px solid rgba(255, 255, 255, 0.1);
+                color: {pal['text']};
+                border: 1px solid {pal['border']};
                 border-radius: 5px;
                 padding: 3px 6px;
             }}
             QPushButton {{
                 background-color: {pal['card']};
                 color: {pal['text']};
-                border: 1px solid rgba(255, 255, 255, 0.1);
+                border: 1px solid {pal['border']};
                 border-radius: 6px;
                 padding: 6px 14px;
                 font-weight: 500;
@@ -477,7 +486,7 @@ def get_dialog_theme_stylesheet(parent: Optional[Any] = None, extra_css: str = "
             QPushButton#CancelBtn {{
                 background-color: {pal['card']};
                 color: {pal['text']};
-                border: 1px solid rgba(255, 255, 255, 0.1);
+                border: 1px solid {pal['border']};
                 border-radius: 6px;
                 padding: 6px 16px;
             }}
@@ -487,7 +496,7 @@ def get_dialog_theme_stylesheet(parent: Optional[Any] = None, extra_css: str = "
             QPushButton#SecondaryBtn {{
                 background-color: {pal['bg']};
                 color: {pal['text']};
-                border: 1px solid rgba(255, 255, 255, 0.1);
+                border: 1px solid {pal['border']};
                 border-radius: 5px;
                 padding: 5px 12px;
             }}
@@ -497,7 +506,7 @@ def get_dialog_theme_stylesheet(parent: Optional[Any] = None, extra_css: str = "
             QPushButton.PresetBtn, QPushButton.NavBtn {{
                 background-color: {pal['card']};
                 color: {pal['text']};
-                border: 1px solid rgba(255, 255, 255, 0.1);
+                border: 1px solid {pal['border']};
                 border-radius: 5px;
                 padding: 4px 6px;
                 font-size: 11px;
@@ -508,12 +517,12 @@ def get_dialog_theme_stylesheet(parent: Optional[Any] = None, extra_css: str = "
                 border-color: {pal['accent']};
             }}
             QPushButton.NavBtn:disabled {{
-                background-color: #262626;
-                color: #666666;
-                border-color: #333333;
+                background-color: transparent;
+                color: {pal['muted']};
+                border-color: transparent;
             }}
             QTabWidget::pane {{
-                border: 1px solid rgba(255, 255, 255, 0.1);
+                border: 1px solid {pal['border']};
                 background-color: {pal['card']};
                 border-radius: 8px;
             }}
@@ -528,20 +537,20 @@ def get_dialog_theme_stylesheet(parent: Optional[Any] = None, extra_css: str = "
             }}
             QTabBar::tab:selected {{
                 background-color: {pal['card']};
-                color: #ffffff;
+                color: {pal['text']};
                 border-bottom: 2.5px solid {pal['accent']};
                 font-weight: bold;
             }}
             QListWidget, QTableWidget, QTreeWidget {{
                 background-color: {pal['bg']};
                 color: {pal['text']};
-                border: 1px solid rgba(255, 255, 255, 0.1);
+                border: 1px solid {pal['border']};
                 border-radius: 6px;
                 padding: 4px;
             }}
             QListWidget::item {{
                 background-color: {pal['card']};
-                border: 1px solid rgba(255, 255, 255, 0.1);
+                border: 1px solid {pal['border']};
                 border-radius: 6px;
                 padding: 6px;
                 margin: 3px;
@@ -559,7 +568,7 @@ def get_dialog_theme_stylesheet(parent: Optional[Any] = None, extra_css: str = "
                 spacing: 8px;
             }}
             QSlider::groove:horizontal {{
-                border: 1px solid rgba(255, 255, 255, 0.1);
+                border: 1px solid {pal['border']};
                 height: 6px;
                 background: {pal['card']};
                 border-radius: 3px;
@@ -570,7 +579,7 @@ def get_dialog_theme_stylesheet(parent: Optional[Any] = None, extra_css: str = "
             }}
             QSlider::handle:horizontal {{
                 background: #ffffff;
-                border: 1px solid #777777;
+                border: 1px solid {pal['border']};
                 width: 14px;
                 margin-top: -5px;
                 margin-bottom: -5px;
@@ -578,8 +587,8 @@ def get_dialog_theme_stylesheet(parent: Optional[Any] = None, extra_css: str = "
             }}
             QHeaderView::section {{
                 background-color: {pal['card']};
-                color: #94a3b8;
-                border: 1px solid rgba(255, 255, 255, 0.1);
+                color: {pal['text']};
+                border: 1px solid {pal['border']};
                 padding: 4px;
                 font-weight: bold;
             }}

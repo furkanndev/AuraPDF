@@ -25,7 +25,8 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, pyqtSignal, QSize, QPoint, QRect, QTimer, QThread, QUrl
 from PyQt6.QtGui import (
     QIcon, QPixmap, QImage, QPainter, QColor, QPen, QBrush, QFont,
-    QPainterPath, QCursor, QKeySequence, QShortcut, QDesktopServices
+    QPainterPath, QCursor, QKeySequence, QShortcut, QDesktopServices,
+    QFontMetrics
 )
 
 from src.core.i18n import LanguageManager
@@ -41,17 +42,17 @@ def get_modern_theme_colors(theme_name: str = "light") -> Dict[str, str]:
             "surface": "#ffffff",
             "surface_hover": "#f1f5f9",
             "surface_active": "#e2e8f0",
-            "border": "#e2e8f0",
-            "border_subtle": "#edf2f7",
+            "border": "#cbd5e1",
+            "border_subtle": "#e2e8f0",
             "text": "#0f172a",
-            "text_muted": "#64748b",
+            "text_muted": "#475569",
             "accent": "#0284c7",
             "accent_hover": "#0369a1",
             "accent_light": "rgba(2, 132, 199, 0.12)",
             "danger": "#ef4444",
             "tab_bg": "#e2e6ea",
             "tab_active": "#ffffff",
-            "tab_text": "#475569",
+            "tab_text": "#334155",
             "tab_active_text": "#0f172a",
             "badge_bg": "#f1f5f9",
             "card_bg": "#ffffff",
@@ -64,15 +65,15 @@ def get_modern_theme_colors(theme_name: str = "light") -> Dict[str, str]:
             "surface_active": "#3e4248",
             "border": "#3c3f44",
             "border_subtle": "#32353a",
-            "text": "#f1f5f9",
-            "text_muted": "#94a3b8",
+            "text": "#f8fafc",
+            "text_muted": "#cbd5e1",
             "accent": "#60a5fa",
-            "accent_hover": "#3b82f6",
-            "accent_light": "rgba(96, 165, 250, 0.18)",
+            "accent_hover": "#93c5fd",
+            "accent_light": "rgba(96, 165, 250, 0.20)",
             "danger": "#f87171",
             "tab_bg": "#1e2022",
             "tab_active": "#2b2d30",
-            "tab_text": "#94a3b8",
+            "tab_text": "#cbd5e1",
             "tab_active_text": "#ffffff",
             "badge_bg": "#35383c",
             "card_bg": "#2b2d30",
@@ -83,17 +84,17 @@ def get_modern_theme_colors(theme_name: str = "light") -> Dict[str, str]:
             "surface": "#1c1c1c",
             "surface_hover": "#262626",
             "surface_active": "#323232",
-            "border": "#2c2c2c",
-            "border_subtle": "#202020",
-            "text": "#f3f4f6",
-            "text_muted": "#9ca3af",
+            "border": "#2e2e2e",
+            "border_subtle": "#222222",
+            "text": "#f8fafc",
+            "text_muted": "#cbd5e1",
             "accent": "#388bfd",
-            "accent_hover": "#1d76f2",
-            "accent_light": "rgba(56, 139, 253, 0.18)",
+            "accent_hover": "#58a6ff",
+            "accent_light": "rgba(56, 139, 253, 0.20)",
             "danger": "#f87171",
             "tab_bg": "#141414",
             "tab_active": "#1c1c1c",
-            "tab_text": "#9ca3af",
+            "tab_text": "#cbd5e1",
             "tab_active_text": "#ffffff",
             "badge_bg": "#262626",
             "card_bg": "#1c1c1c",
@@ -107,14 +108,14 @@ def get_modern_theme_colors(theme_name: str = "light") -> Dict[str, str]:
             "border": "#313e54",
             "border_subtle": "#283446",
             "text": "#f0f6fc",
-            "text_muted": "#94a3b8",
+            "text_muted": "#cbd5e1",
             "accent": "#38bdf8",
-            "accent_hover": "#0ea5e9",
-            "accent_light": "rgba(56, 189, 248, 0.18)",
+            "accent_hover": "#7dd3fc",
+            "accent_light": "rgba(56, 189, 248, 0.20)",
             "danger": "#f87171",
             "tab_bg": "#141922",
             "tab_active": "#222b3a",
-            "tab_text": "#94a3b8",
+            "tab_text": "#cbd5e1",
             "tab_active_text": "#f0f6fc",
             "badge_bg": "#2f3b4f",
             "card_bg": "#222b3a",
@@ -123,109 +124,111 @@ def get_modern_theme_colors(theme_name: str = "light") -> Dict[str, str]:
         "emerald": {
             "bg": "#071410",
             "surface": "#112a21",
-            "surface_hover": "#183c2f",
-            "surface_active": "#214f3e",
-            "border": "#1a3d30",
-            "border_subtle": "#142f25",
+            "surface_hover": "#1a4032",
+            "surface_active": "#245845",
+            "border": "#1d4637",
+            "border_subtle": "#143328",
             "text": "#ecfdf5",
-            "text_muted": "#a7f3d0",
-            "accent": "#10b981",
-            "accent_hover": "#059669",
-            "accent_light": "rgba(16, 185, 129, 0.18)",
+            "text_muted": "#c6f6d5",
+            "accent": "#34d399",
+            "accent_hover": "#6ee7b7",
+            "accent_light": "rgba(52, 211, 153, 0.20)",
             "danger": "#f87171",
             "tab_bg": "#0b1c16",
             "tab_active": "#112a21",
-            "tab_text": "#6ee7b7",
+            "tab_text": "#a7f3d0",
             "tab_active_text": "#ecfdf5",
-            "badge_bg": "#183c2f",
+            "badge_bg": "#1a4032",
             "card_bg": "#112a21",
-            "card_border": "#1a3d30",
+            "card_border": "#22543d",
         },
         "purple": {
             "bg": "#10091a",
             "surface": "#201435",
-            "surface_hover": "#2f1d4d",
-            "surface_active": "#3f2666",
-            "border": "#321f52",
-            "border_subtle": "#271840",
+            "surface_hover": "#321f52",
+            "surface_active": "#442a6f",
+            "border": "#362058",
+            "border_subtle": "#281842",
             "text": "#faf5ff",
-            "text_muted": "#d8b4fe",
-            "accent": "#a855f7",
-            "accent_hover": "#9333ea",
-            "accent_light": "rgba(168, 85, 247, 0.18)",
+            "text_muted": "#e9d5ff",
+            "accent": "#c084fc",
+            "accent_hover": "#d8b4fe",
+            "accent_light": "rgba(192, 132, 252, 0.20)",
             "danger": "#f87171",
             "tab_bg": "#140c22",
             "tab_active": "#201435",
-            "tab_text": "#c084fc",
+            "tab_text": "#e9d5ff",
             "tab_active_text": "#faf5ff",
-            "badge_bg": "#2f1d4d",
+            "badge_bg": "#321f52",
             "card_bg": "#201435",
-            "card_border": "#3b2561",
+            "card_border": "#442970",
         },
         "crimson": {
             "bg": "#15070b",
             "surface": "#2d1118",
-            "surface_hover": "#401923",
-            "surface_active": "#54212e",
-            "border": "#441924",
-            "border_subtle": "#36141d",
+            "surface_hover": "#441924",
+            "surface_active": "#5c2230",
+            "border": "#491b27",
+            "border_subtle": "#36141e",
             "text": "#fff1f2",
             "text_muted": "#fecdd3",
-            "accent": "#f43f5e",
-            "accent_hover": "#e11d48",
-            "accent_light": "rgba(244, 63, 94, 0.18)",
+            "accent": "#fb7185",
+            "accent_hover": "#fda4af",
+            "accent_light": "rgba(251, 113, 133, 0.20)",
             "danger": "#f87171",
             "tab_bg": "#1a0a0f",
             "tab_active": "#2d1118",
-            "tab_text": "#fb7185",
+            "tab_text": "#fecdd3",
             "tab_active_text": "#fff1f2",
-            "badge_bg": "#401923",
+            "badge_bg": "#441924",
             "card_bg": "#2d1118",
-            "card_border": "#4f1d2a",
+            "card_border": "#5a2130",
         },
         "vice_city": {
             "bg": "#10001a",
             "surface": "#240e3b",
             "surface_hover": "#381458",
             "surface_active": "#4d1c78",
-            "border": "#3d1663",
+            "border": "#421869",
             "border_subtle": "#2f114d",
             "text": "#fdf2f8",
-            "text_muted": "#e2d1f0",
+            "text_muted": "#f5d0fe",
             "accent": "#ff2a85",
-            "accent_hover": "#e0186f",
-            "accent_light": "rgba(255, 42, 133, 0.20)",
+            "accent_hover": "#ff66a8",
+            "accent_light": "rgba(255, 42, 133, 0.22)",
             "danger": "#ff3366",
             "tab_bg": "#160524",
             "tab_active": "#240e3b",
-            "tab_text": "#d8b4fe",
+            "tab_text": "#f5d0fe",
             "tab_active_text": "#ffffff",
             "badge_bg": "#381458",
             "card_bg": "#240e3b",
-            "card_border": "#ff2a85",
+            "card_border": "#63249e",
         },
         "apple": {
             "bg": "#0e1014",
             "surface": "#1a1d24",
-            "surface_hover": "#252932",
-            "surface_active": "#323744",
-            "border": "#2d323e",
+            "surface_hover": "#262a34",
+            "surface_active": "#333846",
+            "border": "#2e3340",
             "border_subtle": "#222630",
             "text": "#f5f5f7",
-            "text_muted": "#98989d",
-            "accent": "#0a84ff",
-            "accent_hover": "#0071e3",
-            "accent_light": "rgba(10, 132, 255, 0.20)",
+            "text_muted": "#cbd5e1",
+            "accent": "#38bdf8",
+            "accent_hover": "#7dd3fc",
+            "accent_light": "rgba(56, 189, 248, 0.20)",
             "danger": "#ff453a",
             "tab_bg": "#121419",
             "tab_active": "#1a1d24",
-            "tab_text": "#98989d",
+            "tab_text": "#cbd5e1",
             "tab_active_text": "#ffffff",
-            "badge_bg": "#252932",
+            "badge_bg": "#262a34",
             "card_bg": "#1a1d24",
-            "card_border": "#2d323e",
+            "card_border": "#363c4b",
         }
     }
+    if theme_name == "navy":
+        return palettes["nord"]
     return palettes.get(theme_name, palettes["light"])
 
 
@@ -445,7 +448,7 @@ class ModernTabBarWidget(QWidget):
                 background-color: transparent;
                 border: 1px solid transparent;
                 border-radius: 6px;
-                color: {c['text_muted']};
+                color: {c['text']};
                 padding: 0 8px;
                 font-weight: 500;
                 font-size: 12px;
@@ -702,7 +705,7 @@ class ModernHeaderBar(QWidget):
             }}
             QLabel#BadgeShortcut {{
                 background-color: {c['surface']};
-                color: {c['text_muted']};
+                color: {c['text']};
                 border: 1px solid {c['border']};
                 border-radius: 4px;
                 padding: 1px 5px;
@@ -799,6 +802,7 @@ class ModernAllToolsPanel(QWidget):
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self.theme_name = "light"
         self.active_tool_id: Optional[str] = "organize_pages"
+        self.is_expanded = False
         self.setFixedWidth(248)
 
         main_layout = QVBoxLayout(self)
@@ -834,7 +838,7 @@ class ModernAllToolsPanel(QWidget):
         self.v_tools.setSpacing(2)
 
         self.items: Dict[str, ModernToolItemWidget] = {}
-        tool_specs = [
+        standard_tool_specs = [
             ("export_pdf", "tool_export_pdf", ModernIconFactory.icon_export_pdf("#0284c7"), "#0284c7"),
             ("fill_sign", "tool_fill_sign", ModernIconFactory.icon_fill_sign("#8b5cf6"), "#8b5cf6"),
             ("edit_pdf", "tool_edit_pdf", ModernIconFactory.icon_edit_content("#ec4899"), "#ec4899"),
@@ -851,18 +855,43 @@ class ModernAllToolsPanel(QWidget):
             ("use_certificate", "tool_use_certificate", ModernIconFactory.icon_certificate("#0284c7"), "#0284c7"),
         ]
 
-        for tid, key, icon, col in tool_specs:
+        for tid, key, icon, col in standard_tool_specs:
             item = ModernToolItemWidget(tid, LanguageManager.tr(key), icon, col, parent=tools_container)
             item.clicked.connect(self._on_item_clicked)
             self.v_tools.addWidget(item)
             self.items[tid] = item
 
-        # 'Daha fazla gör' bağlantısı
-        btn_view_more = QPushButton(LanguageManager.tr("tool_view_more"))
-        btn_view_more.setCursor(Qt.CursorShape.PointingHandCursor)
-        btn_view_more.setStyleSheet("border: none; text-align: left; padding: 8px 12px; font-weight: 600;")
-        btn_view_more.clicked.connect(lambda: self.toolTriggered.emit("view_more"))
-        self.v_tools.addWidget(btn_view_more)
+        # Aşağı Doğru Genişleyen Ekstra Araçlar Konteyneri
+        self.extra_tools_container = QWidget(tools_container)
+        v_extra = QVBoxLayout(self.extra_tools_container)
+        v_extra.setContentsMargins(0, 0, 0, 0)
+        v_extra.setSpacing(2)
+
+        extra_tool_specs = [
+            ("print_production", "tool_print_production", ModernIconFactory.icon_print("#0284c7"), "#0284c7"),
+            ("measure_objects", "tool_measure_objects", ModernIconFactory.icon_ruler("#38bdf8"), "#38bdf8"),
+            ("compare_files", "tool_compare_files", ModernIconFactory.icon_compare("#8b5cf6"), "#8b5cf6"),
+            ("guided_actions", "tool_guided_actions", ModernIconFactory.icon_guided_actions("#f59e0b"), "#f59e0b"),
+            ("prepare_accessibility", "tool_prepare_accessibility", ModernIconFactory.icon_accessibility("#10b981"), "#10b981"),
+            ("pdf_standards", "tool_pdf_standards", ModernIconFactory.icon_standards("#0ea5e9"), "#0ea5e9"),
+            ("search_index", "tool_search_index", ModernIconFactory.icon_search_index("#6366f1"), "#6366f1"),
+            ("use_javascript", "tool_use_javascript", ModernIconFactory.icon_code("#ec4899"), "#ec4899"),
+        ]
+
+        for tid, key, icon, col in extra_tool_specs:
+            item = ModernToolItemWidget(tid, LanguageManager.tr(key), icon, col, parent=self.extra_tools_container)
+            item.clicked.connect(self._on_item_clicked)
+            v_extra.addWidget(item)
+            self.items[tid] = item
+
+        self.extra_tools_container.setVisible(False)
+        self.v_tools.addWidget(self.extra_tools_container)
+
+        # 'Daha fazla gör / Daha az gör' bağlantı butonu
+        self.btn_view_more = QPushButton(LanguageManager.tr("tool_view_more"))
+        self.btn_view_more.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_view_more.clicked.connect(self._toggle_expand)
+        self.v_tools.addWidget(self.btn_view_more)
         self.v_tools.addStretch(1)
 
         scroll.setWidget(tools_container)
@@ -870,6 +899,13 @@ class ModernAllToolsPanel(QWidget):
 
         self.apply_theme(self.theme_name)
         self.set_active_tool("organize_pages")
+
+    def _toggle_expand(self):
+        self.is_expanded = not self.is_expanded
+        self.extra_tools_container.setVisible(self.is_expanded)
+        self.btn_view_more.setText(
+            LanguageManager.tr("tool_view_less") if self.is_expanded else LanguageManager.tr("tool_view_more")
+        )
 
     def _on_item_clicked(self, tool_id: str):
         self.set_active_tool(tool_id)
@@ -905,9 +941,17 @@ class ModernAllToolsPanel(QWidget):
                 color: {c['text']};
             }}
             QPushButton {{
+                background-color: transparent;
+                border: none;
+                border-radius: 6px;
                 color: {c['accent']};
+                text-align: left;
+                padding: 8px 12px;
+                font-weight: 600;
+                font-size: 13px;
             }}
             QPushButton:hover {{
+                background-color: {c['surface_hover']};
                 color: {c['accent_hover']};
             }}
         """)
@@ -956,8 +1000,13 @@ class ModernDrawerItemWidget(QWidget):
     def _apply_style(self, theme_name: str):
         self.theme_name = theme_name
         c = get_modern_theme_colors(theme_name)
-        badge_bg = "rgba(16, 185, 129, 0.15)" if self.is_ready else "rgba(148, 163, 184, 0.15)"
-        badge_col = "#10b981" if self.is_ready else "#94a3b8"
+        is_dark = theme_name != "light"
+        if self.is_ready:
+            badge_bg = "rgba(52, 211, 153, 0.22)" if is_dark else "rgba(16, 185, 129, 0.15)"
+            badge_col = "#6ee7b7" if is_dark else "#047857"
+        else:
+            badge_bg = "rgba(203, 213, 225, 0.20)" if is_dark else "rgba(148, 163, 184, 0.15)"
+            badge_col = "#e2e8f0" if is_dark else "#475569"
         self.setStyleSheet(f"""
             ModernDrawerItemWidget {{
                 background-color: transparent;
@@ -976,8 +1025,8 @@ class ModernDrawerItemWidget(QWidget):
                 color: {badge_col};
                 border-radius: 7px;
                 padding: 1px 6px;
-                font-size: 9.5px;
-                font-weight: 600;
+                font-size: 10px;
+                font-weight: 700;
             }}
         """)
 
@@ -1087,11 +1136,11 @@ class ModernExportDrawer(QWidget):
             }}
             #CategoryHeader {{
                 color: {c['text_muted']};
-                font-size: 10px;
+                font-size: 11px;
                 font-weight: 700;
-                padding-top: 6px;
-                padding-bottom: 2px;
-                letter-spacing: 0.5px;
+                padding-top: 8px;
+                padding-bottom: 3px;
+                letter-spacing: 0.8px;
             }}
             QToolButton {{
                 background-color: transparent;
@@ -1243,16 +1292,21 @@ class ModernEditDrawer(QWidget):
             }}
             #CategoryHeader {{
                 color: {c['text_muted']};
-                font-size: 10px;
+                font-size: 11px;
                 font-weight: 700;
                 padding-top: 8px;
-                padding-bottom: 2px;
-                letter-spacing: 0.5px;
+                padding-bottom: 3px;
+                letter-spacing: 0.8px;
             }}
             #NoticeBox {{
                 background-color: {c['accent_light']};
                 border: 1px solid {c['border']};
                 border-radius: 8px;
+            }}
+            #NoticeBox QLabel {{
+                color: {c['text']};
+                font-size: 11.5px;
+                line-height: 1.3;
             }}
             QToolButton {{
                 background-color: transparent;
@@ -1549,10 +1603,11 @@ class RecentFileRowWidget(QFrame):
         self.file_path = file_path
         self.theme_name = theme_name
         self.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.setFixedHeight(50)
+        self.setFixedHeight(54)
+        self.setToolTip(file_path)
 
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(14, 6, 14, 6)
+        layout.setContentsMargins(14, 8, 14, 8)
         layout.setSpacing(14)
 
         lbl_icon = QLabel()
@@ -1581,6 +1636,17 @@ class RecentFileRowWidget(QFrame):
         layout.addWidget(self.lbl_meta)
 
         self.apply_theme(theme_name)
+        self._update_elided_path()
+
+    def resizeEvent(self, e):
+        super().resizeEvent(e)
+        self._update_elided_path()
+
+    def _update_elided_path(self):
+        if hasattr(self, 'lbl_path') and self.file_path:
+            fm = QFontMetrics(self.lbl_path.font())
+            w = max(120, self.lbl_path.width())
+            self.lbl_path.setText(fm.elidedText(self.file_path, Qt.TextElideMode.ElideMiddle, w))
 
     def mousePressEvent(self, e):
         if e.button() == Qt.MouseButton.LeftButton:
@@ -1644,12 +1710,14 @@ class HomeDashboardWorkspace(QWidget):
         scroll.setFrameShape(QFrame.Shape.NoFrame)
 
         self.content_container = QWidget()
+        self.content_container.setObjectName("HomeContentContainer")
         v_content = QVBoxLayout(self.content_container)
         v_content.setContentsMargins(36, 32, 36, 36)
         v_content.setSpacing(24)
         v_content.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignHCenter)
 
         self.inner_wrapper = QWidget()
+        self.inner_wrapper.setObjectName("HomeInnerWrapper")
         self.inner_wrapper.setMaximumWidth(1060)
         v_inner = QVBoxLayout(self.inner_wrapper)
         v_inner.setContentsMargins(0, 0, 0, 0)
@@ -1778,9 +1846,10 @@ class HomeDashboardWorkspace(QWidget):
         v_recent.addWidget(self.lbl_recent_title)
 
         self.recent_list_container = QWidget()
+        self.recent_list_container.setObjectName("RecentListContainer")
         self.v_recent_items = QVBoxLayout(self.recent_list_container)
         self.v_recent_items.setContentsMargins(0, 0, 0, 0)
-        self.v_recent_items.setSpacing(2)
+        self.v_recent_items.setSpacing(4)
 
         v_recent.addWidget(self.recent_list_container)
         v_inner.addLayout(v_recent)
@@ -1796,8 +1865,11 @@ class HomeDashboardWorkspace(QWidget):
         """Son açılan dosyaları yükler ve listeler."""
         while self.v_recent_items.count() > 0:
             item = self.v_recent_items.takeAt(0)
-            if item.widget():
-                item.widget().deleteLater()
+            w = item.widget()
+            if w:
+                w.hide()
+                w.setParent(None)
+                w.deleteLater()
 
         files = []
         if self.main_window and hasattr(self.main_window, 'get_recent_files'):
@@ -1808,8 +1880,10 @@ class HomeDashboardWorkspace(QWidget):
             lbl_empty.setObjectName("RecentEmpty")
             lbl_empty.setStyleSheet("padding: 20px 4px; font-size: 13px;")
             self.v_recent_items.addWidget(lbl_empty)
+            self.recent_list_container.setMinimumHeight(60)
             return
 
+        row_count = 0
         for path in files:
             if not os.path.exists(path):
                 continue
@@ -1828,15 +1902,27 @@ class HomeDashboardWorkspace(QWidget):
             row = RecentFileRowWidget(path, pages, sz_str, theme_name=self.theme_name, parent=self.recent_list_container)
             row.clicked.connect(self.fileSelected.emit)
             self.v_recent_items.addWidget(row)
+            row_count += 1
+
+        if row_count > 0:
+            total_h = row_count * 54 + max(0, row_count - 1) * 4
+            self.recent_list_container.setMinimumHeight(total_h)
+        else:
+            self.recent_list_container.setMinimumHeight(60)
+
+        self.recent_list_container.updateGeometry()
+        if self.inner_wrapper.layout():
+            self.inner_wrapper.layout().invalidate()
+        self.inner_wrapper.updateGeometry()
+        if self.content_container.layout():
+            self.content_container.layout().invalidate()
+        self.content_container.updateGeometry()
 
     def apply_theme(self, theme_name: str = "light"):
         self.theme_name = theme_name
         c = get_modern_theme_colors(theme_name)
         self.setStyleSheet(f"""
-            HomeDashboardWorkspace {{
-                background-color: {c['bg']};
-            }}
-            QScrollArea, QWidget {{
+            HomeDashboardWorkspace, QScrollArea, #HomeContentContainer, #HomeInnerWrapper, #RecentListContainer {{
                 background-color: {c['bg']};
             }}
             #WelcomeTitle {{
@@ -1992,7 +2078,7 @@ class PageThumbnailCard(QFrame):
                     background-color: {c['surface_hover']};
                 }}
                 QLabel {{
-                    color: {c['text_muted']};
+                    color: {c['text']};
                     font-weight: 600;
                     font-size: 11px;
                 }}
@@ -2581,6 +2667,7 @@ class ModernRightSidebar(QWidget):
             QTreeWidget::item {{
                 padding: 6px 4px;
                 border-radius: 4px;
+                color: {c['text']};
             }}
             QTreeWidget::item:hover {{
                 background-color: {c['surface_hover']};
@@ -2758,7 +2845,7 @@ class ModernUtilityRail(QWidget):
                 border-left: 1px solid {c['border']};
             }}
             QLabel {{
-                color: {c['text_muted']};
+                color: {c['text']};
             }}
             QToolButton {{
                 background-color: transparent;

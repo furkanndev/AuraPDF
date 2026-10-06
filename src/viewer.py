@@ -103,14 +103,15 @@ class EditableZoomWidget(QWidget):
 
     def apply_theme(self, theme_name: str = "gray"):
         palette = {
+            "light": {"btn": "#e2e8f0", "btn_hover": "#cbd5e1", "lbl": "#ffffff", "border": "#94a3b8", "border_inner": "#cbd5e1", "accent": "#0284c7", "text": "#0f172a"},
             "gray": {"btn": "#3b3f45", "btn_hover": "#4b5159", "lbl": "#2b2d30", "border": "#525862", "border_inner": "#444850", "accent": "#60a5fa", "text": "#ffffff"},
-
             "emerald": {"btn": "#112a21", "btn_hover": "#1a3d30", "lbl": "#091a14", "border": "#1a3d30", "border_inner": "#112a21", "accent": "#10b981", "text": "#ecfdf5"},
             "purple": {"btn": "#201435", "btn_hover": "#2f1d4d", "lbl": "#150d22", "border": "#321f52", "border_inner": "#201435", "accent": "#a855f7", "text": "#faf5ff"},
             "crimson": {"btn": "#2d1118", "btn_hover": "#401923", "lbl": "#1d0b10", "border": "#441924", "border_inner": "#2d1118", "accent": "#f43f5e", "text": "#fff1f2"},
             "nord": {"btn": "#222b3a", "btn_hover": "#2f3b4f", "lbl": "#181e29", "border": "#313e54", "border_inner": "#222b3a", "accent": "#38bdf8", "text": "#f0f6fc"},
             "dark": {"btn": "#262626", "btn_hover": "#363636", "lbl": "#181818", "border": "#404040", "border_inner": "#303030", "accent": "#388bfd", "text": "#ffffff"},
             "vice_city": {"btn": "#240e3b", "btn_hover": "#381458", "lbl": "#160024", "border": "#ff2a85", "border_inner": "#240e3b", "accent": "#00f0ff", "text": "#ffffff"},
+            "apple": {"btn": "#262a34", "btn_hover": "#333846", "lbl": "#16181f", "border": "#3a4050", "border_inner": "#262a34", "accent": "#38bdf8", "text": "#f5f5f7"},
         }
         p = palette.get(theme_name, palette["gray"])
 
@@ -125,7 +126,7 @@ class EditableZoomWidget(QWidget):
             }}
             QToolButton:hover {{
                 background-color: {p['btn_hover']};
-                color: #ffffff;
+                color: {p['text']};
             }}
             QToolButton:pressed {{
                 background-color: {p['lbl']};
@@ -152,7 +153,7 @@ class EditableZoomWidget(QWidget):
         edit_style = f"""
             QLineEdit {{
                 background-color: {p['lbl']};
-                color: #ffffff;
+                color: {p['text']};
                 border: 1.5px solid {p['accent']};
                 border-radius: 0px;
                 padding: 0px 2px;
@@ -892,11 +893,6 @@ class AuraPDFViewer(QMainWindow):
         self.btn_view_mode.clicked.connect(self.toggle_page_view_mode)
 
         view_menu = QMenu(self.btn_view_mode)
-        view_menu.setStyleSheet("""
-            QMenu { background-color: #242424; color: #ffffff; border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 6px; padding: 4px; }
-            QMenu::item { padding: 6px 20px; border-radius: 4px; }
-            QMenu::item:selected { background-color: #3b82f6; }
-        """)
         self.act_view_single = view_menu.addAction(ModernIconFactory.icon_view_single(), LanguageManager.tr("view_mode_single"))
         self.act_view_single.triggered.connect(lambda: self.set_page_view_mode("single"))
         self.act_view_double = view_menu.addAction(ModernIconFactory.icon_view_double(), LanguageManager.tr("view_mode_double"))
@@ -911,11 +907,6 @@ class AuraPDFViewer(QMainWindow):
         self.btn_reading_mode.setToolTip(LanguageManager.tr("reading_mode"))
         self.btn_reading_mode.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
         read_menu = QMenu(self.btn_reading_mode)
-        read_menu.setStyleSheet("""
-            QMenu { background-color: #242424; color: #ffffff; border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 6px; padding: 4px; }
-            QMenu::item { padding: 6px 20px; border-radius: 4px; }
-            QMenu::item:selected { background-color: #3b82f6; }
-        """)
         self.act_read_light = read_menu.addAction(LanguageManager.tr("reading_mode_light"))
         self.act_read_light.triggered.connect(lambda: self.set_reading_color_mode("normal"))
         self.act_read_dark = read_menu.addAction(LanguageManager.tr("reading_mode_dark"))
@@ -953,11 +944,6 @@ class AuraPDFViewer(QMainWindow):
         self.btn_open.clicked.connect(self.open_pdf)
 
         open_menu = QMenu(self.btn_open)
-        open_menu.setStyleSheet("""
-            QMenu { background-color: #242424; color: #ffffff; border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 6px; padding: 4px; }
-            QMenu::item { padding: 6px 20px; border-radius: 4px; }
-            QMenu::item:selected { background-color: #3b82f6; }
-        """)
         self.act_open_direct = open_menu.addAction(LanguageManager.tr("open") + " (Ctrl+O)")
         self.act_open_direct.triggered.connect(self.open_pdf)
 
@@ -1516,6 +1502,23 @@ class AuraPDFViewer(QMainWindow):
             self.show_insert_emoji_dialog()
         elif tool_id == "view_more":
             self.show_toolbox_menu()
+        elif tool_id == "print_production":
+            self.print_pdf()
+        elif tool_id == "measure_objects":
+            self.switch_to_document_view()
+            self.set_tool_state('ruler')
+        elif tool_id == "compare_files":
+            self.open_compare_dialog()
+        elif tool_id == "guided_actions":
+            self.show_toolbox_menu()
+        elif tool_id == "prepare_accessibility":
+            self.show_doc_properties()
+        elif tool_id == "pdf_standards":
+            self.show_doc_properties()
+        elif tool_id == "search_index":
+            self.open_search_bar()
+        elif tool_id == "use_javascript":
+            self.show_toolbox_menu()
         elif tool_id == "print":
             self.print_pdf()
         elif tool_id == "save":
@@ -1737,11 +1740,6 @@ class AuraPDFViewer(QMainWindow):
 
     def show_settings_context_menu(self, pos):
         menu = QMenu(self)
-        menu.setStyleSheet("""
-            QMenu { background-color: #242424; color: #ffffff; border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 6px; padding: 4px; }
-            QMenu::item { padding: 6px 20px; border-radius: 4px; font-size: 13px; }
-            QMenu::item:selected { background-color: #3b82f6; }
-        """)
         act_settings = menu.addAction(ModernIconFactory.icon_settings(), LanguageManager.tr("settings_title"))
         act_settings.triggered.connect(lambda: self.open_settings_dialog())
 
@@ -1787,20 +1785,20 @@ class AuraPDFViewer(QMainWindow):
 
     def apply_theme(self, theme_name: str = "gray"):
         if theme_name == "navy":
-            theme_name = "gray"
+            theme_name = "nord"
         self.current_theme = theme_name
         settings = QSettings("AuraPDF", "PDFViewer")
         settings.setValue("app_theme", theme_name)
 
         theme_specs = {
             "light": {
-                "main_bg": "#f8fafc", "main_text": "#0f172a", "tb_bg": "#ffffff", "tb_border": "#e2e8f0",
+                "main_bg": "#f8fafc", "main_text": "#0f172a", "tb_bg": "#ffffff", "tb_border": "#cbd5e1",
                 "btn_hover": "#f1f5f9", "accent": "#0284c7", "page_bg": "#f1f5f9", "page_border": "#cbd5e1",
-                "tab_bg": "#eaedf1", "tab_hover": "#f1f5f9", "tab_border": "#cbd5e1", "tab_text": "#475569",
+                "tab_bg": "#eaedf1", "tab_hover": "#f1f5f9", "tab_border": "#cbd5e1", "tab_text": "#334155",
                 "view_bg": "#f0f2f5"
             },
             "gray": {
-                "main_bg": "#2b2d30", "main_text": "#f1f5f9", "tb_bg": "#35383c", "tb_border": "#222427",
+                "main_bg": "#2b2d30", "main_text": "#f8fafc", "tb_bg": "#35383c", "tb_border": "#222427",
                 "btn_hover": "#42464b", "accent": "#60a5fa", "page_bg": "#42464b", "page_border": "#525860",
                 "tab_bg": "#32353a", "tab_hover": "#3e4248", "tab_border": "#40444a", "tab_text": "#cbd5e1",
                 "view_bg": "#222426"
@@ -1808,44 +1806,50 @@ class AuraPDFViewer(QMainWindow):
             "navy": {
                 "main_bg": "#0f172a", "main_text": "#e2e8f0", "tb_bg": "#1e293b", "tb_border": "#0f172a",
                 "btn_hover": "#334155", "accent": "#38bdf8", "page_bg": "#334155", "page_border": "#475569",
-                "tab_bg": "#1e293b", "tab_hover": "#334155", "tab_border": "#334155", "tab_text": "#94a3b8",
+                "tab_bg": "#1e293b", "tab_hover": "#334155", "tab_border": "#334155", "tab_text": "#cbd5e1",
                 "view_bg": "#090d16"
             },
             "emerald": {
                 "main_bg": "#091a14", "main_text": "#ecfdf5", "tb_bg": "#112a21", "tb_border": "#06120e",
-                "btn_hover": "#183c2f", "accent": "#10b981", "page_bg": "#183c2f", "page_border": "#1a3d30",
+                "btn_hover": "#1a4032", "accent": "#34d399", "page_bg": "#183c2f", "page_border": "#1a3d30",
                 "tab_bg": "#112a21", "tab_hover": "#183c2f", "tab_border": "#1a3d30", "tab_text": "#a7f3d0",
                 "view_bg": "#06120e"
             },
             "purple": {
                 "main_bg": "#150d22", "main_text": "#faf5ff", "tb_bg": "#201435", "tb_border": "#0e0817",
-                "btn_hover": "#2f1d4d", "accent": "#a855f7", "page_bg": "#2f1d4d", "page_border": "#321f52",
-                "tab_bg": "#201435", "tab_hover": "#2f1d4d", "tab_border": "#321f52", "tab_text": "#d8b4fe",
+                "btn_hover": "#321f52", "accent": "#c084fc", "page_bg": "#2f1d4d", "page_border": "#321f52",
+                "tab_bg": "#201435", "tab_hover": "#2f1d4d", "tab_border": "#321f52", "tab_text": "#e9d5ff",
                 "view_bg": "#0e0817"
             },
             "crimson": {
                 "main_bg": "#1d0b10", "main_text": "#fff1f2", "tb_bg": "#2d1118", "tb_border": "#13070a",
-                "btn_hover": "#401923", "accent": "#f43f5e", "page_bg": "#401923", "page_border": "#441924",
+                "btn_hover": "#441924", "accent": "#fb7185", "page_bg": "#401923", "page_border": "#441924",
                 "tab_bg": "#2d1118", "tab_hover": "#401923", "tab_border": "#441924", "tab_text": "#fecdd3",
                 "view_bg": "#13070a"
             },
             "nord": {
                 "main_bg": "#181e29", "main_text": "#f0f6fc", "tb_bg": "#222b3a", "tb_border": "#11161e",
                 "btn_hover": "#2f3b4f", "accent": "#38bdf8", "page_bg": "#2f3b4f", "page_border": "#313e54",
-                "tab_bg": "#222b3a", "tab_hover": "#2f3b4f", "tab_border": "#313e54", "tab_text": "#94a3b8",
+                "tab_bg": "#222b3a", "tab_hover": "#2f3b4f", "tab_border": "#313e54", "tab_text": "#cbd5e1",
                 "view_bg": "#11161e"
             },
             "dark": {
-                "main_bg": "#121212", "main_text": "#e0e0e0", "tb_bg": "#1c1c1c", "tb_border": "#141414",
+                "main_bg": "#121212", "main_text": "#f8fafc", "tb_bg": "#1c1c1c", "tb_border": "#141414",
                 "btn_hover": "#2b2b2b", "accent": "#388bfd", "page_bg": "#2b2b2b", "page_border": "#404040",
-                "tab_bg": "#202020", "tab_hover": "#2a2a2a", "tab_border": "#282828", "tab_text": "#aaaaaa",
+                "tab_bg": "#202020", "tab_hover": "#2a2a2a", "tab_border": "#282828", "tab_text": "#cbd5e1",
                 "view_bg": "#121212"
             },
             "vice_city": {
                 "main_bg": "#160024", "main_text": "#fdf2f8", "tb_bg": "#240e3b", "tb_border": "#3d1663",
                 "btn_hover": "#381458", "accent": "#ff2a85", "page_bg": "#2c1047", "page_border": "#ff2a85",
-                "tab_bg": "#1e0a32", "tab_hover": "#351357", "tab_border": "#3d1663", "tab_text": "#e2d1f0",
+                "tab_bg": "#1e0a32", "tab_hover": "#351357", "tab_border": "#3d1663", "tab_text": "#f5d0fe",
                 "view_bg": "#0d0017"
+            },
+            "apple": {
+                "main_bg": "#0e1014", "main_text": "#f5f5f7", "tb_bg": "#1a1d24", "tb_border": "#222630",
+                "btn_hover": "#252932", "accent": "#38bdf8", "page_bg": "#252932", "page_border": "#2d323e",
+                "tab_bg": "#121419", "tab_hover": "#252932", "tab_border": "#2d323e", "tab_text": "#cbd5e1",
+                "view_bg": "#0a0c0f"
             }
         }
         spec = theme_specs.get(theme_name, theme_specs["gray"])
@@ -1858,13 +1862,13 @@ class AuraPDFViewer(QMainWindow):
                 QToolButton:hover {{ background-color: {spec['btn_hover']}; }}
                 QToolButton:checked {{ background-color: {spec['btn_hover']}; border-bottom: 2.5px solid {spec['accent']}; border-radius: 2px; }}
                 QToolButton:disabled {{ background: transparent; border: 1px solid transparent; opacity: 0.35; color: #555555; }}
-                QLineEdit#PageInput {{ background-color: {spec['page_bg']}; color: #ffffff; border: 1.2px solid {spec['page_border']}; border-radius: 3px; padding: 2px 4px; font-weight: bold; }}
+                QLineEdit#PageInput {{ background-color: {spec['page_bg']}; color: {spec['main_text']}; border: 1.2px solid {spec['page_border']}; border-radius: 3px; padding: 2px 4px; font-weight: bold; }}
                 QLabel {{ color: {spec['main_text']}; font-size: 13px; }}
                 QTabWidget::pane {{ border: none; background-color: {view_bg}; }}
                 QTabBar::tab {{ background-color: {spec['tab_bg']}; color: {spec['tab_text']}; padding: 7px 16px; margin-right: 2px; border-top-left-radius: 6px; border-top-right-radius: 6px; border: 1px solid {spec['tab_border']}; border-bottom: none; }}
-                QTabBar::tab:hover {{ background-color: {spec['tab_hover']}; color: #ffffff; }}
-                QTabBar::tab:selected {{ background-color: {spec['main_bg']}; color: #ffffff; border-top: 2px solid {spec['accent']}; font-weight: bold; }}
-                QMenu {{ background-color: {spec['tb_bg']}; color: {spec['main_text']}; border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 8px; padding: 4px; }}
+                QTabBar::tab:hover {{ background-color: {spec['tab_hover']}; color: {spec['main_text']}; }}
+                QTabBar::tab:selected {{ background-color: {spec['main_bg']}; color: {spec['main_text']}; border-top: 2px solid {spec['accent']}; font-weight: bold; }}
+                QMenu {{ background-color: {spec['tb_bg']}; color: {spec['main_text']}; border: 1px solid {spec['tb_border']}; border-radius: 8px; padding: 4px; }}
                 QMenu::item {{ padding: 6px 20px; border-radius: 4px; font-size: 12px; }}
                 QMenu::item:selected {{ background-color: {spec['accent']}; color: #ffffff; font-weight: bold; }}
                 QMenu::separator {{ height: 1px; background-color: {spec['tb_border']}; margin: 4px 6px; }}
@@ -1872,7 +1876,7 @@ class AuraPDFViewer(QMainWindow):
                 QScrollBar::handle:vertical {{ background: {spec['page_border']}; min-height: 24px; border-radius: 4px; }}
                 QScrollBar::handle:vertical:hover {{ background: {spec['accent']}; }}
                 QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{ height: 0px; }}
-                QScrollBar:horizontal {{ background: {view_bg}; height: 8px; margin: 0px; border-radius: 4px; }}
+                QScrollBar::horizontal {{ background: {view_bg}; height: 8px; margin: 0px; border-radius: 4px; }}
                 QScrollBar::handle:horizontal {{ background: {spec['page_border']}; min-width: 24px; border-radius: 4px; }}
                 QScrollBar::handle:horizontal:hover {{ background: {spec['accent']}; }}
                 QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {{ width: 0px; }}
@@ -1883,7 +1887,7 @@ class AuraPDFViewer(QMainWindow):
                 QMenu {{
                     background-color: {spec['tb_bg']};
                     color: {spec['main_text']};
-                    border: 1px solid rgba(255, 255, 255, 0.12);
+                    border: 1px solid {spec['tb_border']};
                     border-radius: 10px;
                     padding: 6px 4px;
                 }}
