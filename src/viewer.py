@@ -1041,7 +1041,6 @@ class AuraPDFViewer(QMainWindow):
         # 4B. Yüzen Hızlı Araç Kapsülü (FloatingQuickToolsCapsule)
         self.floating_capsule = FloatingQuickToolsCapsule(parent=self, main_window=self)
         self.floating_capsule.toolSelectedWithWidget.connect(self._on_floating_tool_selected)
-        self.floating_capsule.toolSelected.connect(lambda t: self._on_floating_tool_selected(t, None))
         self.floating_capsule.hide()
         self.central_stack.installEventFilter(self)
 
@@ -1049,6 +1048,7 @@ class AuraPDFViewer(QMainWindow):
         self.modern_right_sidebar = ModernRightSidebar(main_window=self, parent=self)
         self.modern_right_sidebar.closeRequested.connect(self._close_right_sidebar)
         self.modern_right_sidebar.bookmarkClicked.connect(self._on_bookmark_clicked)
+        self.modern_right_sidebar.thumbnailClicked.connect(self._on_bookmark_clicked)
 
         # 6. En Sağ Dikey İkon Rayı
         self.modern_utility_rail = ModernUtilityRail(self)
@@ -1152,6 +1152,13 @@ class AuraPDFViewer(QMainWindow):
             self.switch_to_document_view()
             if hasattr(self, 'central_stack') and self.central_stack.currentWidget() == self.organize_workspace:
                 self.organize_workspace.load_document()
+            if hasattr(self, 'modern_right_sidebar') and self.modern_right_sidebar.isVisible():
+                if self.modern_right_sidebar.current_panel == "thumbnails":
+                    self.modern_right_sidebar.load_thumbnails()
+                elif self.modern_right_sidebar.current_panel == "bookmarks":
+                    self.modern_right_sidebar.load_bookmarks()
+                elif self.modern_right_sidebar.current_panel == "comments":
+                    self.modern_right_sidebar.load_comments()
 
     def _on_header_mode_changed(self, mode: str):
         is_on_home = hasattr(self, 'central_stack') and self.central_stack.currentWidget() == self.home_workspace
@@ -1229,9 +1236,10 @@ class AuraPDFViewer(QMainWindow):
             if hasattr(self, 'modern_utility_rail'):
                 self.modern_utility_rail.show()
                 if hasattr(self, 'modern_right_sidebar'):
-                    if self.modern_utility_rail.current_item != "none":
+                    active_id = getattr(self.modern_utility_rail, 'active_rail_id', None)
+                    if active_id and active_id in ("bookmarks", "comments", "thumbnails"):
                         self.modern_right_sidebar.show()
-                        self.modern_right_sidebar.load_bookmarks()
+                        self.modern_right_sidebar.set_panel(active_id)
                     else:
                         self.modern_right_sidebar.hide()
             tab_doc = self.get_current_tab_doc()
@@ -1252,9 +1260,10 @@ class AuraPDFViewer(QMainWindow):
             if hasattr(self, 'modern_utility_rail'):
                 self.modern_utility_rail.show()
                 if hasattr(self, 'modern_right_sidebar'):
-                    if self.modern_utility_rail.current_item != "none":
+                    active_id = getattr(self.modern_utility_rail, 'active_rail_id', None)
+                    if active_id and active_id in ("bookmarks", "comments", "thumbnails"):
                         self.modern_right_sidebar.show()
-                        self.modern_right_sidebar.load_bookmarks()
+                        self.modern_right_sidebar.set_panel(active_id)
                     else:
                         self.modern_right_sidebar.hide()
         else:
@@ -1590,44 +1599,6 @@ class AuraPDFViewer(QMainWindow):
         elif tool_id == "shortcuts":
             self.open_shortcuts_dialog()
 
-    def _on_floating_tool_selected(self, tool_id: str, btn_widget=None):
-        """Kullanıcının seçtiği yüzen araç aktif hale getirilir ve hemen yanına seçenek penceresi açılır."""
-        if tool_id == "select":
-            self.set_tool_state('select')
-        elif tool_id == "highlighter":
-            self.set_tool_state('highlighter')
-        elif tool_id == "comment":
-            self.switch_to_document_view()
-            if hasattr(self, 'modern_right_sidebar'):
-                self.modern_right_sidebar.show()
-                self.modern_right_sidebar.set_panel("comments")
-            if hasattr(self, 'modern_utility_rail'):
-                self.modern_utility_rail.set_active_rail_item("comments")
-        elif tool_id == "text":
-            self.set_tool_state('text')
-        elif tool_id == "pen":
-            self.set_tool_state('pen')
-        elif tool_id == "eraser":
-            self.set_tool_state('eraser')
-
-        # Pop-up gösterimi: butonun hemen sağına
-        if btn_widget is not None:
-            popup_pos = btn_widget.mapToGlobal(QPoint(btn_widget.width() + 6, 0))
-        elif hasattr(self, 'floating_capsule') and self.floating_capsule:
-            popup_pos = self.floating_capsule.mapToGlobal(QPoint(self.floating_capsule.width() + 6, 0))
-        else:
-            popup_pos = QCursor.pos()
-
-        if tool_id == "select" and hasattr(self, 'cursor_popup'):
-            self.cursor_popup.show_at(popup_pos)
-        elif tool_id == "highlighter" and hasattr(self, 'hl_popup'):
-            self.hl_popup.show_at(popup_pos)
-        elif tool_id in ("text", "comment") and hasattr(self, 'text_popup'):
-            self.text_popup.show_at(popup_pos)
-        elif tool_id == "pen" and hasattr(self, 'pen_popup'):
-            self.pen_popup.show_at(popup_pos)
-        elif tool_id == "eraser" and hasattr(self, 'eraser_popup'):
-            self.eraser_popup.show_at(popup_pos)
 
     def _on_read_drawer_action(self, action_id: str):
         if action_id == "view_single":
@@ -1702,8 +1673,8 @@ class AuraPDFViewer(QMainWindow):
             self.modern_right_sidebar.show()
             self.modern_right_sidebar.set_panel("comments")
         elif rail_id == "thumbnails":
-            self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.thumbnails_dock)
-            self.toggle_contents_panel()
+            self.modern_right_sidebar.show()
+            self.modern_right_sidebar.set_panel("thumbnails")
 
     def _on_rail_page_jump(self, page_index: int):
         tab_doc = self.get_current_tab_doc()
@@ -1714,6 +1685,8 @@ class AuraPDFViewer(QMainWindow):
             self.modern_utility_rail.update_page_info(clamped, total)
             if hasattr(self, 'txt_page') and self.txt_page and not self.txt_page.hasFocus():
                 self.txt_page.setText(str(clamped + 1))
+            if hasattr(self, 'modern_right_sidebar') and self.modern_right_sidebar.isVisible():
+                self.modern_right_sidebar.select_page(clamped)
 
     def _sync_rail_page(self, txt: str):
         if hasattr(self, 'modern_utility_rail') and self.modern_utility_rail:
@@ -1732,6 +1705,8 @@ class AuraPDFViewer(QMainWindow):
             tab_doc.go_to_page(page_index)
             if hasattr(self, 'central_stack') and self.central_stack.currentWidget() == self.organize_workspace:
                 self.switch_to_document_view()
+            if hasattr(self, 'modern_right_sidebar') and self.modern_right_sidebar.isVisible():
+                self.modern_right_sidebar.select_page(page_index)
 
     def toggle_fullscreen(self, checked=None):
         going_fullscreen = not self.isFullScreen()
@@ -2808,6 +2783,10 @@ class AuraPDFViewer(QMainWindow):
         if hasattr(self, 'floating_capsule') and self.floating_capsule is not None:
             if tool_name in ('select', 'pan'):
                 self.floating_capsule.set_active_tool('select')
+            elif tool_name in ('selection_tool', 'ruler'):
+                self.floating_capsule.set_active_tool('selection')
+            elif tool_name == 'pointer':
+                self.floating_capsule.set_active_tool('pointer')
             elif tool_name == 'highlighter':
                 self.floating_capsule.set_active_tool('highlighter')
             elif tool_name in ('text', 'direct_edit'):

@@ -18,9 +18,9 @@ import pymupdf as fitz
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QTextEdit, QToolButton,
     QPushButton, QScrollArea, QGridLayout, QFrame, QStackedWidget,
-    QTreeWidget, QTreeWidgetItem, QListWidget, QListWidgetItem, QMenu,
+    QTreeWidget, QTreeWidgetItem, QListWidget, QListWidgetItem, QListView, QMenu,
     QDialog, QSizePolicy, QApplication, QSlider, QMessageBox, QFileDialog,
-    QHeaderView, QGraphicsDropShadowEffect
+    QHeaderView, QGraphicsDropShadowEffect, QAbstractItemView
 )
 from PyQt6.QtCore import Qt, pyqtSignal, QSize, QPoint, QRect, QTimer, QThread, QUrl, QEvent
 from PyQt6.QtGui import (
@@ -2721,6 +2721,7 @@ class ModernRightSidebar(QWidget):
     """
     closeRequested = pyqtSignal()
     bookmarkClicked = pyqtSignal(int)
+    thumbnailClicked = pyqtSignal(int)
 
     def __init__(self, main_window=None, parent=None):
         super().__init__(parent)
@@ -2728,6 +2729,11 @@ class ModernRightSidebar(QWidget):
         self.main_window = main_window
         self.theme_name = "light"
         self.current_panel = "bookmarks"
+        self._current_thumb_doc = None
+        self._thumb_render_queue = []
+        self._thumb_timer = QTimer(self)
+        self._thumb_timer.setSingleShot(True)
+        self._thumb_timer.timeout.connect(self._process_thumb_render_queue)
         self.setFixedWidth(270)
 
         main_layout = QVBoxLayout(self)
@@ -2765,7 +2771,7 @@ class ModernRightSidebar(QWidget):
         h_head.addWidget(btn_close)
         main_layout.addLayout(h_head)
 
-        # Ana Panel Yığını: 0=Yer İmleri, 1=Yorumlar
+        # Ana Panel Yığını: 0=Yer İmleri, 1=Yorumlar, 2=Küçük Resimler
         self.main_stack = QStackedWidget()
 
         # ======================================================================
@@ -2885,11 +2891,50 @@ class ModernRightSidebar(QWidget):
         v_com.addWidget(self.comments_stack, stretch=1)
         self.main_stack.addWidget(self.panel_comments)
 
+        # ======================================================================
+        # PANEL 2: SAYFA KÜÇÜK RESİMLERİ (THUMBNAILS)
+        # ======================================================================
+        self.panel_thumbnails = QWidget()
+        v_th = QVBoxLayout(self.panel_thumbnails)
+        v_th.setContentsMargins(0, 0, 0, 0)
+        v_th.setSpacing(6)
+
+        self.stack_thumbnails = QStackedWidget()
+
+        # Boş Durum
+        self.empty_thumbs_widget = QWidget()
+        v_empty_th = QVBoxLayout(self.empty_thumbs_widget)
+        v_empty_th.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        v_empty_th.setSpacing(12)
+
+        lbl_th_icon = QLabel()
+        lbl_th_icon.setPixmap(ModernIconFactory.icon_thumbnails("#94a3b8").pixmap(36, 36))
+        lbl_th_icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        v_empty_th.addWidget(lbl_th_icon)
+
+        self.lbl_empty_thumbs = QLabel(LanguageManager.tr("sidebar_no_pages_title"))
+        self.lbl_empty_thumbs.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.lbl_empty_thumbs.setStyleSheet("font-size: 13px; font-weight: 500;")
+        v_empty_th.addWidget(self.lbl_empty_thumbs)
+        self.stack_thumbnails.addWidget(self.empty_thumbs_widget)
+
+        # Küçük Resimler Listesi
+        self.list_thumbnails = QListWidget()
+        self.list_thumbnails.setObjectName("RightRailThumbnailsList")
+        self.list_thumbnails.setIconSize(QSize(180, 240))
+        self.list_thumbnails.setSpacing(8)
+        self.list_thumbnails.setVerticalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
+        self.list_thumbnails.itemClicked.connect(self._on_thumbnail_item_clicked)
+        self.stack_thumbnails.addWidget(self.list_thumbnails)
+
+        v_th.addWidget(self.stack_thumbnails)
+        self.main_stack.addWidget(self.panel_thumbnails)
+
         main_layout.addWidget(self.main_stack, stretch=1)
         self.apply_theme(self.theme_name)
 
     def set_panel(self, panel_name: str):
-        """Çekmeceyi 'bookmarks' veya 'comments' paneline geçirir."""
+        """Çekmeceyi 'bookmarks', 'comments' veya 'thumbnails' paneline geçirir."""
         self.current_panel = panel_name
         if panel_name == "comments":
             self.main_stack.setCurrentIndex(1)
@@ -2897,6 +2942,12 @@ class ModernRightSidebar(QWidget):
             self.lbl_head_icon.setPixmap(ModernIconFactory.icon_comments().pixmap(16, 16))
             self.btn_add.hide()
             self.load_comments()
+        elif panel_name == "thumbnails":
+            self.main_stack.setCurrentIndex(2)
+            self.lbl_head_title.setText(LanguageManager.tr("thumbnails_panel_title"))
+            self.lbl_head_icon.setPixmap(ModernIconFactory.icon_thumbnails().pixmap(16, 16))
+            self.btn_add.hide()
+            self.load_thumbnails()
         else:
             self.main_stack.setCurrentIndex(0)
             self.lbl_head_title.setText(LanguageManager.tr("bookmarks_panel_title"))
@@ -2907,16 +2958,146 @@ class ModernRightSidebar(QWidget):
     def retranslate_ui(self):
         if self.current_panel == "comments":
             self.lbl_head_title.setText(LanguageManager.tr("comments_panel_title"))
+        elif self.current_panel == "thumbnails":
+            self.lbl_head_title.setText(LanguageManager.tr("thumbnails_panel_title"))
         else:
             self.lbl_head_title.setText(LanguageManager.tr("bookmarks_panel_title"))
         self.lbl_empty_msg.setText(LanguageManager.tr("bookmarks_empty_title"))
         self.lbl_empty_comments.setText(LanguageManager.tr("comments_no_comments"))
         self.lbl_empty_comments_desc.setText(LanguageManager.tr("comments_no_comments_desc"))
+        if hasattr(self, 'lbl_empty_thumbs'):
+            self.lbl_empty_thumbs.setText(LanguageManager.tr("sidebar_no_pages_title"))
         self.txt_filter_comments.setPlaceholderText(LanguageManager.tr("comments_filter_placeholder"))
         self.txt_new_comment.setPlaceholderText(LanguageManager.tr("comments_input_placeholder"))
         self.btn_post_comment.setText(LanguageManager.tr("comments_post_btn"))
         if hasattr(self, 'btn_add'):
             self.btn_add.setToolTip(LanguageManager.tr("bookmarks_add_btn"))
+
+    # ==========================================================================
+    # SAYFA KÜÇÜK RESİMLERİ (THUMBNAILS) İŞLEMLERİ
+    # ==========================================================================
+    def load_thumbnails(self):
+        """Aktif belgenin sayfa küçük resimlerini yükler."""
+        if not self.main_window:
+            self.stack_thumbnails.setCurrentIndex(0)
+            return
+        tab_doc = self.main_window.get_current_tab_doc()
+        if not tab_doc or not tab_doc.doc or len(tab_doc.doc) == 0:
+            self.stack_thumbnails.setCurrentIndex(0)
+            return
+
+        total_pages = len(tab_doc.doc)
+        curr_idx = getattr(tab_doc, 'current_page_idx', 0)
+
+        # Hızlı yol: aynı belge ve aynı sayfa sayısı yüklüyse sadece aktif sayfayı seç
+        if getattr(self, '_current_thumb_doc', None) == tab_doc and self.list_thumbnails.count() == total_pages:
+            self.stack_thumbnails.setCurrentIndex(1)
+            self._render_thumbnail_page(tab_doc, curr_idx)
+            self.select_page(curr_idx)
+            return
+
+        self._thumb_timer.stop()
+        self.list_thumbnails.clear()
+        self._thumb_render_queue.clear()
+        self._current_thumb_doc = tab_doc
+        self.stack_thumbnails.setCurrentIndex(1)
+
+        # Boş yer tutucuları anında ekle (<1ms)
+        for idx in range(total_pages):
+            item = QListWidgetItem(f"{idx + 1}")
+            item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            item.setData(Qt.ItemDataRole.UserRole, idx)
+            item.setSizeHint(QSize(220, 260))
+            self.list_thumbnails.addItem(item)
+
+        # Aktif sayfa ve yakın komşuları öncelikli çiz
+        immediate = [curr_idx]
+        for offset in (1, -1, 2, -2):
+            p = curr_idx + offset
+            if 0 <= p < total_pages:
+                immediate.append(p)
+
+        for p in immediate:
+            self._render_thumbnail_page(tab_doc, p)
+
+        self.select_page(curr_idx)
+
+        # Kalan sayfaları mesafeye göre sıralı kuyruğa al
+        remaining = [p for p in range(total_pages) if p not in immediate]
+        remaining.sort(key=lambda p: abs(p - curr_idx))
+        self._thumb_render_queue = remaining
+
+        if self._thumb_render_queue:
+            self._thumb_timer.start(10)
+
+    def _render_thumbnail_page(self, tab_doc, page_idx: int):
+        if not tab_doc or not tab_doc.doc or page_idx < 0 or page_idx >= len(tab_doc.doc):
+            return
+        if page_idx >= self.list_thumbnails.count():
+            return
+        item = self.list_thumbnails.item(page_idx)
+        if not item:
+            return
+
+        try:
+            page = tab_doc.doc[page_idx]
+            pw = max(1.0, page.rect.width)
+            ph = max(1.0, page.rect.height)
+            thumb_w = 180
+            thumb_h = max(20, int(thumb_w * (ph / pw)))
+            scale = float(thumb_w) / pw
+            mat = fitz.Matrix(scale, scale)
+            pix = page.get_pixmap(matrix=mat, alpha=False)
+            img = QImage(pix.samples, pix.width, pix.height, pix.stride, QImage.Format.Format_RGB888)
+            pixmap = QPixmap.fromImage(img)
+
+            final_pix = QPixmap(thumb_w + 8, thumb_h + 8)
+            final_pix.fill(Qt.GlobalColor.transparent)
+            painter = QPainter(final_pix)
+            painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+            painter.setPen(QColor(0, 0, 0, 35))
+            painter.setBrush(QColor(255, 255, 255))
+            painter.drawRoundedRect(QRectF(2, 2, thumb_w + 4, thumb_h + 4), 4, 4)
+            painter.drawPixmap(4, 4, pixmap)
+            painter.end()
+
+            item.setIcon(QIcon(final_pix))
+        except Exception:
+            pass
+
+    def _process_thumb_render_queue(self):
+        if not self.isVisible() or self.current_panel != "thumbnails" or not self._thumb_render_queue:
+            return
+        if not self.main_window:
+            return
+        tab_doc = self.main_window.get_current_tab_doc()
+        if not tab_doc or not tab_doc.doc or tab_doc != getattr(self, '_current_thumb_doc', None):
+            return
+
+        for _ in range(3):
+            if not self._thumb_render_queue:
+                break
+            p_idx = self._thumb_render_queue.pop(0)
+            self._render_thumbnail_page(tab_doc, p_idx)
+
+        if self._thumb_render_queue:
+            self._thumb_timer.start(10)
+
+    def _on_thumbnail_item_clicked(self, item: QListWidgetItem):
+        page_idx = item.data(Qt.ItemDataRole.UserRole)
+        if page_idx is not None:
+            self.thumbnailClicked.emit(page_idx)
+
+    def select_page(self, page_idx: int):
+        if not hasattr(self, 'list_thumbnails') or self.list_thumbnails.count() == 0:
+            return
+        if 0 <= page_idx < self.list_thumbnails.count():
+            self.list_thumbnails.blockSignals(True)
+            self.list_thumbnails.setCurrentRow(page_idx)
+            item = self.list_thumbnails.item(page_idx)
+            if item:
+                self.list_thumbnails.scrollToItem(item, QAbstractItemView.ScrollHint.EnsureVisible)
+            self.list_thumbnails.blockSignals(False)
 
     def load_bookmarks(self):
         """Aktif belgenin yer imlerini yükler."""
@@ -3216,6 +3397,30 @@ class ModernRightSidebar(QWidget):
             }}
             QPushButton#PostCommentBtn:hover {{
                 opacity: 0.9;
+            }}
+            #RightRailThumbnailsList {{
+                background-color: transparent;
+                border: none;
+            }}
+            #RightRailThumbnailsList::item {{
+                background-color: {c['card_bg']};
+                border: 1.5px solid {c['border']};
+                border-radius: 8px;
+                padding: 6px;
+                margin: 4px 4px;
+                color: {c['text']};
+                font-size: 11px;
+                font-weight: 600;
+            }}
+            #RightRailThumbnailsList::item:hover {{
+                background-color: {c['surface_hover']};
+                border-color: {c['accent']};
+            }}
+            #RightRailThumbnailsList::item:selected {{
+                background-color: {c['surface_hover']};
+                border: 2px solid {c['accent']};
+                color: {c['accent']};
+                font-weight: 700;
             }}
         """)
 

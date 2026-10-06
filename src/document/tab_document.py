@@ -4449,6 +4449,8 @@ class PDFTabDocument(QWidget):
                 self.main_window.txt_page.setText(str(self.current_page_idx + 1))
             if getattr(self.main_window, 'thumbnails_dock', None) and hasattr(self.main_window.thumbnails_dock, 'select_page'):
                 self.main_window.thumbnails_dock.select_page(self.current_page_idx)
+            if getattr(self.main_window, 'modern_right_sidebar', None) and hasattr(self.main_window.modern_right_sidebar, 'select_page'):
+                self.main_window.modern_right_sidebar.select_page(self.current_page_idx)
             if getattr(self.main_window, 'modern_utility_rail', None):
                 total_p = len(self.doc) if self.doc is not None else 1
                 self.main_window.modern_utility_rail.update_page_info(self.current_page_idx, total_p)
@@ -4997,7 +4999,7 @@ class PDFTabDocument(QWidget):
                 if p_idx is None:
                     self.hide_laser_pointer()
                     self.pointer_last_pos = None
-                    return False
+                    return True
 
                 self.update_laser_pointer(pos)
                 if (event.buttons() & Qt.MouseButton.LeftButton) and self.pointer_last_pos is not None:
@@ -5015,8 +5017,7 @@ class PDFTabDocument(QWidget):
                     line_item.setZValue(998)
                     self.pointer_trail_items.append(line_item)
                     self.pointer_last_pos = pos
-                    return True
-                return False
+                return True
             elif event.type() == QEvent.Type.MouseButtonPress:
                 if event.button() == Qt.MouseButton.LeftButton:
                     self._cancel_pointer_fadeout()
