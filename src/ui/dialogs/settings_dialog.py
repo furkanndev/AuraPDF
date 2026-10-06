@@ -60,6 +60,33 @@ TOOLBAR_ITEMS_META = {
     "btn_insert": ("tb_item_insert", ModernIconFactory.icon_insert),
 }
 
+FLOATING_TOOLBAR_ITEMS_META = {
+    "select": ("tb_item_cursor", ModernIconFactory.icon_cursor),
+    "selection": ("tb_item_selection", lambda: ModernIconFactory.icon_select_rect("#38bdf8")),
+    "pointer": ("tb_item_pointer", lambda: ModernIconFactory.icon_pointer("#ef4444")),
+    "highlighter": ("tb_item_hl", lambda: ModernIconFactory.icon_highlighter("#eab308")),
+    "comment": ("quick_tool_comment", lambda: ModernIconFactory.icon_comments("#f97316")),
+    "text": ("tb_item_text", lambda: ModernIconFactory.icon_text_tool("#ec4899")),
+    "insert": ("tb_item_insert", lambda: ModernIconFactory.icon_insert("#10b981")),
+    "pen": ("tb_item_pen", lambda: ModernIconFactory.icon_pen("#0284c7")),
+    "eraser": ("tb_item_eraser", lambda: ModernIconFactory.icon_eraser("#ef4444")),
+}
+
+DEFAULT_FLOATING_TOOLBAR_ORDER = [
+    "select", "selection", "pointer", "highlighter", "comment", "text", "insert", "pen", "eraser"
+]
+
+OLD_TO_FLOATING_KEY_MAP = {
+    "btn_cursor": "select",
+    "btn_selection": "selection",
+    "btn_pointer": "pointer",
+    "btn_hl": "highlighter",
+    "btn_pen": "pen",
+    "btn_eraser": "eraser",
+    "btn_text": "text",
+    "btn_insert": "insert",
+}
+
 DEFAULT_TOOLBAR_LAYOUT = [
     "btn_contents", "btn_undo", "btn_redo", "btn_nav_back", "btn_nav_forward", "sep_1",
     "btn_cursor", "btn_selection", "btn_hl", "btn_pen",
@@ -1335,7 +1362,7 @@ class AuraSettingsDialog(QDialog):
     def _populate_toolbar_list(self, order_list: list):
         self.list_toolbar.clear()
         for k in order_list:
-            meta = TOOLBAR_ITEMS_META.get(k)
+            meta = FLOATING_TOOLBAR_ITEMS_META.get(k) or TOOLBAR_ITEMS_META.get(k)
             if meta:
                 trans_key, icon_func = meta
                 title = LanguageManager.tr(trans_key)
@@ -1347,7 +1374,7 @@ class AuraSettingsDialog(QDialog):
             self.list_toolbar.setCurrentRow(0)
 
     def _reset_toolbar_items(self):
-        self._populate_toolbar_list(DEFAULT_TOOLBAR_USER_ITEMS)
+        self._populate_toolbar_list(DEFAULT_FLOATING_TOOLBAR_ORDER)
 
     # ----------------------------------------------------
     # BÖLÜM: İMLEÇLER (CURSORS SECTION IN THEME TAB)
@@ -1863,32 +1890,31 @@ class AuraSettingsDialog(QDialog):
         saved_tpl = self.settings.value("default_page_template", "blank")
         self._set_cmb_data(self.cmb_default_template, saved_tpl)
 
-        # 6. Toolbar Sıralaması
-        raw_tb = self.settings.value("toolbar_order", None)
-        saved_tb = None
+        # 6. Hareketli Toolbar Sıralaması
+        raw_tb = self.settings.value("floating_tools_order", None)
+        if not raw_tb:
+            raw_tb = self.settings.value("toolbar_order", None)
+        saved_tb = []
         if raw_tb:
             try:
                 if isinstance(raw_tb, str):
-                    saved_tb = json.loads(raw_tb)
+                    parsed = json.loads(raw_tb)
                 elif isinstance(raw_tb, list):
-                    saved_tb = list(raw_tb)
+                    parsed = list(raw_tb)
+                else:
+                    parsed = []
+                for x in parsed:
+                    x = OLD_TO_FLOATING_KEY_MAP.get(x, x)
+                    if x in FLOATING_TOOLBAR_ITEMS_META and x not in saved_tb:
+                        saved_tb.append(x)
             except Exception:
-                saved_tb = None
+                saved_tb = []
 
-        if not saved_tb:
-            saved_tb = list(DEFAULT_TOOLBAR_USER_ITEMS)
+        for k in DEFAULT_FLOATING_TOOLBAR_ORDER:
+            if k not in saved_tb:
+                saved_tb.append(k)
 
-        # Deduplicate saved_tb while preserving order and filtering by valid meta items
-        deduped = []
-        for x in saved_tb:
-            if x in TOOLBAR_ITEMS_META and x not in deduped:
-                deduped.append(x)
-        current_tb_order = deduped
-        for k in DEFAULT_TOOLBAR_USER_ITEMS:
-            if k not in current_tb_order:
-                current_tb_order.append(k)
-
-        self._populate_toolbar_list(current_tb_order)
+        self._populate_toolbar_list(saved_tb)
 
         # 7. İmleç Ayarlarını Yükle
         saved_preset = self.settings.value("cursor_preset", "apple")
@@ -1968,10 +1994,9 @@ class AuraSettingsDialog(QDialog):
             if item_id and item_id not in reordered_items:
                 reordered_items.append(item_id)
         if reordered_items:
-            if reordered_items == DEFAULT_TOOLBAR_USER_ITEMS:
-                self.settings.remove("toolbar_order")
-            else:
-                self.settings.setValue("toolbar_order", json.dumps(reordered_items))
+            self.settings.setValue("floating_tools_order", json.dumps(reordered_items))
+            if hasattr(self.main_window, 'apply_floating_tools_order'):
+                self.main_window.apply_floating_tools_order(reordered_items)
             if hasattr(self.main_window, 'restore_toolbar_order'):
                 self.main_window.restore_toolbar_order()
 

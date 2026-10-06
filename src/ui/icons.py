@@ -179,9 +179,10 @@ class ModernIconFactory:
         return QIcon(pix)
 
     @staticmethod
-    def icon_select_lasso():
+    def icon_select_lasso(color=None):
         pix, p = ModernIconFactory._base()
-        p.setPen(QPen(QColor("#388bfd"), 1.8, Qt.PenStyle.DashLine, Qt.PenCapStyle.RoundCap))
+        c = QColor(color) if color else QColor("#388bfd")
+        p.setPen(QPen(c, 1.8, Qt.PenStyle.DashLine, Qt.PenCapStyle.RoundCap))
         path = QPainterPath()
         path.moveTo(6, 12); path.cubicTo(6, 4, 20, 4, 20, 12); path.cubicTo(20, 20, 14, 22, 10, 18); path.lineTo(6, 22)
         p.drawPath(path)
@@ -189,9 +190,10 @@ class ModernIconFactory:
         return QIcon(pix)
 
     @staticmethod
-    def icon_select_move():
+    def icon_select_move(color=None):
         pix, p = ModernIconFactory._base()
-        p.setPen(QPen(QColor("#388bfd"), 1.8, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
+        c = QColor(color) if color else QColor("#388bfd")
+        p.setPen(QPen(c, 1.8, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
         # Dikey çizgi ve ok uçları
         p.drawLine(13, 4, 13, 22)
         p.drawLine(10, 7, 13, 4); p.drawLine(16, 7, 13, 4)
@@ -219,10 +221,13 @@ class ModernIconFactory:
         return QIcon(pix)
 
     @staticmethod
-    def icon_select_pan():
+    def icon_select_pan(color=None):
         pix, p = ModernIconFactory._base()
-        p.setPen(QPen(QColor("#388bfd"), 1.4, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
-        p.setBrush(QBrush(QColor(56, 139, 253, 40)))
+        c = QColor(color) if color else QColor("#388bfd")
+        p.setPen(QPen(c, 1.4, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
+        fill_c = QColor(c)
+        fill_c.setAlpha(40)
+        p.setBrush(QBrush(fill_c))
         path = QPainterPath()
         path.moveTo(8, 14)
         path.lineTo(8, 8)

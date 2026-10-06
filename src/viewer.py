@@ -466,6 +466,20 @@ class AuraPDFViewer(QMainWindow):
                 self.search_bar.find_prev()
 
     def eventFilter(self, obj, event):
+        # 0. Orta Tuşla Sekme Kapatma (Middle Click Tab Close)
+        if hasattr(self, 'tab_widget') and hasattr(self.tab_widget, 'tabBar') and obj == self.tab_widget.tabBar():
+            if event.type() == QEvent.Type.MouseButtonRelease and event.button() == Qt.MouseButton.MiddleButton:
+                tab_idx = self.tab_widget.tabBar().tabAt(event.position().toPoint() if hasattr(event, 'position') else event.pos())
+                if tab_idx >= 0:
+                    self.close_tab(tab_idx)
+                    return True
+
+        # 0B. Merkez Panel Boyut Değişimi -> Kapsül Konumlandırma
+        if hasattr(self, 'central_stack') and obj == self.central_stack:
+            if event.type() in (QEvent.Type.Resize, QEvent.Type.Move):
+                if hasattr(self, 'floating_capsule') and self.floating_capsule and self.floating_capsule.isVisible():
+                    self.update_floating_capsule_pos()
+
         # 1. Fare Kısayolları (Mouse Shortcuts) Kontrolü
         if event.type() == QEvent.Type.MouseButtonPress:
             if self.handle_mouse_shortcut(event):
@@ -503,6 +517,8 @@ class AuraPDFViewer(QMainWindow):
             self.search_bar.reposition()
         if hasattr(self, 'fullscreen_toolbar') and self.isFullScreen():
             self.fullscreen_toolbar.reposition()
+        if hasattr(self, 'floating_capsule') and self.floating_capsule and self.floating_capsule.isVisible():
+            self.update_floating_capsule_pos()
 
     def keyPressEvent(self, event):
         if event.key() == Qt.Key.Key_F11:
@@ -528,7 +544,6 @@ class AuraPDFViewer(QMainWindow):
                     self.btn_fullscreen.setChecked(False)
                     self.btn_fullscreen.blockSignals(False)
                 self.tab_widget.tabBar().show()
-                self.toolbar.show()
                 sb = self.statusBar()
                 if sb and getattr(self, '_statusbar_was_visible', True):
                     sb.show()
@@ -580,7 +595,9 @@ class AuraPDFViewer(QMainWindow):
         if hasattr(self, 'btn_redo'):
             self.btn_redo.setEnabled(can_redo)
 
-    def toggle_toolbar_visibility(self): self.toolbar.setVisible(not self.toolbar.isVisible())
+    def toggle_toolbar_visibility(self):
+        if hasattr(self, 'floating_capsule') and self.floating_capsule:
+            self.floating_capsule.setVisible(not self.floating_capsule.isVisible())
 
     def _init_docks(self):
         self.thumbnails_dock = ThumbnailsDock(self)
@@ -603,11 +620,16 @@ class AuraPDFViewer(QMainWindow):
 
     def set_cursor_mode(self, mode):
         self.cursor_mode = mode
+        if hasattr(self, 'btn_cursor') and self.btn_cursor:
+            if mode == 'select':
+                self.btn_cursor.setIcon(ModernIconFactory.icon_cursor())
+            elif mode == 'pan':
+                self.btn_cursor.setIcon(ModernIconFactory.icon_select_pan())
+        if hasattr(self, 'floating_capsule') and self.floating_capsule:
+            self.floating_capsule.update_cursor_mode(mode)
         if mode == 'select':
-            self.btn_cursor.setIcon(ModernIconFactory.icon_cursor())
             self.set_tool_state('select')
         elif mode == 'pan':
-            self.btn_cursor.setIcon(ModernIconFactory.icon_select_pan())
             self.set_tool_state('pan')
         if hasattr(self, 'cursor_popup'):
             self.cursor_popup.hide()
@@ -629,6 +651,8 @@ class AuraPDFViewer(QMainWindow):
             if hasattr(self, 'btn_selection'):
                 self.btn_selection.setIcon(ModernIconFactory.icon_ruler())
                 self.btn_selection.setChecked(True)
+            if hasattr(self, 'floating_capsule') and self.floating_capsule:
+                self.floating_capsule.update_selection_mode('ruler')
             self.update_viewport_cursor()
             return
         self.selection_shape_mode = mode
@@ -640,6 +664,8 @@ class AuraPDFViewer(QMainWindow):
             elif mode == 'move':
                 self.btn_selection.setIcon(ModernIconFactory.icon_select_move())
             self.btn_selection.setChecked(True)
+        if hasattr(self, 'floating_capsule') and self.floating_capsule:
+            self.floating_capsule.update_selection_mode(mode)
         self.set_tool_state('selection_tool')
         if hasattr(self, 'selection_popup'):
             self.selection_popup.close()
@@ -672,7 +698,7 @@ class AuraPDFViewer(QMainWindow):
         self.toolbar = ReorderableToolBar("Aura Toolbar", self)
         self.toolbar.setObjectName("AuraToolbar")
         self.toolbar.setMovable(False)
-        self.addToolBar(self.toolbar)
+        self.toolbar.hide()
 
         self.btn_contents = DraggableToolButton()
         self.btn_contents.setIcon(ModernIconFactory.icon_contents())
@@ -1043,6 +1069,8 @@ class AuraPDFViewer(QMainWindow):
         self.floating_capsule.toolSelectedWithWidget.connect(self._on_floating_tool_selected)
         self.floating_capsule.hide()
         self.central_stack.installEventFilter(self)
+        if hasattr(self, 'tab_widget') and hasattr(self.tab_widget, 'tabBar') and self.tab_widget.tabBar():
+            self.tab_widget.tabBar().installEventFilter(self)
 
         # 5. Sağ Çekmece: Yer İmleri / Yorumlar
         self.modern_right_sidebar = ModernRightSidebar(main_window=self, parent=self)
@@ -1114,17 +1142,6 @@ class AuraPDFViewer(QMainWindow):
             self.floating_capsule.move(pt)
             self.floating_capsule.raise_()
 
-    def eventFilter(self, watched, event):
-        if hasattr(self, 'central_stack') and watched == self.central_stack:
-            if event.type() in (QEvent.Type.Resize, QEvent.Type.Move):
-                if hasattr(self, 'floating_capsule') and self.floating_capsule and self.floating_capsule.isVisible():
-                    self.update_floating_capsule_pos()
-        return super().eventFilter(watched, event)
-
-    def resizeEvent(self, event):
-        super().resizeEvent(event)
-        if hasattr(self, 'floating_capsule') and self.floating_capsule and self.floating_capsule.isVisible():
-            self.update_floating_capsule_pos()
 
     def sync_modern_tabs(self):
         """Modern üst sekme çubuğunu AuraTabWidget içeriği ile tam senkronize eder."""
@@ -1239,7 +1256,7 @@ class AuraPDFViewer(QMainWindow):
                 self.modern_utility_rail.show()
                 if hasattr(self, 'modern_right_sidebar'):
                     active_id = getattr(self.modern_utility_rail, 'active_rail_id', None)
-                    if active_id and active_id in ("bookmarks", "comments", "thumbnails"):
+                    if active_id and active_id in ("bookmarks", "comments", "thumbnails", "attachments"):
                         self.modern_right_sidebar.show()
                         self.modern_right_sidebar.set_panel(active_id)
                     else:
@@ -1263,15 +1280,9 @@ class AuraPDFViewer(QMainWindow):
                 self.modern_utility_rail.show()
                 if hasattr(self, 'modern_right_sidebar'):
                     active_id = getattr(self.modern_utility_rail, 'active_rail_id', None)
-                    if active_id and active_id in ("bookmarks", "comments", "thumbnails"):
+                    if active_id and active_id in ("bookmarks", "comments", "thumbnails", "attachments"):
                         self.modern_right_sidebar.show()
                         self.modern_right_sidebar.set_panel(active_id)
-                    elif active_id == "attachments":
-                        if hasattr(self, 'thumbnails_dock') and self.thumbnails_dock:
-                            self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.thumbnails_dock)
-                            self.thumbnails_dock.switch_view(2)
-                            self.thumbnails_dock.show()
-                        self.modern_right_sidebar.hide()
                     else:
                         self.modern_right_sidebar.hide()
         else:
@@ -1279,12 +1290,17 @@ class AuraPDFViewer(QMainWindow):
 
     def _on_floating_tool_selected(self, tool_id: str, widget=None):
         if tool_id == "select":
-            self.set_tool_state('select')
+            mode = getattr(self, 'cursor_mode', 'select')
+            self.set_tool_state(mode)
             if hasattr(self, 'cursor_popup') and widget:
                 pos = widget.mapToGlobal(QPoint(widget.width() + 6, 0))
                 self.cursor_popup.show_at(pos)
         elif tool_id == "selection":
-            self.set_selection_mode(self.selection_shape_mode)
+            mode = getattr(self, 'selection_shape_mode', 'rect')
+            if mode == 'ruler':
+                self.set_tool_state('ruler')
+            else:
+                self.set_selection_mode(mode)
             if hasattr(self, 'selection_popup') and widget:
                 pos = widget.mapToGlobal(QPoint(widget.width() + 6, 0))
                 self.selection_popup.show_at(pos)
@@ -1682,17 +1698,11 @@ class AuraPDFViewer(QMainWindow):
             self.modern_right_sidebar.hide()
             if hasattr(self, 'thumbnails_dock') and self.thumbnails_dock:
                 self.thumbnails_dock.hide()
-        elif rail_id in ("bookmarks", "comments", "thumbnails"):
+        elif rail_id in ("bookmarks", "comments", "thumbnails", "attachments"):
             if hasattr(self, 'thumbnails_dock') and self.thumbnails_dock:
                 self.thumbnails_dock.hide()
             self.modern_right_sidebar.show()
             self.modern_right_sidebar.set_panel(rail_id)
-        elif rail_id == "attachments":
-            self.modern_right_sidebar.hide()
-            if hasattr(self, 'thumbnails_dock') and self.thumbnails_dock:
-                self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.thumbnails_dock)
-                self.thumbnails_dock.switch_view(2)
-                self.thumbnails_dock.show()
 
     def _on_rail_page_jump(self, page_index: int):
         tab_doc = self.get_current_tab_doc()
@@ -1754,9 +1764,18 @@ class AuraPDFViewer(QMainWindow):
             else:
                 self._statusbar_was_visible = False
 
-            # 3. Sekme çubuğunu ve ana araç çubuğunu gizle
+            # 3. Sekme çubuğunu ve üst barları gizle
             self.tab_widget.tabBar().hide()
-            self.toolbar.hide()
+            if hasattr(self, 'toolbar'):
+                self.toolbar.hide()
+            if hasattr(self, 'modern_tab_bar'):
+                self.modern_tab_bar.hide()
+            if hasattr(self, 'modern_header_bar'):
+                self.modern_header_bar.hide()
+            if hasattr(self, 'modern_utility_rail'):
+                self.modern_utility_rail.hide()
+            if hasattr(self, 'floating_capsule'):
+                self.floating_capsule.hide()
 
             # 4. Tam ekrana geç
             self.showFullScreen()
@@ -1784,12 +1803,20 @@ class AuraPDFViewer(QMainWindow):
             if hasattr(self, "_normal_state") and self._normal_state:
                 self.restoreState(self._normal_state)
 
-            # 3. Yan panel, sekme çubuğu, ana araç çubuğu ve durum çubuğunu geri yükle
+            # 3. Yan panel, sekme çubuğu ve durum çubuğunu geri yükle
             if getattr(self, '_sidebar_was_visible', False):
                 self.thumbnails_dock.show()
 
             self.tab_widget.tabBar().show()
-            self.toolbar.show()
+            if hasattr(self, 'modern_tab_bar'):
+                self.modern_tab_bar.show()
+            if hasattr(self, 'modern_header_bar'):
+                self.modern_header_bar.show()
+            if hasattr(self, 'modern_utility_rail') and hasattr(self, 'central_stack') and self.central_stack.currentWidget() != getattr(self, 'home_workspace', None):
+                self.modern_utility_rail.show()
+            if hasattr(self, 'floating_capsule') and hasattr(self, 'central_stack') and self.central_stack.currentWidget() == self.tab_widget:
+                self.floating_capsule.show()
+                self.update_floating_capsule_pos()
 
             sb = self.statusBar()
             if sb and getattr(self, '_statusbar_was_visible', True):
@@ -2379,6 +2406,8 @@ class AuraPDFViewer(QMainWindow):
                 self.modern_right_sidebar.load_thumbnails()
             elif self.modern_right_sidebar.current_panel == "bookmarks":
                 self.modern_right_sidebar.load_bookmarks()
+            elif self.modern_right_sidebar.current_panel == "attachments":
+                self.modern_right_sidebar.load_attachments()
 
     def on_tab_changed(self, index):
         if (tab_doc := self.get_current_tab_doc()) and tab_doc.doc is not None:
@@ -2400,6 +2429,8 @@ class AuraPDFViewer(QMainWindow):
                     self.modern_right_sidebar.load_bookmarks()
                 elif self.modern_right_sidebar.current_panel == "comments":
                     self.modern_right_sidebar.load_comments()
+                elif self.modern_right_sidebar.current_panel == "attachments":
+                    self.modern_right_sidebar.load_attachments()
             self.update_viewport_cursor()
             if hasattr(self, 'search_bar') and self.search_bar.isVisible():
                 self.search_bar.do_search(reset_index=True)
@@ -3568,6 +3599,11 @@ class AuraPDFViewer(QMainWindow):
         settings = QSettings("AuraPDF", "PDFViewer")
         settings.remove("toolbar_order")
         self.restore_toolbar_order()
+
+    def apply_floating_tools_order(self, order: list):
+        if hasattr(self, 'floating_capsule') and self.floating_capsule:
+            self.floating_capsule.set_tools_order(order)
+            self.update_floating_capsule_pos()
 
     def closeEvent(self, event):
         self.save_toolbar_order()

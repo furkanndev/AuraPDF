@@ -12,6 +12,8 @@ Bu modül, Adobe Acrobat'ın yeni nesil arayüz tasarımını AuraPDF için sağ
 """
 
 import os
+import json
+import tempfile
 from typing import List, Dict, Optional, Set, Any
 import pymupdf as fitz
 
@@ -22,7 +24,7 @@ from PyQt6.QtWidgets import (
     QDialog, QSizePolicy, QApplication, QSlider, QMessageBox, QFileDialog,
     QHeaderView, QGraphicsDropShadowEffect, QAbstractItemView
 )
-from PyQt6.QtCore import Qt, pyqtSignal, QSize, QPoint, QRect, QTimer, QThread, QUrl, QEvent
+from PyQt6.QtCore import Qt, pyqtSignal, QSize, QPoint, QRect, QTimer, QThread, QUrl, QEvent, QSettings
 from PyQt6.QtGui import (
     QIcon, QPixmap, QImage, QPainter, QColor, QPen, QBrush, QFont,
     QPainterPath, QCursor, QKeySequence, QShortcut, QDesktopServices,
@@ -280,7 +282,17 @@ class ModernTabItem(QWidget):
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
             self.clicked.emit(self.index)
+        elif event.button() == Qt.MouseButton.MiddleButton:
+            event.accept()
+            return
         super().mousePressEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        if event.button() == Qt.MouseButton.MiddleButton:
+            self.closeRequested.emit(self.index)
+            event.accept()
+            return
+        super().mouseReleaseEvent(event)
 
     def set_active(self, active: bool, theme_name: str = "light"):
         self.is_active = active
@@ -1609,9 +1621,9 @@ class FloatingQuickToolsCapsule(QFrame):
         shadow.setOffset(0, 2)
         self.setGraphicsEffect(shadow)
 
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(4, 4, 4, 6)
-        layout.setSpacing(4)
+        self.layout_capsule = QVBoxLayout(self)
+        self.layout_capsule.setContentsMargins(4, 4, 4, 6)
+        self.layout_capsule.setSpacing(4)
 
         # Üst Sürükleme Tutamacı
         self.grip_handle = QFrame(self)
@@ -1624,24 +1636,50 @@ class FloatingQuickToolsCapsule(QFrame):
         self.grip_bar.setFixedSize(16, 3)
         self.grip_bar.setStyleSheet("background-color: rgba(150, 150, 150, 0.45); border-radius: 1.5px;")
         l_grip.addWidget(self.grip_bar)
-        layout.addWidget(self.grip_handle)
+        self.layout_capsule.addWidget(self.grip_handle)
 
         self.buttons: Dict[str, QToolButton] = {}
-        tool_specs = [
-            ("select", "quick_tool_select", ModernIconFactory.icon_cursor()),
-            ("selection", "quick_tool_draw_select", ModernIconFactory.icon_select_rect("#38bdf8")),
-            ("pointer", "quick_tool_pointer", ModernIconFactory.icon_pointer("#ef4444")),
-            ("highlighter", "quick_tool_highlighter", ModernIconFactory.icon_highlighter("#eab308")),
-            ("comment", "quick_tool_comment", ModernIconFactory.icon_comments("#f97316")),
-            ("text", "quick_tool_text", ModernIconFactory.icon_text_tool("#ec4899")),
-            ("insert", "insert_btn_tip", ModernIconFactory.icon_insert("#10b981")),
-            ("pen", "quick_tool_pen", ModernIconFactory.icon_pen("#0284c7")),
-            ("eraser", "quick_tool_eraser", ModernIconFactory.icon_eraser("#ef4444")),
-        ]
+        self.cursor_mode = "select"
+        self.selection_shape_mode = "rect"
 
-        for tid, key, icon in tool_specs:
+        # Tüm araçların fabrika tanımları
+        self.tool_specs_factory = {
+            "select": ("quick_tool_select", lambda: ModernIconFactory.icon_cursor()),
+            "selection": ("quick_tool_draw_select", lambda: ModernIconFactory.icon_select_rect("#38bdf8")),
+            "pointer": ("quick_tool_pointer", lambda: ModernIconFactory.icon_pointer("#ef4444")),
+            "highlighter": ("quick_tool_highlighter", lambda: ModernIconFactory.icon_highlighter("#eab308")),
+            "comment": ("quick_tool_comment", lambda: ModernIconFactory.icon_comments("#f97316")),
+            "text": ("quick_tool_text", lambda: ModernIconFactory.icon_text_tool("#ec4899")),
+            "insert": ("insert_btn_tip", lambda: ModernIconFactory.icon_insert("#10b981")),
+            "pen": ("quick_tool_pen", lambda: ModernIconFactory.icon_pen("#0284c7")),
+            "eraser": ("quick_tool_eraser", lambda: ModernIconFactory.icon_eraser("#ef4444")),
+        }
+        self.default_order = ["select", "selection", "pointer", "highlighter", "comment", "text", "insert", "pen", "eraser"]
+
+        # Kaydedilmiş araç sıralamasını yükle
+        settings = QSettings("AuraPDF", "PDFViewer")
+        raw_order = settings.value("floating_tools_order", None)
+        loaded_order = []
+        if raw_order:
+            try:
+                if isinstance(raw_order, str):
+                    loaded_order = json.loads(raw_order)
+                elif isinstance(raw_order, list):
+                    loaded_order = list(raw_order)
+            except Exception:
+                loaded_order = []
+
+        valid_order = [x for x in loaded_order if x in self.tool_specs_factory]
+        for k in self.default_order:
+            if k not in valid_order:
+                valid_order.append(k)
+        self.tool_order = valid_order
+
+        # Butonları oluştur
+        for tid in self.tool_order:
+            key, icon_func = self.tool_specs_factory[tid]
             btn = QToolButton(self)
-            btn.setIcon(icon)
+            btn.setIcon(icon_func())
             btn.setIconSize(QSize(16, 16))
             btn.setFixedSize(32, 32)
             btn.setCheckable(True)
@@ -1649,11 +1687,63 @@ class FloatingQuickToolsCapsule(QFrame):
             btn.setToolTip(LanguageManager.tr(key))
             btn.clicked.connect(lambda checked, t=tid: self._on_btn_clicked(t))
             btn.installEventFilter(self)
-            layout.addWidget(btn)
+            self.layout_capsule.addWidget(btn)
             self.buttons[tid] = btn
 
-        self.buttons["select"].setChecked(True)
+        if "select" in self.buttons:
+            self.buttons["select"].setChecked(True)
         self.apply_theme(self.theme_name)
+
+    def set_tools_order(self, order: list):
+        """Ayarlardan gelen yeni sıralamaya göre butonları yeniden düzenler."""
+        valid_order = [x for x in order if x in self.tool_specs_factory]
+        for k in self.default_order:
+            if k not in valid_order:
+                valid_order.append(k)
+        self.tool_order = valid_order
+
+        # Layout'taki butonları çıkarıp yeni sırayla ekle
+        for tid, btn in self.buttons.items():
+            self.layout_capsule.removeWidget(btn)
+
+        for tid in self.tool_order:
+            btn = self.buttons.get(tid)
+            if btn:
+                self.layout_capsule.addWidget(btn)
+
+        self.update()
+
+    def update_cursor_mode(self, mode: str):
+        """İmleç/Gezinme modu değiştiğinde hareketli toolbardaki butonu günceller."""
+        self.cursor_mode = mode
+        btn = self.buttons.get("select")
+        if not btn:
+            return
+        if mode == 'pan':
+            btn.setIcon(ModernIconFactory.icon_select_pan())
+            btn.setToolTip(LanguageManager.tr("tb_item_cursor"))
+        else:
+            btn.setIcon(ModernIconFactory.icon_cursor())
+            btn.setToolTip(LanguageManager.tr("quick_tool_select"))
+
+    def update_selection_mode(self, mode: str):
+        """Çizim seçim modu değiştiğinde hareketli toolbardaki butonu günceller."""
+        self.selection_shape_mode = mode
+        btn = self.buttons.get("selection")
+        if not btn:
+            return
+        if mode == 'lasso':
+            btn.setIcon(ModernIconFactory.icon_select_lasso("#38bdf8"))
+            btn.setToolTip(LanguageManager.tr("sel_lasso").strip())
+        elif mode == 'move':
+            btn.setIcon(ModernIconFactory.icon_select_move("#38bdf8"))
+            btn.setToolTip(LanguageManager.tr("sel_move").strip() if LanguageManager.tr("sel_move") != "sel_move" else "Seçimi Taşı")
+        elif mode == 'ruler':
+            btn.setIcon(ModernIconFactory.icon_ruler("#38bdf8"))
+            btn.setToolTip(LanguageManager.tr("tb_item_ruler"))
+        else:
+            btn.setIcon(ModernIconFactory.icon_select_rect("#38bdf8"))
+            btn.setToolTip(LanguageManager.tr("quick_tool_draw_select"))
 
     def eventFilter(self, watched, event):
         if event.type() == QEvent.Type.MouseButtonPress and event.button() == Qt.MouseButton.LeftButton:
@@ -1708,20 +1798,14 @@ class FloatingQuickToolsCapsule(QFrame):
             self.user_moved = True
 
     def retranslate_ui(self):
-        tool_specs = [
-            ("select", "quick_tool_select"),
-            ("selection", "quick_tool_draw_select"),
-            ("pointer", "quick_tool_pointer"),
-            ("highlighter", "quick_tool_highlighter"),
-            ("comment", "quick_tool_comment"),
-            ("text", "quick_tool_text"),
-            ("insert", "insert_btn_tip"),
-            ("pen", "quick_tool_pen"),
-            ("eraser", "quick_tool_eraser"),
-        ]
-        for tid, key in tool_specs:
-            if tid in self.buttons:
+        for tid in self.tool_order:
+            if tid in self.buttons and tid in self.tool_specs_factory:
+                key, _ = self.tool_specs_factory[tid]
                 self.buttons[tid].setToolTip(LanguageManager.tr(key))
+        if getattr(self, 'cursor_mode', 'select') == 'pan':
+            self.update_cursor_mode('pan')
+        if getattr(self, 'selection_shape_mode', 'rect') != 'rect':
+            self.update_selection_mode(self.selection_shape_mode)
 
     def _on_btn_clicked(self, tool_id: str):
         self.set_active_tool(tool_id)
@@ -2761,7 +2845,7 @@ class ModernRightSidebar(QWidget):
         self.btn_add.setFixedSize(22, 22)
         self.btn_add.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_add.setToolTip(LanguageManager.tr("bookmarks_add_btn"))
-        self.btn_add.clicked.connect(self._add_bookmark_action)
+        self.btn_add.clicked.connect(self._on_header_add_clicked)
         h_head.addWidget(self.btn_add)
 
         btn_close = QToolButton()
@@ -2932,11 +3016,58 @@ class ModernRightSidebar(QWidget):
         v_th.addWidget(self.stack_thumbnails)
         self.main_stack.addWidget(self.panel_thumbnails)
 
+        # ======================================================================
+        # PANEL 3: EKLER (ATTACHMENTS)
+        # ======================================================================
+        self.panel_attachments = QWidget()
+        v_att = QVBoxLayout(self.panel_attachments)
+        v_att.setContentsMargins(0, 0, 0, 0)
+        v_att.setSpacing(6)
+
+        self.stack_attachments = QStackedWidget()
+
+        # Görünüm 0: Ekler Boş Durumu
+        self.empty_att_widget = QWidget()
+        v_empty_att = QVBoxLayout(self.empty_att_widget)
+        v_empty_att.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        v_empty_att.setSpacing(12)
+
+        lbl_att_icon = QLabel()
+        lbl_att_icon.setPixmap(ModernIconFactory.icon_attachment("#94a3b8").pixmap(36, 36))
+        lbl_att_icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        v_empty_att.addWidget(lbl_att_icon)
+
+        self.lbl_empty_att = QLabel(LanguageManager.tr("sidebar_no_attachments"))
+        self.lbl_empty_att.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.lbl_empty_att.setStyleSheet("font-size: 13px; font-weight: 500;")
+        v_empty_att.addWidget(self.lbl_empty_att)
+
+        self.empty_att_btn = QPushButton(" " + LanguageManager.tr("sidebar_add_attachment"))
+        self.empty_att_btn.setIcon(ModernIconFactory.icon_plus())
+        self.empty_att_btn.setObjectName("PrimaryActionBtn")
+        self.empty_att_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.empty_att_btn.clicked.connect(self._add_attachment_action)
+        v_empty_att.addWidget(self.empty_att_btn)
+
+        self.stack_attachments.addWidget(self.empty_att_widget)
+
+        # Görünüm 1: Ekler Listesi
+        self.list_attachments = QListWidget()
+        self.list_attachments.setObjectName("RightRailAttachmentsList")
+        self.list_attachments.setSpacing(4)
+        self.list_attachments.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.list_attachments.customContextMenuRequested.connect(self._show_attachment_context_menu)
+        self.list_attachments.itemDoubleClicked.connect(self._on_attachment_double_clicked)
+        self.stack_attachments.addWidget(self.list_attachments)
+
+        v_att.addWidget(self.stack_attachments)
+        self.main_stack.addWidget(self.panel_attachments)
+
         main_layout.addWidget(self.main_stack, stretch=1)
         self.apply_theme(self.theme_name)
 
     def set_panel(self, panel_name: str):
-        """Çekmeceyi 'bookmarks', 'comments' veya 'thumbnails' paneline geçirir."""
+        """Çekmeceyi 'bookmarks', 'comments', 'thumbnails' veya 'attachments' paneline geçirir."""
         self.current_panel = panel_name
         if panel_name == "comments":
             self.main_stack.setCurrentIndex(1)
@@ -2950,11 +3081,19 @@ class ModernRightSidebar(QWidget):
             self.lbl_head_icon.setPixmap(ModernIconFactory.icon_thumbnails().pixmap(16, 16))
             self.btn_add.hide()
             self.load_thumbnails()
+        elif panel_name == "attachments":
+            self.main_stack.setCurrentIndex(3)
+            self.lbl_head_title.setText(LanguageManager.tr("sidebar_attachments"))
+            self.lbl_head_icon.setPixmap(ModernIconFactory.icon_attachment().pixmap(16, 16))
+            self.btn_add.show()
+            self.btn_add.setToolTip(LanguageManager.tr("sidebar_add_attachment"))
+            self.load_attachments()
         else:
             self.main_stack.setCurrentIndex(0)
             self.lbl_head_title.setText(LanguageManager.tr("bookmarks_panel_title"))
             self.lbl_head_icon.setPixmap(ModernIconFactory.icon_bookmark().pixmap(16, 16))
             self.btn_add.show()
+            self.btn_add.setToolTip(LanguageManager.tr("bookmarks_add_btn"))
             self.load_bookmarks()
 
     def retranslate_ui(self):
@@ -2962,6 +3101,8 @@ class ModernRightSidebar(QWidget):
             self.lbl_head_title.setText(LanguageManager.tr("comments_panel_title"))
         elif self.current_panel == "thumbnails":
             self.lbl_head_title.setText(LanguageManager.tr("thumbnails_panel_title"))
+        elif self.current_panel == "attachments":
+            self.lbl_head_title.setText(LanguageManager.tr("sidebar_attachments"))
         else:
             self.lbl_head_title.setText(LanguageManager.tr("bookmarks_panel_title"))
         self.lbl_empty_msg.setText(LanguageManager.tr("bookmarks_empty_title"))
@@ -2969,11 +3110,18 @@ class ModernRightSidebar(QWidget):
         self.lbl_empty_comments_desc.setText(LanguageManager.tr("comments_no_comments_desc"))
         if hasattr(self, 'lbl_empty_thumbs'):
             self.lbl_empty_thumbs.setText(LanguageManager.tr("sidebar_no_pages_title"))
+        if hasattr(self, 'lbl_empty_att'):
+            self.lbl_empty_att.setText(LanguageManager.tr("sidebar_no_attachments"))
+        if hasattr(self, 'empty_att_btn'):
+            self.empty_att_btn.setText(" " + LanguageManager.tr("sidebar_add_attachment"))
         self.txt_filter_comments.setPlaceholderText(LanguageManager.tr("comments_filter_placeholder"))
         self.txt_new_comment.setPlaceholderText(LanguageManager.tr("comments_input_placeholder"))
         self.btn_post_comment.setText(LanguageManager.tr("comments_post_btn"))
         if hasattr(self, 'btn_add'):
-            self.btn_add.setToolTip(LanguageManager.tr("bookmarks_add_btn"))
+            if self.current_panel == "attachments":
+                self.btn_add.setToolTip(LanguageManager.tr("sidebar_add_attachment"))
+            else:
+                self.btn_add.setToolTip(LanguageManager.tr("bookmarks_add_btn"))
 
     # ==========================================================================
     # SAYFA KÜÇÜK RESİMLERİ (THUMBNAILS) İŞLEMLERİ
@@ -3337,6 +3485,147 @@ class ModernRightSidebar(QWidget):
                     group_match = True
             top.setHidden(not group_match and bool(query))
 
+    def _on_header_add_clicked(self):
+        if self.current_panel == "attachments":
+            self._add_attachment_action()
+        else:
+            self._add_bookmark_action()
+
+    # ==========================================================================
+    # EKLER (ATTACHMENTS) İŞLEMLERİ
+    # ==========================================================================
+    def load_attachments(self):
+        """Aktif belgenin eklerini yükler."""
+        if not self.main_window:
+            self.stack_attachments.setCurrentIndex(0)
+            return
+        tab_doc = self.main_window.get_current_tab_doc()
+        if not tab_doc or not tab_doc.doc:
+            self.stack_attachments.setCurrentIndex(0)
+            return
+        try:
+            names = tab_doc.doc.embfile_names() if hasattr(tab_doc.doc, 'embfile_names') else []
+        except Exception:
+            names = []
+        if not names:
+            self.stack_attachments.setCurrentIndex(0)
+            return
+        self.stack_attachments.setCurrentIndex(1)
+        self.list_attachments.clear()
+        for name in names:
+            info = {}
+            try:
+                info = tab_doc.doc.embfile_info(name)
+            except Exception:
+                pass
+            size_bytes = info.get("size", 0) if isinstance(info, dict) else 0
+            if size_bytes > 1024 * 1024:
+                size_str = f"{size_bytes / (1024*1024):.1f} MB"
+            elif size_bytes > 1024:
+                size_str = f"{size_bytes / 1024:.1f} KB"
+            elif size_bytes > 0:
+                size_str = f"{size_bytes} B"
+            else:
+                size_str = ""
+            display_text = f"{name}"
+            if size_str:
+                display_text += f"  ({size_str})"
+            item = QListWidgetItem(ModernIconFactory.icon_attachment(), display_text)
+            item.setData(Qt.ItemDataRole.UserRole, name)
+            self.list_attachments.addItem(item)
+
+    def _add_attachment_action(self):
+        if not self.main_window:
+            return
+        tab_doc = self.main_window.get_current_tab_doc()
+        if not tab_doc or not tab_doc.doc:
+            return
+        path, _ = QFileDialog.getOpenFileName(self, LanguageManager.tr("sidebar_add_attachment"))
+        if not path:
+            return
+        try:
+            with open(path, "rb") as f:
+                content = f.read()
+            basename = os.path.basename(path)
+            tab_doc.doc.embfile_add(basename, content)
+            tab_doc.set_modified(True)
+            self.load_attachments()
+        except Exception as e:
+            QMessageBox.warning(self, LanguageManager.tr("error"), f"{e}")
+
+    def _on_attachment_double_clicked(self, item):
+        name = item.data(Qt.ItemDataRole.UserRole)
+        if name:
+            self._open_attachment(name)
+
+    def _open_attachment(self, name: str):
+        if not self.main_window:
+            return
+        tab_doc = self.main_window.get_current_tab_doc()
+        if not tab_doc or not tab_doc.doc:
+            return
+        try:
+            content = tab_doc.doc.embfile_get(name)
+            temp_dir = tempfile.gettempdir()
+            safe_name = os.path.basename(name)
+            out_path = os.path.join(temp_dir, safe_name)
+            with open(out_path, "wb") as f:
+                f.write(content)
+            os.startfile(out_path)
+        except Exception as e:
+            QMessageBox.warning(self, LanguageManager.tr("error"), f"{e}")
+
+    def _save_attachment(self, name: str):
+        if not self.main_window:
+            return
+        tab_doc = self.main_window.get_current_tab_doc()
+        if not tab_doc or not tab_doc.doc:
+            return
+        try:
+            content = tab_doc.doc.embfile_get(name)
+            safe_name = os.path.basename(name)
+            out_path, _ = QFileDialog.getSaveFileName(self, LanguageManager.tr("sidebar_save_attachment"), safe_name)
+            if out_path:
+                with open(out_path, "wb") as f:
+                    f.write(content)
+                QMessageBox.information(self, LanguageManager.tr("app_title"), LanguageManager.tr("sidebar_attachment_saved", path=out_path))
+        except Exception as e:
+            QMessageBox.warning(self, LanguageManager.tr("error"), f"{e}")
+
+    def _delete_attachment(self, name: str):
+        if not self.main_window:
+            return
+        tab_doc = self.main_window.get_current_tab_doc()
+        if not tab_doc or not tab_doc.doc:
+            return
+        try:
+            tab_doc.doc.embfile_del(name)
+            tab_doc.set_modified(True)
+            self.load_attachments()
+        except Exception as e:
+            QMessageBox.warning(self, LanguageManager.tr("error"), f"{e}")
+
+    def _show_attachment_context_menu(self, pos: QPoint):
+        item = self.list_attachments.itemAt(pos)
+        if not item:
+            return
+        name = item.data(Qt.ItemDataRole.UserRole)
+        if not name:
+            return
+        menu = QMenu(self)
+        act_open = menu.addAction(ModernIconFactory.icon_attachment(), LanguageManager.tr("sidebar_open_attachment"))
+        act_save = menu.addAction(ModernIconFactory.icon_save(), LanguageManager.tr("sidebar_save_attachment"))
+        menu.addSeparator()
+        act_del = menu.addAction(ModernIconFactory.icon_close(), LanguageManager.tr("sidebar_delete_attachment"))
+
+        action = menu.exec(self.list_attachments.mapToGlobal(pos))
+        if action == act_open:
+            self._open_attachment(name)
+        elif action == act_save:
+            self._save_attachment(name)
+        elif action == act_del:
+            self._delete_attachment(name)
+
     def apply_theme(self, theme_name: str = "light"):
         self.theme_name = theme_name
         c = get_modern_theme_colors(theme_name)
@@ -3438,6 +3727,42 @@ class ModernRightSidebar(QWidget):
                 border: 2px solid {c['accent']};
                 color: {c['accent']};
                 font-weight: 700;
+            }}
+            #RightRailAttachmentsList {{
+                background-color: transparent;
+                border: none;
+            }}
+            #RightRailAttachmentsList::item {{
+                background-color: {c['card_bg']};
+                border: 1px solid {c['border']};
+                border-radius: 6px;
+                padding: 6px 8px;
+                margin: 2px 2px;
+                color: {c['text']};
+                font-size: 11.5px;
+                font-weight: 500;
+            }}
+            #RightRailAttachmentsList::item:hover {{
+                background-color: {c['surface_hover']};
+                border-color: {c['accent']};
+            }}
+            #RightRailAttachmentsList::item:selected {{
+                background-color: {c['accent_light']};
+                border: 1.5px solid {c['accent']};
+                color: {c['accent']};
+                font-weight: 600;
+            }}
+            #PrimaryActionBtn {{
+                background-color: {c['accent']};
+                color: #ffffff;
+                font-weight: 600;
+                font-size: 11.5px;
+                border-radius: 6px;
+                padding: 6px 14px;
+                border: none;
+            }}
+            #PrimaryActionBtn:hover {{
+                opacity: 0.9;
             }}
         """)
 
