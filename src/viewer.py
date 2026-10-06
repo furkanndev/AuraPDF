@@ -1203,6 +1203,8 @@ class AuraPDFViewer(QMainWindow):
             self.floating_capsule.hide()
         if hasattr(self, 'modern_right_sidebar'):
             self.modern_right_sidebar.hide()
+        if hasattr(self, 'thumbnails_dock') and self.thumbnails_dock:
+            self.thumbnails_dock.hide()
         if hasattr(self, 'modern_utility_rail'):
             self.modern_utility_rail.hide()
 
@@ -1264,6 +1266,12 @@ class AuraPDFViewer(QMainWindow):
                     if active_id and active_id in ("bookmarks", "comments", "thumbnails"):
                         self.modern_right_sidebar.show()
                         self.modern_right_sidebar.set_panel(active_id)
+                    elif active_id == "attachments":
+                        if hasattr(self, 'thumbnails_dock') and self.thumbnails_dock:
+                            self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.thumbnails_dock)
+                            self.thumbnails_dock.switch_view(2)
+                            self.thumbnails_dock.show()
+                        self.modern_right_sidebar.hide()
                     else:
                         self.modern_right_sidebar.hide()
         else:
@@ -1300,6 +1308,12 @@ class AuraPDFViewer(QMainWindow):
             if hasattr(self, 'text_popup') and widget:
                 pos = widget.mapToGlobal(QPoint(widget.width() + 6, 0))
                 self.text_popup.show_at(pos)
+        elif tool_id == "insert":
+            if hasattr(self, 'btn_insert') and hasattr(self.btn_insert, 'menu') and self.btn_insert.menu():
+                menu = self.btn_insert.menu()
+                pos = widget.mapToGlobal(QPoint(widget.width() + 6, 0)) if widget else QCursor.pos()
+                menu.exec(pos)
+            self.set_tool_state(self.current_tool)
         elif tool_id == "pen":
             self.set_tool_state('pen')
             if hasattr(self, 'pen_popup') and widget:
@@ -1666,15 +1680,19 @@ class AuraPDFViewer(QMainWindow):
     def _on_utility_rail_toggled(self, rail_id: str):
         if rail_id == "none":
             self.modern_right_sidebar.hide()
-        elif rail_id == "bookmarks":
+            if hasattr(self, 'thumbnails_dock') and self.thumbnails_dock:
+                self.thumbnails_dock.hide()
+        elif rail_id in ("bookmarks", "comments", "thumbnails"):
+            if hasattr(self, 'thumbnails_dock') and self.thumbnails_dock:
+                self.thumbnails_dock.hide()
             self.modern_right_sidebar.show()
-            self.modern_right_sidebar.set_panel("bookmarks")
-        elif rail_id == "comments":
-            self.modern_right_sidebar.show()
-            self.modern_right_sidebar.set_panel("comments")
-        elif rail_id == "thumbnails":
-            self.modern_right_sidebar.show()
-            self.modern_right_sidebar.set_panel("thumbnails")
+            self.modern_right_sidebar.set_panel(rail_id)
+        elif rail_id == "attachments":
+            self.modern_right_sidebar.hide()
+            if hasattr(self, 'thumbnails_dock') and self.thumbnails_dock:
+                self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.thumbnails_dock)
+                self.thumbnails_dock.switch_view(2)
+                self.thumbnails_dock.show()
 
     def _on_rail_page_jump(self, page_index: int):
         tab_doc = self.get_current_tab_doc()
@@ -1697,6 +1715,8 @@ class AuraPDFViewer(QMainWindow):
 
     def _close_right_sidebar(self):
         self.modern_right_sidebar.hide()
+        if hasattr(self, 'thumbnails_dock') and self.thumbnails_dock:
+            self.thumbnails_dock.hide()
         self.modern_utility_rail.set_active_rail_item(None)
 
     def _on_bookmark_clicked(self, page_index: int):

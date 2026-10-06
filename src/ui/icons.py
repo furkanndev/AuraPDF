@@ -1219,9 +1219,10 @@ class ModernIconFactory:
         return QIcon(pix)
 
     @staticmethod
-    def icon_insert():
+    def icon_insert(color=None):
         pix, p = ModernIconFactory._base()
-        p.setPen(QPen(QColor("#38bdf8"), 2.2, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+        c = QColor(color) if color else QColor("#38bdf8")
+        p.setPen(QPen(c, 2.2, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
         # Crisp modern plus symbol
         p.drawLine(13, 6, 13, 20)
         p.drawLine(6, 13, 20, 13)

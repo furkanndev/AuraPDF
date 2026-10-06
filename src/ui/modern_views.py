@@ -1601,7 +1601,7 @@ class FloatingQuickToolsCapsule(QFrame):
         self._drag_active = False
         self._drag_start_pos = QPoint()
         self._is_potential_drag = False
-        self.setFixedSize(42, 332)
+        self.setFixedSize(42, 368)
 
         shadow = QGraphicsDropShadowEffect(self)
         shadow.setBlurRadius(16)
@@ -1634,6 +1634,7 @@ class FloatingQuickToolsCapsule(QFrame):
             ("highlighter", "quick_tool_highlighter", ModernIconFactory.icon_highlighter("#eab308")),
             ("comment", "quick_tool_comment", ModernIconFactory.icon_comments("#f97316")),
             ("text", "quick_tool_text", ModernIconFactory.icon_text_tool("#ec4899")),
+            ("insert", "insert_btn_tip", ModernIconFactory.icon_insert("#10b981")),
             ("pen", "quick_tool_pen", ModernIconFactory.icon_pen("#0284c7")),
             ("eraser", "quick_tool_eraser", ModernIconFactory.icon_eraser("#ef4444")),
         ]
@@ -1714,6 +1715,7 @@ class FloatingQuickToolsCapsule(QFrame):
             ("highlighter", "quick_tool_highlighter"),
             ("comment", "quick_tool_comment"),
             ("text", "quick_tool_text"),
+            ("insert", "insert_btn_tip"),
             ("pen", "quick_tool_pen"),
             ("eraser", "quick_tool_eraser"),
         ]
@@ -3472,7 +3474,7 @@ class ModernUtilityRail(QWidget):
         super().__init__(parent)
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self.theme_name = "light"
-        self.active_rail_id: Optional[str] = "bookmarks"
+        self.active_rail_id: Optional[str] = "thumbnails"
         self.total_pages = 1
         self.setFixedWidth(56)
 
@@ -3483,9 +3485,9 @@ class ModernUtilityRail(QWidget):
         # Üst Panel Tetikleyicileri
         self.buttons: Dict[str, QToolButton] = {}
         top_items = [
-            ("comments", ModernIconFactory.icon_comments(), "right_rail_comments"),
-            ("bookmarks", ModernIconFactory.icon_bookmark(), "right_rail_bookmarks"),
             ("thumbnails", ModernIconFactory.icon_thumbnails(), "right_rail_thumbnails"),
+            ("bookmarks", ModernIconFactory.icon_bookmark(), "right_rail_bookmarks"),
+            ("comments", ModernIconFactory.icon_comments(), "right_rail_comments"),
             ("attachments", ModernIconFactory.icon_attachment(), "right_rail_attachments"),
         ]
 
@@ -3501,7 +3503,7 @@ class ModernUtilityRail(QWidget):
             main_layout.addWidget(btn)
             self.buttons[rid] = btn
 
-        self.buttons["bookmarks"].setChecked(True)
+        self.buttons["thumbnails"].setChecked(True)
 
         main_layout.addStretch(1)
 
@@ -3591,9 +3593,9 @@ class ModernUtilityRail(QWidget):
 
     def retranslate_ui(self):
         tip_map = {
-            "comments": "right_rail_comments",
-            "bookmarks": "right_rail_bookmarks",
             "thumbnails": "right_rail_thumbnails",
+            "bookmarks": "right_rail_bookmarks",
+            "comments": "right_rail_comments",
             "attachments": "right_rail_attachments",
         }
         for rid, key in tip_map.items():
