@@ -1133,7 +1133,13 @@ class AuraPDFViewer(QMainWindow):
         elif mode == "esign":
             self.open_signature_dialog()
 
-    def _show_main_menu(self, global_pos: QPoint):
+    def _show_main_menu(self, global_pos: Optional[QPoint] = None):
+        if global_pos is None or not isinstance(global_pos, QPoint):
+            if hasattr(self, 'modern_header_bar') and hasattr(self.modern_header_bar, 'btn_menu'):
+                btn = self.modern_header_bar.btn_menu
+                global_pos = btn.mapToGlobal(QPoint(0, btn.height()))
+            else:
+                global_pos = self.mapToGlobal(QPoint(10, 50))
         menu = QMenu(self)
         theme = getattr(self, 'current_theme', 'light')
         c = get_modern_theme_colors(theme)
@@ -2586,6 +2592,10 @@ class AuraPDFViewer(QMainWindow):
 
         except Exception as e:
             QMessageBox.critical(self, LanguageManager.tr("error"), f"{LanguageManager.tr('error')}: {str(e)}")
+
+    def save_as_pdf(self):
+        """Farklı Kaydet (Save As) işlemi."""
+        self.save_pdf()
 
     def print_pdf(self):
         if not (tab_doc := self.get_current_tab_doc()) or tab_doc.doc is None or len(tab_doc.doc) == 0:
