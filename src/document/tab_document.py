@@ -865,6 +865,13 @@ class PDFTabDocument(QWidget):
         self.active_fade_controllers = []
         self.pointer_trail_opacity = 1.0
 
+        # Doğrudan Belge Üzerinde Metin Düzenleme (RevPDF Stili)
+        self.direct_edit_mode = False
+        self.direct_edit_editor = None
+        self.direct_edit_hover_item = None
+        self.direct_edit_banner = None
+        self._page_text_blocks_cache = {}
+
         # Metin Arama (Search)
         self.search_results = []
         self.search_current_idx = -1
@@ -1247,6 +1254,20 @@ class PDFTabDocument(QWidget):
             self.undo_stack.clear()
         if hasattr(self, 'redo_stack'):
             self.redo_stack.clear()
+        try:
+            self.close_inplace_editor()
+            if hasattr(self, 'direct_edit_banner') and self.direct_edit_banner:
+                self.direct_edit_banner.hide()
+                self.direct_edit_banner.deleteLater()
+                self.direct_edit_banner = None
+            if hasattr(self, 'direct_edit_hover_item') and self.direct_edit_hover_item:
+                if self.direct_edit_hover_item.scene() == self.scene:
+                    self.scene.removeItem(self.direct_edit_hover_item)
+                self.direct_edit_hover_item = None
+            if hasattr(self, '_page_text_blocks_cache'):
+                self._page_text_blocks_cache.clear()
+        except Exception:
+            pass
         import gc
         gc.collect()
 
@@ -1261,6 +1282,10 @@ class PDFTabDocument(QWidget):
     def resizeEvent(self, event):
         super().resizeEvent(event)
         self.rerender_visible_pages()
+        if hasattr(self, 'direct_edit_banner') and self.direct_edit_banner:
+            self.direct_edit_banner.reposition()
+        if hasattr(self, 'direct_edit_editor') and self.direct_edit_editor:
+            self.direct_edit_editor.reposition()
 
     # --- DRY (Don't Repeat Yourself) Uygulaması: PDF'e aktarım mantığı ---
     def export_drawings_to_pdf(self, target_doc: fitz.Document, page_mapping: Optional[List[int]] = None):
@@ -2165,6 +2190,15 @@ class PDFTabDocument(QWidget):
             if hasattr(self.main_window, 'thumbnails_dock') and self.main_window.thumbnails_dock:
                 self.main_window.thumbnails_dock.load_bookmarks()
             self.redo_stack.append(action)
+        elif action["type"] == "direct_text_edit":
+            if "old_bytes" in action:
+                self.close_inplace_editor()
+                self.doc.close()
+                self.doc = fitz.open("pdf", action["old_bytes"])
+                if hasattr(self, '_page_text_blocks_cache'):
+                    self._page_text_blocks_cache.clear()
+                self.rerender_visible_pages(force=True)
+            self.redo_stack.append(action)
         self.notify_drawings_changed()
         self.set_modified(len(self.undo_stack) != self.save_undo_index)
         if hasattr(self.main_window, 'update_undo_redo_state'):
@@ -2269,6 +2303,15 @@ class PDFTabDocument(QWidget):
             self.update_bookmark_ribbons()
             if hasattr(self.main_window, 'thumbnails_dock') and self.main_window.thumbnails_dock:
                 self.main_window.thumbnails_dock.load_bookmarks()
+            self.undo_stack.append(action)
+        elif action["type"] == "direct_text_edit":
+            if "new_bytes" in action:
+                self.close_inplace_editor()
+                self.doc.close()
+                self.doc = fitz.open("pdf", action["new_bytes"])
+                if hasattr(self, '_page_text_blocks_cache'):
+                    self._page_text_blocks_cache.clear()
+                self.rerender_visible_pages(force=True)
             self.undo_stack.append(action)
         self.notify_drawings_changed()
         self.set_modified(len(self.undo_stack) != self.save_undo_index)
@@ -3262,6 +3305,10 @@ class PDFTabDocument(QWidget):
         self.main_window.lbl_zoom.setText(f" {LanguageManager.tr('percent_format', val=int(self.zoom_level * 100))} ")
         self.rerender_timer.start(250)
         self.save_zoom_setting()
+        if hasattr(self, 'direct_edit_editor') and self.direct_edit_editor:
+            self.direct_edit_editor.reposition()
+        if hasattr(self, 'direct_edit_banner') and self.direct_edit_banner:
+            self.direct_edit_banner.reposition()
 
     def zoom_in(self): self.apply_zoom(self.zoom_level + 0.15)
     def zoom_out(self): self.apply_zoom(self.zoom_level - 0.15)
@@ -3299,6 +3346,10 @@ class PDFTabDocument(QWidget):
     def on_scroll_change(self):
         self.update_current_page_indicator()
         self.rerender_timer.start(150)
+        if hasattr(self, 'direct_edit_editor') and self.direct_edit_editor:
+            self.direct_edit_editor.reposition()
+        if hasattr(self, 'direct_edit_banner') and self.direct_edit_banner:
+            self.direct_edit_banner.reposition()
 
     # --- Metin Arama (Search Engine & Highlights) ---
     def perform_search(self, query: str, case_sensitive: bool = False) -> int:
@@ -3531,6 +3582,265 @@ class PDFTabDocument(QWidget):
             self.active_text_item = None
         else:
             self.active_text_item = item
+
+    # --- Doğrudan Belge Üzerinde Metin Düzenleme (RevPDF Stili) ---
+    def enable_direct_text_edit(self, enable: bool = True):
+        self.direct_edit_mode = enable
+        if enable:
+            if self.direct_edit_hover_item is None:
+                from src.ui.direct_text_editor import DirectEditHoverItem
+                self.direct_edit_hover_item = DirectEditHoverItem()
+                self.scene.addItem(self.direct_edit_hover_item)
+            if self.direct_edit_banner is None:
+                from src.ui.direct_text_editor import DirectEditBanner
+                self.direct_edit_banner = DirectEditBanner(self)
+            self.direct_edit_banner.show()
+            self.direct_edit_banner.reposition()
+            self.view.viewport().setCursor(Qt.CursorShape.IBeamCursor)
+        else:
+            self.close_inplace_editor()
+            if self.direct_edit_hover_item and self.direct_edit_hover_item.scene() == self.scene:
+                self.direct_edit_hover_item.hide()
+            if self.direct_edit_banner:
+                self.direct_edit_banner.hide()
+            self.main_window.update_viewport_cursor()
+
+    def exit_direct_text_edit(self):
+        self.enable_direct_text_edit(False)
+        self.main_window.set_tool_state('select')
+
+    def close_inplace_editor(self):
+        if hasattr(self, 'direct_edit_editor') and self.direct_edit_editor:
+            self.direct_edit_editor.hide()
+            self.direct_edit_editor.deleteLater()
+            self.direct_edit_editor = None
+
+    def get_page_text_blocks(self, page_idx: int) -> List[Dict[str, Any]]:
+        if not self.doc or page_idx >= len(self.doc):
+            return []
+        if page_idx not in self._page_text_blocks_cache:
+            from src.ui.direct_text_editor import extract_page_text_blocks
+            self._page_text_blocks_cache[page_idx] = extract_page_text_blocks(self.doc[page_idx])
+        return self._page_text_blocks_cache[page_idx]
+
+    def open_inplace_editor_at_block(self, page_idx: int, blk: dict):
+        self.close_inplace_editor()
+        from src.ui.direct_text_editor import DirectTextInplaceEditor
+        editor = DirectTextInplaceEditor(
+            self, page_idx, blk["bbox"], blk["text"],
+            font_size=blk["font_size"], color_rgb=blk["color_rgb"],
+            bold=blk["bold"], italic=blk["italic"], is_new=False
+        )
+        self.direct_edit_editor = editor
+        editor.show()
+
+    def open_inplace_editor_for_new_text(self, page_idx: int, click_pos: QPointF):
+        self.close_inplace_editor()
+        p_info = self.page_positions.get(page_idx)
+        if not p_info:
+            return
+        page_left = p_info.get('left', 0.0)
+        page_top = p_info.get('top', 0.0)
+        dpi = self.base_render_dpi
+        pdf_x = max(20.0, (click_pos.x() - page_left) / dpi)
+        pdf_y = max(20.0, (click_pos.y() - page_top) / dpi)
+        pdf_rect = fitz.Rect(pdf_x, pdf_y, min(p_info['width'] / dpi - 20, pdf_x + 180), min(p_info['height'] / dpi - 20, pdf_y + 35))
+
+        from src.ui.direct_text_editor import DirectTextInplaceEditor
+        editor = DirectTextInplaceEditor(
+            self, page_idx, pdf_rect, "",
+            font_size=12.0, color_rgb=(0.0, 0.0, 0.0),
+            bold=False, italic=False, is_new=True
+        )
+        self.direct_edit_editor = editor
+        editor.show()
+
+    def commit_direct_text_edit(self, page_idx: int, orig_bbox: fitz.Rect, new_text: str,
+                                font_size: float, color_rgb: tuple, bold: bool, italic: bool, is_new: bool = False):
+        if not self.doc or page_idx >= len(self.doc):
+            return
+        page = self.doc[page_idx]
+        old_bytes = self.doc.tobytes()
+
+        from src.ui.direct_text_editor import get_unicode_font_path, find_fitting_box
+
+        try:
+            # 1. Eski metin alanını kalıcı olarak temizle (redact)
+            if not is_new:
+                clean_rect = fitz.Rect(orig_bbox)
+                clean_rect.x0 = max(0.0, clean_rect.x0 - 1.2)
+                clean_rect.y0 = max(0.0, clean_rect.y0 - 1.2)
+                clean_rect.x1 = min(page.rect.width, clean_rect.x1 + 1.2)
+                clean_rect.y1 = min(page.rect.height, clean_rect.y1 + 1.2)
+                page.add_redact_annot(clean_rect, fill=(1, 1, 1))
+                page.apply_redactions()
+
+            # 2. Yeni metni yaz
+            if new_text.strip():
+                fontfile = get_unicode_font_path(bold=bold, italic=italic)
+                fontname = "f_arial_u"
+                try:
+                    page.insert_font(fontname=fontname, fontfile=fontfile)
+                except Exception:
+                    pass
+
+                fit_rect, fit_fs = find_fitting_box(page, orig_bbox, new_text, target_fs=font_size, fontfile=fontfile, fontname=fontname)
+                if not is_new and fit_rect.y1 > clean_rect.y1:
+                    extra_r = fitz.Rect(fit_rect.x0, clean_rect.y1, fit_rect.x1, fit_rect.y1)
+                    page.add_redact_annot(extra_r, fill=(1, 1, 1))
+                    page.apply_redactions()
+
+                res = page.insert_textbox(
+                    fit_rect, new_text,
+                    fontsize=fit_fs,
+                    fontname=fontname,
+                    fontfile=fontfile,
+                    color=color_rgb
+                )
+                if res < 0:
+                    page.insert_text(
+                        fitz.Point(fit_rect.x0, fit_rect.y0 + fit_fs),
+                        new_text,
+                        fontsize=fit_fs,
+                        fontname=fontname,
+                        fontfile=fontfile,
+                        color=color_rgb
+                    )
+
+            new_bytes = self.doc.tobytes()
+            self.push_undo_action({
+                "type": "direct_text_edit",
+                "old_bytes": old_bytes,
+                "new_bytes": new_bytes,
+                "page_idx": page_idx
+            })
+
+            self._page_text_blocks_cache.pop(page_idx, None)
+            self.set_modified(True)
+            self.rerender_visible_pages(force=True)
+            self.close_inplace_editor()
+            if hasattr(self.main_window, 'statusBar') and self.main_window.statusBar():
+                self.main_window.statusBar().showMessage(LanguageManager.tr("direct_edit_success"), 3500)
+
+        except Exception as e:
+            QMessageBox.critical(self, LanguageManager.tr("error"), f"{LanguageManager.tr('direct_edit_failed')}\n{e}")
+
+    def delete_direct_text_block(self, page_idx: int, orig_bbox: fitz.Rect):
+        if not self.doc or page_idx >= len(self.doc):
+            return
+        page = self.doc[page_idx]
+        old_bytes = self.doc.tobytes()
+        try:
+            clean_rect = fitz.Rect(orig_bbox)
+            clean_rect.x0 = max(0.0, clean_rect.x0 - 1.2)
+            clean_rect.y0 = max(0.0, clean_rect.y0 - 1.2)
+            clean_rect.x1 = min(page.rect.width, clean_rect.x1 + 1.2)
+            clean_rect.y1 = min(page.rect.height, clean_rect.y1 + 1.2)
+            page.add_redact_annot(clean_rect, fill=(1, 1, 1))
+            page.apply_redactions()
+
+            new_bytes = self.doc.tobytes()
+            self.push_undo_action({
+                "type": "direct_text_edit",
+                "old_bytes": old_bytes,
+                "new_bytes": new_bytes,
+                "page_idx": page_idx
+            })
+            self._page_text_blocks_cache.pop(page_idx, None)
+            self.set_modified(True)
+            self.rerender_visible_pages(force=True)
+            self.close_inplace_editor()
+            if hasattr(self.main_window, 'statusBar') and self.main_window.statusBar():
+                self.main_window.statusBar().showMessage(LanguageManager.tr("direct_edit_deleted"), 3500)
+        except Exception as e:
+            QMessageBox.critical(self, LanguageManager.tr("error"), f"{LanguageManager.tr('direct_edit_delete_failed')}\n{e}")
+
+    def _handle_direct_edit_mouse_move(self, pos: QPointF):
+        if not self.direct_edit_hover_item:
+            from src.ui.direct_text_editor import DirectEditHoverItem
+            self.direct_edit_hover_item = DirectEditHoverItem()
+            self.scene.addItem(self.direct_edit_hover_item)
+
+        page_idx = self.get_page_at_pos(pos)
+        if page_idx is None:
+            self.direct_edit_hover_item.hide()
+            self.view.viewport().setCursor(Qt.CursorShape.ArrowCursor)
+            return
+
+        p_info = self.page_positions.get(page_idx)
+        if not p_info:
+            self.direct_edit_hover_item.hide()
+            return
+
+        page_left = p_info.get('left', 0.0)
+        page_top = p_info.get('top', 0.0)
+        dpi = self.base_render_dpi
+
+        if self.direct_edit_editor:
+            self.direct_edit_hover_item.hide()
+            return
+
+        pdf_x = (pos.x() - page_left) / dpi
+        pdf_y = (pos.y() - page_top) / dpi
+        pdf_pt = fitz.Point(pdf_x, pdf_y)
+
+        blocks = self.get_page_text_blocks(page_idx)
+        hit_blk = None
+        for blk in blocks:
+            if pdf_pt in blk["bbox"]:
+                hit_blk = blk
+                break
+
+        if hit_blk:
+            r = hit_blk["bbox"]
+            sx0 = page_left + r.x0 * dpi
+            sy0 = page_top + r.y0 * dpi
+            sw = (r.x1 - r.x0) * dpi
+            sh = (r.y1 - r.y0) * dpi
+            self.direct_edit_hover_item.setRect(QRectF(sx0 - 2, sy0 - 2, sw + 4, sh + 4))
+            self.direct_edit_hover_item.show()
+            self.view.viewport().setCursor(Qt.CursorShape.IBeamCursor)
+        else:
+            self.direct_edit_hover_item.hide()
+            self.view.viewport().setCursor(Qt.CursorShape.IBeamCursor)
+
+    def _handle_direct_edit_mouse_press(self, pos: QPointF, vp_pos: QPoint) -> bool:
+        if self.direct_edit_editor and self.direct_edit_editor.geometry().contains(vp_pos):
+            return False
+
+        page_idx = self.get_page_at_pos(pos)
+        if page_idx is None:
+            self.close_inplace_editor()
+            return True
+
+        p_info = self.page_positions.get(page_idx)
+        if not p_info:
+            return True
+
+        page_left = p_info.get('left', 0.0)
+        page_top = p_info.get('top', 0.0)
+        dpi = self.base_render_dpi
+
+        pdf_x = (pos.x() - page_left) / dpi
+        pdf_y = (pos.y() - page_top) / dpi
+        pdf_pt = fitz.Point(pdf_x, pdf_y)
+
+        blocks = self.get_page_text_blocks(page_idx)
+        hit_blk = None
+        for blk in blocks:
+            if pdf_pt in blk["bbox"]:
+                hit_blk = blk
+                break
+
+        if hit_blk:
+            self.open_inplace_editor_at_block(page_idx, hit_blk)
+            return True
+        else:
+            if self.direct_edit_editor:
+                self.close_inplace_editor()
+            else:
+                self.open_inplace_editor_for_new_text(page_idx, pos)
+            return True
 
     def render_text_item(self, record):
         p_info = self.page_positions.get(record["page"])
@@ -4600,6 +4910,27 @@ class PDFTabDocument(QWidget):
             elif event.modifiers() & Qt.KeyboardModifier.ControlModifier:
                 self.zoom_in() if event.angleDelta().y() > 0 else self.zoom_out()
                 return True
+
+        if tool == 'direct_edit' or getattr(self, 'direct_edit_mode', False):
+            if event.type() == QEvent.Type.KeyPress:
+                if event.key() == Qt.Key.Key_Escape:
+                    if self.direct_edit_editor:
+                        self.close_inplace_editor()
+                        return True
+                    else:
+                        self.exit_direct_text_edit()
+                        return True
+
+            elif event.type() == QEvent.Type.MouseMove and not (event.buttons() & Qt.MouseButton.LeftButton):
+                pos = self.view.mapToScene(event.pos())
+                self._handle_direct_edit_mouse_move(pos)
+                return True
+
+            elif event.type() == QEvent.Type.MouseButtonPress and event.button() == Qt.MouseButton.LeftButton:
+                pos = self.view.mapToScene(event.pos())
+                return self._handle_direct_edit_mouse_press(pos, event.pos())
+
+            return super().eventFilter(source, event)
 
         if tool == 'select':
             # 1. Klavye Kısayolları (Ctrl+C ile panoya kopyalama)

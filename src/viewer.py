@@ -738,6 +738,13 @@ class AuraPDFViewer(QMainWindow):
         self.btn_text.clicked.connect(lambda: self.handle_tool_click('text', self.btn_text, self.text_popup))
         self._add_toolbar_widget(self.btn_text, "btn_text")
 
+        self.btn_direct_edit = DraggableToolButton()
+        self.btn_direct_edit.setIcon(ModernIconFactory.icon_edit_content())
+        self.btn_direct_edit.setToolTip(LanguageManager.tr("direct_edit_tool_tip"))
+        self.btn_direct_edit.setCheckable(True)
+        self.btn_direct_edit.clicked.connect(lambda: self.handle_tool_click('direct_edit', self.btn_direct_edit, None))
+        self._add_toolbar_widget(self.btn_direct_edit, "btn_direct_edit")
+
         self.btn_insert = DraggableToolButton()
         self.btn_insert.setIcon(ModernIconFactory.icon_insert())
         self.btn_insert.setToolTip(LanguageManager.tr("insert_btn_tip"))
@@ -1388,6 +1395,8 @@ class AuraPDFViewer(QMainWindow):
         self.btn_hl.setToolTip(LanguageManager.tr("highlighter_tool_tip"))
         self.btn_pen.setToolTip(LanguageManager.tr("pen_tool_tip"))
         self.btn_text.setToolTip(LanguageManager.tr("text_tool_tip"))
+        if hasattr(self, 'btn_direct_edit'):
+            self.btn_direct_edit.setToolTip(LanguageManager.tr("direct_edit_tool_tip"))
         self.btn_eraser.setToolTip(LanguageManager.tr("eraser_tool_tip"))
         self.btn_pointer.setToolTip(LanguageManager.tr("pointer_tool_tip"))
         self.lbl_zoom.setToolTip(LanguageManager.tr("zoom_edit_tip"))
@@ -1973,6 +1982,7 @@ class AuraPDFViewer(QMainWindow):
             (getattr(self, 'btn_cursor', None), ('select', 'pan')),
             (getattr(self, 'btn_hl', None), ('highlighter',)), (getattr(self, 'btn_pen', None), ('pen',)), 
             (getattr(self, 'btn_eraser', None), ('eraser',)), (getattr(self, 'btn_text', None), ('text',)), 
+            (getattr(self, 'btn_direct_edit', None), ('direct_edit',)),
             (getattr(self, 'btn_selection', None), ('selection_tool', 'ruler')), (getattr(self, 'btn_pointer', None), ('pointer',))
         ]:
 
@@ -2013,6 +2023,13 @@ class AuraPDFViewer(QMainWindow):
             if tool_name != 'pointer':
                 tab_doc.hide_laser_pointer()
                 tab_doc._clear_pointer_trail_items()
+
+            if tool_name == 'direct_edit':
+                tab_doc.enable_direct_text_edit(True)
+            else:
+                if getattr(tab_doc, 'direct_edit_mode', False):
+                    tab_doc.enable_direct_text_edit(False)
+
         self.update_viewport_cursor()
 
     def update_viewport_cursor(self):
@@ -2038,6 +2055,7 @@ class AuraPDFViewer(QMainWindow):
             'highlighter': CursorFactory.get_highlighter_cursor(hl_col, style=hl_cursor_style),
             'eraser': CursorFactory.get_eraser_cursor(self.eraser_popup.thickness, self.eraser_popup.eraser_mode),
             'text': CursorFactory.get_text_cursor(),
+            'direct_edit': Qt.CursorShape.IBeamCursor,
             'selection_tool': CursorFactory.get_selection_cursor(self.selection_shape_mode),
             'pointer': pointer_cursor,
             'ruler': CursorFactory.get_ruler_cursor()
@@ -2536,7 +2554,18 @@ class AuraPDFViewer(QMainWindow):
     def open_pdf_content_editor(self):
         tab_doc = self.get_current_tab_doc()
         if not tab_doc or not tab_doc.doc:
-            QMessageBox.information(self, LanguageManager.tr("app_title"), "Lütfen önce bir PDF belgesi açın.")
+            QMessageBox.information(self, LanguageManager.tr("app_title"), LanguageManager.tr("no_active_doc_error"))
+            return
+        # Açık belge üzerinde doğrudan yerinde metin düzenleme modunu başlat
+        if self.current_tool == 'direct_edit':
+            self.set_tool_state('select')
+        else:
+            self.set_tool_state('direct_edit')
+
+    def open_pdf_content_editor_dialog(self):
+        tab_doc = self.get_current_tab_doc()
+        if not tab_doc or not tab_doc.doc:
+            QMessageBox.information(self, LanguageManager.tr("app_title"), LanguageManager.tr("no_active_doc_error"))
             return
         from src.ui.dialogs.pdf_content_editor_dialog import PDFContentEditorDialog
         dlg = PDFContentEditorDialog(self)

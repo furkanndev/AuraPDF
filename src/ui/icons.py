@@ -1748,6 +1748,19 @@ class ModernIconFactory:
         p.end()
         return QIcon(pix)
 
+    @staticmethod
+    def icon_check(color: str = None) -> QIcon:
+        pix, p = ModernIconFactory._base()
+        col = QColor(color or "#10b981")
+        p.setPen(QPen(col, 2.0, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
+        path = QPainterPath()
+        path.moveTo(5, 13)
+        path.lineTo(9.5, 17.5)
+        path.lineTo(19, 7)
+        p.drawPath(path)
+        p.end()
+        return QIcon(pix)
+
 
 def _wrap_icon_methods():
     for attr in dir(ModernIconFactory):
