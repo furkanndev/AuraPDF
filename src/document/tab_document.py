@@ -2077,6 +2077,8 @@ class PDFTabDocument(QWidget):
             idx = self.main_window.tab_widget.indexOf(self)
             if idx >= 0:
                 self.main_window.tab_widget.setTabText(idx, display_name)
+                if hasattr(self.main_window, 'modern_tab_bar'):
+                    self.main_window.modern_tab_bar.set_tab_text(idx, display_name)
 
         if hasattr(self, 'main_window') and hasattr(self.main_window, 'get_current_tab_doc'):
             if self.main_window.get_current_tab_doc() == self:

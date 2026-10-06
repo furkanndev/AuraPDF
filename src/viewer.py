@@ -11,9 +11,9 @@ import shutil
 import pymupdf as fitz
 from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
                              QLabel, QLineEdit, QToolButton, QMessageBox, 
-                             QFileDialog, QMenu, QStackedLayout, QSizePolicy, QLayout, QDialog, QApplication)
+                             QFileDialog, QMenu, QStackedLayout, QStackedWidget, QSizePolicy, QLayout, QDialog, QApplication)
 from PyQt6.QtGui import (QIcon, QIntValidator, QShortcut, QKeySequence, QColor, QPen, QBrush)
-from PyQt6.QtCore import Qt, QPoint, QSettings, QTimer, QEvent, QFileSystemWatcher
+from PyQt6.QtCore import Qt, QPoint, QSettings, QTimer, QEvent, QFileSystemWatcher, pyqtSignal
 
 from src.core.i18n import LanguageManager
 from src.core.shortcut_helper import (
@@ -30,9 +30,15 @@ from src.ui.popups import (SelectionSettingsPopup, TextSettingsPopup, ToolSettin
                            CursorPopup, RulerMeasurementPopup)
 from src.ui.dialogs.document_properties_dialog import ModernDocumentPropertiesDialog, AuraDocumentPropertiesDialog
 from src.document.tab_document import PDFTabDocument
+from src.ui.modern_views import (
+    ModernTabBarWidget, ModernHeaderBar, ModernAllToolsPanel,
+    OrganizePagesWorkspace, ModernRightSidebar, ModernUtilityRail,
+    ModernCommandPaletteDialog, get_modern_theme_colors
+)
 
 
 class EditableZoomWidget(QWidget):
+    zoomChanged = pyqtSignal(str)
     """
     Toolbar üzerinde yakınlaştırma (zoom) bileşeni:
     - Solunda zoom oranına bitişik küçük azaltma (-) butonu
@@ -179,6 +185,7 @@ class EditableZoomWidget(QWidget):
 
     def setText(self, text: str):
         self.label.setText(text)
+        self.zoomChanged.emit(text)
 
     def text(self) -> str:
         return self.label.text()
@@ -278,8 +285,9 @@ class AuraPDFViewer(QMainWindow):
         self._init_popups()
         self._init_docks()
         self._init_toolbar()
+        self._init_modern_ui()
         self._init_shortcuts()
-        self.apply_theme(settings.value("app_theme", "gray"))
+        self.apply_theme(settings.value("app_theme", "light"))
         self.retranslate_ui()
         self.update_viewport_cursor()
 
@@ -324,6 +332,7 @@ class AuraPDFViewer(QMainWindow):
         QShortcut(QKeySequence("Ctrl+D"), self, activated=self.open_document_properties_dialog)
         QShortcut(QKeySequence("F1"), self, activated=self.open_shortcuts_dialog)
         QShortcut(QKeySequence("Ctrl+Shift+C"), self, activated=self.open_compress_dialog)
+        QShortcut(QKeySequence("Ctrl+K"), self, activated=self._open_command_palette)
 
         # Dinamik özelleştirilebilir araç ve fare kısayolları
         self.reload_shortcuts()
@@ -994,6 +1003,314 @@ class AuraPDFViewer(QMainWindow):
         self.restore_toolbar_order()
         self.update_undo_redo_state()
 
+    def _init_modern_ui(self):
+        """Adobe Acrobat yeni nesil modern arayüzünü (Sekmeler, Header, Araçlar, Organize, Sağ Çekmece, Ray) kurar."""
+        self.tab_widget.tabBar().hide()
+
+        # 1. Doküman Sekmeleri Çubuğu (En üst satır)
+        self.modern_tab_bar = ModernTabBarWidget(self)
+        self.modern_tab_bar.tabCloseRequested.connect(self.close_tab)
+        self.modern_tab_bar.currentChanged.connect(self._on_modern_tab_changed)
+        self.modern_tab_bar.newTabRequested.connect(self.open_pdf)
+
+        # 2. Üst Gezinme ve Eylem Çubuğu
+        self.modern_header_bar = ModernHeaderBar(self)
+        self.modern_header_bar.modeChanged.connect(self._on_header_mode_changed)
+        self.modern_header_bar.menuRequested.connect(self._show_main_menu)
+        self.modern_header_bar.searchRequested.connect(self._open_command_palette)
+        self.modern_header_bar.helpRequested.connect(self.open_shortcuts_dialog)
+        self.modern_header_bar.printRequested.connect(self.print_pdf)
+        self.modern_header_bar.saveRequested.connect(self.save_pdf)
+        self.modern_header_bar.settingsRequested.connect(self.open_settings_dialog)
+
+        # 3. Sol Çekmece: Tüm Araçlar
+        self.modern_tools_panel = ModernAllToolsPanel(self)
+        self.modern_tools_panel.toolTriggered.connect(self._on_all_tools_panel_action)
+        self.modern_tools_panel.closeRequested.connect(lambda: self.modern_tools_panel.hide())
+
+        # 4. Merkez Yığın: Doküman Görünümü (0) vs Organize Et Çalışma Alanı (1)
+        self.organize_workspace = OrganizePagesWorkspace(main_window=self, parent=self)
+        self.organize_workspace.closeRequested.connect(self._close_organize_workspace)
+        self.organize_workspace.openPageRequested.connect(self._on_organize_open_page)
+        self.organize_workspace.documentModified.connect(self._on_organize_doc_modified)
+
+        self.central_stack = QStackedWidget(self)
+        self.central_stack.addWidget(self.tab_widget)
+        self.central_stack.addWidget(self.organize_workspace)
+
+        # 5. Sağ Çekmece: Yer İmleri / Yorumlar
+        self.modern_right_sidebar = ModernRightSidebar(main_window=self, parent=self)
+        self.modern_right_sidebar.closeRequested.connect(self._close_right_sidebar)
+        self.modern_right_sidebar.bookmarkClicked.connect(self._on_bookmark_clicked)
+
+        # 6. En Sağ Dikey İkon Rayı
+        self.modern_utility_rail = ModernUtilityRail(self)
+        self.modern_utility_rail.railItemToggled.connect(self._on_utility_rail_toggled)
+        self.modern_utility_rail.prevPageRequested.connect(self.prev_page)
+        self.modern_utility_rail.nextPageRequested.connect(self.next_page)
+        self.modern_utility_rail.zoomInRequested.connect(self.zoom_in)
+        self.modern_utility_rail.zoomOutRequested.connect(self.zoom_out)
+        self.modern_utility_rail.fitPageRequested.connect(self.fit_to_page)
+        self.modern_utility_rail.fitWidthRequested.connect(self.fit_to_width)
+        self.modern_utility_rail.fullscreenRequested.connect(self.toggle_fullscreen)
+
+        # Ana Kök Yerleşim
+        self.modern_root_widget = QWidget(self)
+        self.modern_root_layout = QVBoxLayout(self.modern_root_widget)
+        self.modern_root_layout.setContentsMargins(0, 0, 0, 0)
+        self.modern_root_layout.setSpacing(0)
+
+        self.modern_root_layout.addWidget(self.modern_tab_bar)
+        self.modern_root_layout.addWidget(self.modern_header_bar)
+
+        self.body_container = QWidget(self)
+        self.body_layout = QHBoxLayout(self.body_container)
+        self.body_layout.setContentsMargins(0, 0, 0, 0)
+        self.body_layout.setSpacing(0)
+
+        self.body_layout.addWidget(self.modern_tools_panel)
+        self.body_layout.addWidget(self.central_stack, stretch=1)
+        self.body_layout.addWidget(self.modern_right_sidebar)
+        self.body_layout.addWidget(self.modern_utility_rail)
+
+        self.modern_root_layout.addWidget(self.body_container, stretch=1)
+        self.setCentralWidget(self.modern_root_widget)
+
+        # Sayfa / Zoom güncellemelerini ray'e bağla
+        if hasattr(self, 'txt_page') and self.txt_page:
+            self.txt_page.textChanged.connect(lambda txt: self.modern_utility_rail.lbl_page.setText(txt if txt else "1"))
+        if hasattr(self, 'lbl_zoom') and hasattr(self.lbl_zoom, 'zoomChanged'):
+            self.lbl_zoom.zoomChanged.connect(lambda txt: self.modern_utility_rail.lbl_zoom.setText(txt.strip()))
+
+        # Kullanıcı görseliyle birebir aynı başlangıç durumu:
+        # Sayfaları organize et açık, sol panelde 'Organize pages' aktif, sağda Bookmarks açık
+        self.central_stack.setCurrentWidget(self.organize_workspace)
+        self.modern_tools_panel.set_active_tool("organize_pages")
+        self.modern_right_sidebar.show()
+        self.modern_utility_rail.set_active_rail_item("bookmarks")
+        if hasattr(self, 'toolbar'):
+            self.toolbar.hide()
+
+    def sync_modern_tabs(self):
+        """Modern üst sekme çubuğunu AuraTabWidget içeriği ile tam senkronize eder."""
+        if not hasattr(self, 'modern_tab_bar') or not hasattr(self, 'tab_widget'):
+            return
+        target_count = self.tab_widget.count()
+        curr_count = self.modern_tab_bar.count()
+        if curr_count != target_count:
+            while self.modern_tab_bar.count() > 0:
+                self.modern_tab_bar.remove_tab(0)
+            for i in range(target_count):
+                title = self.tab_widget.tabText(i)
+                self.modern_tab_bar.add_tab(title)
+        else:
+            for i in range(target_count):
+                self.modern_tab_bar.set_tab_text(i, self.tab_widget.tabText(i))
+        self.modern_tab_bar.set_current_index(self.tab_widget.currentIndex())
+
+    def _on_modern_tab_changed(self, index: int):
+        if 0 <= index < self.tab_widget.count():
+            self.tab_widget.setCurrentIndex(index)
+            if hasattr(self, 'central_stack') and self.central_stack.currentWidget() == self.organize_workspace:
+                self.organize_workspace.load_document()
+
+    def _on_header_mode_changed(self, mode: str):
+        if mode == "all_tools":
+            self.modern_tools_panel.show()
+            self.switch_to_organize_view()
+            if hasattr(self, 'toolbar'):
+                self.toolbar.hide()
+        elif mode == "read":
+            self.switch_to_document_view()
+            if hasattr(self, 'toolbar'):
+                self.toolbar.hide()
+        elif mode == "edit":
+            self.switch_to_document_view()
+            if hasattr(self, 'toolbar'):
+                self.toolbar.show()
+        elif mode == "convert":
+            self.open_word_dialog()
+        elif mode == "esign":
+            self.open_signature_dialog()
+
+    def _show_main_menu(self, global_pos: QPoint):
+        menu = QMenu(self)
+        theme = getattr(self, 'current_theme', 'light')
+        c = get_modern_theme_colors(theme)
+        menu.setStyleSheet(f"""
+            QMenu {{
+                background-color: {c['surface']};
+                color: {c['text']};
+                border: 1px solid {c['border']};
+                border-radius: 8px;
+                padding: 6px;
+            }}
+            QMenu::item {{
+                padding: 7px 24px 7px 12px;
+                border-radius: 4px;
+                font-size: 13px;
+                font-weight: 500;
+            }}
+            QMenu::item:selected {{
+                background-color: {c['surface_hover']};
+                color: {c['accent']};
+            }}
+            QMenu::separator {{
+                height: 1px;
+                background-color: {c['border']};
+                margin: 4px 6px;
+            }}
+        """)
+        act_new = menu.addAction(ModernIconFactory.icon_new_document(), "  " + LanguageManager.tr("menu_file_new_tab"))
+        act_new.triggered.connect(lambda: self.show_new_page_dialog(force_new_doc=True))
+
+        act_open = menu.addAction(ModernIconFactory.icon_folder(), "  " + LanguageManager.tr("open_file") + "\tCtrl+O")
+        act_open.triggered.connect(self.open_pdf)
+
+        act_save = menu.addAction(ModernIconFactory.icon_save(), "  " + LanguageManager.tr("save_btn") + "\tCtrl+S")
+        act_save.triggered.connect(self.save_pdf)
+
+        act_save_as = menu.addAction(ModernIconFactory.icon_save(), "  " + LanguageManager.tr("save_as") + "\tCtrl+Shift+S")
+        act_save_as.triggered.connect(self.save_as_pdf)
+
+        act_print = menu.addAction(ModernIconFactory.icon_print(), "  " + LanguageManager.tr("print_btn") + "\tCtrl+P")
+        act_print.triggered.connect(self.print_pdf)
+
+        act_props = menu.addAction(ModernIconFactory.icon_doc_properties(), "  " + LanguageManager.tr("doc_properties") + "\tCtrl+D")
+        act_props.triggered.connect(self.open_document_properties_dialog)
+
+        menu.addSeparator()
+
+        act_org = menu.addAction(ModernIconFactory.icon_organize(), "  " + LanguageManager.tr("tool_organize_pages"))
+        act_org.triggered.connect(self.switch_to_organize_view)
+
+        act_edit = menu.addAction(ModernIconFactory.icon_edit_content(), "  " + LanguageManager.tr("tool_edit_pdf"))
+        act_edit.triggered.connect(self.open_pdf_content_editor)
+
+        act_comp = menu.addAction(ModernIconFactory.icon_compress(), "  " + LanguageManager.tr("tool_compress_pdf"))
+        act_comp.triggered.connect(self.open_compress_dialog)
+
+        act_ocr = menu.addAction(ModernIconFactory.icon_ocr(), "  " + LanguageManager.tr("tool_scan_ocr"))
+        act_ocr.triggered.connect(self.open_pdf_ocr_dialog)
+
+        act_merge = menu.addAction(ModernIconFactory.icon_combine_files(), "  " + LanguageManager.tr("tool_combine_files"))
+        act_merge.triggered.connect(self.open_merge_dialog)
+
+        menu.addSeparator()
+
+        act_set = menu.addAction(ModernIconFactory.icon_settings(), "  " + LanguageManager.tr("settings_title"))
+        act_set.triggered.connect(self.open_settings_dialog)
+
+        act_sc = menu.addAction(ModernIconFactory.icon_info(), "  " + LanguageManager.tr("shortcuts_title") + "\tF1")
+        act_sc.triggered.connect(self.open_shortcuts_dialog)
+
+        act_upd = menu.addAction(ModernIconFactory.icon_update(), "  " + LanguageManager.tr("menu_help_check_updates"))
+        act_upd.triggered.connect(self.check_updates_background)
+
+        menu.addSeparator()
+
+        act_exit = menu.addAction(ModernIconFactory.icon_close(), "  " + LanguageManager.tr("menu_file_exit"))
+        act_exit.triggered.connect(self.close)
+
+        menu.exec(global_pos)
+
+    def _open_command_palette(self):
+        dlg = ModernCommandPaletteDialog(self)
+        dlg.commandTriggered.connect(self._on_command_palette_executed)
+        dlg.move(self.geometry().center().x() - dlg.width() // 2, self.geometry().top() + 80)
+        dlg.exec()
+
+    def _on_command_palette_executed(self, cid: str):
+        self._on_all_tools_panel_action(cid)
+
+    def _on_all_tools_panel_action(self, tool_id: str):
+        if tool_id == "organize_pages":
+            self.switch_to_organize_view()
+        elif tool_id == "edit_pdf":
+            self.switch_to_document_view()
+            self.open_pdf_content_editor()
+        elif tool_id == "combine_files":
+            self.open_merge_dialog()
+        elif tool_id == "compress_pdf":
+            self.open_compress_dialog()
+        elif tool_id == "scan_ocr":
+            self.open_pdf_ocr_dialog()
+        elif tool_id == "protect_pdf":
+            self.open_encrypt_dialog()
+        elif tool_id == "redact_pdf":
+            self.open_pdf_redaction_dialog()
+        elif tool_id in ("fill_sign", "use_certificate", "prepare_form"):
+            self.open_signature_dialog()
+        elif tool_id == "export_pdf":
+            self.open_word_dialog()
+        elif tool_id == "create_pdf":
+            self.show_new_page_dialog(force_new_doc=True)
+        elif tool_id == "add_comments":
+            self.switch_to_document_view()
+            self.set_tool_state('highlighter')
+        elif tool_id == "add_stamp":
+            self.show_insert_emoji_dialog()
+        elif tool_id == "view_more":
+            self.show_toolbox_menu()
+        elif tool_id == "print":
+            self.print_pdf()
+        elif tool_id == "save":
+            self.save_pdf()
+        elif tool_id == "settings":
+            self.open_settings_dialog()
+        elif tool_id == "shortcuts":
+            self.open_shortcuts_dialog()
+
+    def switch_to_organize_view(self):
+        self.central_stack.setCurrentWidget(self.organize_workspace)
+        self.organize_workspace.load_document()
+        self.modern_tools_panel.set_active_tool("organize_pages")
+        if hasattr(self, 'toolbar'):
+            self.toolbar.hide()
+
+    def switch_to_document_view(self):
+        self.central_stack.setCurrentWidget(self.tab_widget)
+        self.modern_tools_panel.set_active_tool(None)
+
+    def _close_organize_workspace(self):
+        self.switch_to_document_view()
+
+    def _on_organize_open_page(self, page_index: int):
+        tab_doc = self.get_current_tab_doc()
+        if tab_doc:
+            tab_doc.go_to_page(page_index)
+        self.switch_to_document_view()
+
+    def _on_organize_doc_modified(self):
+        tab_doc = self.get_current_tab_doc()
+        if tab_doc:
+            tab_doc.render_all_pages()
+            tab_doc.update_tab_title()
+
+    def _on_utility_rail_toggled(self, rail_id: str):
+        if rail_id == "none":
+            self.modern_right_sidebar.hide()
+        elif rail_id == "bookmarks":
+            self.modern_right_sidebar.show()
+            self.modern_right_sidebar.load_bookmarks()
+        elif rail_id == "comments":
+            self.modern_right_sidebar.show()
+        elif rail_id == "thumbnails":
+            self.toggle_contents_panel()
+        elif rail_id == "signatures":
+            self.open_signature_dialog()
+
+    def _close_right_sidebar(self):
+        self.modern_right_sidebar.hide()
+        self.modern_utility_rail.set_active_rail_item(None)
+
+    def _on_bookmark_clicked(self, page_index: int):
+        tab_doc = self.get_current_tab_doc()
+        if tab_doc:
+            tab_doc.go_to_page(page_index)
+            if hasattr(self, 'central_stack') and self.central_stack.currentWidget() == self.organize_workspace:
+                self.switch_to_document_view()
+
     def toggle_fullscreen(self, checked=None):
         going_fullscreen = not self.isFullScreen()
 
@@ -1212,6 +1529,12 @@ class AuraPDFViewer(QMainWindow):
         settings.setValue("app_theme", theme_name)
 
         theme_specs = {
+            "light": {
+                "main_bg": "#f8fafc", "main_text": "#0f172a", "tb_bg": "#ffffff", "tb_border": "#e2e8f0",
+                "btn_hover": "#f1f5f9", "accent": "#0284c7", "page_bg": "#f1f5f9", "page_border": "#cbd5e1",
+                "tab_bg": "#eaedf1", "tab_hover": "#f1f5f9", "tab_border": "#cbd5e1", "tab_text": "#475569",
+                "view_bg": "#f0f2f5"
+            },
             "gray": {
                 "main_bg": "#2b2d30", "main_text": "#f1f5f9", "tb_bg": "#35383c", "tb_border": "#222427",
                 "btn_hover": "#42464b", "accent": "#60a5fa", "page_bg": "#42464b", "page_border": "#525860",
@@ -1376,6 +1699,19 @@ class AuraPDFViewer(QMainWindow):
                     if hasattr(widget, 'floating_text_hud') and widget.floating_text_hud and hasattr(widget.floating_text_hud, 'apply_theme'):
                         widget.floating_text_hud.apply_theme(theme_name, spec)
 
+        if hasattr(self, 'modern_tab_bar'):
+            self.modern_tab_bar.apply_theme(theme_name)
+        if hasattr(self, 'modern_header_bar'):
+            self.modern_header_bar.apply_theme(theme_name)
+        if hasattr(self, 'modern_tools_panel'):
+            self.modern_tools_panel.apply_theme(theme_name)
+        if hasattr(self, 'organize_workspace'):
+            self.organize_workspace.apply_theme(theme_name)
+        if hasattr(self, 'modern_right_sidebar'):
+            self.modern_right_sidebar.apply_theme(theme_name)
+        if hasattr(self, 'modern_utility_rail'):
+            self.modern_utility_rail.apply_theme(theme_name)
+
     def change_language(self, lang: str):
         LanguageManager.set_language(lang)
         settings = QSettings("AuraPDF", "PDFViewer")
@@ -1520,6 +1856,11 @@ class AuraPDFViewer(QMainWindow):
             tab_idx = self.tab_widget.addTab(tab_doc, os.path.basename(file_path))
             self.tab_widget.setCurrentIndex(tab_idx)
             tab_doc.update_tab_title()
+            self.sync_modern_tabs()
+            if hasattr(self, 'organize_workspace'):
+                self.organize_workspace.load_document()
+            if hasattr(self, 'modern_right_sidebar'):
+                self.modern_right_sidebar.load_bookmarks()
             self.lbl_zoom.setText(f" {LanguageManager.tr('percent_format', val=int(tab_doc.zoom_level * 100))} ")
 
             # V3: Son açılanlara ekle ve dosya izleyiciye kaydet
@@ -1584,6 +1925,11 @@ class AuraPDFViewer(QMainWindow):
             self.thumbnails_dock.load_thumbnails_lazy()
             self.setWindowTitle(LanguageManager.tr("app_title"))
         self.update_undo_redo_state()
+        self.sync_modern_tabs()
+        if hasattr(self, 'organize_workspace'):
+            self.organize_workspace.load_document()
+        if hasattr(self, 'modern_right_sidebar'):
+            self.modern_right_sidebar.load_bookmarks()
 
     def on_tab_changed(self, index):
         if (tab_doc := self.get_current_tab_doc()) and tab_doc.doc is not None:
@@ -1609,6 +1955,16 @@ class AuraPDFViewer(QMainWindow):
             if hasattr(self, 'search_bar') and self.search_bar.isVisible():
                 self.search_bar.lbl_count.setText(LanguageManager.tr("search_no_results"))
         self.update_undo_redo_state()
+        self.sync_modern_tabs()
+        if hasattr(self, 'modern_right_sidebar') and self.modern_right_sidebar.isVisible():
+            self.modern_right_sidebar.load_bookmarks()
+        if hasattr(self, 'organize_workspace') and hasattr(self, 'central_stack') and self.central_stack.currentWidget() == self.organize_workspace:
+            self.organize_workspace.load_document()
+        if hasattr(self, 'modern_utility_rail'):
+            tab_doc = self.get_current_tab_doc()
+            if tab_doc and tab_doc.doc:
+                self.modern_utility_rail.update_page_info(tab_doc.current_page_idx, len(tab_doc.doc))
+                self.modern_utility_rail.update_zoom_info(int(tab_doc.zoom_level * 100))
 
     def prev_page(self):
         if doc := self.get_current_tab_doc(): doc.go_to_page(doc.current_page_idx - 1)
@@ -1775,6 +2131,11 @@ class AuraPDFViewer(QMainWindow):
             active_idx = int(settings.value("active_tab_index", 0))
             if 0 <= active_idx < self.tab_widget.count():
                 self.tab_widget.setCurrentIndex(active_idx)
+            self.sync_modern_tabs()
+            if hasattr(self, 'organize_workspace'):
+                self.organize_workspace.load_document()
+            if hasattr(self, 'modern_right_sidebar'):
+                self.modern_right_sidebar.load_bookmarks()
         except Exception:
             pass
     def rotate_all_pages(self):
@@ -1835,6 +2196,11 @@ class AuraPDFViewer(QMainWindow):
             tab_idx = self.tab_widget.addTab(tab_doc, title)
             self.tab_widget.setCurrentIndex(tab_idx)
             tab_doc.update_tab_title()
+            self.sync_modern_tabs()
+            if hasattr(self, 'organize_workspace'):
+                self.organize_workspace.load_document()
+            if hasattr(self, 'modern_right_sidebar'):
+                self.modern_right_sidebar.load_bookmarks()
             self.update_view_mode_button()
             self.lbl_zoom.setText(f" {LanguageManager.tr('percent_format', val=int(tab_doc.zoom_level * 100))} ")
             total_pages = len(tab_doc.doc) if tab_doc.doc is not None else 0

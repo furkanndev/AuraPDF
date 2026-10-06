@@ -1761,6 +1761,205 @@ class ModernIconFactory:
         p.end()
         return QIcon(pix)
 
+    @staticmethod
+    def icon_menu_hamburger(color: str = None) -> QIcon:
+        pix, p = ModernIconFactory._base()
+        col = QColor(color or "#475569")
+        p.setPen(QPen(col, 2.0, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
+        for y in (7.5, 13.0, 18.5):
+            p.drawLine(QPointF(5.0, y), QPointF(21.0, y))
+        p.end()
+        return QIcon(pix)
+
+    @staticmethod
+    def icon_export_pdf(color: str = None) -> QIcon:
+        pix, p = ModernIconFactory._base()
+        col = QColor(color or "#0284c7")
+        p.setPen(QPen(col, 1.8, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
+        # Document outline
+        path = QPainterPath()
+        path.moveTo(14, 5)
+        path.lineTo(6, 5)
+        path.lineTo(6, 21)
+        path.lineTo(18, 21)
+        path.lineTo(18, 13)
+        p.drawPath(path)
+        # Export arrow pointing top-right
+        arr = QPainterPath()
+        arr.moveTo(12, 12)
+        arr.lineTo(21, 5)
+        arr.moveTo(16, 5)
+        arr.lineTo(21, 5)
+        arr.lineTo(21, 10)
+        p.drawPath(arr)
+        p.end()
+        return QIcon(pix)
+
+    @staticmethod
+    def icon_fill_sign(color: str = None) -> QIcon:
+        pix, p = ModernIconFactory._base()
+        col = QColor(color or "#8b5cf6")
+        p.setPen(QPen(col, 1.8, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
+        # Pen nib
+        pen = QPainterPath()
+        pen.moveTo(19, 5)
+        pen.lineTo(14, 10)
+        pen.lineTo(10, 14)
+        pen.lineTo(7, 18)
+        pen.lineTo(11, 17)
+        pen.lineTo(15, 13)
+        pen.closeSubpath()
+        p.drawPath(pen)
+        # Line underneath
+        p.drawLine(QPointF(5, 21), QPointF(21, 21))
+        p.end()
+        return QIcon(pix)
+
+    @staticmethod
+    def icon_combine_files(color: str = None) -> QIcon:
+        pix, p = ModernIconFactory._base()
+        col = QColor(color or "#0284c7")
+        p.setPen(QPen(col, 1.7, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
+        # Back document
+        p.drawRoundedRect(QRectF(5, 5, 11, 13), 2, 2)
+        # Front document
+        p.setPen(QPen(col, 1.9, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
+        p.setBrush(QBrush(QColor(col.red(), col.green(), col.blue(), 30)))
+        p.drawRoundedRect(QRectF(10, 9, 11, 13), 2, 2)
+        # Plus in center of front doc
+        p.drawLine(QPointF(15.5, 13.5), QPointF(15.5, 17.5))
+        p.drawLine(QPointF(13.5, 15.5), QPointF(17.5, 15.5))
+        p.end()
+        return QIcon(pix)
+
+    @staticmethod
+    def icon_prepare_form(color: str = None) -> QIcon:
+        pix, p = ModernIconFactory._base()
+        col = QColor(color or "#9333ea")
+        p.setPen(QPen(col, 1.8, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
+        # Doc outline
+        p.drawRoundedRect(QRectF(5, 4, 16, 18), 2.5, 2.5)
+        # Checkbox field
+        p.drawRoundedRect(QRectF(8, 8, 4, 4), 1, 1)
+        p.drawLine(QPointF(14, 10), QPointF(18, 10))
+        # Text field
+        p.drawRoundedRect(QRectF(8, 15, 10, 4), 1, 1)
+        p.end()
+        return QIcon(pix)
+
+    @staticmethod
+    def icon_stamp(color: str = None) -> QIcon:
+        pix, p = ModernIconFactory._base()
+        col = QColor(color or "#a855f7")
+        p.setPen(QPen(col, 1.8, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
+        # Handle top
+        p.drawEllipse(QRectF(10, 4, 6, 6))
+        # Stem
+        p.drawLine(QPointF(13, 10), QPointF(13, 15))
+        # Base
+        p.drawRoundedRect(QRectF(6, 15, 14, 4), 1.5, 1.5)
+        # Bottom imprint line
+        p.drawLine(QPointF(4, 21), QPointF(22, 21))
+        p.end()
+        return QIcon(pix)
+
+    @staticmethod
+    def icon_certificate(color: str = None) -> QIcon:
+        pix, p = ModernIconFactory._base()
+        col = QColor(color or "#0284c7")
+        p.setPen(QPen(col, 1.8, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
+        # Seal circle
+        p.drawEllipse(QRectF(6, 4, 14, 14))
+        # Ribbon tails
+        tail1 = QPainterPath()
+        tail1.moveTo(10, 16)
+        tail1.lineTo(8, 22)
+        tail1.lineTo(11, 20)
+        p.drawPath(tail1)
+        tail2 = QPainterPath()
+        tail2.moveTo(16, 16)
+        tail2.lineTo(18, 22)
+        tail2.lineTo(15, 20)
+        p.drawPath(tail2)
+        # Star or check in center
+        p.drawLine(QPointF(10.5, 11), QPointF(12.5, 13))
+        p.drawLine(QPointF(12.5, 13), QPointF(16, 9))
+        p.end()
+        return QIcon(pix)
+
+    @staticmethod
+    def icon_extract(color: str = None) -> QIcon:
+        pix, p = ModernIconFactory._base()
+        col = QColor(color or "#475569")
+        p.setPen(QPen(col, 1.8, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
+        # Page
+        p.drawRoundedRect(QRectF(5, 5, 12, 16), 2, 2)
+        # Extract arrow downwards
+        arr = QPainterPath()
+        arr.moveTo(19, 9)
+        arr.lineTo(19, 18)
+        arr.moveTo(16, 15)
+        arr.lineTo(19, 18)
+        arr.lineTo(22, 15)
+        p.drawPath(arr)
+        p.end()
+        return QIcon(pix)
+
+    @staticmethod
+    def icon_split_page(color: str = None) -> QIcon:
+        pix, p = ModernIconFactory._base()
+        col = QColor(color or "#475569")
+        p.setPen(QPen(col, 1.8, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
+        p.drawRoundedRect(QRectF(4, 5, 8, 16), 1.5, 1.5)
+        p.drawRoundedRect(QRectF(14, 5, 8, 16), 1.5, 1.5)
+        p.end()
+        return QIcon(pix)
+
+    @staticmethod
+    def icon_replace_page(color: str = None) -> QIcon:
+        pix, p = ModernIconFactory._base()
+        col = QColor(color or "#475569")
+        p.setPen(QPen(col, 1.8, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
+        # Two curved swap arrows
+        path = QPainterPath()
+        path.moveTo(6, 9)
+        path.lineTo(19, 9)
+        path.lineTo(16, 6)
+        path.moveTo(20, 17)
+        path.lineTo(7, 17)
+        path.lineTo(10, 20)
+        p.drawPath(path)
+        p.end()
+        return QIcon(pix)
+
+    @staticmethod
+    def icon_info(color: str = None) -> QIcon:
+        pix, p = ModernIconFactory._base()
+        col = QColor(color or "#64748b")
+        p.setPen(QPen(col, 1.8, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
+        p.drawEllipse(QRectF(4, 4, 18, 18))
+        p.drawPoint(QPointF(13, 9))
+        p.drawLine(QPointF(13, 12), QPointF(13, 17))
+        p.end()
+        return QIcon(pix)
+
+    @staticmethod
+    def icon_cloud_share(color: str = None) -> QIcon:
+        pix, p = ModernIconFactory._base()
+        col = QColor(color or "#64748b")
+        p.setPen(QPen(col, 1.8, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
+        cloud = QPainterPath()
+        cloud.moveTo(7, 18)
+        cloud.lineTo(19, 18)
+        cloud.arcTo(17, 13, 5, 5, 270, 180)
+        cloud.arcTo(11, 7, 8, 8, 30, 140)
+        cloud.arcTo(4, 11, 6, 6, 90, 150)
+        cloud.closeSubpath()
+        p.drawPath(cloud)
+        p.end()
+        return QIcon(pix)
+
+
 
 def _wrap_icon_methods():
     for attr in dir(ModernIconFactory):
@@ -1775,7 +1974,10 @@ def _wrap_icon_methods():
                         else:
                             key = (name, args, tuple(sorted(kwargs.items())))
                         if key not in cache:
-                            cache[key] = fn(*args, **kwargs)
+                            try:
+                                cache[key] = fn(*args, **kwargs)
+                            except TypeError:
+                                cache[key] = fn()
                         return cache[key]
                     return wrapper
                 setattr(ModernIconFactory, attr, staticmethod(make_cached(orig, attr)))

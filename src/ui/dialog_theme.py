@@ -4,6 +4,15 @@ from typing import Optional, Any
 from PyQt6.QtCore import QSettings
 
 THEME_PALETTES = {
+    "light": {
+        "bg": "#f8fafc",
+        "card": "#ffffff",
+        "border": "#cbd5e1",
+        "accent": "#0284c7",
+        "accent_hover": "#0369a1",
+        "text": "#0f172a",
+        "muted": "#64748b",
+    },
     "dark": {
         "bg": "#1c1c1e",
         "card": "#2c2c2e",
@@ -396,7 +405,7 @@ def get_dialog_theme_stylesheet(parent: Optional[Any] = None, extra_css: str = "
             }}
             QLineEdit, QTextEdit, QPlainTextEdit, QKeySequenceEdit {{
                 background-color: {pal['bg']};
-                color: #ffffff;
+                color: {pal['text']};
                 border: 1px solid rgba(255, 255, 255, 0.1);
                 border-radius: 6px;
                 padding: 5px 8px;
@@ -407,7 +416,7 @@ def get_dialog_theme_stylesheet(parent: Optional[Any] = None, extra_css: str = "
             }}
             QComboBox {{
                 background-color: {pal['card']};
-                color: #ffffff;
+                color: {pal['text']};
                 border: 1px solid rgba(255, 255, 255, 0.1);
                 border-radius: 6px;
                 padding: 4px 8px;
@@ -417,7 +426,7 @@ def get_dialog_theme_stylesheet(parent: Optional[Any] = None, extra_css: str = "
             }}
             QComboBox QAbstractItemView {{
                 background-color: {pal['card']};
-                color: #ffffff;
+                color: {pal['text']};
                 selection-background-color: {pal['accent']};
                 selection-color: #ffffff;
                 border: 1px solid rgba(255, 255, 255, 0.1);

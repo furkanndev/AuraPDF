@@ -551,6 +551,10 @@ class AuraSettingsDialog(QDialog):
 
     def _apply_dialog_style(self):
         theme_colors = {
+            "light": {
+                "bg": "#f8fafc", "card": "#ffffff", "border": "#cbd5e1",
+                "accent": "#0284c7", "text": "#0f172a", "muted": "#64748b", "cancel": "#e2e8f0"
+            },
             "gray": {
                 "bg": "#2b2d30", "card": "#35383c", "border": "#444850",
                 "accent": "#60a5fa", "text": "#f1f5f9", "muted": "#94a3b8", "cancel": "#444850"
@@ -1060,6 +1064,7 @@ class AuraSettingsDialog(QDialog):
         self.theme_group = QButtonGroup(self)
 
         themes_info = [
+            ("light", "theme_light", "theme_light_desc", 0),
             ("dark", "theme_dark", "theme_dark_desc", 1),
             ("gray", "theme_gray", "theme_gray_desc", 2),
 
@@ -1081,6 +1086,7 @@ class AuraSettingsDialog(QDialog):
             card_layout.addWidget(lbl_desc_item)
 
         # Geriye dönük uyumluluk için referanslar
+        self.rb_light = self.theme_radios["light"]
         self.rb_dark = self.theme_radios["dark"]
         self.rb_gray = self.theme_radios["gray"]
 
