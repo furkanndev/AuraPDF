@@ -3030,8 +3030,30 @@ class ModernRightSidebar(QWidget):
         if self._thumb_render_queue:
             self._thumb_timer.start(10)
 
+    def hideEvent(self, event):
+        super().hideEvent(event)
+        try:
+            self._thumb_timer.stop()
+            self._thumb_render_queue.clear()
+        except Exception:
+            pass
+
+    def clear_thumbnails(self):
+        try:
+            self._thumb_timer.stop()
+            self._thumb_render_queue.clear()
+        except Exception:
+            pass
+        self._current_thumb_doc = None
+        if hasattr(self, 'list_thumbnails'):
+            self.list_thumbnails.clear()
+        if hasattr(self, 'stack_thumbnails'):
+            self.stack_thumbnails.setCurrentIndex(0)
+
     def _render_thumbnail_page(self, tab_doc, page_idx: int):
-        if not tab_doc or not tab_doc.doc or page_idx < 0 or page_idx >= len(tab_doc.doc):
+        if not tab_doc or not tab_doc.doc or getattr(tab_doc.doc, 'is_closed', False):
+            return
+        if page_idx < 0 or page_idx >= len(tab_doc.doc):
             return
         if page_idx >= self.list_thumbnails.count():
             return
@@ -3048,20 +3070,9 @@ class ModernRightSidebar(QWidget):
             scale = float(thumb_w) / pw
             mat = fitz.Matrix(scale, scale)
             pix = page.get_pixmap(matrix=mat, alpha=False)
-            img = QImage(pix.samples, pix.width, pix.height, pix.stride, QImage.Format.Format_RGB888)
+            img = QImage(pix.samples, pix.width, pix.height, pix.stride, QImage.Format.Format_RGB888).copy()
             pixmap = QPixmap.fromImage(img)
-
-            final_pix = QPixmap(thumb_w + 8, thumb_h + 8)
-            final_pix.fill(Qt.GlobalColor.transparent)
-            painter = QPainter(final_pix)
-            painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-            painter.setPen(QColor(0, 0, 0, 35))
-            painter.setBrush(QColor(255, 255, 255))
-            painter.drawRoundedRect(QRectF(2, 2, thumb_w + 4, thumb_h + 4), 4, 4)
-            painter.drawPixmap(4, 4, pixmap)
-            painter.end()
-
-            item.setIcon(QIcon(final_pix))
+            item.setIcon(QIcon(pixmap))
         except Exception:
             pass
 
@@ -3071,17 +3082,21 @@ class ModernRightSidebar(QWidget):
         if not self.main_window:
             return
         tab_doc = self.main_window.get_current_tab_doc()
-        if not tab_doc or not tab_doc.doc or tab_doc != getattr(self, '_current_thumb_doc', None):
+        if not tab_doc or not tab_doc.doc or getattr(tab_doc.doc, 'is_closed', False) or tab_doc != getattr(self, '_current_thumb_doc', None):
+            self._thumb_render_queue.clear()
             return
 
-        for _ in range(3):
+        for _ in range(4):
             if not self._thumb_render_queue:
                 break
             p_idx = self._thumb_render_queue.pop(0)
             self._render_thumbnail_page(tab_doc, p_idx)
 
         if self._thumb_render_queue:
-            self._thumb_timer.start(10)
+            try:
+                self._thumb_timer.start(10)
+            except Exception:
+                pass
 
     def _on_thumbnail_item_clicked(self, item: QListWidgetItem):
         page_idx = item.data(Qt.ItemDataRole.UserRole)

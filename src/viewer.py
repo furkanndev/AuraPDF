@@ -2353,7 +2353,12 @@ class AuraPDFViewer(QMainWindow):
         if hasattr(self, 'organize_workspace'):
             self.organize_workspace.load_document()
         if hasattr(self, 'modern_right_sidebar'):
-            self.modern_right_sidebar.load_bookmarks()
+            if self.tab_widget.count() == 0:
+                self.modern_right_sidebar.clear_thumbnails()
+            elif self.modern_right_sidebar.current_panel == "thumbnails":
+                self.modern_right_sidebar.load_thumbnails()
+            elif self.modern_right_sidebar.current_panel == "bookmarks":
+                self.modern_right_sidebar.load_bookmarks()
 
     def on_tab_changed(self, index):
         if (tab_doc := self.get_current_tab_doc()) and tab_doc.doc is not None:
@@ -2367,10 +2372,20 @@ class AuraPDFViewer(QMainWindow):
                 self.thumbnails_dock.select_page(tab_doc.current_page_idx)
             else:
                 self.thumbnails_dock.is_loaded = False
+            if hasattr(self, 'modern_right_sidebar') and self.modern_right_sidebar.isVisible():
+                if self.modern_right_sidebar.current_panel == "thumbnails":
+                    self.modern_right_sidebar.load_thumbnails()
+                    self.modern_right_sidebar.select_page(tab_doc.current_page_idx)
+                elif self.modern_right_sidebar.current_panel == "bookmarks":
+                    self.modern_right_sidebar.load_bookmarks()
+                elif self.modern_right_sidebar.current_panel == "comments":
+                    self.modern_right_sidebar.load_comments()
             self.update_viewport_cursor()
             if hasattr(self, 'search_bar') and self.search_bar.isVisible():
                 self.search_bar.do_search(reset_index=True)
         elif self.tab_widget.count() == 0:
+            if hasattr(self, 'modern_right_sidebar'):
+                self.modern_right_sidebar.clear_thumbnails()
             self.txt_page.setText("0")
             self.lbl_total.setText(LanguageManager.tr("page_of", total=0))
             self.lbl_zoom.setText(f" {LanguageManager.tr('percent_format', val=100)} ")
