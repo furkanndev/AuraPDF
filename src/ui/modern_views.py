@@ -412,16 +412,7 @@ class ModernTabBarWidget(QWidget):
 
         layout.addStretch(1)
 
-        # 4. Sağ Taraf Kısayolları (Discord & Bilgi)
-        self.btn_discord = QToolButton()
-        self.btn_discord.setIcon(ModernIconFactory.icon_discord("#5865f2"))
-        self.btn_discord.setIconSize(QSize(14, 14))
-        self.btn_discord.setText(" Discord")
-        self.btn_discord.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
-        self.btn_discord.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.btn_discord.clicked.connect(lambda: QDesktopServices.openUrl(QUrl("https://discord.gg/aurapdf")))
-        layout.addWidget(self.btn_discord)
-
+        # 4. Sağ Taraf Kısayolu (Bilgi / Kısayollar)
         self.btn_help = QToolButton()
         self.btn_help.setIcon(ModernIconFactory.icon_info())
         self.btn_help.setIconSize(QSize(14, 14))
@@ -432,6 +423,12 @@ class ModernTabBarWidget(QWidget):
         layout.addWidget(self.btn_help)
 
         self.apply_theme(self.theme_name)
+
+    def retranslate_ui(self):
+        self.btn_home.setText(" " + LanguageManager.tr("home_tab_text"))
+        self.btn_new_tab.setText(" " + LanguageManager.tr("open"))
+        self.btn_new_tab.setToolTip(LanguageManager.tr("open_tooltip"))
+        self.btn_help.setToolTip(LanguageManager.tr("shortcuts_title"))
 
     def apply_theme(self, theme_name: str = "light"):
         self.theme_name = theme_name
@@ -661,6 +658,24 @@ class ModernHeaderBar(QWidget):
 
         self.apply_theme(self.theme_name)
 
+    def retranslate_ui(self):
+        self.btn_menu.setText(" " + LanguageManager.tr("menu_btn_text"))
+        modes = [
+            ("all_tools", "nav_all_tools"),
+            ("read", "nav_read"),
+            ("edit", "nav_edit"),
+            ("convert", "nav_convert"),
+            ("esign", "nav_esign"),
+        ]
+        for mode_id, key in modes:
+            if mode_id in self.mode_buttons:
+                self.mode_buttons[mode_id].setText(LanguageManager.tr(key))
+        self.lbl_search_text.setText(LanguageManager.tr("search_tools_placeholder"))
+        self.btn_help.setToolTip(LanguageManager.tr("shortcuts_title"))
+        self.btn_print.setToolTip(LanguageManager.tr("print_btn"))
+        self.btn_save.setToolTip(LanguageManager.tr("save_btn"))
+        self.btn_settings.setToolTip(LanguageManager.tr("settings_title"))
+
     def set_mode(self, mode_id: str):
         self.current_mode = mode_id
         for m, btn in self.mode_buttons.items():
@@ -743,6 +758,9 @@ class ModernToolItemWidget(QWidget):
         self.lbl_text = QLabel(label_text)
         layout.addWidget(self.lbl_text, stretch=1)
 
+    def set_text(self, text: str):
+        self.lbl_text.setText(text)
+
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
             self.clicked.emit(self.tool_id)
@@ -812,9 +830,9 @@ class ModernAllToolsPanel(QWidget):
         # Başlık ve Kapat Butonu
         h_head = QHBoxLayout()
         h_head.setContentsMargins(6, 0, 4, 6)
-        lbl_head = QLabel(LanguageManager.tr("nav_all_tools"))
-        lbl_head.setStyleSheet("font-size: 15px; font-weight: 700;")
-        h_head.addWidget(lbl_head)
+        self.lbl_head = QLabel(LanguageManager.tr("nav_all_tools"))
+        self.lbl_head.setStyleSheet("font-size: 15px; font-weight: 700;")
+        h_head.addWidget(self.lbl_head)
         h_head.addStretch(1)
 
         btn_close = QToolButton()
@@ -838,6 +856,7 @@ class ModernAllToolsPanel(QWidget):
         self.v_tools.setSpacing(2)
 
         self.items: Dict[str, ModernToolItemWidget] = {}
+        self.tool_keys: Dict[str, str] = {}
         standard_tool_specs = [
             ("export_pdf", "tool_export_pdf", ModernIconFactory.icon_export_pdf("#0284c7"), "#0284c7"),
             ("fill_sign", "tool_fill_sign", ModernIconFactory.icon_fill_sign("#8b5cf6"), "#8b5cf6"),
@@ -856,6 +875,7 @@ class ModernAllToolsPanel(QWidget):
         ]
 
         for tid, key, icon, col in standard_tool_specs:
+            self.tool_keys[tid] = key
             item = ModernToolItemWidget(tid, LanguageManager.tr(key), icon, col, parent=tools_container)
             item.clicked.connect(self._on_item_clicked)
             self.v_tools.addWidget(item)
@@ -879,6 +899,7 @@ class ModernAllToolsPanel(QWidget):
         ]
 
         for tid, key, icon, col in extra_tool_specs:
+            self.tool_keys[tid] = key
             item = ModernToolItemWidget(tid, LanguageManager.tr(key), icon, col, parent=self.extra_tools_container)
             item.clicked.connect(self._on_item_clicked)
             v_extra.addWidget(item)
@@ -899,6 +920,15 @@ class ModernAllToolsPanel(QWidget):
 
         self.apply_theme(self.theme_name)
         self.set_active_tool("organize_pages")
+
+    def retranslate_ui(self):
+        self.lbl_head.setText(LanguageManager.tr("nav_all_tools"))
+        self.btn_view_more.setText(
+            LanguageManager.tr("tool_view_less") if self.is_expanded else LanguageManager.tr("tool_view_more")
+        )
+        for tid, key in self.tool_keys.items():
+            if tid in self.items:
+                self.items[tid].set_text(LanguageManager.tr(key))
 
     def _toggle_expand(self):
         self.is_expanded = not self.is_expanded
@@ -965,12 +995,11 @@ class ModernAllToolsPanel(QWidget):
 class ModernDrawerItemWidget(QWidget):
     clicked = pyqtSignal(str)
 
-    def __init__(self, item_id: str, title: str, icon: QIcon, badge_text: str = "Ready", is_ready: bool = True, parent=None):
+    def __init__(self, item_id: str, title: str, icon: QIcon, badge_text: str = "", is_ready: bool = True, parent=None):
         super().__init__(parent)
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self.item_id = item_id
         self.title = title
-        self.badge_text = badge_text
         self.is_ready = is_ready
         self.theme_name = "light"
         self.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -978,7 +1007,7 @@ class ModernDrawerItemWidget(QWidget):
 
         layout = QHBoxLayout(self)
         layout.setContentsMargins(8, 4, 8, 4)
-        layout.setSpacing(6)
+        layout.setSpacing(8)
 
         self.lbl_icon = QLabel()
         self.lbl_icon.setPixmap(icon.pixmap(18, 18))
@@ -989,9 +1018,9 @@ class ModernDrawerItemWidget(QWidget):
         self.lbl_text.setObjectName("DrawerItemText")
         layout.addWidget(self.lbl_text, stretch=1)
 
-        self.lbl_badge = QLabel(badge_text)
-        self.lbl_badge.setObjectName("DrawerItemBadge")
-        layout.addWidget(self.lbl_badge)
+    def set_title(self, title: str):
+        self.title = title
+        self.lbl_text.setText(title)
 
     def mousePressEvent(self, e):
         if e.button() == Qt.MouseButton.LeftButton:
@@ -1000,13 +1029,6 @@ class ModernDrawerItemWidget(QWidget):
     def _apply_style(self, theme_name: str):
         self.theme_name = theme_name
         c = get_modern_theme_colors(theme_name)
-        is_dark = theme_name != "light"
-        if self.is_ready:
-            badge_bg = "rgba(52, 211, 153, 0.22)" if is_dark else "rgba(16, 185, 129, 0.15)"
-            badge_col = "#6ee7b7" if is_dark else "#047857"
-        else:
-            badge_bg = "rgba(203, 213, 225, 0.20)" if is_dark else "rgba(148, 163, 184, 0.15)"
-            badge_col = "#e2e8f0" if is_dark else "#475569"
         self.setStyleSheet(f"""
             ModernDrawerItemWidget {{
                 background-color: transparent;
@@ -1019,14 +1041,6 @@ class ModernDrawerItemWidget(QWidget):
                 color: {c['text']};
                 font-size: 12.5px;
                 font-weight: 500;
-            }}
-            #DrawerItemBadge {{
-                background-color: {badge_bg};
-                color: {badge_col};
-                border-radius: 7px;
-                padding: 1px 6px;
-                font-size: 10px;
-                font-weight: 700;
             }}
         """)
 
@@ -1064,9 +1078,9 @@ class ModernExportDrawer(QWidget):
         btn_back.clicked.connect(self.backRequested.emit)
         h_head.addWidget(btn_back)
 
-        lbl_head = QLabel(LanguageManager.tr("drawer_export_title"))
-        lbl_head.setStyleSheet("font-size: 14px; font-weight: 700;")
-        h_head.addWidget(lbl_head)
+        self.lbl_head = QLabel(LanguageManager.tr("drawer_export_title"))
+        self.lbl_head.setStyleSheet("font-size: 14px; font-weight: 700;")
+        h_head.addWidget(self.lbl_head)
         h_head.addStretch(1)
 
         btn_close = QToolButton()
@@ -1079,9 +1093,9 @@ class ModernExportDrawer(QWidget):
         main_layout.addLayout(h_head)
 
         # Kategori Başlığı: EXPORT TO
-        lbl_cat = QLabel(LanguageManager.tr("drawer_export_to"))
-        lbl_cat.setObjectName("CategoryHeader")
-        main_layout.addWidget(lbl_cat)
+        self.lbl_cat = QLabel(LanguageManager.tr("drawer_export_to"))
+        self.lbl_cat.setObjectName("CategoryHeader")
+        main_layout.addWidget(self.lbl_cat)
 
         # Liste Kaydırma Alanı
         scroll = QScrollArea()
@@ -1094,21 +1108,20 @@ class ModernExportDrawer(QWidget):
         v_items.setContentsMargins(0, 0, 0, 0)
         v_items.setSpacing(2)
 
-        ready_text = LanguageManager.tr("badge_ready")
         self.items: List[ModernDrawerItemWidget] = []
-        specs = [
-            ("word", "drawer_export_word", ModernIconFactory.icon_word("#0284c7"), ready_text, True),
-            ("xlsx", "drawer_export_xlsx", ModernIconFactory.icon_excel("#10b981"), "M10", False),
-            ("pptx", "drawer_export_pptx", ModernIconFactory.icon_pptx("#ea580c"), "M10", False),
-            ("png", "drawer_export_png", ModernIconFactory.icon_image("#0284c7"), ready_text, True),
-            ("all_images", "drawer_export_all_images", ModernIconFactory.icon_image_gallery("#0284c7"), ready_text, True),
-            ("html", "drawer_export_html", ModernIconFactory.icon_html("#0284c7"), ready_text, True),
-            ("rtf", "drawer_export_rtf", ModernIconFactory.icon_txt("#10b981"), ready_text, True),
-            ("txt", "drawer_export_txt", ModernIconFactory.icon_txt("#0284c7"), ready_text, True),
-            ("eps", "drawer_export_eps", ModernIconFactory.icon_eps("#8b5cf6"), "M10", False),
+        self.specs = [
+            ("word", "drawer_export_word", ModernIconFactory.icon_word("#0284c7"), "", True),
+            ("xlsx", "drawer_export_xlsx", ModernIconFactory.icon_excel("#10b981"), "", True),
+            ("pptx", "drawer_export_pptx", ModernIconFactory.icon_pptx("#ea580c"), "", True),
+            ("png", "drawer_export_png", ModernIconFactory.icon_image("#0284c7"), "", True),
+            ("all_images", "drawer_export_all_images", ModernIconFactory.icon_image_gallery("#0284c7"), "", True),
+            ("html", "drawer_export_html", ModernIconFactory.icon_html("#0284c7"), "", True),
+            ("rtf", "drawer_export_rtf", ModernIconFactory.icon_txt("#10b981"), "", True),
+            ("txt", "drawer_export_txt", ModernIconFactory.icon_txt("#0284c7"), "", True),
+            ("eps", "drawer_export_eps", ModernIconFactory.icon_eps("#8b5cf6"), "", True),
         ]
 
-        for cid, key, icon, badge, is_ready in specs:
+        for cid, key, icon, badge, is_ready in self.specs:
             it = ModernDrawerItemWidget(cid, LanguageManager.tr(key), icon, badge, is_ready, parent=container)
             it.clicked.connect(self.exportTriggered.emit)
             v_items.addWidget(it)
@@ -1119,6 +1132,12 @@ class ModernExportDrawer(QWidget):
         main_layout.addWidget(scroll, stretch=1)
 
         self.apply_theme(self.theme_name)
+
+    def retranslate_ui(self):
+        self.lbl_head.setText(LanguageManager.tr("drawer_export_title"))
+        self.lbl_cat.setText(LanguageManager.tr("drawer_export_to"))
+        for it, (_, key, _, _, _) in zip(self.items, self.specs):
+            it.set_title(LanguageManager.tr(key))
 
     def apply_theme(self, theme_name: str = "light"):
         self.theme_name = theme_name
@@ -1191,9 +1210,9 @@ class ModernEditDrawer(QWidget):
         btn_back.clicked.connect(self.backRequested.emit)
         h_head.addWidget(btn_back)
 
-        lbl_head = QLabel(LanguageManager.tr("drawer_edit_title"))
-        lbl_head.setStyleSheet("font-size: 14px; font-weight: 700;")
-        h_head.addWidget(lbl_head)
+        self.lbl_head = QLabel(LanguageManager.tr("drawer_edit_title"))
+        self.lbl_head.setStyleSheet("font-size: 14px; font-weight: 700;")
+        h_head.addWidget(self.lbl_head)
         h_head.addStretch(1)
 
         btn_close = QToolButton()
@@ -1210,10 +1229,10 @@ class ModernEditDrawer(QWidget):
         self.notice_box.setObjectName("NoticeBox")
         v_notice = QVBoxLayout(self.notice_box)
         v_notice.setContentsMargins(10, 8, 10, 8)
-        lbl_notice = QLabel(LanguageManager.tr("drawer_edit_notice"))
-        lbl_notice.setWordWrap(True)
-        lbl_notice.setStyleSheet("font-size: 11px; line-height: 1.2;")
-        v_notice.addWidget(lbl_notice)
+        self.lbl_notice = QLabel(LanguageManager.tr("drawer_edit_notice"))
+        self.lbl_notice.setWordWrap(True)
+        self.lbl_notice.setStyleSheet("font-size: 11px; line-height: 1.2;")
+        v_notice.addWidget(self.lbl_notice)
         main_layout.addWidget(self.notice_box)
 
         # Kaydırma Alanı
@@ -1227,44 +1246,43 @@ class ModernEditDrawer(QWidget):
         v_items.setContentsMargins(0, 0, 0, 0)
         v_items.setSpacing(4)
 
-        ready_text = LanguageManager.tr("badge_ready")
         self.items: List[ModernDrawerItemWidget] = []
 
         # Grup 1: MODIFY PAGE
-        lbl_g1 = QLabel(LanguageManager.tr("drawer_group_modify_page"))
-        lbl_g1.setObjectName("CategoryHeader")
-        v_items.addWidget(lbl_g1)
+        self.lbl_g1 = QLabel(LanguageManager.tr("drawer_group_modify_page"))
+        self.lbl_g1.setObjectName("CategoryHeader")
+        v_items.addWidget(self.lbl_g1)
 
-        specs_modify = [
-            ("rotate", "drawer_edit_rotate", ModernIconFactory.icon_rotate("#ec4899"), ready_text, True),
-            ("insert", "drawer_edit_insert", ModernIconFactory.icon_insert("#ec4899"), ready_text, True),
-            ("delete", "drawer_edit_delete", ModernIconFactory.icon_trash("#ec4899"), ready_text, True),
-            ("extract", "drawer_edit_extract", ModernIconFactory.icon_extract("#ec4899"), ready_text, True),
-            ("organize", "tool_organize_pages", ModernIconFactory.icon_organize("#ec4899"), ready_text, True),
+        self.specs_modify = [
+            ("rotate", "drawer_edit_rotate", ModernIconFactory.icon_rotate("#ec4899"), "", True),
+            ("insert", "drawer_edit_insert", ModernIconFactory.icon_insert("#ec4899"), "", True),
+            ("delete", "drawer_edit_delete", ModernIconFactory.icon_trash("#ec4899"), "", True),
+            ("extract", "drawer_edit_extract", ModernIconFactory.icon_extract("#ec4899"), "", True),
+            ("organize", "tool_organize_pages", ModernIconFactory.icon_organize("#ec4899"), "", True),
         ]
-        for cid, key, icon, badge, is_ready in specs_modify:
+        for cid, key, icon, badge, is_ready in self.specs_modify:
             it = ModernDrawerItemWidget(cid, LanguageManager.tr(key), icon, badge, is_ready, parent=container)
             it.clicked.connect(self.editTriggered.emit)
             v_items.addWidget(it)
             self.items.append(it)
 
         # Grup 2: ADD CONTENT
-        lbl_g2 = QLabel(LanguageManager.tr("drawer_group_add_content"))
-        lbl_g2.setObjectName("CategoryHeader")
-        v_items.addWidget(lbl_g2)
+        self.lbl_g2 = QLabel(LanguageManager.tr("drawer_group_add_content"))
+        self.lbl_g2.setObjectName("CategoryHeader")
+        v_items.addWidget(self.lbl_g2)
 
-        specs_add = [
-            ("edit_text_images", "drawer_edit_text_images", ModernIconFactory.icon_edit_content("#ec4899"), ready_text, True),
-            ("text", "drawer_edit_text", ModernIconFactory.icon_text_tool("#ec4899"), ready_text, True),
-            ("image", "drawer_edit_image", ModernIconFactory.icon_image("#ec4899"), ready_text, True),
-            ("header_footer", "drawer_edit_header_footer", ModernIconFactory.icon_header_footer("#ec4899"), ready_text, True),
-            ("watermark", "drawer_edit_watermark", ModernIconFactory.icon_watermark("#ec4899"), ready_text, True),
-            ("link", "drawer_edit_link", ModernIconFactory.icon_link("#ec4899"), ready_text, True),
-            ("bates", "drawer_edit_bates", ModernIconFactory.icon_bates("#ec4899"), ready_text, True),
-            ("background", "drawer_edit_background", ModernIconFactory.icon_background("#ec4899"), ready_text, True),
-            ("attach", "drawer_edit_attach", ModernIconFactory.icon_attachment("#ec4899"), "M12", False),
+        self.specs_add = [
+            ("edit_text_images", "drawer_edit_text_images", ModernIconFactory.icon_edit_content("#ec4899"), "", True),
+            ("text", "drawer_edit_text", ModernIconFactory.icon_text_tool("#ec4899"), "", True),
+            ("image", "drawer_edit_image", ModernIconFactory.icon_image("#ec4899"), "", True),
+            ("header_footer", "drawer_edit_header_footer", ModernIconFactory.icon_header_footer("#ec4899"), "", True),
+            ("watermark", "drawer_edit_watermark", ModernIconFactory.icon_watermark("#ec4899"), "", True),
+            ("link", "drawer_edit_link", ModernIconFactory.icon_link("#ec4899"), "", True),
+            ("bates", "drawer_edit_bates", ModernIconFactory.icon_bates("#ec4899"), "", True),
+            ("background", "drawer_edit_background", ModernIconFactory.icon_background("#ec4899"), "", True),
+            ("attach", "drawer_edit_attach", ModernIconFactory.icon_attachment("#ec4899"), "", True),
         ]
-        for cid, key, icon, badge, is_ready in specs_add:
+        for cid, key, icon, badge, is_ready in self.specs_add:
             it = ModernDrawerItemWidget(cid, LanguageManager.tr(key), icon, badge, is_ready, parent=container)
             it.clicked.connect(self.editTriggered.emit)
             v_items.addWidget(it)
@@ -1275,6 +1293,15 @@ class ModernEditDrawer(QWidget):
         main_layout.addWidget(scroll, stretch=1)
 
         self.apply_theme(self.theme_name)
+
+    def retranslate_ui(self):
+        self.lbl_head.setText(LanguageManager.tr("drawer_edit_title"))
+        self.lbl_notice.setText(LanguageManager.tr("drawer_edit_notice"))
+        self.lbl_g1.setText(LanguageManager.tr("drawer_group_modify_page"))
+        self.lbl_g2.setText(LanguageManager.tr("drawer_group_add_content"))
+        all_specs = self.specs_modify + self.specs_add
+        for it, (_, key, _, _, _) in zip(self.items, all_specs):
+            it.set_title(LanguageManager.tr(key))
 
     def apply_theme(self, theme_name: str = "light"):
         self.theme_name = theme_name
@@ -1376,6 +1403,11 @@ class ModernLeftSidebar(QStackedWidget):
         self.export_drawer.apply_theme(theme_name)
         self.edit_drawer.apply_theme(theme_name)
 
+    def retranslate_ui(self):
+        self.all_tools_panel.retranslate_ui()
+        self.export_drawer.retranslate_ui()
+        self.edit_drawer.retranslate_ui()
+
 
 class FloatingQuickToolsCapsule(QFrame):
     """
@@ -1431,6 +1463,19 @@ class FloatingQuickToolsCapsule(QFrame):
 
         self.buttons["select"].setChecked(True)
         self.apply_theme(self.theme_name)
+
+    def retranslate_ui(self):
+        tool_specs = [
+            ("select", "quick_tool_select"),
+            ("highlighter", "quick_tool_highlighter"),
+            ("comment", "quick_tool_comment"),
+            ("text", "quick_tool_text"),
+            ("pen", "quick_tool_pen"),
+            ("eraser", "quick_tool_eraser"),
+        ]
+        for tid, key in tool_specs:
+            if tid in self.buttons:
+                self.buttons[tid].setToolTip(LanguageManager.tr(key))
 
     def _on_btn_clicked(self, tool_id: str):
         self.set_active_tool(tool_id)
@@ -1507,6 +1552,11 @@ class HomeRecommendedCard(QFrame):
 
         self.apply_theme(theme_name)
 
+    def retranslate(self, title: str, subtitle: str):
+        self.lbl_title.setText(title)
+        self.lbl_sub.setText(subtitle)
+        self.lbl_use_now.setText(LanguageManager.tr("home_use_now"))
+
     def mousePressEvent(self, e):
         if e.button() == Qt.MouseButton.LeftButton:
             self.clicked.emit(self.tool_id)
@@ -1568,6 +1618,9 @@ class HomeOpenFileCard(QFrame):
         layout.addWidget(self.lbl_text)
 
         self.apply_theme(theme_name)
+
+    def retranslate_ui(self):
+        self.lbl_text.setText(LanguageManager.tr("home_open_file"))
 
     def mousePressEvent(self, e):
         if e.button() == Qt.MouseButton.LeftButton:
@@ -1734,70 +1787,7 @@ class HomeDashboardWorkspace(QWidget):
         v_title.addWidget(self.lbl_sub)
         v_inner.addLayout(v_title)
 
-        # 2. Topluluk Kartı (Community Banner)
-        self.banner_frame = QFrame()
-        self.banner_frame.setObjectName("CommunityBanner")
-        v_banner = QVBoxLayout(self.banner_frame)
-        v_banner.setContentsMargins(20, 18, 20, 18)
-        v_banner.setSpacing(14)
-
-        h_banner_head = QHBoxLayout()
-        h_banner_head.setSpacing(12)
-        lbl_app_logo = QLabel()
-        lbl_app_logo.setPixmap(ModernIconFactory.icon_app().pixmap(24, 24))
-        h_banner_head.addWidget(lbl_app_logo)
-
-        v_head_texts = QVBoxLayout()
-        v_head_texts.setSpacing(2)
-        self.lbl_comm_title = QLabel(LanguageManager.tr("home_community_title"))
-        self.lbl_comm_title.setObjectName("CommunityTitle")
-        self.lbl_comm_desc = QLabel(LanguageManager.tr("home_community_desc"))
-        self.lbl_comm_desc.setObjectName("CommunityDesc")
-        v_head_texts.addWidget(self.lbl_comm_title)
-        v_head_texts.addWidget(self.lbl_comm_desc)
-        h_banner_head.addLayout(v_head_texts, stretch=1)
-        v_banner.addLayout(h_banner_head)
-
-        h_banner_btns = QHBoxLayout()
-        h_banner_btns.setSpacing(10)
-
-        # Discord Butonu (Mavi Dolgulu)
-        self.btn_discord = QPushButton(" " + LanguageManager.tr("home_btn_discord"))
-        self.btn_discord.setIcon(ModernIconFactory.icon_discord("#ffffff"))
-        self.btn_discord.setObjectName("BtnDiscord")
-        self.btn_discord.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.btn_discord.clicked.connect(lambda: QDesktopServices.openUrl(QUrl("https://discord.gg/aurapdf")))
-        h_banner_btns.addWidget(self.btn_discord)
-
-        # Web Butonu
-        self.btn_web = QPushButton(" " + LanguageManager.tr("home_btn_web"))
-        self.btn_web.setIcon(ModernIconFactory.icon_web())
-        self.btn_web.setObjectName("BtnOutline")
-        self.btn_web.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.btn_web.clicked.connect(lambda: QDesktopServices.openUrl(QUrl("https://aurapdf.org")))
-        h_banner_btns.addWidget(self.btn_web)
-
-        # GitHub Butonu
-        self.btn_github = QPushButton(" " + LanguageManager.tr("home_btn_github"))
-        self.btn_github.setIcon(ModernIconFactory.icon_github())
-        self.btn_github.setObjectName("BtnOutline")
-        self.btn_github.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.btn_github.clicked.connect(lambda: QDesktopServices.openUrl(QUrl("https://github.com/furkanndev/AuraPDF")))
-        h_banner_btns.addWidget(self.btn_github)
-
-        # Docs Butonu
-        self.btn_website = QPushButton(" " + LanguageManager.tr("home_btn_website"))
-        self.btn_website.setIcon(ModernIconFactory.icon_web())
-        self.btn_website.setObjectName("BtnOutline")
-        self.btn_website.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.btn_website.clicked.connect(lambda: QDesktopServices.openUrl(QUrl("https://github.com/furkanndev/AuraPDF#readme")))
-        h_banner_btns.addWidget(self.btn_website)
-
-        h_banner_btns.addStretch(1)
-        v_banner.addLayout(h_banner_btns)
-        v_inner.addWidget(self.banner_frame)
-
-        # 3. Önerilen Araçlar (Recommended tools)
+        # 2. Önerilen Araçlar (Recommended tools)
         v_rec = QVBoxLayout()
         v_rec.setSpacing(14)
         self.lbl_rec_title = QLabel(LanguageManager.tr("home_recommended_tools"))
@@ -1807,7 +1797,7 @@ class HomeDashboardWorkspace(QWidget):
         h_cards = QHBoxLayout()
         h_cards.setSpacing(12)
 
-        rec_tools = [
+        self.rec_tool_specs = [
             ("organize_pages", "tool_organize_pages", "tool_sub_organize", ModernIconFactory.icon_organize("#10b981")),
             ("add_comments", "tool_add_comments", "tool_sub_comments", ModernIconFactory.icon_comments("#f97316")),
             ("prepare_form", "tool_prepare_form", "tool_sub_prepare_form", ModernIconFactory.icon_prepare_form("#9333ea")),
@@ -1816,7 +1806,7 @@ class HomeDashboardWorkspace(QWidget):
         ]
 
         self.recommended_cards = []
-        for tid, title_key, sub_key, icon in rec_tools:
+        for tid, title_key, sub_key, icon in self.rec_tool_specs:
             card = HomeRecommendedCard(
                 tid,
                 LanguageManager.tr(title_key),
@@ -1838,7 +1828,7 @@ class HomeDashboardWorkspace(QWidget):
         v_rec.addLayout(h_cards)
         v_inner.addLayout(v_rec)
 
-        # 4. Son Açılanlar (Recent)
+        # 3. Son Açılanlar (Recent)
         v_recent = QVBoxLayout()
         v_recent.setSpacing(14)
         self.lbl_recent_title = QLabel(LanguageManager.tr("home_recent_title"))
@@ -1918,6 +1908,17 @@ class HomeDashboardWorkspace(QWidget):
             self.content_container.layout().invalidate()
         self.content_container.updateGeometry()
 
+    def retranslate_ui(self):
+        self.lbl_welcome.setText(LanguageManager.tr("home_welcome_title"))
+        self.lbl_sub.setText(LanguageManager.tr("home_welcome_subtitle"))
+        self.lbl_rec_title.setText(LanguageManager.tr("home_recommended_tools"))
+        for card, (_, title_key, sub_key, _) in zip(self.recommended_cards, self.rec_tool_specs):
+            card.retranslate(LanguageManager.tr(title_key), LanguageManager.tr(sub_key))
+        if hasattr(self, 'open_card'):
+            self.open_card.retranslate_ui()
+        self.lbl_recent_title.setText(LanguageManager.tr("home_recent_title"))
+        self.load_recent_files()
+
     def apply_theme(self, theme_name: str = "light"):
         self.theme_name = theme_name
         c = get_modern_theme_colors(theme_name)
@@ -1934,45 +1935,6 @@ class HomeDashboardWorkspace(QWidget):
                 color: {c['text_muted']};
                 font-size: 13px;
                 font-weight: 500;
-            }}
-            #CommunityBanner {{
-                background-color: {c['surface']};
-                border: 1px solid {c['border']};
-                border-radius: 12px;
-            }}
-            #CommunityTitle {{
-                color: {c['text']};
-                font-size: 15px;
-                font-weight: 700;
-            }}
-            #CommunityDesc {{
-                color: {c['text_muted']};
-                font-size: 12px;
-            }}
-            #BtnDiscord {{
-                background-color: #5865f2;
-                color: #ffffff;
-                border: none;
-                border-radius: 6px;
-                padding: 6px 14px;
-                font-size: 12px;
-                font-weight: 600;
-            }}
-            #BtnDiscord:hover {{
-                background-color: #4752c4;
-            }}
-            #BtnOutline {{
-                background-color: {c['surface_hover']};
-                color: {c['text']};
-                border: 1px solid {c['border']};
-                border-radius: 6px;
-                padding: 6px 14px;
-                font-size: 12px;
-                font-weight: 500;
-            }}
-            #BtnOutline:hover {{
-                background-color: {c['surface_active']};
-                border-color: {c['accent']};
             }}
             #SectionTitle {{
                 color: {c['text']};
@@ -2253,7 +2215,7 @@ class OrganizePagesWorkspace(QWidget):
             return
         tab_doc = self.main_window.get_current_tab_doc()
         if not tab_doc or not tab_doc.doc:
-            self.lbl_page_info.setText("Belge Açık Değil")
+            self.lbl_page_info.setText(LanguageManager.tr("page_of", total=0))
             return
 
         total = len(tab_doc.doc)
@@ -2280,6 +2242,18 @@ class OrganizePagesWorkspace(QWidget):
         self._render_thumbnails(start=0, limit=36)
         if total > 36:
             QTimer.singleShot(100, lambda: self._render_thumbnails(start=36))
+
+    def retranslate_ui(self):
+        self.btn_rot_ccw.setToolTip(LanguageManager.tr("organize_rotate_ccw"))
+        self.btn_rot_cw.setToolTip(LanguageManager.tr("organize_rotate_cw"))
+        self.btn_delete.setToolTip(LanguageManager.tr("organize_delete_pages"))
+        self.btn_insert.setToolTip(LanguageManager.tr("organize_insert_page"))
+        self.btn_extract.setToolTip(LanguageManager.tr("organize_extract_pages"))
+        self.btn_split.setToolTip(LanguageManager.tr("organize_split_doc"))
+        self.btn_replace.setToolTip(LanguageManager.tr("organize_replace_pages"))
+        self.btn_select_all.setToolTip(LanguageManager.tr("organize_select_all"))
+        self.btn_close.setText(" " + LanguageManager.tr("organize_close_btn"))
+        self._update_selection_info()
 
     def _render_thumbnails(self, start: int = 0, limit: Optional[int] = None):
         if not self.main_window:
@@ -2335,7 +2309,7 @@ class OrganizePagesWorkspace(QWidget):
             p = next(iter(self.selected_pages))
             self.lbl_page_info.setText(LanguageManager.tr("organize_page_of", curr=p + 1, total=total))
         else:
-            self.lbl_page_info.setText(f"{total} Pages")
+            self.lbl_page_info.setText(LanguageManager.tr("page_of", total=total))
 
     def select_all_pages(self):
         self.selected_pages = set(range(len(self.cards)))
@@ -2528,14 +2502,14 @@ class ModernRightSidebar(QWidget):
         h_head.addWidget(self.lbl_head_title)
         h_head.addStretch(1)
 
-        btn_add = QToolButton()
-        btn_add.setIcon(ModernIconFactory.icon_plus())
-        btn_add.setIconSize(QSize(12, 12))
-        btn_add.setFixedSize(22, 22)
-        btn_add.setCursor(Qt.CursorShape.PointingHandCursor)
-        btn_add.setToolTip(LanguageManager.tr("bookmarks_add_btn"))
-        btn_add.clicked.connect(self._add_bookmark_action)
-        h_head.addWidget(btn_add)
+        self.btn_add = QToolButton()
+        self.btn_add.setIcon(ModernIconFactory.icon_plus())
+        self.btn_add.setIconSize(QSize(12, 12))
+        self.btn_add.setFixedSize(22, 22)
+        self.btn_add.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_add.setToolTip(LanguageManager.tr("bookmarks_add_btn"))
+        self.btn_add.clicked.connect(self._add_bookmark_action)
+        h_head.addWidget(self.btn_add)
 
         btn_close = QToolButton()
         btn_close.setIcon(ModernIconFactory.icon_close())
@@ -2579,6 +2553,12 @@ class ModernRightSidebar(QWidget):
 
         main_layout.addWidget(self.stack, stretch=1)
         self.apply_theme(self.theme_name)
+
+    def retranslate_ui(self):
+        self.lbl_head_title.setText(LanguageManager.tr("bookmarks_panel_title"))
+        self.lbl_empty_msg.setText(LanguageManager.tr("bookmarks_empty_title"))
+        if hasattr(self, 'btn_add'):
+            self.btn_add.setToolTip(LanguageManager.tr("bookmarks_add_btn"))
 
     def load_bookmarks(self):
         """Aktif belgenin yer imlerini yükler."""
@@ -2722,7 +2702,7 @@ class ModernUtilityRail(QWidget):
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self.theme_name = "light"
         self.active_rail_id: Optional[str] = "bookmarks"
-        self.setFixedWidth(42)
+        self.setFixedWidth(48)
 
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(4, 8, 4, 8)
@@ -2742,7 +2722,7 @@ class ModernUtilityRail(QWidget):
             btn = QToolButton()
             btn.setIcon(icon)
             btn.setIconSize(QSize(18, 18))
-            btn.setFixedSize(34, 34)
+            btn.setFixedSize(36, 34)
             btn.setCheckable(True)
             btn.setCursor(Qt.CursorShape.PointingHandCursor)
             btn.setToolTip(LanguageManager.tr(tip_key))
@@ -2764,7 +2744,7 @@ class ModernUtilityRail(QWidget):
         self.btn_prev = QToolButton()
         self.btn_prev.setIcon(ModernIconFactory.icon_chevron_up())
         self.btn_prev.setIconSize(QSize(12, 12))
-        self.btn_prev.setFixedSize(34, 20)
+        self.btn_prev.setFixedSize(36, 20)
         self.btn_prev.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_prev.clicked.connect(self.prevPageRequested.emit)
         main_layout.addWidget(self.btn_prev)
@@ -2772,22 +2752,22 @@ class ModernUtilityRail(QWidget):
         self.btn_next = QToolButton()
         self.btn_next.setIcon(ModernIconFactory.icon_chevron_down())
         self.btn_next.setIconSize(QSize(12, 12))
-        self.btn_next.setFixedSize(34, 20)
+        self.btn_next.setFixedSize(36, 20)
         self.btn_next.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_next.clicked.connect(self.nextPageRequested.emit)
         main_layout.addWidget(self.btn_next)
 
-        # Zoom Yüzdesi
+        # Zoom Yüzdesi (Sağ alt panelde net ve okunaklı)
         self.lbl_zoom = QLabel("100%")
+        self.lbl_zoom.setObjectName("RailZoom")
         self.lbl_zoom.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.lbl_zoom.setStyleSheet("font-size: 10px; font-weight: 600;")
         main_layout.addWidget(self.lbl_zoom)
 
         # Sığdır
         self.btn_fit = QToolButton()
         self.btn_fit.setIcon(ModernIconFactory.icon_fit_page())
         self.btn_fit.setIconSize(QSize(16, 16))
-        self.btn_fit.setFixedSize(34, 28)
+        self.btn_fit.setFixedSize(36, 28)
         self.btn_fit.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_fit.setToolTip(LanguageManager.tr("fit_to_page"))
         self.btn_fit.clicked.connect(self.fitPageRequested.emit)
@@ -2797,7 +2777,7 @@ class ModernUtilityRail(QWidget):
         self.btn_zin = QToolButton()
         self.btn_zin.setIcon(ModernIconFactory.icon_plus())
         self.btn_zin.setIconSize(QSize(12, 12))
-        self.btn_zin.setFixedSize(34, 24)
+        self.btn_zin.setFixedSize(36, 24)
         self.btn_zin.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_zin.clicked.connect(self.zoomInRequested.emit)
         main_layout.addWidget(self.btn_zin)
@@ -2806,12 +2786,33 @@ class ModernUtilityRail(QWidget):
         self.btn_zout = QToolButton()
         self.btn_zout.setIcon(ModernIconFactory.icon_minus())
         self.btn_zout.setIconSize(QSize(12, 12))
-        self.btn_zout.setFixedSize(34, 24)
+        self.btn_zout.setFixedSize(36, 24)
         self.btn_zout.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_zout.clicked.connect(self.zoomOutRequested.emit)
         main_layout.addWidget(self.btn_zout)
 
         self.apply_theme(self.theme_name)
+
+    @property
+    def current_item(self) -> str:
+        return self.active_rail_id or "none"
+
+    @current_item.setter
+    def current_item(self, val: str):
+        self.set_active_rail_item(val if val != "none" else None)
+
+    def retranslate_ui(self):
+        tip_map = {
+            "comments": "right_rail_comments",
+            "bookmarks": "right_rail_bookmarks",
+            "thumbnails": "right_rail_thumbnails",
+            "attachments": "right_rail_attachments",
+            "signatures": "right_rail_signatures",
+        }
+        for rid, key in tip_map.items():
+            if rid in self.buttons:
+                self.buttons[rid].setToolTip(LanguageManager.tr(key))
+        self.btn_fit.setToolTip(LanguageManager.tr("fit_to_page"))
 
     def _on_button_clicked(self, rail_id: str):
         if self.active_rail_id == rail_id:
@@ -2846,6 +2847,12 @@ class ModernUtilityRail(QWidget):
             }}
             QLabel {{
                 color: {c['text']};
+            }}
+            #RailZoom {{
+                color: {c['text']};
+                font-size: 11px;
+                font-weight: 700;
+                padding: 2px 0;
             }}
             QToolButton {{
                 background-color: transparent;

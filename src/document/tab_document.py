@@ -3304,7 +3304,10 @@ class PDFTabDocument(QWidget):
         if new_level == self.zoom_level: return
         self.view.scale(new_level / self.zoom_level, new_level / self.zoom_level)
         self.zoom_level = new_level
-        self.main_window.lbl_zoom.setText(f" {LanguageManager.tr('percent_format', val=int(self.zoom_level * 100))} ")
+        if hasattr(self.main_window, 'update_zoom_display'):
+            self.main_window.update_zoom_display(int(self.zoom_level * 100))
+        elif hasattr(self.main_window, 'lbl_zoom'):
+            self.main_window.lbl_zoom.setText(f" {LanguageManager.tr('percent_format', val=int(self.zoom_level * 100))} ")
         self.rerender_timer.start(250)
         self.save_zoom_setting()
         if hasattr(self, 'direct_edit_editor') and self.direct_edit_editor:

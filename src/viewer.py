@@ -1185,6 +1185,24 @@ class AuraPDFViewer(QMainWindow):
         if hasattr(self, 'modern_utility_rail'):
             self.modern_utility_rail.hide()
 
+    def update_zoom_display(self, zoom_percent: int):
+        if hasattr(self, 'lbl_zoom') and self.lbl_zoom:
+            self.lbl_zoom.setText(f" {LanguageManager.tr('percent_format', val=zoom_percent)} ")
+        if hasattr(self, 'modern_utility_rail') and self.modern_utility_rail:
+            self.modern_utility_rail.update_zoom_info(zoom_percent)
+
+    def open_search_bar(self):
+        if hasattr(self, 'search_bar'):
+            self.search_bar.show()
+            self.search_bar.txt_find.setFocus()
+            self.search_bar.txt_find.selectAll()
+
+    def open_compare_dialog(self):
+        self.open_pdf_compare_dialog()
+
+    def show_doc_properties(self):
+        self.open_document_properties_dialog()
+
     def switch_to_document_view(self):
         if self.tab_widget.count() > 0:
             self.central_stack.setCurrentWidget(self.tab_widget)
@@ -1202,6 +1220,9 @@ class AuraPDFViewer(QMainWindow):
                         self.modern_right_sidebar.load_bookmarks()
                     else:
                         self.modern_right_sidebar.hide()
+            tab_doc = self.get_current_tab_doc()
+            if tab_doc:
+                self.update_zoom_display(int(tab_doc.zoom_level * 100))
         else:
             self.switch_to_home_view()
 
@@ -1508,15 +1529,15 @@ class AuraPDFViewer(QMainWindow):
             self.switch_to_document_view()
             self.set_tool_state('ruler')
         elif tool_id == "compare_files":
-            self.open_compare_dialog()
+            self.open_pdf_compare_dialog()
         elif tool_id == "guided_actions":
             self.show_toolbox_menu()
         elif tool_id == "prepare_accessibility":
-            self.show_doc_properties()
+            self.open_document_properties_dialog()
         elif tool_id == "pdf_standards":
-            self.show_doc_properties()
+            self.open_document_properties_dialog()
         elif tool_id == "search_index":
-            self.open_search_bar()
+            self.toggle_search_bar()
         elif tool_id == "use_javascript":
             self.show_toolbox_menu()
         elif tool_id == "print":
@@ -1527,17 +1548,6 @@ class AuraPDFViewer(QMainWindow):
             self.open_settings_dialog()
         elif tool_id == "shortcuts":
             self.open_shortcuts_dialog()
-
-    def switch_to_organize_view(self):
-        self.central_stack.setCurrentWidget(self.organize_workspace)
-        self.organize_workspace.load_document()
-        self.modern_tools_panel.set_active_tool("organize_pages")
-        if hasattr(self, 'toolbar'):
-            self.toolbar.hide()
-
-    def switch_to_document_view(self):
-        self.central_stack.setCurrentWidget(self.tab_widget)
-        self.modern_tools_panel.set_active_tool(None)
 
     def _close_organize_workspace(self):
         self.switch_to_document_view()
@@ -2095,13 +2105,31 @@ class AuraPDFViewer(QMainWindow):
                     popup.retranslate_ui()
 
         if (tab_doc := self.get_current_tab_doc()) and tab_doc.doc is not None:
-            self.lbl_zoom.setText(f" {LanguageManager.tr('percent_format', val=int(tab_doc.zoom_level * 100))} ")
+            self.update_zoom_display(int(tab_doc.zoom_level * 100))
             self.lbl_total.setText(LanguageManager.tr("page_of", total=len(tab_doc.doc)))
             tab_doc.update_tab_title()
         else:
-            self.lbl_zoom.setText(f" {LanguageManager.tr('percent_format', val=100)} ")
+            self.update_zoom_display(100)
             self.lbl_total.setText(LanguageManager.tr("page_of", total=0))
             self.setWindowTitle(LanguageManager.tr("app_title"))
+
+        # Modern UI Bileşenlerinin Yeniden Çevirisi
+        if hasattr(self, 'modern_header_bar') and hasattr(self.modern_header_bar, 'retranslate_ui'):
+            self.modern_header_bar.retranslate_ui()
+        if hasattr(self, 'modern_left_sidebar') and hasattr(self.modern_left_sidebar, 'retranslate_ui'):
+            self.modern_left_sidebar.retranslate_ui()
+        if hasattr(self, 'modern_tab_bar') and hasattr(self.modern_tab_bar, 'retranslate_ui'):
+            self.modern_tab_bar.retranslate_ui()
+        if hasattr(self, 'home_workspace') and hasattr(self.home_workspace, 'retranslate_ui'):
+            self.home_workspace.retranslate_ui()
+        if hasattr(self, 'organize_workspace') and hasattr(self.organize_workspace, 'retranslate_ui'):
+            self.organize_workspace.retranslate_ui()
+        if hasattr(self, 'modern_right_sidebar') and hasattr(self.modern_right_sidebar, 'retranslate_ui'):
+            self.modern_right_sidebar.retranslate_ui()
+        if hasattr(self, 'modern_utility_rail') and hasattr(self.modern_utility_rail, 'retranslate_ui'):
+            self.modern_utility_rail.retranslate_ui()
+        if hasattr(self, 'floating_capsule') and hasattr(self.floating_capsule, 'retranslate_ui'):
+            self.floating_capsule.retranslate_ui()
 
         self.tab_widget.update()
 
@@ -2123,6 +2151,7 @@ class AuraPDFViewer(QMainWindow):
                 widget = self.tab_widget.widget(idx)
                 if isinstance(widget, PDFTabDocument) and getattr(widget, 'file_path', None) and os.path.abspath(widget.file_path) == norm_path:
                     self.tab_widget.setCurrentIndex(idx)
+                    self.switch_to_document_view()
                     return
             tab_doc = PDFTabDocument(file_path, self)
             view_bg = self.get_theme_view_bg()
@@ -2135,7 +2164,8 @@ class AuraPDFViewer(QMainWindow):
                 self.organize_workspace.load_document()
             if hasattr(self, 'modern_right_sidebar'):
                 self.modern_right_sidebar.load_bookmarks()
-            self.lbl_zoom.setText(f" {LanguageManager.tr('percent_format', val=int(tab_doc.zoom_level * 100))} ")
+            self.update_zoom_display(int(tab_doc.zoom_level * 100))
+            self.switch_to_document_view()
 
             # V3: Son açılanlara ekle ve dosya izleyiciye kaydet
             self.add_to_recent_files(file_path)
