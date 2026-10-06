@@ -16,13 +16,13 @@ from typing import List, Dict, Optional, Set, Any
 import pymupdf as fitz
 
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QToolButton,
+    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QTextEdit, QToolButton,
     QPushButton, QScrollArea, QGridLayout, QFrame, QStackedWidget,
     QTreeWidget, QTreeWidgetItem, QListWidget, QListWidgetItem, QMenu,
     QDialog, QSizePolicy, QApplication, QSlider, QMessageBox, QFileDialog,
     QHeaderView, QGraphicsDropShadowEffect
 )
-from PyQt6.QtCore import Qt, pyqtSignal, QSize, QPoint, QRect, QTimer, QThread, QUrl
+from PyQt6.QtCore import Qt, pyqtSignal, QSize, QPoint, QRect, QTimer, QThread, QUrl, QEvent
 from PyQt6.QtGui import (
     QIcon, QPixmap, QImage, QPainter, QColor, QPen, QBrush, QFont,
     QPainterPath, QCursor, QKeySequence, QShortcut, QDesktopServices,
@@ -871,7 +871,7 @@ class ModernAllToolsPanel(QWidget):
             ("compress_pdf", "tool_compress_pdf", ModernIconFactory.icon_compress("#ef4444"), "#ef4444"),
             ("prepare_form", "tool_prepare_form", ModernIconFactory.icon_prepare_form("#9333ea"), "#9333ea"),
             ("add_stamp", "tool_add_stamp", ModernIconFactory.icon_stamp("#a855f7"), "#a855f7"),
-            ("use_certificate", "tool_use_certificate", ModernIconFactory.icon_certificate("#0284c7"), "#0284c7"),
+            ("add_gif", "tool_add_gif", ModernIconFactory.icon_gif("#10b981"), "#10b981"),
         ]
 
         for tid, key, icon, col in standard_tool_specs:
@@ -891,11 +891,8 @@ class ModernAllToolsPanel(QWidget):
             ("print_production", "tool_print_production", ModernIconFactory.icon_print("#0284c7"), "#0284c7"),
             ("measure_objects", "tool_measure_objects", ModernIconFactory.icon_ruler("#38bdf8"), "#38bdf8"),
             ("compare_files", "tool_compare_files", ModernIconFactory.icon_compare("#8b5cf6"), "#8b5cf6"),
-            ("guided_actions", "tool_guided_actions", ModernIconFactory.icon_guided_actions("#f59e0b"), "#f59e0b"),
             ("prepare_accessibility", "tool_prepare_accessibility", ModernIconFactory.icon_accessibility("#10b981"), "#10b981"),
-            ("pdf_standards", "tool_pdf_standards", ModernIconFactory.icon_standards("#0ea5e9"), "#0ea5e9"),
             ("search_index", "tool_search_index", ModernIconFactory.icon_search_index("#6366f1"), "#6366f1"),
-            ("use_javascript", "tool_use_javascript", ModernIconFactory.icon_code("#ec4899"), "#ec4899"),
         ]
 
         for tid, key, icon, col in extra_tool_specs:
@@ -1350,11 +1347,173 @@ class ModernEditDrawer(QWidget):
             item._apply_style(theme_name)
 
 
+class ModernReadDrawer(QFrame):
+    """
+    Sadece okuma ve renk modlarını barındıran modern sol çekmece.
+    - Grup 1: SAYFA DÜZENİ (Tekli, İkili, Tam Ekran)
+    - Grup 2: OKUMA RENK MODLARI (Açık, Gece, Sepya)
+    """
+    readTriggered = pyqtSignal(str)
+    closeRequested = pyqtSignal()
+    backRequested = pyqtSignal()
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        self.theme_name = "light"
+
+        main_layout = QVBoxLayout(self)
+        main_layout.setContentsMargins(12, 12, 12, 12)
+        main_layout.setSpacing(10)
+
+        # Üst Başlık ve Geri / Kapat
+        h_head = QHBoxLayout()
+        h_head.setSpacing(6)
+
+        btn_back = QToolButton(self)
+        btn_back.setIcon(ModernIconFactory.icon_nav_back())
+        btn_back.setIconSize(QSize(16, 16))
+        btn_back.setCursor(Qt.CursorShape.PointingHandCursor)
+        btn_back.clicked.connect(self.backRequested.emit)
+        h_head.addWidget(btn_back)
+
+        self.lbl_head = QLabel(LanguageManager.tr("drawer_read_title"))
+        self.lbl_head.setStyleSheet("font-size: 13px; font-weight: 700;")
+        h_head.addWidget(self.lbl_head)
+        h_head.addStretch(1)
+
+        btn_close = QToolButton(self)
+        btn_close.setIcon(ModernIconFactory.icon_close())
+        btn_close.setIconSize(QSize(14, 14))
+        btn_close.setCursor(Qt.CursorShape.PointingHandCursor)
+        btn_close.clicked.connect(self.closeRequested.emit)
+        h_head.addWidget(btn_close)
+        main_layout.addLayout(h_head)
+
+        # Bilgi / İpucu Kutusu
+        self.notice_box = QFrame(self)
+        self.notice_box.setObjectName("NoticeBox")
+        v_notice = QVBoxLayout(self.notice_box)
+        v_notice.setContentsMargins(10, 8, 10, 8)
+        self.lbl_notice = QLabel(LanguageManager.tr("drawer_read_notice"))
+        self.lbl_notice.setWordWrap(True)
+        self.lbl_notice.setStyleSheet("font-size: 11px; line-height: 1.2;")
+        v_notice.addWidget(self.lbl_notice)
+        main_layout.addWidget(self.notice_box)
+
+        # Kaydırma Alanı
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+
+        container = QWidget()
+        v_items = QVBoxLayout(container)
+        v_items.setContentsMargins(0, 0, 0, 0)
+        v_items.setSpacing(4)
+
+        self.items: List[ModernDrawerItemWidget] = []
+
+        # Grup 1: SAYFA DÜZENİ
+        self.lbl_g1 = QLabel(LanguageManager.tr("view_mode_group"))
+        self.lbl_g1.setObjectName("CategoryHeader")
+        v_items.addWidget(self.lbl_g1)
+
+        self.specs_layout = [
+            ("view_single", "view_mode_single", ModernIconFactory.icon_view_single("#0284c7"), "", True),
+            ("view_double", "view_mode_double", ModernIconFactory.icon_view_double("#0284c7"), "", True),
+            ("view_fullscreen", "tb_item_fullscreen", ModernIconFactory.icon_fullscreen("#0284c7"), "", True),
+        ]
+        for cid, key, icon, badge, is_ready in self.specs_layout:
+            it = ModernDrawerItemWidget(cid, LanguageManager.tr(key), icon, badge, is_ready, parent=container)
+            it.clicked.connect(self.readTriggered.emit)
+            v_items.addWidget(it)
+            self.items.append(it)
+
+        # Grup 2: OKUMA RENK MODLARI
+        self.lbl_g2 = QLabel(LanguageManager.tr("reading_color_modes"))
+        self.lbl_g2.setObjectName("CategoryHeader")
+        v_items.addWidget(self.lbl_g2)
+
+        self.specs_color = [
+            ("color_normal", "reading_mode_normal", ModernIconFactory.icon_reading_mode("#fbbf24"), "", True),
+            ("color_dark", "reading_mode_dark", ModernIconFactory.icon_reading_dark("#a855f7"), "", True),
+            ("color_sepia", "reading_mode_sepia", ModernIconFactory.icon_reading_sepia("#f97316"), "", True),
+        ]
+        for cid, key, icon, badge, is_ready in self.specs_color:
+            it = ModernDrawerItemWidget(cid, LanguageManager.tr(key), icon, badge, is_ready, parent=container)
+            it.clicked.connect(self.readTriggered.emit)
+            v_items.addWidget(it)
+            self.items.append(it)
+
+        v_items.addStretch(1)
+        scroll.setWidget(container)
+        main_layout.addWidget(scroll, stretch=1)
+
+        self.apply_theme(self.theme_name)
+
+    def retranslate_ui(self):
+        self.lbl_head.setText(LanguageManager.tr("drawer_read_title"))
+        self.lbl_notice.setText(LanguageManager.tr("drawer_read_notice"))
+        self.lbl_g1.setText(LanguageManager.tr("view_mode_group"))
+        self.lbl_g2.setText(LanguageManager.tr("reading_color_modes"))
+        all_specs = self.specs_layout + self.specs_color
+        for it, (_, key, _, _, _) in zip(self.items, all_specs):
+            it.set_title(LanguageManager.tr(key))
+
+    def apply_theme(self, theme_name: str = "light"):
+        self.theme_name = theme_name
+        c = get_modern_theme_colors(theme_name)
+        self.setStyleSheet(f"""
+            ModernReadDrawer {{
+                background-color: {c['surface']};
+                border-right: 1px solid {c['border']};
+            }}
+            QScrollArea, QWidget {{
+                background-color: {c['surface']};
+            }}
+            QLabel {{
+                color: {c['text']};
+            }}
+            #CategoryHeader {{
+                color: {c['text_muted']};
+                font-size: 11px;
+                font-weight: 700;
+                padding-top: 8px;
+                padding-bottom: 3px;
+                letter-spacing: 0.8px;
+            }}
+            #NoticeBox {{
+                background-color: {c['accent_light']};
+                border: 1px solid {c['border']};
+                border-radius: 8px;
+            }}
+            #NoticeBox QLabel {{
+                color: {c['text']};
+                font-size: 11.5px;
+                line-height: 1.3;
+            }}
+            QToolButton {{
+                background-color: transparent;
+                border: none;
+                border-radius: 4px;
+                color: {c['text_muted']};
+            }}
+            QToolButton:hover {{
+                background-color: {c['surface_hover']};
+                color: {c['text']};
+            }}
+        """)
+        for item in self.items:
+            item._apply_style(theme_name)
+
+
 class ModernLeftSidebar(QStackedWidget):
-    """Sol panel yığını: 0=Tüm Araçlar, 1=Export Çekmecesi, 2=Edit Çekmecesi."""
+    """Sol panel yığını: 0=Tüm Araçlar, 1=Export Çekmecesi, 2=Edit Çekmecesi, 3=Read Çekmecesi."""
     toolTriggered = pyqtSignal(str)
     exportTriggered = pyqtSignal(str)
     editTriggered = pyqtSignal(str)
+    readTriggered = pyqtSignal(str)
     closeRequested = pyqtSignal()
 
     def __init__(self, main_window=None, parent=None):
@@ -1379,6 +1538,12 @@ class ModernLeftSidebar(QStackedWidget):
         self.edit_drawer.editTriggered.connect(self.editTriggered.emit)
         self.addWidget(self.edit_drawer)
 
+        self.read_drawer = ModernReadDrawer(self)
+        self.read_drawer.backRequested.connect(lambda: self.set_page("all_tools"))
+        self.read_drawer.closeRequested.connect(self.closeRequested.emit)
+        self.read_drawer.readTriggered.connect(self.readTriggered.emit)
+        self.addWidget(self.read_drawer)
+
     def _on_tool_triggered(self, tool_id: str):
         if tool_id == "export_pdf":
             self.set_page("export")
@@ -1394,6 +1559,8 @@ class ModernLeftSidebar(QStackedWidget):
             self.setCurrentIndex(1)
         elif page_name in ("edit", "modify"):
             self.setCurrentIndex(2)
+        elif page_name in ("read", "reading"):
+            self.setCurrentIndex(3)
 
     def set_active_tool(self, tool_id: Optional[str]):
         self.all_tools_panel.set_active_tool(tool_id)
@@ -1402,16 +1569,18 @@ class ModernLeftSidebar(QStackedWidget):
         self.all_tools_panel.apply_theme(theme_name)
         self.export_drawer.apply_theme(theme_name)
         self.edit_drawer.apply_theme(theme_name)
+        self.read_drawer.apply_theme(theme_name)
 
     def retranslate_ui(self):
         self.all_tools_panel.retranslate_ui()
         self.export_drawer.retranslate_ui()
         self.edit_drawer.retranslate_ui()
+        self.read_drawer.retranslate_ui()
 
 
 class FloatingQuickToolsCapsule(QFrame):
     """
-    Belge okuyucu alanının sol kenarında yüzen hızlı araç kapsülü (Screenshot 3):
+    Belge okuyucu alanının sol kenarında yüzen ve sürüklenebilir hızlı araç kapsülü:
     - Seçim (↖)
     - Vurgulayıcı (🖊)
     - Not Ekle (💬)
@@ -1420,6 +1589,7 @@ class FloatingQuickToolsCapsule(QFrame):
     - Silgi (⌫)
     """
     toolSelected = pyqtSignal(str)
+    toolSelectedWithWidget = pyqtSignal(str, object)
 
     def __init__(self, parent=None, main_window=None):
         super().__init__(parent)
@@ -1427,7 +1597,11 @@ class FloatingQuickToolsCapsule(QFrame):
         self.main_window = main_window
         self.theme_name = "light"
         self.active_tool = "select"
-        self.setFixedSize(42, 240)
+        self.user_moved = False
+        self._drag_active = False
+        self._drag_start_pos = QPoint()
+        self._is_potential_drag = False
+        self.setFixedSize(42, 260)
 
         shadow = QGraphicsDropShadowEffect(self)
         shadow.setBlurRadius(16)
@@ -1436,8 +1610,21 @@ class FloatingQuickToolsCapsule(QFrame):
         self.setGraphicsEffect(shadow)
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(4, 6, 4, 6)
-        layout.setSpacing(6)
+        layout.setContentsMargins(4, 4, 4, 6)
+        layout.setSpacing(4)
+
+        # Üst Sürükleme Tutamacı
+        self.grip_handle = QFrame(self)
+        self.grip_handle.setFixedHeight(12)
+        self.grip_handle.setCursor(Qt.CursorShape.SizeAllCursor)
+        l_grip = QHBoxLayout(self.grip_handle)
+        l_grip.setContentsMargins(0, 4, 0, 2)
+        l_grip.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.grip_bar = QFrame(self.grip_handle)
+        self.grip_bar.setFixedSize(16, 3)
+        self.grip_bar.setStyleSheet("background-color: rgba(150, 150, 150, 0.45); border-radius: 1.5px;")
+        l_grip.addWidget(self.grip_bar)
+        layout.addWidget(self.grip_handle)
 
         self.buttons: Dict[str, QToolButton] = {}
         tool_specs = [
@@ -1458,11 +1645,64 @@ class FloatingQuickToolsCapsule(QFrame):
             btn.setCursor(Qt.CursorShape.PointingHandCursor)
             btn.setToolTip(LanguageManager.tr(key))
             btn.clicked.connect(lambda checked, t=tid: self._on_btn_clicked(t))
+            btn.installEventFilter(self)
             layout.addWidget(btn)
             self.buttons[tid] = btn
 
         self.buttons["select"].setChecked(True)
         self.apply_theme(self.theme_name)
+
+    def eventFilter(self, watched, event):
+        if event.type() == QEvent.Type.MouseButtonPress and event.button() == Qt.MouseButton.LeftButton:
+            self._button_press_pos = event.globalPosition().toPoint()
+            self._drag_start_pos = event.globalPosition().toPoint() - self.pos()
+            self._is_potential_drag = True
+        elif event.type() == QEvent.Type.MouseMove and getattr(self, '_is_potential_drag', False):
+            delta = event.globalPosition().toPoint() - getattr(self, '_button_press_pos', event.globalPosition().toPoint())
+            if delta.manhattanLength() > 8:
+                self._drag_active = True
+                self._do_drag_move(event.globalPosition().toPoint())
+                return True
+        elif event.type() == QEvent.Type.MouseButtonRelease:
+            if getattr(self, '_drag_active', False):
+                self._drag_active = False
+                self._is_potential_drag = False
+                return True
+            self._is_potential_drag = False
+        return super().eventFilter(watched, event)
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._drag_active = True
+            self._drag_start_pos = event.globalPosition().toPoint() - self.pos()
+            event.accept()
+            return
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event):
+        if getattr(self, '_drag_active', False) and (event.buttons() & Qt.MouseButton.LeftButton):
+            self._do_drag_move(event.globalPosition().toPoint())
+            event.accept()
+            return
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        self._drag_active = False
+        super().mouseReleaseEvent(event)
+
+    def _do_drag_move(self, global_pos: QPoint):
+        new_pos = global_pos - self._drag_start_pos
+        if self.parent():
+            p_rect = self.parent().rect()
+            max_x = max(0, p_rect.width() - self.width())
+            max_y = max(0, p_rect.height() - self.height())
+            clamped_x = max(0, min(new_pos.x(), max_x))
+            clamped_y = max(0, min(new_pos.y(), max_y))
+            self.move(clamped_x, clamped_y)
+            self.user_moved = True
+        else:
+            self.move(new_pos)
+            self.user_moved = True
 
     def retranslate_ui(self):
         tool_specs = [
@@ -1480,6 +1720,8 @@ class FloatingQuickToolsCapsule(QFrame):
     def _on_btn_clicked(self, tool_id: str):
         self.set_active_tool(tool_id)
         self.toolSelected.emit(tool_id)
+        btn = self.buttons.get(tool_id)
+        self.toolSelectedWithWidget.emit(tool_id, btn)
 
     def set_active_tool(self, tool_id: str):
         self.active_tool = tool_id
@@ -2469,10 +2711,9 @@ class OrganizePagesWorkspace(QWidget):
 # ==============================================================================
 class ModernRightSidebar(QWidget):
     """
-    Ekranın sağındaki çekmece panel (Kullanıcı görselindeki 'Bookmarks' paneli):
-    - Başlık: 'Bookmarks' + Bookmark İkonu + Kapatma (✕)
-    - Boş durum: Yer imi ikonu + 'This document has no bookmarks.'
-    - Ağaç görünümü: Yer imleri listesi
+    Ekranın sağındaki çekmece panel (Yer İmleri ve Adobe benzeri Yorumlar paneli):
+    - Yer İmleri: İçindekiler hiyerarşisi, hızlı sayfa atlama, yeni yer imi ekleme.
+    - Yorumlar: Belgedeki tüm PDF ek açıklamaları/yorumları, arama, yeni not/yorum ekleme, silme.
     """
     closeRequested = pyqtSignal()
     bookmarkClicked = pyqtSignal(int)
@@ -2483,7 +2724,7 @@ class ModernRightSidebar(QWidget):
         self.main_window = main_window
         self.theme_name = "light"
         self.current_panel = "bookmarks"
-        self.setFixedWidth(260)
+        self.setFixedWidth(270)
 
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(12, 12, 12, 12)
@@ -2520,10 +2761,20 @@ class ModernRightSidebar(QWidget):
         h_head.addWidget(btn_close)
         main_layout.addLayout(h_head)
 
-        # Yığın (Boş Durum vs Ağaç)
+        # Ana Panel Yığını: 0=Yer İmleri, 1=Yorumlar
+        self.main_stack = QStackedWidget()
+
+        # ======================================================================
+        # PANEL 0: YER İMLERİ
+        # ======================================================================
+        self.panel_bookmarks = QWidget()
+        v_bm = QVBoxLayout(self.panel_bookmarks)
+        v_bm.setContentsMargins(0, 0, 0, 0)
+        v_bm.setSpacing(6)
+
         self.stack = QStackedWidget()
 
-        # Görünüm 0: Yer İmleri Boş Durumu (Kullanıcı görselindeki gibi!)
+        # Görünüm 0: Yer İmleri Boş Durumu
         self.empty_widget = QWidget()
         v_empty = QVBoxLayout(self.empty_widget)
         v_empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -2541,7 +2792,7 @@ class ModernRightSidebar(QWidget):
 
         self.stack.addWidget(self.empty_widget)
 
-        # Görünüm 1: Yer İmleri Ağacı (2 Sütun: Başlık ve Sağ Hizalı Sayfa Numarası)
+        # Görünüm 1: Yer İmleri Ağacı
         self.tree_bookmarks = QTreeWidget()
         self.tree_bookmarks.setColumnCount(2)
         self.tree_bookmarks.setHeaderHidden(True)
@@ -2551,12 +2802,115 @@ class ModernRightSidebar(QWidget):
         self.tree_bookmarks.itemClicked.connect(self._on_tree_item_clicked)
         self.stack.addWidget(self.tree_bookmarks)
 
-        main_layout.addWidget(self.stack, stretch=1)
+        v_bm.addWidget(self.stack)
+        self.main_stack.addWidget(self.panel_bookmarks)
+
+        # ======================================================================
+        # PANEL 1: ADOBE TARZI YORUMLAR PANELİ
+        # ======================================================================
+        self.panel_comments = QWidget()
+        v_com = QVBoxLayout(self.panel_comments)
+        v_com.setContentsMargins(0, 0, 0, 0)
+        v_com.setSpacing(8)
+
+        # Arama / Filtre Kutusu
+        self.txt_filter_comments = QLineEdit()
+        self.txt_filter_comments.setPlaceholderText(LanguageManager.tr("comments_filter_placeholder"))
+        self.txt_filter_comments.setFixedHeight(30)
+        self.txt_filter_comments.textChanged.connect(self._filter_comments)
+        v_com.addWidget(self.txt_filter_comments)
+
+        # Yeni Yorum Ekle Kartı
+        self.card_new_comment = QFrame()
+        self.card_new_comment.setObjectName("NewCommentCard")
+        l_new_c = QVBoxLayout(self.card_new_comment)
+        l_new_c.setContentsMargins(8, 8, 8, 8)
+        l_new_c.setSpacing(6)
+
+        self.txt_new_comment = QTextEdit()
+        self.txt_new_comment.setPlaceholderText(LanguageManager.tr("comments_input_placeholder"))
+        self.txt_new_comment.setFixedHeight(56)
+        l_new_c.addWidget(self.txt_new_comment)
+
+        h_post = QHBoxLayout()
+        h_post.addStretch(1)
+        self.btn_post_comment = QPushButton(LanguageManager.tr("comments_post_btn"))
+        self.btn_post_comment.setObjectName("PostCommentBtn")
+        self.btn_post_comment.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_post_comment.clicked.connect(self._add_comment_action)
+        h_post.addWidget(self.btn_post_comment)
+        l_new_c.addLayout(h_post)
+
+        v_com.addWidget(self.card_new_comment)
+
+        # Yorum Listesi Yığını (Boş Durum vs Ağaç)
+        self.comments_stack = QStackedWidget()
+
+        # Boş Durum
+        self.empty_comments_widget = QWidget()
+        v_empty_c = QVBoxLayout(self.empty_comments_widget)
+        v_empty_c.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        v_empty_c.setSpacing(8)
+
+        lbl_com_empty_icon = QLabel()
+        lbl_com_empty_icon.setPixmap(ModernIconFactory.icon_comments("#94a3b8").pixmap(36, 36))
+        lbl_com_empty_icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        v_empty_c.addWidget(lbl_com_empty_icon)
+
+        self.lbl_empty_comments = QLabel(LanguageManager.tr("comments_no_comments"))
+        self.lbl_empty_comments.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.lbl_empty_comments.setStyleSheet("font-size: 13px; font-weight: 600;")
+        v_empty_c.addWidget(self.lbl_empty_comments)
+
+        self.lbl_empty_comments_desc = QLabel(LanguageManager.tr("comments_no_comments_desc"))
+        self.lbl_empty_comments_desc.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.lbl_empty_comments_desc.setWordWrap(True)
+        self.lbl_empty_comments_desc.setStyleSheet("font-size: 11px; opacity: 0.7;")
+        v_empty_c.addWidget(self.lbl_empty_comments_desc)
+
+        self.comments_stack.addWidget(self.empty_comments_widget)
+
+        # Yorum Ağacı
+        self.tree_comments = QTreeWidget()
+        self.tree_comments.setHeaderHidden(True)
+        self.tree_comments.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.tree_comments.customContextMenuRequested.connect(self._on_comment_context_menu)
+        self.tree_comments.itemClicked.connect(self._on_comment_item_clicked)
+        self.comments_stack.addWidget(self.tree_comments)
+
+        v_com.addWidget(self.comments_stack, stretch=1)
+        self.main_stack.addWidget(self.panel_comments)
+
+        main_layout.addWidget(self.main_stack, stretch=1)
         self.apply_theme(self.theme_name)
 
+    def set_panel(self, panel_name: str):
+        """Çekmeceyi 'bookmarks' veya 'comments' paneline geçirir."""
+        self.current_panel = panel_name
+        if panel_name == "comments":
+            self.main_stack.setCurrentIndex(1)
+            self.lbl_head_title.setText(LanguageManager.tr("comments_panel_title"))
+            self.lbl_head_icon.setPixmap(ModernIconFactory.icon_comments().pixmap(16, 16))
+            self.btn_add.hide()
+            self.load_comments()
+        else:
+            self.main_stack.setCurrentIndex(0)
+            self.lbl_head_title.setText(LanguageManager.tr("bookmarks_panel_title"))
+            self.lbl_head_icon.setPixmap(ModernIconFactory.icon_bookmark().pixmap(16, 16))
+            self.btn_add.show()
+            self.load_bookmarks()
+
     def retranslate_ui(self):
-        self.lbl_head_title.setText(LanguageManager.tr("bookmarks_panel_title"))
+        if self.current_panel == "comments":
+            self.lbl_head_title.setText(LanguageManager.tr("comments_panel_title"))
+        else:
+            self.lbl_head_title.setText(LanguageManager.tr("bookmarks_panel_title"))
         self.lbl_empty_msg.setText(LanguageManager.tr("bookmarks_empty_title"))
+        self.lbl_empty_comments.setText(LanguageManager.tr("comments_no_comments"))
+        self.lbl_empty_comments_desc.setText(LanguageManager.tr("comments_no_comments_desc"))
+        self.txt_filter_comments.setPlaceholderText(LanguageManager.tr("comments_filter_placeholder"))
+        self.txt_new_comment.setPlaceholderText(LanguageManager.tr("comments_input_placeholder"))
+        self.btn_post_comment.setText(LanguageManager.tr("comments_post_btn"))
         if hasattr(self, 'btn_add'):
             self.btn_add.setToolTip(LanguageManager.tr("bookmarks_add_btn"))
 
@@ -2622,6 +2976,165 @@ class ModernRightSidebar(QWidget):
             tab_doc.set_modified(True)
             self.load_bookmarks()
 
+    # ==========================================================================
+    # YORUMLAR İŞLEMLERİ (ADOBE ACROBAT TARZI)
+    # ==========================================================================
+    def load_comments(self):
+        """Aktif belgenin yorumlarını ve ek açıklamalarını yükler."""
+        self.tree_comments.clear()
+        if not self.main_window:
+            self.comments_stack.setCurrentIndex(0)
+            return
+        tab_doc = self.main_window.get_current_tab_doc()
+        if not tab_doc or not tab_doc.doc:
+            self.comments_stack.setCurrentIndex(0)
+            return
+
+        pages_dict = {}
+        total_count = 0
+
+        # 1. PyMuPDF Standart Ek Açıklamaları
+        for p_idx in range(len(tab_doc.doc)):
+            try:
+                page = tab_doc.doc[p_idx]
+                for annot in page.annots():
+                    info = annot.info or {}
+                    author = info.get("title", "") or "AuraPDF"
+                    content = info.get("content", "") or annot.get_text() or annot.type[1]
+                    date_val = info.get("modDate", "") or info.get("creationDate", "")
+                    pages_dict.setdefault(p_idx, []).append({
+                        "author": author,
+                        "content": content,
+                        "date": date_val,
+                        "type": annot.type[1],
+                        "page": p_idx,
+                        "annot_ref": annot
+                    })
+                    total_count += 1
+            except Exception:
+                pass
+
+        # 2. TabDocument Serbest Not Çizimleri
+        for d in getattr(tab_doc, 'drawings', []):
+            if d.get("text"):
+                p_idx = d.get("page", 0)
+                pages_dict.setdefault(p_idx, []).append({
+                    "author": d.get("author", "Not"),
+                    "content": d.get("text", ""),
+                    "date": "",
+                    "type": "Not",
+                    "page": p_idx,
+                    "drawing_ref": d
+                })
+                total_count += 1
+
+        if total_count == 0:
+            self.comments_stack.setCurrentIndex(0)
+            return
+
+        self.comments_stack.setCurrentIndex(1)
+        for p_idx in sorted(pages_dict.keys()):
+            annots = pages_dict[p_idx]
+            page_group = QTreeWidgetItem(self.tree_comments)
+            page_group.setText(0, f"Sayfa {p_idx + 1} ({len(annots)})")
+            page_group.setExpanded(True)
+
+            for a in annots:
+                item = QTreeWidgetItem(page_group)
+                icon = ModernIconFactory.icon_highlighter() if "high" in a['type'].lower() else ModernIconFactory.icon_comments()
+                item.setIcon(0, icon)
+                author_title = f"{a['author']}: {a['content'][:45]}"
+                item.setText(0, author_title)
+                item.setData(0, Qt.ItemDataRole.UserRole, a)
+
+    def _add_comment_action(self):
+        text = self.txt_new_comment.toPlainText().strip()
+        if not text or not self.main_window:
+            return
+        tab_doc = self.main_window.get_current_tab_doc()
+        if not tab_doc or not tab_doc.doc:
+            return
+
+        p_idx = getattr(tab_doc, 'current_page_idx', getattr(tab_doc, 'current_page', 0))
+        if p_idx < 0 or p_idx >= len(tab_doc.doc):
+            p_idx = 0
+
+        author = "Kullanici"
+        if hasattr(self.main_window, 'settings'):
+            author = self.main_window.settings.value("author_name", "Kullanici") or "Kullanici"
+
+        try:
+            page = tab_doc.doc[p_idx]
+            # Standart PDF metin ek açıklaması (Sticky Note / Annotation)
+            annot = page.add_text_annot(fitz.Point(72, 72), text)
+            annot.set_info(title=author, content=text)
+            annot.update()
+            tab_doc.set_modified(True)
+            if hasattr(tab_doc, 'render_all_pages'):
+                tab_doc.render_all_pages()
+            self.txt_new_comment.clear()
+            self.load_comments()
+        except Exception as e:
+            QMessageBox.critical(self, LanguageManager.tr("error"), str(e))
+
+    def _on_comment_item_clicked(self, item: QTreeWidgetItem, column: int):
+        data = item.data(0, Qt.ItemDataRole.UserRole)
+        if data and "page" in data:
+            self.bookmarkClicked.emit(data["page"])
+
+    def _on_comment_context_menu(self, pos):
+        item = self.tree_comments.itemAt(pos)
+        if not item:
+            return
+        data = item.data(0, Qt.ItemDataRole.UserRole)
+        if not data:
+            return
+
+        menu = QMenu(self)
+        act_del = menu.addAction(ModernIconFactory.icon_trash(), LanguageManager.tr("comments_delete_tooltip"))
+        act = menu.exec(self.tree_comments.mapToGlobal(pos))
+        if act == act_del:
+            self._delete_comment_item(data)
+
+    def _delete_comment_item(self, data: dict):
+        if not self.main_window:
+            return
+        tab_doc = self.main_window.get_current_tab_doc()
+        if not tab_doc or not tab_doc.doc:
+            return
+
+        p_idx = data.get("page", 0)
+        try:
+            if "annot_ref" in data and p_idx < len(tab_doc.doc):
+                page = tab_doc.doc[p_idx]
+                page.delete_annot(data["annot_ref"])
+                tab_doc.set_modified(True)
+                if hasattr(tab_doc, 'render_all_pages'):
+                    tab_doc.render_all_pages()
+            elif "drawing_ref" in data and hasattr(tab_doc, 'drawings'):
+                if data["drawing_ref"] in tab_doc.drawings:
+                    tab_doc.drawings.remove(data["drawing_ref"])
+                    tab_doc.set_modified(True)
+                    if hasattr(tab_doc, 'render_all_pages'):
+                        tab_doc.render_all_pages()
+            self.load_comments()
+        except Exception as e:
+            QMessageBox.critical(self, LanguageManager.tr("error"), str(e))
+
+    def _filter_comments(self, text: str):
+        query = text.lower().strip()
+        for i in range(self.tree_comments.topLevelItemCount()):
+            top = self.tree_comments.topLevelItem(i)
+            group_match = False
+            for j in range(top.childCount()):
+                child = top.child(j)
+                txt = child.text(0).lower()
+                matched = not query or (query in txt)
+                child.setHidden(not matched)
+                if matched:
+                    group_match = True
+            top.setHidden(not group_match and bool(query))
+
     def apply_theme(self, theme_name: str = "light"):
         self.theme_name = theme_name
         c = get_modern_theme_colors(theme_name)
@@ -2666,6 +3179,39 @@ class ModernRightSidebar(QWidget):
             QToolButton:hover {{
                 background-color: {c['surface_hover']};
                 color: {c['text']};
+            }}
+            #NewCommentCard {{
+                background-color: {c['surface_hover']};
+                border: 1px solid {c['border']};
+                border-radius: 8px;
+            }}
+            QTextEdit {{
+                background-color: {c['surface']};
+                color: {c['text']};
+                border: 1px solid {c['border']};
+                border-radius: 6px;
+                padding: 4px 6px;
+                font-size: 11.5px;
+            }}
+            QLineEdit {{
+                background-color: {c['surface_hover']};
+                color: {c['text']};
+                border: 1px solid {c['border']};
+                border-radius: 6px;
+                padding: 4px 8px;
+                font-size: 11.5px;
+            }}
+            QPushButton#PostCommentBtn {{
+                background-color: {c['accent']};
+                color: #ffffff;
+                font-weight: 700;
+                font-size: 11px;
+                border-radius: 5px;
+                padding: 4px 12px;
+                border: none;
+            }}
+            QPushButton#PostCommentBtn:hover {{
+                opacity: 0.9;
             }}
         """)
 

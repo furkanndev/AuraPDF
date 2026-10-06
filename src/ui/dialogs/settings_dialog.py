@@ -926,14 +926,6 @@ class AuraSettingsDialog(QDialog):
         self.cmb_default_template.addItem(LanguageManager.tr("style_dark_title"), "dark")
         self.cmb_default_template.addItem(LanguageManager.tr("style_cover_title"), "cover")
         card_layout.addWidget(self.cmb_default_template)
-        
-        card_layout.addSpacing(8)
-        self.chk_enable_animations = QCheckBox(LanguageManager.tr("enable_animations"))
-        self.chk_enable_animations.setToolTip(LanguageManager.tr("enable_animations_desc"))
-        self.chk_enable_animations.setStyleSheet("""
-            QCheckBox { font-size: 13px; font-weight: 500; }
-        """)
-        card_layout.addWidget(self.chk_enable_animations)
 
         layout.addWidget(card)
 
@@ -991,10 +983,9 @@ class AuraSettingsDialog(QDialog):
         # Toolbar listesi
         self._populate_toolbar_list(list(DEFAULT_TOOLBAR_USER_ITEMS))
 
-        # Zoom modu ve animasyonlar
+        # Zoom modu
         self._set_cmb_data(self.cmb_zoom_mode, "last")
         self._set_cmb_data(self.cmb_default_template, "blank")
-        self.chk_enable_animations.setChecked(True)
 
         # Yazar bilgileri
         def_user, def_comp = get_default_author_info()
@@ -1872,9 +1863,6 @@ class AuraSettingsDialog(QDialog):
         saved_tpl = self.settings.value("default_page_template", "blank")
         self._set_cmb_data(self.cmb_default_template, saved_tpl)
 
-        # Animations
-        self.chk_enable_animations.setChecked(self.settings.value("enable_animations", True, type=bool))
-
         # 6. Toolbar Sıralaması
         raw_tb = self.settings.value("toolbar_order", None)
         saved_tb = None
@@ -1971,9 +1959,6 @@ class AuraSettingsDialog(QDialog):
         # Default Template
         tpl_mode = self.cmb_default_template.currentData()
         self.settings.setValue("default_page_template", tpl_mode)
-
-        # Animations
-        self.settings.setValue("enable_animations", self.chk_enable_animations.isChecked())
 
         # 6. Toolbar Düzenini Kaydet & Uygula
         reordered_items = []
