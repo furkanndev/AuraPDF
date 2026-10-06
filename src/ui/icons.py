@@ -1959,6 +1959,212 @@ class ModernIconFactory:
         p.end()
         return QIcon(pix)
 
+    @staticmethod
+    def icon_pptx(color: str = None) -> QIcon:
+        pix, p = ModernIconFactory._base()
+        col = QColor(color or "#ea580c")
+        p.setPen(QPen(col, 1.8, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
+        # Presentation slide frame
+        p.drawRoundedRect(QRectF(4, 5, 18, 14), 2, 2)
+        # Pie chart slice or bar
+        p.drawLine(QPointF(8, 14), QPointF(8, 11))
+        p.drawLine(QPointF(12, 14), QPointF(12, 9))
+        p.drawLine(QPointF(16, 14), QPointF(16, 12))
+        # Stand legs
+        p.drawLine(QPointF(10, 19), QPointF(8, 22))
+        p.drawLine(QPointF(16, 19), QPointF(18, 22))
+        p.end()
+        return QIcon(pix)
+
+    @staticmethod
+    def icon_html(color: str = None) -> QIcon:
+        pix, p = ModernIconFactory._base()
+        col = QColor(color or "#0284c7")
+        p.setPen(QPen(col, 1.8, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
+        # < code >
+        path = QPainterPath()
+        path.moveTo(9, 8)
+        path.lineTo(5, 13)
+        path.lineTo(9, 18)
+        path.moveTo(17, 8)
+        path.lineTo(21, 13)
+        path.lineTo(17, 18)
+        # / slash
+        path.moveTo(15, 7)
+        path.lineTo(11, 19)
+        p.drawPath(path)
+        p.end()
+        return QIcon(pix)
+
+    @staticmethod
+    def icon_txt(color: str = None) -> QIcon:
+        pix, p = ModernIconFactory._base()
+        col = QColor(color or "#64748b")
+        p.setPen(QPen(col, 1.8, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
+        p.drawRoundedRect(QRectF(5, 4, 16, 18), 2, 2)
+        p.drawLine(QPointF(8, 9), QPointF(18, 9))
+        p.drawLine(QPointF(8, 13), QPointF(18, 13))
+        p.drawLine(QPointF(8, 17), QPointF(14, 17))
+        p.end()
+        return QIcon(pix)
+
+    @staticmethod
+    def icon_eps(color: str = None) -> QIcon:
+        pix, p = ModernIconFactory._base()
+        col = QColor(color or "#8b5cf6")
+        p.setPen(QPen(col, 1.8, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
+        # Pen nib
+        path = QPainterPath()
+        path.moveTo(6, 20)
+        path.lineTo(11, 15)
+        path.lineTo(17, 7)
+        path.lineTo(19, 9)
+        path.lineTo(13, 17)
+        path.lineTo(6, 20)
+        p.drawPath(path)
+        p.drawPoint(QPointF(10, 16))
+        p.end()
+        return QIcon(pix)
+
+    @staticmethod
+    def icon_bates(color: str = None) -> QIcon:
+        pix, p = ModernIconFactory._base()
+        col = QColor(color or "#10b981")
+        p.setPen(QPen(col, 1.8, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
+        # # symbol
+        p.drawLine(QPointF(9, 6), QPointF(7, 20))
+        p.drawLine(QPointF(17, 6), QPointF(15, 20))
+        p.drawLine(QPointF(6, 10), QPointF(20, 10))
+        p.drawLine(QPointF(5, 16), QPointF(19, 16))
+        p.end()
+        return QIcon(pix)
+
+    @staticmethod
+    def icon_header_footer(color: str = None) -> QIcon:
+        pix, p = ModernIconFactory._base()
+        col = QColor(color or "#ec4899")
+        p.setPen(QPen(col, 1.8, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
+        p.drawRoundedRect(QRectF(5, 4, 16, 18), 2, 2)
+        p.drawLine(QPointF(8, 7), QPointF(18, 7))
+        p.drawLine(QPointF(8, 19), QPointF(18, 19))
+        p.end()
+        return QIcon(pix)
+
+    @staticmethod
+    def icon_discord(color: str = None) -> QIcon:
+        pix, p = ModernIconFactory._base()
+        col = QColor(color or "#5865f2")
+        p.setPen(QPen(col, 1.8, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
+        # Controller/bubble outline
+        path = QPainterPath()
+        path.moveTo(6, 10)
+        path.quadTo(13, 7, 20, 10)
+        path.lineTo(21, 18)
+        path.lineTo(17, 16)
+        path.lineTo(15, 18)
+        path.lineTo(11, 18)
+        path.lineTo(9, 16)
+        path.lineTo(5, 18)
+        path.closeSubpath()
+        p.drawPath(path)
+        p.drawPoint(QPointF(10, 13))
+        p.drawPoint(QPointF(16, 13))
+        p.end()
+        return QIcon(pix)
+
+    @staticmethod
+    def icon_github(color: str = None) -> QIcon:
+        pix, p = ModernIconFactory._base()
+        col = QColor(color or "#24292f")
+        p.setPen(QPen(col, 1.8, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
+        p.drawEllipse(QRectF(5, 5, 16, 16))
+        # Inverted cat ears / curve
+        path = QPainterPath()
+        path.moveTo(8, 17)
+        path.quadTo(13, 13, 18, 17)
+        p.drawPath(path)
+        p.end()
+        return QIcon(pix)
+
+    @staticmethod
+    def icon_web(color: str = None) -> QIcon:
+        pix, p = ModernIconFactory._base()
+        col = QColor(color or "#0284c7")
+        p.setPen(QPen(col, 1.8, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
+        p.drawEllipse(QRectF(4, 4, 18, 18))
+        p.drawLine(QPointF(4, 13), QPointF(22, 13))
+        p.drawEllipse(QRectF(8, 4, 10, 18))
+        p.end()
+        return QIcon(pix)
+
+    @staticmethod
+    def icon_pdf(color: str = None) -> QIcon:
+        pix, p = ModernIconFactory._base()
+        col = QColor(color or "#ef4444")
+        p.setPen(QPen(col, 1.8, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
+        # Document sheet with folded top-right corner
+        path = QPainterPath()
+        path.moveTo(6, 4)
+        path.lineTo(15, 4)
+        path.lineTo(20, 9)
+        path.lineTo(20, 22)
+        path.lineTo(6, 22)
+        path.closeSubpath()
+        p.drawPath(path)
+        # Fold corner line
+        p.drawLine(QPointF(15, 4), QPointF(15, 9))
+        p.drawLine(QPointF(15, 9), QPointF(20, 9))
+        # Internal text lines
+        p.drawLine(QPointF(9, 14), QPointF(17, 14))
+        p.drawLine(QPointF(9, 18), QPointF(14, 18))
+        p.end()
+        return QIcon(pix)
+
+    @staticmethod
+    def icon_folder_open(color: str = None) -> QIcon:
+        pix, p = ModernIconFactory._base()
+        col = QColor(color or "#64748b")
+        p.setPen(QPen(col, 1.8, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
+        path = QPainterPath()
+        path.moveTo(4, 9)
+        path.lineTo(4, 21)
+        path.lineTo(22, 21)
+        path.lineTo(22, 12)
+        path.lineTo(13, 12)
+        path.lineTo(10, 9)
+        path.closeSubpath()
+        p.drawPath(path)
+        # Tab top line
+        p.drawLine(QPointF(4, 9), QPointF(10, 9))
+        p.end()
+        return QIcon(pix)
+
+    @staticmethod
+    def icon_image_gallery(color: str = None) -> QIcon:
+        pix, p = ModernIconFactory._base()
+        col = QColor(color or "#0284c7")
+        p.setPen(QPen(col, 1.8, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
+        # Back picture frame
+        p.drawRoundedRect(QRectF(3, 4, 14, 13), 2, 2)
+        # Front picture frame overlapping
+        p.setBrush(QBrush(col))
+        p.drawRoundedRect(QRectF(7, 8, 14, 13), 2, 2)
+        # Sun & mountain inside front picture
+        p.setBrush(Qt.BrushStyle.NoBrush)
+        p.setPen(QPen(QColor("#ffffff"), 1.4))
+        p.drawPoint(QPointF(11, 12))
+        path = QPainterPath()
+        path.moveTo(9, 18)
+        path.lineTo(13, 14)
+        path.lineTo(15, 16)
+        path.lineTo(18, 13)
+        path.lineTo(20, 18)
+        p.drawPath(path)
+        p.end()
+        return QIcon(pix)
+
+    icon_text_tool = icon_text_box
+
 
 
 def _wrap_icon_methods():
