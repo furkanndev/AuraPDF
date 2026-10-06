@@ -4449,6 +4449,9 @@ class PDFTabDocument(QWidget):
                 self.main_window.txt_page.setText(str(self.current_page_idx + 1))
             if getattr(self.main_window, 'thumbnails_dock', None) and hasattr(self.main_window.thumbnails_dock, 'select_page'):
                 self.main_window.thumbnails_dock.select_page(self.current_page_idx)
+            if getattr(self.main_window, 'modern_utility_rail', None):
+                total_p = len(self.doc) if self.doc is not None else 1
+                self.main_window.modern_utility_rail.update_page_info(self.current_page_idx, total_p)
 
     def rotate_all_pages(self):
         if self.doc is None: return

@@ -26,7 +26,7 @@ from PyQt6.QtCore import Qt, pyqtSignal, QSize, QPoint, QRect, QTimer, QThread, 
 from PyQt6.QtGui import (
     QIcon, QPixmap, QImage, QPainter, QColor, QPen, QBrush, QFont,
     QPainterPath, QCursor, QKeySequence, QShortcut, QDesktopServices,
-    QFontMetrics
+    QFontMetrics, QIntValidator
 )
 
 from src.core.i18n import LanguageManager
@@ -1601,7 +1601,7 @@ class FloatingQuickToolsCapsule(QFrame):
         self._drag_active = False
         self._drag_start_pos = QPoint()
         self._is_potential_drag = False
-        self.setFixedSize(42, 260)
+        self.setFixedSize(42, 332)
 
         shadow = QGraphicsDropShadowEffect(self)
         shadow.setBlurRadius(16)
@@ -1629,6 +1629,8 @@ class FloatingQuickToolsCapsule(QFrame):
         self.buttons: Dict[str, QToolButton] = {}
         tool_specs = [
             ("select", "quick_tool_select", ModernIconFactory.icon_cursor()),
+            ("selection", "quick_tool_draw_select", ModernIconFactory.icon_select_rect("#38bdf8")),
+            ("pointer", "quick_tool_pointer", ModernIconFactory.icon_pointer("#ef4444")),
             ("highlighter", "quick_tool_highlighter", ModernIconFactory.icon_highlighter("#eab308")),
             ("comment", "quick_tool_comment", ModernIconFactory.icon_comments("#f97316")),
             ("text", "quick_tool_text", ModernIconFactory.icon_text_tool("#ec4899")),
@@ -1707,6 +1709,8 @@ class FloatingQuickToolsCapsule(QFrame):
     def retranslate_ui(self):
         tool_specs = [
             ("select", "quick_tool_select"),
+            ("selection", "quick_tool_draw_select"),
+            ("pointer", "quick_tool_pointer"),
             ("highlighter", "quick_tool_highlighter"),
             ("comment", "quick_tool_comment"),
             ("text", "quick_tool_text"),
@@ -3235,6 +3239,7 @@ class ModernUtilityRail(QWidget):
       - Zoom In (+) / Zoom Out (-)
     """
     railItemToggled = pyqtSignal(str)
+    pageJumpRequested = pyqtSignal(int)
     prevPageRequested = pyqtSignal()
     nextPageRequested = pyqtSignal()
     zoomInRequested = pyqtSignal()
@@ -3248,7 +3253,8 @@ class ModernUtilityRail(QWidget):
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self.theme_name = "light"
         self.active_rail_id: Optional[str] = "bookmarks"
-        self.setFixedWidth(48)
+        self.total_pages = 1
+        self.setFixedWidth(56)
 
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(4, 8, 4, 8)
@@ -3261,7 +3267,6 @@ class ModernUtilityRail(QWidget):
             ("bookmarks", ModernIconFactory.icon_bookmark(), "right_rail_bookmarks"),
             ("thumbnails", ModernIconFactory.icon_thumbnails(), "right_rail_thumbnails"),
             ("attachments", ModernIconFactory.icon_attachment(), "right_rail_attachments"),
-            ("signatures", ModernIconFactory.icon_sign(), "right_rail_signatures"),
         ]
 
         for rid, icon, tip_key in top_items:
@@ -3281,11 +3286,28 @@ class ModernUtilityRail(QWidget):
         main_layout.addStretch(1)
 
         # Alt Zoom ve Sayfa Kontrolleri
-        # Sayfa No Etiketi
-        self.lbl_page = QLabel("1")
-        self.lbl_page.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.lbl_page.setStyleSheet("font-size: 11px; font-weight: 700;")
-        main_layout.addWidget(self.lbl_page)
+        # Sayfa No Kutusu ve Toplam Sayfa Sayısı
+        page_box = QHBoxLayout()
+        page_box.setContentsMargins(2, 2, 2, 2)
+        page_box.setSpacing(2)
+        page_box.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        self.txt_page = QLineEdit("1")
+        self.txt_page.setObjectName("RailPageInput")
+        self.txt_page.setFixedWidth(26)
+        self.txt_page.setFixedHeight(22)
+        self.txt_page.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.txt_page.setValidator(QIntValidator(1, 99999, self))
+        self.txt_page.setToolTip(LanguageManager.tr("page_input_tip"))
+        self.txt_page.returnPressed.connect(self._on_page_submitted)
+        page_box.addWidget(self.txt_page)
+
+        self.lbl_total = QLabel("/ 1")
+        self.lbl_total.setObjectName("RailPageTotal")
+        self.lbl_total.setAlignment(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft)
+        page_box.addWidget(self.lbl_total)
+
+        main_layout.addLayout(page_box)
 
         self.btn_prev = QToolButton()
         self.btn_prev.setIcon(ModernIconFactory.icon_chevron_up())
@@ -3353,12 +3375,12 @@ class ModernUtilityRail(QWidget):
             "bookmarks": "right_rail_bookmarks",
             "thumbnails": "right_rail_thumbnails",
             "attachments": "right_rail_attachments",
-            "signatures": "right_rail_signatures",
         }
         for rid, key in tip_map.items():
             if rid in self.buttons:
                 self.buttons[rid].setToolTip(LanguageManager.tr(key))
         self.btn_fit.setToolTip(LanguageManager.tr("fit_to_page"))
+        self.txt_page.setToolTip(LanguageManager.tr("page_input_tip"))
 
     def _on_button_clicked(self, rail_id: str):
         if self.active_rail_id == rail_id:
@@ -3377,8 +3399,17 @@ class ModernUtilityRail(QWidget):
         for r, b in self.buttons.items():
             b.setChecked(r == rail_id)
 
+    def _on_page_submitted(self):
+        text = self.txt_page.text().strip()
+        if text.isdigit():
+            val = int(text)
+            self.pageJumpRequested.emit(val - 1)
+
     def update_page_info(self, current: int, total: int):
-        self.lbl_page.setText(f"{current + 1}")
+        self.total_pages = max(1, total)
+        if not self.txt_page.hasFocus():
+            self.txt_page.setText(str(current + 1))
+        self.lbl_total.setText(f"/ {self.total_pages}")
 
     def update_zoom_info(self, zoom_percent: int):
         self.lbl_zoom.setText(f"{zoom_percent}%")
@@ -3393,6 +3424,24 @@ class ModernUtilityRail(QWidget):
             }}
             QLabel {{
                 color: {c['text']};
+            }}
+            #RailPageInput {{
+                background-color: {c['card_bg']};
+                border: 1px solid {c['border']};
+                border-radius: 4px;
+                color: {c['accent']};
+                font-weight: 700;
+                font-size: 11px;
+                padding: 1px;
+            }}
+            #RailPageInput:focus {{
+                border: 1.5px solid {c['accent']};
+                background-color: {c['surface']};
+            }}
+            #RailPageTotal {{
+                color: {c['text_muted']};
+                font-weight: 600;
+                font-size: 10px;
             }}
             #RailZoom {{
                 color: {c['text']};

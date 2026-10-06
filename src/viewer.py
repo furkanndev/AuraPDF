@@ -1053,6 +1053,7 @@ class AuraPDFViewer(QMainWindow):
         # 6. En Sağ Dikey İkon Rayı
         self.modern_utility_rail = ModernUtilityRail(self)
         self.modern_utility_rail.railItemToggled.connect(self._on_utility_rail_toggled)
+        self.modern_utility_rail.pageJumpRequested.connect(self._on_rail_page_jump)
         self.modern_utility_rail.prevPageRequested.connect(self.prev_page)
         self.modern_utility_rail.nextPageRequested.connect(self.next_page)
         self.modern_utility_rail.zoomInRequested.connect(self.zoom_in)
@@ -1085,7 +1086,7 @@ class AuraPDFViewer(QMainWindow):
 
         # Sayfa / Zoom güncellemelerini ray'e bağla
         if hasattr(self, 'txt_page') and self.txt_page:
-            self.txt_page.textChanged.connect(lambda txt: self.modern_utility_rail.lbl_page.setText(txt if txt else "1"))
+            self.txt_page.textChanged.connect(self._sync_rail_page)
         if hasattr(self, 'lbl_zoom') and hasattr(self.lbl_zoom, 'zoomChanged'):
             self.lbl_zoom.zoomChanged.connect(lambda txt: self.modern_utility_rail.lbl_zoom.setText(txt.strip()))
 
@@ -1259,19 +1260,47 @@ class AuraPDFViewer(QMainWindow):
         else:
             self.switch_to_home_view()
 
-    def _on_floating_tool_selected(self, tool_id: str):
+    def _on_floating_tool_selected(self, tool_id: str, widget=None):
         if tool_id == "select":
             self.set_tool_state('select')
+            if hasattr(self, 'cursor_popup') and widget:
+                pos = widget.mapToGlobal(QPoint(widget.width() + 6, 0))
+                self.cursor_popup.show_at(pos)
+        elif tool_id == "selection":
+            self.set_selection_mode(self.selection_shape_mode)
+            if hasattr(self, 'selection_popup') and widget:
+                pos = widget.mapToGlobal(QPoint(widget.width() + 6, 0))
+                self.selection_popup.show_at(pos)
+        elif tool_id == "pointer":
+            self.set_tool_state('pointer')
+            if hasattr(self, 'pointer_popup') and widget:
+                pos = widget.mapToGlobal(QPoint(widget.width() + 6, 0))
+                self.pointer_popup.show_at(pos)
         elif tool_id == "highlighter":
             self.set_tool_state('highlighter')
+            if hasattr(self, 'hl_popup') and widget:
+                pos = widget.mapToGlobal(QPoint(widget.width() + 6, 0))
+                self.hl_popup.show_at(pos)
         elif tool_id == "comment":
             self.set_tool_state('text')
+            if hasattr(self, 'modern_right_sidebar'):
+                self.modern_right_sidebar.show()
+                self.modern_right_sidebar.set_panel("comments")
         elif tool_id == "text":
             self.open_pdf_content_editor()
+            if hasattr(self, 'text_popup') and widget:
+                pos = widget.mapToGlobal(QPoint(widget.width() + 6, 0))
+                self.text_popup.show_at(pos)
         elif tool_id == "pen":
             self.set_tool_state('pen')
+            if hasattr(self, 'pen_popup') and widget:
+                pos = widget.mapToGlobal(QPoint(widget.width() + 6, 0))
+                self.pen_popup.show_at(pos)
         elif tool_id == "eraser":
             self.set_tool_state('eraser')
+            if hasattr(self, 'eraser_popup') and widget:
+                pos = widget.mapToGlobal(QPoint(widget.width() + 6, 0))
+                self.eraser_popup.show_at(pos)
 
     def _on_home_tool_requested(self, tool_id: str):
         if tool_id == "organize_pages":
@@ -1675,8 +1704,23 @@ class AuraPDFViewer(QMainWindow):
         elif rail_id == "thumbnails":
             self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.thumbnails_dock)
             self.toggle_contents_panel()
-        elif rail_id == "signatures":
-            self.open_signature_dialog()
+
+    def _on_rail_page_jump(self, page_index: int):
+        tab_doc = self.get_current_tab_doc()
+        if tab_doc and tab_doc.doc:
+            total = len(tab_doc.doc)
+            clamped = max(0, min(page_index, total - 1))
+            tab_doc.go_to_page(clamped)
+            self.modern_utility_rail.update_page_info(clamped, total)
+            if hasattr(self, 'txt_page') and self.txt_page and not self.txt_page.hasFocus():
+                self.txt_page.setText(str(clamped + 1))
+
+    def _sync_rail_page(self, txt: str):
+        if hasattr(self, 'modern_utility_rail') and self.modern_utility_rail:
+            tab_doc = self.get_current_tab_doc()
+            total = len(tab_doc.doc) if tab_doc and tab_doc.doc else 1
+            curr = int(txt) - 1 if txt and txt.isdigit() else 0
+            self.modern_utility_rail.update_page_info(curr, total)
 
     def _close_right_sidebar(self):
         self.modern_right_sidebar.hide()
