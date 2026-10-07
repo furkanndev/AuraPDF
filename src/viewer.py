@@ -35,7 +35,8 @@ from src.ui.modern_views import (
     OrganizePagesWorkspace, ModernRightSidebar, ModernUtilityRail,
     ModernCommandPaletteDialog, get_modern_theme_colors,
     ModernLeftSidebar, ModernExportDrawer, ModernEditDrawer,
-    HomeDashboardWorkspace, FloatingQuickToolsCapsule
+    HomeDashboardWorkspace, FloatingQuickToolsCapsule,
+    ModernPinnedQuickToolsBar
 )
 
 
@@ -99,7 +100,7 @@ class EditableZoomWidget(QWidget):
         main_layout.addWidget(self.btn_plus)
 
         self._is_editing = False
-        self.apply_theme(getattr(main_window, 'current_theme', 'dark'))
+        self.apply_theme(getattr(main_window, 'current_theme', 'gray'))
 
     def apply_theme(self, theme_name: str = "gray"):
         palette = {
@@ -290,7 +291,14 @@ class AuraPDFViewer(QMainWindow):
         self._init_toolbar()
         self._init_modern_ui()
         self._init_shortcuts()
-        self.apply_theme(settings.value("app_theme", "light"))
+        # Varsayılan görünüm teması gri olsun (Sürüm göçü)
+        th_version = settings.value("app_theme_default_version", 0, type=int)
+        if th_version < 2 or not settings.contains("app_theme"):
+            saved_th = settings.value("app_theme", "gray")
+            if th_version < 2 or saved_th in ("light", "dark"):
+                settings.setValue("app_theme", "gray")
+            settings.setValue("app_theme_default_version", 2)
+        self.apply_theme(settings.value("app_theme", "gray"))
         self.retranslate_ui()
         self.update_viewport_cursor()
 
@@ -547,8 +555,38 @@ class AuraPDFViewer(QMainWindow):
                 sb = self.statusBar()
                 if sb and getattr(self, '_statusbar_was_visible', True):
                     sb.show()
-                if getattr(self, '_sidebar_was_visible', False):
+                if getattr(self, '_sidebar_was_visible', False) and hasattr(self, 'thumbnails_dock') and self.thumbnails_dock:
                     self.thumbnails_dock.show()
+                if getattr(self, '_left_sidebar_was_visible', False) and hasattr(self, 'modern_left_sidebar') and self.modern_left_sidebar:
+                    self.modern_left_sidebar.show()
+                if getattr(self, '_right_sidebar_was_visible', False) and hasattr(self, 'modern_right_sidebar') and self.modern_right_sidebar:
+                    self.modern_right_sidebar.show()
+            elif not was_fs and is_fs:
+                if hasattr(self, 'fullscreen_toolbar') and self.fullscreen_toolbar is not None:
+                    self.fullscreen_toolbar.show_fullscreen_mode()
+                if hasattr(self, 'btn_fullscreen') and self.btn_fullscreen:
+                    self.btn_fullscreen.blockSignals(True)
+                    self.btn_fullscreen.setChecked(True)
+                    self.btn_fullscreen.blockSignals(False)
+                if hasattr(self, 'thumbnails_dock') and self.thumbnails_dock:
+                    self.thumbnails_dock.hide()
+                if hasattr(self, 'modern_left_sidebar') and self.modern_left_sidebar:
+                    self.modern_left_sidebar.hide()
+                if hasattr(self, 'modern_right_sidebar') and self.modern_right_sidebar:
+                    self.modern_right_sidebar.hide()
+                if hasattr(self, 'modern_utility_rail') and self.modern_utility_rail:
+                    self.modern_utility_rail.hide()
+                if hasattr(self, 'floating_capsule') and self.floating_capsule:
+                    self.floating_capsule.hide()
+                if hasattr(self, 'modern_tab_bar') and self.modern_tab_bar:
+                    self.modern_tab_bar.hide()
+                if hasattr(self, 'modern_header_bar') and self.modern_header_bar:
+                    self.modern_header_bar.hide()
+                if hasattr(self, 'toolbar'):
+                    self.toolbar.hide()
+                sb = self.statusBar()
+                if sb:
+                    sb.hide()
         super().changeEvent(event)
 
     def exit_to_select_mode(self):
@@ -596,10 +634,7 @@ class AuraPDFViewer(QMainWindow):
             self.btn_redo.setEnabled(can_redo)
 
     def toggle_toolbar_visibility(self):
-        settings = QSettings("AuraPDF", "PDFViewer")
-        if settings.value("use_classic_toolbar", False, type=bool) and hasattr(self, 'toolbar'):
-            self.toolbar.setVisible(not self.toolbar.isVisible())
-        elif hasattr(self, 'floating_capsule') and self.floating_capsule:
+        if hasattr(self, 'floating_capsule') and self.floating_capsule:
             self.floating_capsule.setVisible(not self.floating_capsule.isVisible())
 
     def _init_docks(self):
@@ -630,6 +665,10 @@ class AuraPDFViewer(QMainWindow):
                 self.btn_cursor.setIcon(ModernIconFactory.icon_select_pan())
         if hasattr(self, 'floating_capsule') and self.floating_capsule:
             self.floating_capsule.update_cursor_mode(mode)
+        if hasattr(self, 'modern_header_bar') and hasattr(self.modern_header_bar, 'pinned_tools_capsule'):
+            self.modern_header_bar.pinned_tools_capsule.update_cursor_mode(mode)
+        if hasattr(self, 'left_pinned_tools_bar') and self.left_pinned_tools_bar:
+            self.left_pinned_tools_bar.update_cursor_mode(mode)
         if mode == 'select':
             self.set_tool_state('select')
         elif mode == 'pan':
@@ -656,6 +695,10 @@ class AuraPDFViewer(QMainWindow):
                 self.btn_selection.setChecked(True)
             if hasattr(self, 'floating_capsule') and self.floating_capsule:
                 self.floating_capsule.update_selection_mode('ruler')
+            if hasattr(self, 'modern_header_bar') and hasattr(self.modern_header_bar, 'pinned_tools_capsule'):
+                self.modern_header_bar.pinned_tools_capsule.update_selection_mode('ruler')
+            if hasattr(self, 'left_pinned_tools_bar') and self.left_pinned_tools_bar:
+                self.left_pinned_tools_bar.update_selection_mode('ruler')
             self.update_viewport_cursor()
             return
         self.selection_shape_mode = mode
@@ -669,6 +712,10 @@ class AuraPDFViewer(QMainWindow):
             self.btn_selection.setChecked(True)
         if hasattr(self, 'floating_capsule') and self.floating_capsule:
             self.floating_capsule.update_selection_mode(mode)
+        if hasattr(self, 'modern_header_bar') and hasattr(self.modern_header_bar, 'pinned_tools_capsule'):
+            self.modern_header_bar.pinned_tools_capsule.update_selection_mode(mode)
+        if hasattr(self, 'left_pinned_tools_bar') and self.left_pinned_tools_bar:
+            self.left_pinned_tools_bar.update_selection_mode(mode)
         self.set_tool_state('selection_tool')
         if hasattr(self, 'selection_popup'):
             self.selection_popup.close()
@@ -1020,11 +1067,7 @@ class AuraPDFViewer(QMainWindow):
         self.restore_toolbar_order()
         self.update_undo_redo_state()
 
-        settings = QSettings("AuraPDF", "PDFViewer")
-        if settings.value("use_classic_toolbar", False, type=bool):
-            self.addToolBar(self.toolbar)
-            self.toolbar.show()
-        else:
+        if hasattr(self, 'toolbar'):
             self.toolbar.hide()
 
     def _init_modern_ui(self):
@@ -1047,7 +1090,10 @@ class AuraPDFViewer(QMainWindow):
         self.modern_header_bar.helpRequested.connect(self.open_shortcuts_dialog)
         self.modern_header_bar.printRequested.connect(self.print_pdf)
         self.modern_header_bar.saveRequested.connect(self.save_pdf)
-        self.modern_header_bar.settingsRequested.connect(self.open_settings_dialog)
+        if hasattr(self.modern_header_bar, 'settingsRequested'):
+            self.modern_header_bar.settingsRequested.connect(self.open_settings_dialog)
+        if hasattr(self.modern_header_bar, 'fullscreenRequested'):
+            self.modern_header_bar.fullscreenRequested.connect(self.toggle_fullscreen)
 
         # 3. Sol Çekmece Yığını: Tüm Araçlar / Export / Edit / Read
         self.modern_left_sidebar = ModernLeftSidebar(main_window=self, parent=self)
@@ -1055,6 +1101,7 @@ class AuraPDFViewer(QMainWindow):
         self.modern_left_sidebar.exportTriggered.connect(self._on_export_drawer_action)
         self.modern_left_sidebar.editTriggered.connect(self._on_edit_drawer_action)
         self.modern_left_sidebar.readTriggered.connect(self._on_read_drawer_action)
+        self.modern_left_sidebar.fillSignTriggered.connect(self._on_fill_sign_tool_triggered)
         self.modern_left_sidebar.closeRequested.connect(lambda: self.modern_left_sidebar.hide())
         self.modern_tools_panel = self.modern_left_sidebar.all_tools_panel
 
@@ -1077,7 +1124,22 @@ class AuraPDFViewer(QMainWindow):
         # 4B. Yüzen Hızlı Araç Kapsülü (FloatingQuickToolsCapsule)
         self.floating_capsule = FloatingQuickToolsCapsule(parent=self, main_window=self)
         self.floating_capsule.toolSelectedWithWidget.connect(self._on_floating_tool_selected)
+        self.floating_capsule.pinToTopRequested.connect(self.dock_capsule_to_top)
+        self.floating_capsule.pinToLeftRequested.connect(self.dock_capsule_to_left)
         self.floating_capsule.hide()
+        self.capsule_docked_to_top = QSettings("AuraPDF", "PDFViewer").value("capsule_docked_to_top", False, type=bool)
+        self.capsule_docked_to_left = QSettings("AuraPDF", "PDFViewer").value("capsule_docked_to_left", False, type=bool)
+
+        if hasattr(self, 'modern_header_bar') and hasattr(self.modern_header_bar, 'pinned_tools_capsule'):
+            self.modern_header_bar.pinned_tools_capsule.unpinRequested.connect(self.undock_capsule_from_top)
+            self.modern_header_bar.pinned_tools_capsule.toolSelectedWithWidget.connect(self._on_floating_tool_selected)
+
+        # 4C. Sol Araç Çubuğuna Sabitlenebilir Dikey Kapsül (Left Pinned Toolbar)
+        self.left_pinned_tools_bar = ModernPinnedQuickToolsBar(self, orientation=Qt.Orientation.Vertical)
+        self.left_pinned_tools_bar.hide()
+        self.left_pinned_tools_bar.unpinRequested.connect(self.undock_capsule_from_left)
+        self.left_pinned_tools_bar.toolSelectedWithWidget.connect(self._on_floating_tool_selected)
+
         self.central_stack.installEventFilter(self)
         if hasattr(self, 'tab_widget') and hasattr(self.tab_widget, 'tabBar') and self.tab_widget.tabBar():
             self.tab_widget.tabBar().installEventFilter(self)
@@ -1114,10 +1176,11 @@ class AuraPDFViewer(QMainWindow):
         self.body_layout.setContentsMargins(0, 0, 0, 0)
         self.body_layout.setSpacing(0)
 
-        self.body_layout.addWidget(self.modern_left_sidebar)
-        self.body_layout.addWidget(self.central_stack, stretch=1)
-        self.body_layout.addWidget(self.modern_right_sidebar)
         self.body_layout.addWidget(self.modern_utility_rail)
+        self.body_layout.addWidget(self.modern_right_sidebar)
+        self.body_layout.addWidget(self.left_pinned_tools_bar)
+        self.body_layout.addWidget(self.central_stack, stretch=1)
+        self.body_layout.addWidget(self.modern_left_sidebar)
 
         self.modern_root_layout.addWidget(self.body_container, stretch=1)
         self.setCentralWidget(self.modern_root_widget)
@@ -1139,18 +1202,88 @@ class AuraPDFViewer(QMainWindow):
 
     def update_floating_capsule_pos(self):
         if hasattr(self, 'floating_capsule') and hasattr(self, 'central_stack'):
-            if getattr(self.floating_capsule, 'user_moved', False):
-                p_rect = self.rect()
-                cur_x = self.floating_capsule.x()
-                cur_y = self.floating_capsule.y()
-                max_x = max(0, p_rect.width() - self.floating_capsule.width())
-                max_y = max(0, p_rect.height() - self.floating_capsule.height())
-                self.floating_capsule.move(max(0, min(cur_x, max_x)), max(0, min(cur_y, max_y)))
+            if getattr(self, 'capsule_docked_to_left', False) or not getattr(self.floating_capsule, 'user_moved', False):
+                pt = self.central_stack.mapTo(self, QPoint(10, 16))
+                self.floating_capsule.move(pt)
                 self.floating_capsule.raise_()
                 return
-            pt = self.central_stack.mapTo(self, QPoint(16, 20))
-            self.floating_capsule.move(pt)
+            p_rect = self.rect()
+            cur_x = self.floating_capsule.x()
+            cur_y = self.floating_capsule.y()
+            max_x = max(0, p_rect.width() - self.floating_capsule.width())
+            max_y = max(0, p_rect.height() - self.floating_capsule.height())
+            self.floating_capsule.move(max(0, min(cur_x, max_x)), max(0, min(cur_y, max_y)))
             self.floating_capsule.raise_()
+
+    def dock_capsule_to_top(self):
+        """Hareketli araç çubuğunu üst araç çubuğuna sabitler."""
+        self.capsule_docked_to_top = True
+        self.capsule_docked_to_left = False
+        settings = QSettings("AuraPDF", "PDFViewer")
+        settings.setValue("capsule_docked_to_top", True)
+        settings.setValue("capsule_docked_to_left", False)
+        settings.setValue("capsule_dock_position", "top")
+        if hasattr(self, 'floating_capsule'):
+            self.floating_capsule.hide()
+        if hasattr(self, 'left_pinned_tools_bar'):
+            self.left_pinned_tools_bar.hide()
+        if hasattr(self, 'modern_header_bar') and hasattr(self.modern_header_bar, 'pinned_tools_capsule'):
+            if hasattr(self, 'floating_capsule'):
+                self.modern_header_bar.pinned_tools_capsule.set_tools_order(self.floating_capsule.tool_order)
+                self.modern_header_bar.pinned_tools_capsule.set_active_tool(self.floating_capsule.active_tool)
+            if self.tab_widget.count() > 0 and self.central_stack.currentWidget() == self.tab_widget:
+                self.modern_header_bar.pinned_tools_capsule.show()
+
+    def dock_capsule_to_left(self):
+        """Hareketli araç çubuğunu sol araç çubuğuna sabitler."""
+        self.capsule_docked_to_top = False
+        self.capsule_docked_to_left = True
+        settings = QSettings("AuraPDF", "PDFViewer")
+        settings.setValue("capsule_docked_to_top", False)
+        settings.setValue("capsule_docked_to_left", True)
+        settings.setValue("capsule_dock_position", "left")
+        if hasattr(self, 'modern_header_bar') and hasattr(self.modern_header_bar, 'pinned_tools_capsule'):
+            self.modern_header_bar.pinned_tools_capsule.hide()
+        if hasattr(self, 'floating_capsule'):
+            self.floating_capsule.hide()
+        if hasattr(self, 'left_pinned_tools_bar'):
+            if hasattr(self, 'floating_capsule'):
+                self.left_pinned_tools_bar.set_tools_order(self.floating_capsule.tool_order)
+                self.left_pinned_tools_bar.set_active_tool(self.floating_capsule.active_tool)
+            if self.tab_widget.count() > 0 and self.central_stack.currentWidget() == self.tab_widget:
+                self.left_pinned_tools_bar.show()
+
+    def undock_capsule_from_top(self):
+        self.undock_capsule()
+
+    def undock_capsule_from_left(self):
+        self.undock_capsule()
+
+    def undock_capsule(self):
+        """Sabitlenmiş araçları serbest yüzen hareketli moda döndürür."""
+        self.capsule_docked_to_top = False
+        self.capsule_docked_to_left = False
+        settings = QSettings("AuraPDF", "PDFViewer")
+        settings.setValue("capsule_docked_to_top", False)
+        settings.setValue("capsule_docked_to_left", False)
+        settings.setValue("capsule_dock_position", "float")
+        active_tool = "select"
+        if hasattr(self, 'modern_header_bar') and hasattr(self.modern_header_bar, 'pinned_tools_capsule'):
+            if self.modern_header_bar.pinned_tools_capsule.isVisible():
+                active_tool = self.modern_header_bar.pinned_tools_capsule.active_tool
+            self.modern_header_bar.pinned_tools_capsule.hide()
+        if hasattr(self, 'left_pinned_tools_bar'):
+            if self.left_pinned_tools_bar.isVisible():
+                active_tool = self.left_pinned_tools_bar.active_tool
+            self.left_pinned_tools_bar.hide()
+        if hasattr(self, 'floating_capsule'):
+            self.floating_capsule.set_active_tool(active_tool)
+            if self.tab_widget.count() > 0 and self.central_stack.currentWidget() == self.tab_widget:
+                self.floating_capsule.show()
+                pt = self.central_stack.mapTo(self, QPoint(20, 20))
+                self.floating_capsule.move(pt)
+                self.floating_capsule.user_moved = True
+                self.floating_capsule.raise_()
 
 
     def sync_modern_tabs(self):
@@ -1188,6 +1321,8 @@ class AuraPDFViewer(QMainWindow):
                     self.modern_right_sidebar.load_comments()
 
     def _on_header_mode_changed(self, mode: str):
+        if self.isFullScreen():
+            return
         is_on_home = hasattr(self, 'central_stack') and self.central_stack.currentWidget() == self.home_workspace
         if mode == "all_tools":
             self.modern_left_sidebar.show()
@@ -1218,7 +1353,12 @@ class AuraPDFViewer(QMainWindow):
             else:
                 self.switch_to_home_view()
         elif mode == "esign":
-            self.open_signature_dialog()
+            self.modern_left_sidebar.show()
+            self.modern_left_sidebar.set_page("esign")
+            if not is_on_home and self.tab_widget.count() > 0:
+                self.switch_to_document_view()
+            else:
+                self.switch_to_home_view()
 
     def switch_to_home_view(self):
         if hasattr(self, 'home_workspace'):
@@ -1228,6 +1368,10 @@ class AuraPDFViewer(QMainWindow):
             self.modern_tab_bar.set_home_active(True)
         if hasattr(self, 'floating_capsule'):
             self.floating_capsule.hide()
+        if hasattr(self, 'modern_header_bar') and hasattr(self.modern_header_bar, 'pinned_tools_capsule'):
+            self.modern_header_bar.pinned_tools_capsule.hide()
+        if hasattr(self, 'left_pinned_tools_bar'):
+            self.left_pinned_tools_bar.hide()
         if hasattr(self, 'toolbar'):
             self.toolbar.hide()
         if hasattr(self, 'modern_right_sidebar'):
@@ -1260,23 +1404,50 @@ class AuraPDFViewer(QMainWindow):
             self.central_stack.setCurrentWidget(self.tab_widget)
             if hasattr(self, 'modern_tab_bar'):
                 self.modern_tab_bar.set_home_active(False)
-            if hasattr(self, 'floating_capsule'):
-                self.update_floating_capsule_pos()
-                self.floating_capsule.show()
-                self.floating_capsule.raise_()
-            settings = QSettings("AuraPDF", "PDFViewer")
-            if settings.value("use_classic_toolbar", False, type=bool) and hasattr(self, 'toolbar'):
-                if self.toolBarArea(self.toolbar) == Qt.ToolBarArea.NoToolBarArea:
-                    self.addToolBar(self.toolbar)
-                self.toolbar.show()
-                self.restore_toolbar_order()
-            elif hasattr(self, 'toolbar'):
+            if self.isFullScreen():
+                if hasattr(self, 'floating_capsule'):
+                    self.floating_capsule.hide()
+                if hasattr(self, 'modern_header_bar') and hasattr(self.modern_header_bar, 'pinned_tools_capsule'):
+                    self.modern_header_bar.pinned_tools_capsule.hide()
+                if hasattr(self, 'left_pinned_tools_bar'):
+                    self.left_pinned_tools_bar.hide()
+                if hasattr(self, 'modern_utility_rail'):
+                    self.modern_utility_rail.hide()
+                if hasattr(self, 'modern_right_sidebar'):
+                    self.modern_right_sidebar.hide()
+                if hasattr(self, 'modern_left_sidebar'):
+                    self.modern_left_sidebar.hide()
+                return
+            if getattr(self, 'capsule_docked_to_top', False):
+                if hasattr(self, 'floating_capsule'):
+                    self.floating_capsule.hide()
+                if hasattr(self, 'left_pinned_tools_bar'):
+                    self.left_pinned_tools_bar.hide()
+                if hasattr(self, 'modern_header_bar') and hasattr(self.modern_header_bar, 'pinned_tools_capsule'):
+                    self.modern_header_bar.pinned_tools_capsule.show()
+            elif getattr(self, 'capsule_docked_to_left', False):
+                if hasattr(self, 'floating_capsule'):
+                    self.floating_capsule.hide()
+                if hasattr(self, 'modern_header_bar') and hasattr(self.modern_header_bar, 'pinned_tools_capsule'):
+                    self.modern_header_bar.pinned_tools_capsule.hide()
+                if hasattr(self, 'left_pinned_tools_bar'):
+                    self.left_pinned_tools_bar.show()
+            else:
+                if hasattr(self, 'modern_header_bar') and hasattr(self.modern_header_bar, 'pinned_tools_capsule'):
+                    self.modern_header_bar.pinned_tools_capsule.hide()
+                if hasattr(self, 'left_pinned_tools_bar'):
+                    self.left_pinned_tools_bar.hide()
+                if hasattr(self, 'floating_capsule'):
+                    self.update_floating_capsule_pos()
+                    self.floating_capsule.show()
+                    self.floating_capsule.raise_()
+            if hasattr(self, 'toolbar'):
                 self.toolbar.hide()
             if hasattr(self, 'modern_utility_rail'):
                 self.modern_utility_rail.show()
                 if hasattr(self, 'modern_right_sidebar'):
                     active_id = getattr(self.modern_utility_rail, 'active_rail_id', None)
-                    if active_id and active_id in ("bookmarks", "comments", "thumbnails", "attachments"):
+                    if active_id and active_id in ("bookmarks", "comments", "thumbnails", "attachments", "accessibility"):
                         self.modern_right_sidebar.show()
                         self.modern_right_sidebar.set_panel(active_id)
                     else:
@@ -1294,13 +1465,17 @@ class AuraPDFViewer(QMainWindow):
             self.modern_left_sidebar.set_active_tool("organize_pages")
             if hasattr(self, 'floating_capsule'):
                 self.floating_capsule.hide()
+            if hasattr(self, 'modern_header_bar') and hasattr(self.modern_header_bar, 'pinned_tools_capsule'):
+                self.modern_header_bar.pinned_tools_capsule.hide()
+            if hasattr(self, 'left_pinned_tools_bar'):
+                self.left_pinned_tools_bar.hide()
             if hasattr(self, 'toolbar'):
                 self.toolbar.hide()
             if hasattr(self, 'modern_utility_rail'):
                 self.modern_utility_rail.show()
                 if hasattr(self, 'modern_right_sidebar'):
                     active_id = getattr(self.modern_utility_rail, 'active_rail_id', None)
-                    if active_id and active_id in ("bookmarks", "comments", "thumbnails", "attachments"):
+                    if active_id and active_id in ("bookmarks", "comments", "thumbnails", "attachments", "accessibility"):
                         self.modern_right_sidebar.show()
                         self.modern_right_sidebar.set_panel(active_id)
                     else:
@@ -1309,6 +1484,13 @@ class AuraPDFViewer(QMainWindow):
             self.switch_to_home_view()
 
     def _on_floating_tool_selected(self, tool_id: str, widget=None):
+        if hasattr(self, 'floating_capsule') and self.floating_capsule:
+            self.floating_capsule.set_active_tool(tool_id)
+        if hasattr(self, 'modern_header_bar') and hasattr(self.modern_header_bar, 'pinned_tools_capsule'):
+            self.modern_header_bar.pinned_tools_capsule.set_active_tool(tool_id)
+        if hasattr(self, 'left_pinned_tools_bar') and self.left_pinned_tools_bar:
+            self.left_pinned_tools_bar.set_active_tool(tool_id)
+
         if tool_id == "select":
             mode = getattr(self, 'cursor_mode', 'select')
             self.set_tool_state(mode)
@@ -1335,12 +1517,14 @@ class AuraPDFViewer(QMainWindow):
                 pos = widget.mapToGlobal(QPoint(widget.width() + 6, 0))
                 self.hl_popup.show_at(pos)
         elif tool_id == "comment":
-            self.set_tool_state('text')
+            self.set_tool_state('comment')
             if hasattr(self, 'modern_right_sidebar'):
                 self.modern_right_sidebar.show()
                 self.modern_right_sidebar.set_panel("comments")
+                if hasattr(self, 'modern_utility_rail'):
+                    self.modern_utility_rail.set_active_rail_item("comments")
         elif tool_id == "text":
-            self.open_pdf_content_editor()
+            self.set_tool_state('text')
             if hasattr(self, 'text_popup') and widget:
                 pos = widget.mapToGlobal(QPoint(widget.width() + 6, 0))
                 self.text_popup.show_at(pos)
@@ -1403,13 +1587,25 @@ class AuraPDFViewer(QMainWindow):
             self.open_word_dialog()
 
     def _on_edit_drawer_action(self, action_id: str):
-        if action_id in ("rotate", "delete", "extract", "organize"):
+        if action_id == "rotate":
+            if self.tab_widget.count() > 0:
+                self.rotate_current_page()
+            else:
+                self.open_pdf()
+        elif action_id == "delete":
+            if self.tab_widget.count() > 0:
+                self.delete_pages_action()
+            else:
+                self.open_pdf()
+        elif action_id in ("extract", "organize"):
             if self.tab_widget.count() > 0:
                 self.switch_to_organize_view()
             else:
                 self.open_pdf()
         elif action_id == "insert":
-            self.show_new_page_dialog()
+            self.show_new_page_dialog(default_placement="after_current")
+        elif action_id in ("gif", "add_gif"):
+            self.show_insert_emoji_dialog()
         elif action_id == "edit_text_images":
             if self.tab_widget.count() > 0:
                 self.switch_to_document_view()
@@ -1432,6 +1628,36 @@ class AuraPDFViewer(QMainWindow):
             self.open_background_dialog()
         elif action_id in ("link", "attach"):
             self.show_toolbox_menu()
+
+    def delete_pages_action(self):
+        """PDF Düzenle çekmecesinden sayfaları güvenli silme diyaloğu."""
+        tab_doc = self.get_current_tab_doc()
+        if not tab_doc or not tab_doc.doc:
+            QMessageBox.information(self, LanguageManager.tr("app_title"), LanguageManager.tr("no_active_tab"))
+            return
+        total = len(tab_doc.doc)
+        if total <= 1:
+            QMessageBox.warning(self, LanguageManager.tr("app_title"), LanguageManager.tr("sidebar_cannot_delete_last_page"))
+            return
+        curr_page = tab_doc.current_page_idx + 1
+
+        msg_box = QMessageBox(self)
+        from src.ui.dialog_theme import apply_dialog_theme
+        apply_dialog_theme(msg_box, self)
+        msg_box.setWindowTitle(LanguageManager.tr("drawer_edit_delete"))
+        msg_box.setText(LanguageManager.tr("delete_page_prompt", page=curr_page, total=total))
+
+        btn_curr = msg_box.addButton(LanguageManager.tr("delete_current_page_btn"), QMessageBox.ButtonRole.ActionRole)
+        btn_org = msg_box.addButton(LanguageManager.tr("organize_pages_btn"), QMessageBox.ButtonRole.ActionRole)
+        btn_cancel = msg_box.addButton(LanguageManager.tr("cancel"), QMessageBox.ButtonRole.RejectRole)
+
+        msg_box.exec()
+        clicked = msg_box.clickedButton()
+        if clicked == btn_curr:
+            tab_doc.delete_page(curr_page - 1)
+            self._on_organize_doc_modified()
+        elif clicked == btn_org:
+            self.switch_to_organize_view()
 
     def _export_current_page_as_image(self):
         tab_doc = self.get_current_tab_doc()
@@ -1507,7 +1733,7 @@ class AuraPDFViewer(QMainWindow):
             else:
                 global_pos = self.mapToGlobal(QPoint(10, 50))
         menu = QMenu(self)
-        theme = getattr(self, 'current_theme', 'light')
+        theme = getattr(self, 'current_theme', 'gray')
         c = get_modern_theme_colors(theme)
         menu.setStyleSheet(f"""
             QMenu {{
@@ -1590,6 +1816,9 @@ class AuraPDFViewer(QMainWindow):
         dlg = ModernCommandPaletteDialog(self)
         dlg.commandTriggered.connect(self._on_command_palette_executed)
         dlg.move(self.geometry().center().x() - dlg.width() // 2, self.geometry().top() + 80)
+        dlg.show()
+        dlg.activateWindow()
+        dlg.txt_search.setFocus()
         dlg.exec()
 
     def _on_command_palette_executed(self, cid: str):
@@ -1611,8 +1840,12 @@ class AuraPDFViewer(QMainWindow):
             self.open_encrypt_dialog()
         elif tool_id == "redact_pdf":
             self.open_pdf_redaction_dialog()
-        elif tool_id in ("fill_sign", "prepare_form"):
-            self.open_signature_dialog()
+        elif tool_id in ("fill_sign", "esign"):
+            self.modern_left_sidebar.show()
+            self.modern_left_sidebar.set_page("esign")
+            self.modern_header_bar.set_mode("esign")
+        elif tool_id == "prepare_form":
+            self.show_toolbox_menu()
         elif tool_id == "export_pdf":
             self.open_word_dialog()
         elif tool_id == "create_pdf":
@@ -1622,11 +1855,11 @@ class AuraPDFViewer(QMainWindow):
             self.modern_right_sidebar.show()
             self.modern_right_sidebar.set_panel("comments")
             if hasattr(self, 'modern_utility_rail'):
-                self.modern_utility_rail.set_active_rail_item("comments")
+                self.modern_utility_rail.set_active_rail_item("thumbnails")
         elif tool_id == "add_stamp":
             self.open_stamp_dialog()
         elif tool_id == "add_gif":
-            self.insert_gif_media()
+            self.show_insert_emoji_dialog()
         elif tool_id == "view_more":
             self.show_toolbox_menu()
         elif tool_id == "print_production":
@@ -1680,23 +1913,187 @@ class AuraPDFViewer(QMainWindow):
             )
 
     def insert_gif_media(self):
+        self.show_insert_emoji_dialog()
+
+    def _on_fill_sign_tool_triggered(self, tool_id: str):
+        if tool_id == "add_text":
+            if self.tab_widget.count() > 0:
+                self.switch_to_document_view()
+                self.set_tool_state('text')
+            else:
+                self.open_pdf()
+        elif tool_id in ("checkmark", "cross", "dot", "line", "date"):
+            if self.tab_widget.count() > 0:
+                self.switch_to_document_view()
+                self.insert_symbol_stamp(tool_id)
+            else:
+                self.open_pdf()
+        elif tool_id == "signature":
+            if self.tab_widget.count() > 0:
+                self.switch_to_document_view()
+                self.open_signature_dialog()
+            else:
+                self.open_pdf()
+        elif tool_id == "initials":
+            if self.tab_widget.count() > 0:
+                self.switch_to_document_view()
+                self.open_initials_dialog()
+            else:
+                self.open_pdf()
+
+    def open_date_stamp_dialog(self):
         tab_doc = self.get_current_tab_doc()
         if not tab_doc or not tab_doc.doc:
             QMessageBox.warning(self, LanguageManager.tr("warning"), LanguageManager.tr("open_pdf_first_warning"))
             return
-        file_path, _ = QFileDialog.getOpenFileName(
-            self,
-            LanguageManager.tr("insert_gif_title"),
-            "",
-            LanguageManager.tr("insert_gif_filter")
-        )
-        if file_path:
+        try:
+            from src.ui.dialogs.stamp_dialog import DateStampDialog
+            dlg = DateStampDialog(self)
+            if dlg.exec() and dlg.result_bytes:
+                pix = QPixmap()
+                pix.loadFromData(dlg.result_bytes)
+                tab_doc.start_stamp_placement(
+                    dlg.result_bytes,
+                    title=dlg.result_title,
+                    default_w=dlg.default_w,
+                    default_h=dlg.default_h,
+                    pixmap=pix,
+                    symbol_type="date"
+                )
+        except Exception:
+            self.insert_symbol_stamp("date")
+
+    def insert_symbol_stamp(self, symbol_type: str):
+        tab_doc = self.get_current_tab_doc()
+        if not tab_doc or not tab_doc.doc:
+            QMessageBox.warning(self, LanguageManager.tr("warning"), LanguageManager.tr("open_pdf_first_warning"))
+            return
+
+        from PyQt6.QtCore import QBuffer, QIODevice, QPointF, QRectF
+        from PyQt6.QtGui import QPixmap, QPainter, QColor, QPen, QBrush, QPainterPath, QFont
+        from datetime import datetime
+
+        if symbol_type == "checkmark":
+            pix = QPixmap(80, 80)
+            pix.fill(Qt.GlobalColor.transparent)
+            p = QPainter(pix)
+            p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+            col = QColor("#0f172a")
+            p.setPen(QPen(col, 6.0, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
+            path = QPainterPath()
+            path.moveTo(14, 42)
+            path.lineTo(32, 60)
+            path.lineTo(66, 18)
+            p.drawPath(path)
+            p.end()
+            buf = QBuffer()
+            buf.open(QIODevice.OpenModeFlag.WriteOnly)
+            pix.save(buf, "PNG")
+            tab_doc.start_stamp_placement(bytes(buf.data()), title="Checkmark", default_w=28.0, default_h=28.0, pixmap=pix, symbol_type="checkmark")
+
+        elif symbol_type == "cross":
+            pix = QPixmap(80, 80)
+            pix.fill(Qt.GlobalColor.transparent)
+            p = QPainter(pix)
+            p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+            col = QColor("#0f172a")
+            p.setPen(QPen(col, 6.0, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+            p.drawLine(QPointF(20, 20), QPointF(60, 60))
+            p.drawLine(QPointF(60, 20), QPointF(20, 60))
+            p.end()
+            buf = QBuffer()
+            buf.open(QIODevice.OpenModeFlag.WriteOnly)
+            pix.save(buf, "PNG")
+            tab_doc.start_stamp_placement(bytes(buf.data()), title="Cross", default_w=28.0, default_h=28.0, pixmap=pix, symbol_type="cross")
+
+        elif symbol_type == "dot":
+            pix = QPixmap(60, 60)
+            pix.fill(Qt.GlobalColor.transparent)
+            p = QPainter(pix)
+            p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+            p.setBrush(QBrush(QColor("#0f172a")))
+            p.setPen(Qt.PenStyle.NoPen)
+            p.drawEllipse(QRectF(15, 15, 30, 30))
+            p.end()
+            buf = QBuffer()
+            buf.open(QIODevice.OpenModeFlag.WriteOnly)
+            pix.save(buf, "PNG")
+            tab_doc.start_stamp_placement(bytes(buf.data()), title="Dot", default_w=18.0, default_h=18.0, pixmap=pix, symbol_type="dot")
+
+        elif symbol_type == "line":
+            pix = QPixmap(160, 40)
+            pix.fill(Qt.GlobalColor.transparent)
+            p = QPainter(pix)
+            p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+            col = QColor("#0f172a")
+            p.setPen(QPen(col, 5.0, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+            p.drawLine(QPointF(10, 20), QPointF(150, 20))
+            p.end()
+            buf = QBuffer()
+            buf.open(QIODevice.OpenModeFlag.WriteOnly)
+            pix.save(buf, "PNG")
+            tab_doc.start_stamp_placement(bytes(buf.data()), title="Line", default_w=55.0, default_h=12.0, pixmap=pix, symbol_type="line")
+
+        elif symbol_type == "date":
+            date_fmt = "%d.%m.%Y"
+            if hasattr(self, 'settings'):
+                saved_fmt = self.settings.value("date_stamp_format", "%d.%m.%Y")
+                if saved_fmt and isinstance(saved_fmt, str):
+                    date_fmt = saved_fmt
             try:
-                with open(file_path, "rb") as f:
-                    gif_bytes = f.read()
-                tab_doc.add_image_media(gif_bytes, title=f"GIF: {os.path.basename(file_path)}")
-            except Exception as e:
-                QMessageBox.critical(self, LanguageManager.tr("error"), str(e))
+                date_str = datetime.now().strftime(date_fmt)
+            except Exception:
+                date_str = datetime.now().strftime("%d.%m.%Y")
+
+            from PyQt6.QtGui import QFontMetrics
+            font = QFont("Segoe UI", 16, QFont.Weight.Medium)
+            fm = QFontMetrics(font)
+            txt_w = max(100, fm.horizontalAdvance(date_str) + 24)
+            txt_h = max(36, fm.height() + 12)
+
+            pix = QPixmap(txt_w, txt_h)
+            pix.fill(Qt.GlobalColor.transparent)
+            p = QPainter(pix)
+            p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+            p.setRenderHint(QPainter.RenderHint.TextAntialiasing, True)
+            p.setPen(QColor("#0f172a"))
+            p.setFont(font)
+            p.drawText(QRectF(0, 0, txt_w, txt_h), Qt.AlignmentFlag.AlignCenter, date_str)
+            p.end()
+
+            buf = QBuffer()
+            buf.open(QIODevice.OpenModeFlag.WriteOnly)
+            pix.save(buf, "PNG")
+            calc_w = max(65.0, float(txt_w) * 0.75)
+            calc_h = max(20.0, float(txt_h) * 0.75)
+            tab_doc.start_stamp_placement(
+                bytes(buf.data()),
+                title=f"Tarih ({date_str})",
+                default_w=calc_w,
+                default_h=calc_h,
+                pixmap=pix,
+                symbol_type="date"
+            )
+
+    def open_initials_dialog(self):
+        tab_doc = self.get_current_tab_doc()
+        if not tab_doc or tab_doc.doc is None:
+            QMessageBox.warning(self, LanguageManager.tr("warning"), LanguageManager.tr("open_pdf_first_warning"))
+            return
+        from src.ui.dialogs.settings_dialog import get_effective_author_name
+        author_name = get_effective_author_name()
+        initials = "".join([part[0].upper() for part in author_name.split() if part])[:3] if author_name else ""
+        try:
+            from src.ui.dialogs.pdf_signature_dialog import PDFSignatureDialog
+            dlg = PDFSignatureDialog(self, default_name=initials)
+            dlg.setWindowTitle(LanguageManager.tr("sign_dialog_initials"))
+            if dlg.exec() == QDialog.DialogCode.Accepted and dlg.result_image is not None:
+                tab_doc.add_signature(dlg.result_image)
+                QMessageBox.information(self, LanguageManager.tr("success"), LanguageManager.tr("sign_placed_success"))
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            QMessageBox.critical(self, LanguageManager.tr("error"), f"Paraf eklenirken bir hata oluştu: {e}")
 
     def _close_organize_workspace(self):
         self.switch_to_document_view()
@@ -1709,20 +2106,42 @@ class AuraPDFViewer(QMainWindow):
 
     def _on_organize_doc_modified(self):
         tab_doc = self.get_current_tab_doc()
-        if tab_doc:
-            tab_doc.render_all_pages()
-            tab_doc.update_tab_title()
+        if tab_doc and tab_doc.doc:
+            try:
+                tab_doc.set_modified(True)
+                tab_doc.render_all_pages()
+                tab_doc.update_tab_title()
+                total = len(tab_doc.doc)
+                curr = getattr(tab_doc, 'current_page_idx', 0)
+                if hasattr(self, 'lbl_total') and self.lbl_total:
+                    self.lbl_total.setText(LanguageManager.tr("page_of", total=total))
+                if hasattr(self, 'txt_page') and self.txt_page:
+                    self.txt_page.setText(str(curr + 1))
+                if hasattr(self, 'modern_utility_rail') and self.modern_utility_rail:
+                    self.modern_utility_rail.update_page_info(curr, total)
+                if hasattr(self, 'modern_right_sidebar') and self.modern_right_sidebar:
+                    self.modern_right_sidebar.load_thumbnails()
+                if hasattr(self, 'thumbnails_dock') and self.thumbnails_dock and self.thumbnails_dock.isVisible():
+                    tab_doc.notify_thumbnails_updated(curr)
+            except Exception as e:
+                import traceback
+                traceback.print_exc()
 
     def _on_utility_rail_toggled(self, rail_id: str):
+        if self.isFullScreen():
+            return
         if rail_id == "none":
             self.modern_right_sidebar.hide()
             if hasattr(self, 'thumbnails_dock') and self.thumbnails_dock:
                 self.thumbnails_dock.hide()
-        elif rail_id in ("bookmarks", "comments", "thumbnails", "attachments"):
+        elif rail_id in ("bookmarks", "comments", "thumbnails", "attachments", "accessibility"):
             if hasattr(self, 'thumbnails_dock') and self.thumbnails_dock:
                 self.thumbnails_dock.hide()
             self.modern_right_sidebar.show()
-            self.modern_right_sidebar.set_panel(rail_id)
+            if rail_id == "thumbnails" and self.modern_right_sidebar.current_panel in ("bookmarks", "comments", "thumbnails", "attachments"):
+                self.modern_right_sidebar.set_panel(self.modern_right_sidebar.current_panel)
+            else:
+                self.modern_right_sidebar.set_panel(rail_id)
 
     def _on_rail_page_jump(self, page_index: int):
         tab_doc = self.get_current_tab_doc()
@@ -1766,16 +2185,29 @@ class AuraPDFViewer(QMainWindow):
             self.btn_fullscreen.setChecked(going_fullscreen)
             self.btn_fullscreen.blockSignals(False)
 
+        if hasattr(self, 'modern_header_bar') and hasattr(self.modern_header_bar, 'btn_fullscreen') and self.modern_header_bar.btn_fullscreen:
+            self.modern_header_bar.btn_fullscreen.blockSignals(True)
+            self.modern_header_bar.btn_fullscreen.setChecked(going_fullscreen)
+            self.modern_header_bar.btn_fullscreen.blockSignals(False)
+
         if going_fullscreen:
             # 1. Mevcut pencere durumunu ve geometrisini kaydet
             self._was_maximized = self.isMaximized()
             self._normal_geometry = self.saveGeometry()
             self._normal_state = self.saveState()
 
-            # 2. Yan panel ve durum çubuğu durumlarını kaydet ve gizle
-            self._sidebar_was_visible = self.thumbnails_dock.isVisible()
+            # 2. Yan panelleri, çekmeceleri ve durum çubuğunu kaydet ve gizle
+            self._sidebar_was_visible = hasattr(self, 'thumbnails_dock') and self.thumbnails_dock and self.thumbnails_dock.isVisible()
             if self._sidebar_was_visible:
                 self.thumbnails_dock.hide()
+
+            self._left_sidebar_was_visible = hasattr(self, 'modern_left_sidebar') and self.modern_left_sidebar and self.modern_left_sidebar.isVisible()
+            if self._left_sidebar_was_visible:
+                self.modern_left_sidebar.hide()
+
+            self._right_sidebar_was_visible = hasattr(self, 'modern_right_sidebar') and self.modern_right_sidebar and self.modern_right_sidebar.isVisible()
+            if self._right_sidebar_was_visible:
+                self.modern_right_sidebar.hide()
 
             sb = self.statusBar()
             if sb:
@@ -1784,7 +2216,7 @@ class AuraPDFViewer(QMainWindow):
             else:
                 self._statusbar_was_visible = False
 
-            # 3. Sekme çubuğunu ve üst barları gizle
+            # 3. Sekme çubuğunu, üst barları ve rayı gizle
             self.tab_widget.tabBar().hide()
             if hasattr(self, 'toolbar'):
                 self.toolbar.hide()
@@ -1796,6 +2228,10 @@ class AuraPDFViewer(QMainWindow):
                 self.modern_utility_rail.hide()
             if hasattr(self, 'floating_capsule'):
                 self.floating_capsule.hide()
+            if hasattr(self, 'modern_header_bar') and hasattr(self.modern_header_bar, 'pinned_tools_capsule'):
+                self.modern_header_bar.pinned_tools_capsule.hide()
+            if hasattr(self, 'left_pinned_tools_bar'):
+                self.left_pinned_tools_bar.hide()
 
             # 4. Tam ekrana geç
             self.showFullScreen()
@@ -1823,25 +2259,35 @@ class AuraPDFViewer(QMainWindow):
             if hasattr(self, "_normal_state") and self._normal_state:
                 self.restoreState(self._normal_state)
 
-            # 3. Yan panel, sekme çubuğu ve durum çubuğunu geri yükle
-            if getattr(self, '_sidebar_was_visible', False):
+            # 3. Yan panel, çekmeceler, sekme çubuğu ve durum çubuğunu geri yükle
+            if getattr(self, '_sidebar_was_visible', False) and hasattr(self, 'thumbnails_dock') and self.thumbnails_dock:
                 self.thumbnails_dock.show()
+
+            if getattr(self, '_left_sidebar_was_visible', False) and hasattr(self, 'modern_left_sidebar') and self.modern_left_sidebar:
+                self.modern_left_sidebar.show()
+
+            if getattr(self, '_right_sidebar_was_visible', False) and hasattr(self, 'modern_right_sidebar') and self.modern_right_sidebar:
+                self.modern_right_sidebar.show()
 
             self.tab_widget.tabBar().hide()
             if hasattr(self, 'modern_tab_bar'):
                 self.modern_tab_bar.show()
             if hasattr(self, 'modern_header_bar'):
                 self.modern_header_bar.show()
-            settings = QSettings("AuraPDF", "PDFViewer")
-            if settings.value("use_classic_toolbar", False, type=bool) and hasattr(self, 'toolbar') and hasattr(self, 'central_stack') and self.central_stack.currentWidget() == self.tab_widget:
-                if self.toolBarArea(self.toolbar) == Qt.ToolBarArea.NoToolBarArea:
-                    self.addToolBar(self.toolbar)
-                self.toolbar.show()
+            if hasattr(self, 'toolbar'):
+                self.toolbar.hide()
             if hasattr(self, 'modern_utility_rail') and hasattr(self, 'central_stack') and self.central_stack.currentWidget() != getattr(self, 'home_workspace', None):
                 self.modern_utility_rail.show()
-            if hasattr(self, 'floating_capsule') and hasattr(self, 'central_stack') and self.central_stack.currentWidget() == self.tab_widget:
-                self.floating_capsule.show()
-                self.update_floating_capsule_pos()
+            if hasattr(self, 'central_stack') and self.central_stack.currentWidget() == self.tab_widget:
+                if getattr(self, 'capsule_docked_to_top', False):
+                    if hasattr(self, 'modern_header_bar') and hasattr(self.modern_header_bar, 'pinned_tools_capsule'):
+                        self.modern_header_bar.pinned_tools_capsule.show()
+                elif getattr(self, 'capsule_docked_to_left', False):
+                    if hasattr(self, 'left_pinned_tools_bar'):
+                        self.left_pinned_tools_bar.show()
+                elif hasattr(self, 'floating_capsule'):
+                    self.floating_capsule.show()
+                    self.update_floating_capsule_pos()
 
             sb = self.statusBar()
             if sb and getattr(self, '_statusbar_was_visible', True):
@@ -1940,16 +2386,32 @@ class AuraPDFViewer(QMainWindow):
         point = target.mapToGlobal(QPoint(0, target.height() + 4))
         menu.exec(point)
 
-    def show_settings_context_menu(self, pos):
+    def show_settings_context_menu(self, pos=None):
         menu = QMenu(self)
-        act_settings = menu.addAction(ModernIconFactory.icon_settings(), LanguageManager.tr("settings_title"))
+        from src.ui.dialog_theme import apply_dialog_theme
+        apply_dialog_theme(menu, self)
+
+        act_settings = menu.addAction(ModernIconFactory.icon_settings(), "  " + LanguageManager.tr("settings_title"))
         act_settings.triggered.connect(lambda: self.open_settings_dialog())
 
-        act_updates = menu.addAction(ModernIconFactory.icon_update(), LanguageManager.tr("updates_section_title"))
+        act_shortcuts = menu.addAction(ModernIconFactory.icon_info(), "  " + LanguageManager.tr("shortcuts_dialog_title") + "\tF1")
+        act_shortcuts.triggered.connect(self.open_shortcuts_dialog)
+
+        menu.addSeparator()
+
+        act_updates = menu.addAction(ModernIconFactory.icon_update(), "  " + LanguageManager.tr("updates_section_title"))
         act_updates.triggered.connect(lambda: self.open_settings_dialog(initial_tab="updates"))
 
-        target = getattr(self, 'btn_settings', self)
-        point = target.mapToGlobal(pos)
+        if pos is None:
+            if hasattr(self, 'btn_settings'):
+                point = self.btn_settings.mapToGlobal(QPoint(0, self.btn_settings.height() + 4))
+            else:
+                point = QCursor.pos()
+        elif isinstance(pos, QPoint):
+            point = pos
+        else:
+            target = getattr(self, 'btn_settings', self)
+            point = target.mapToGlobal(pos)
         menu.exec(point)
 
     def open_settings_dialog(self, initial_tab: Optional[str] = None):
@@ -2057,6 +2519,10 @@ class AuraPDFViewer(QMainWindow):
         spec = theme_specs.get(theme_name, theme_specs["gray"])
         view_bg = spec["view_bg"]
 
+        fs = self.settings.value("app_font_size", 10, type=int) if hasattr(self, 'settings') else 10
+        if fs <= 0:
+            fs = 10
+
         self.setStyleSheet(f"""
                 QMainWindow {{ background-color: {spec['main_bg']}; color: {spec['main_text']}; }}
                 QToolBar {{ background-color: {spec['tb_bg']}; border-bottom: 1px solid {spec['tb_border']}; spacing: 4px; padding: 4px 6px; }}
@@ -2065,13 +2531,13 @@ class AuraPDFViewer(QMainWindow):
                 QToolButton:checked {{ background-color: {spec['btn_hover']}; border-bottom: 2.5px solid {spec['accent']}; border-radius: 2px; }}
                 QToolButton:disabled {{ background: transparent; border: 1px solid transparent; opacity: 0.35; color: #555555; }}
                 QLineEdit#PageInput {{ background-color: {spec['page_bg']}; color: {spec['main_text']}; border: 1.2px solid {spec['page_border']}; border-radius: 3px; padding: 2px 4px; font-weight: bold; }}
-                QLabel {{ color: {spec['main_text']}; font-size: 13px; }}
+                QLabel {{ color: {spec['main_text']}; font-size: {fs}pt; }}
                 QTabWidget::pane {{ border: none; background-color: {view_bg}; }}
                 QTabBar::tab {{ background-color: {spec['tab_bg']}; color: {spec['tab_text']}; padding: 7px 16px; margin-right: 2px; border-top-left-radius: 6px; border-top-right-radius: 6px; border: 1px solid {spec['tab_border']}; border-bottom: none; }}
                 QTabBar::tab:hover {{ background-color: {spec['tab_hover']}; color: {spec['main_text']}; }}
                 QTabBar::tab:selected {{ background-color: {spec['main_bg']}; color: {spec['main_text']}; border-top: 2px solid {spec['accent']}; font-weight: bold; }}
                 QMenu {{ background-color: {spec['tb_bg']}; color: {spec['main_text']}; border: 1px solid {spec['tb_border']}; border-radius: 8px; padding: 4px; }}
-                QMenu::item {{ padding: 6px 20px; border-radius: 4px; font-size: 12px; }}
+                QMenu::item {{ padding: 6px 20px; border-radius: 4px; font-size: {fs}pt; }}
                 QMenu::item:selected {{ background-color: {spec['accent']}; color: #ffffff; font-weight: bold; }}
                 QMenu::separator {{ height: 1px; background-color: {spec['tb_border']}; margin: 4px 6px; }}
                 QScrollBar:vertical {{ background: {view_bg}; width: 8px; margin: 0px; border-radius: 4px; }}
@@ -2193,6 +2659,49 @@ class AuraPDFViewer(QMainWindow):
         settings = QSettings("AuraPDF", "PDFViewer")
         settings.setValue("language", lang)
         self.retranslate_ui()
+
+    def apply_app_font_size(self, font_size: int):
+        """Uygulama genelindeki tüm pencere, diyalog, menü ve bileşenlerin yazı boyutunu ölçeklendirir."""
+        if font_size <= 0:
+            font_size = 10
+        self.app_font_size = font_size
+        app = QApplication.instance()
+        if app:
+            f = app.font()
+            f.setPointSize(font_size)
+            app.setFont(f)
+            app.setStyleSheet(f"""
+                QWidget {{
+                    font-size: {font_size}pt;
+                }}
+                QDialog {{
+                    font-size: {font_size}pt;
+                }}
+                QMenu {{
+                    font-size: {font_size}pt;
+                }}
+                QMenu::item {{
+                    font-size: {font_size}pt;
+                }}
+                QToolTip {{
+                    font-size: {max(9, font_size - 1)}pt;
+                }}
+            """)
+        self.apply_theme(self.current_theme)
+        if hasattr(self, 'modern_tab_bar'):
+            self.modern_tab_bar.apply_theme(self.current_theme)
+        if hasattr(self, 'modern_header_bar'):
+            self.modern_header_bar.apply_theme(self.current_theme)
+        if hasattr(self, 'modern_left_sidebar'):
+            self.modern_left_sidebar.apply_theme(self.current_theme)
+        if hasattr(self, 'modern_right_sidebar'):
+            self.modern_right_sidebar.apply_theme(self.current_theme)
+        if hasattr(self, 'modern_utility_rail'):
+            self.modern_utility_rail.apply_theme(self.current_theme)
+        if hasattr(self, 'floating_capsule'):
+            self.floating_capsule.apply_theme(self.current_theme)
+        if hasattr(self, 'left_pinned_tools_bar'):
+            self.left_pinned_tools_bar.apply_theme(self.current_theme)
 
     def retranslate_ui(self):
         self.setWindowTitle(LanguageManager.tr("app_title"))
@@ -2322,12 +2831,14 @@ class AuraPDFViewer(QMainWindow):
             self.modern_utility_rail.retranslate_ui()
         if hasattr(self, 'floating_capsule') and hasattr(self.floating_capsule, 'retranslate_ui'):
             self.floating_capsule.retranslate_ui()
+        if hasattr(self, 'left_pinned_tools_bar') and hasattr(self.left_pinned_tools_bar, 'retranslate_ui'):
+            self.left_pinned_tools_bar.retranslate_ui()
 
         self.tab_widget.update()
 
     def get_theme_view_bg(self, theme: str = None) -> str:
         if not theme:
-            theme = getattr(self, 'current_theme', 'dark')
+            theme = getattr(self, 'current_theme', 'gray')
         bg_map = {
             "purple": "#0e0817", "crimson": "#13070a", "nord": "#11161e", "dark": "#121212",
             "vice_city": "#0d0017"
@@ -2352,9 +2863,9 @@ class AuraPDFViewer(QMainWindow):
             self.tab_widget.setCurrentIndex(tab_idx)
             tab_doc.update_tab_title()
             self.sync_modern_tabs()
-            if hasattr(self, 'organize_workspace'):
+            if hasattr(self, 'organize_workspace') and hasattr(self, 'central_stack') and self.central_stack.currentWidget() == self.organize_workspace:
                 self.organize_workspace.load_document()
-            if hasattr(self, 'modern_right_sidebar'):
+            if hasattr(self, 'modern_right_sidebar') and self.modern_right_sidebar.isVisible():
                 self.modern_right_sidebar.load_bookmarks()
             self.update_zoom_display(int(tab_doc.zoom_level * 100))
             self.switch_to_document_view()
@@ -2422,7 +2933,7 @@ class AuraPDFViewer(QMainWindow):
             self.setWindowTitle(LanguageManager.tr("app_title"))
         self.update_undo_redo_state()
         self.sync_modern_tabs()
-        if hasattr(self, 'organize_workspace'):
+        if hasattr(self, 'organize_workspace') and hasattr(self, 'central_stack') and self.central_stack.currentWidget() == self.organize_workspace:
             self.organize_workspace.load_document()
         if hasattr(self, 'modern_right_sidebar'):
             if self.tab_widget.count() == 0:
@@ -2647,14 +3158,26 @@ class AuraPDFViewer(QMainWindow):
             if 0 <= active_idx < self.tab_widget.count():
                 self.tab_widget.setCurrentIndex(active_idx)
             self.sync_modern_tabs()
-            if hasattr(self, 'organize_workspace'):
+            if hasattr(self, 'organize_workspace') and hasattr(self, 'central_stack') and self.central_stack.currentWidget() == self.organize_workspace:
                 self.organize_workspace.load_document()
-            if hasattr(self, 'modern_right_sidebar'):
+            if hasattr(self, 'modern_right_sidebar') and self.modern_right_sidebar.isVisible():
                 self.modern_right_sidebar.load_bookmarks()
         except Exception:
             pass
+
+    def rotate_current_page(self, angle: int = 90):
+        tab_doc = self.get_current_tab_doc()
+        if tab_doc and tab_doc.doc:
+            curr_idx = getattr(tab_doc, 'current_page_idx', 0)
+            tab_doc.rotate_page(curr_idx, angle)
+            if hasattr(self, 'organize_workspace') and hasattr(self, 'central_stack') and self.central_stack.currentWidget() == self.organize_workspace:
+                self.organize_workspace.load_document()
+
     def rotate_all_pages(self):
-        if doc := self.get_current_tab_doc(): doc.rotate_all_pages()
+        if doc := self.get_current_tab_doc():
+            doc.rotate_all_pages()
+            if hasattr(self, 'organize_workspace') and self.organize_workspace.isVisible():
+                self.organize_workspace.load_document()
 
     def set_page_view_mode(self, mode: str):
         if tab_doc := self.get_current_tab_doc():
@@ -2712,9 +3235,10 @@ class AuraPDFViewer(QMainWindow):
             self.tab_widget.setCurrentIndex(tab_idx)
             tab_doc.update_tab_title()
             self.sync_modern_tabs()
-            if hasattr(self, 'organize_workspace'):
+            self.switch_to_document_view()
+            if hasattr(self, 'organize_workspace') and hasattr(self, 'central_stack') and self.central_stack.currentWidget() == self.organize_workspace:
                 self.organize_workspace.load_document()
-            if hasattr(self, 'modern_right_sidebar'):
+            if hasattr(self, 'modern_right_sidebar') and self.modern_right_sidebar.isVisible():
                 self.modern_right_sidebar.load_bookmarks()
             self.update_view_mode_button()
             self.lbl_zoom.setText(f" {LanguageManager.tr('percent_format', val=int(tab_doc.zoom_level * 100))} ")
@@ -2729,10 +3253,12 @@ class AuraPDFViewer(QMainWindow):
                 self.statusBar().showMessage(LanguageManager.tr("new_blank_doc_created"), 3000)
             if hasattr(self, 'thumbnails_dock') and self.thumbnails_dock:
                 self.thumbnails_dock.load_thumbnails_lazy()
+            if hasattr(self, 'modern_right_sidebar') and self.modern_right_sidebar and self.modern_right_sidebar.isVisible():
+                self.modern_right_sidebar.load_thumbnails()
         except Exception as e:
             QMessageBox.critical(self, LanguageManager.tr("error"), str(e))
 
-    def show_new_page_dialog(self, default_style: Optional[str] = None, force_new_doc: bool = False):
+    def show_new_page_dialog(self, default_style: Optional[str] = None, force_new_doc: bool = False, default_placement: str = "after_current"):
         """Kullanıcının görsel şablon kartları arasından stil, yön, boyut ve konum
         seçerek sayfalar eklemesini veya yeni belge oluşturmasını sağlar."""
         try:
@@ -2740,14 +3266,14 @@ class AuraPDFViewer(QMainWindow):
                 settings = QSettings("AuraPDF", "PDFViewer")
                 default_style = settings.value("default_page_template", "blank")
             from src.ui.dialogs.new_page_dialog import NewPageDialog
-            dlg = NewPageDialog(self, default_style=default_style, force_new_doc=force_new_doc)
+            dlg = NewPageDialog(self, default_style=default_style, force_new_doc=force_new_doc, default_placement=default_placement)
             if dlg.exec():
                 cfg = dlg.get_page_config()
                 style = cfg.get("style", "blank")
                 w = cfg.get("width")
                 h = cfg.get("height")
                 count = cfg.get("count", 1)
-                placement = cfg.get("placement", "end")
+                placement = cfg.get("placement", "after_current")
 
                 tab_doc = self.get_current_tab_doc()
                 if force_new_doc or placement == "new_doc" or not tab_doc or tab_doc.doc is None:
@@ -2777,6 +3303,9 @@ class AuraPDFViewer(QMainWindow):
                         self.lbl_total.setText(LanguageManager.tr("page_of", total=len(tab_doc.doc)))
                     if hasattr(self, 'txt_page') and self.txt_page:
                         self.txt_page.setText(str(target_page + 1))
+                    if hasattr(self, 'modern_right_sidebar') and self.modern_right_sidebar:
+                        self.modern_right_sidebar.load_thumbnails()
+                        self.modern_right_sidebar.select_page(target_page)
                     self.statusBar().showMessage(LanguageManager.tr("blank_page_added", page=target_page + 1), 3000)
         except Exception as e:
             QMessageBox.critical(self, LanguageManager.tr("error"), str(e))
@@ -2882,10 +3411,19 @@ class AuraPDFViewer(QMainWindow):
                 self.floating_capsule.set_active_tool('highlighter')
             elif tool_name in ('text', 'direct_edit'):
                 self.floating_capsule.set_active_tool('text')
+            elif tool_name == 'comment':
+                self.floating_capsule.set_active_tool('comment')
             elif tool_name == 'pen':
                 self.floating_capsule.set_active_tool('pen')
             elif tool_name == 'eraser':
                 self.floating_capsule.set_active_tool('eraser')
+
+        if hasattr(self, 'modern_header_bar') and hasattr(self.modern_header_bar, 'pinned_tools_capsule'):
+            if hasattr(self, 'floating_capsule') and self.floating_capsule:
+                self.modern_header_bar.pinned_tools_capsule.set_active_tool(self.floating_capsule.active_tool)
+        if hasattr(self, 'left_pinned_tools_bar') and self.left_pinned_tools_bar:
+            if hasattr(self, 'floating_capsule') and self.floating_capsule:
+                self.left_pinned_tools_bar.set_active_tool(self.floating_capsule.active_tool)
 
         if hasattr(self, 'fullscreen_toolbar') and self.fullscreen_toolbar is not None:
             self.fullscreen_toolbar.update_active_tool(tool_name)
@@ -2953,6 +3491,7 @@ class AuraPDFViewer(QMainWindow):
             'highlighter': CursorFactory.get_highlighter_cursor(hl_col, style=hl_cursor_style),
             'eraser': CursorFactory.get_eraser_cursor(self.eraser_popup.thickness, self.eraser_popup.eraser_mode),
             'text': CursorFactory.get_text_cursor(),
+            'comment': Qt.CursorShape.PointingHandCursor,
             'direct_edit': Qt.CursorShape.IBeamCursor,
             'selection_tool': CursorFactory.get_selection_cursor(self.selection_shape_mode),
             'pointer': pointer_cursor,
@@ -3115,6 +3654,8 @@ class AuraPDFViewer(QMainWindow):
 
             if hasattr(self, 'thumbnails_dock') and self.thumbnails_dock and self.thumbnails_dock.is_loaded:
                 self.thumbnails_dock.load_thumbnails_lazy()
+            if hasattr(self, 'modern_right_sidebar') and self.modern_right_sidebar and self.modern_right_sidebar.isVisible():
+                self.modern_right_sidebar.load_thumbnails()
 
             QMessageBox.information(self, LanguageManager.tr("success"), LanguageManager.tr("save_success"))
 
@@ -3480,12 +4021,8 @@ class AuraPDFViewer(QMainWindow):
         if not tab_doc or tab_doc.doc is None:
             QMessageBox.warning(self, LanguageManager.tr("warning"), "Lütfen önce imzalamak istediğiniz bir PDF belgesi açın.")
             return
-        settings = QSettings("AuraPDF", "PDFViewer")
-        author_name = str(settings.value("author_name", "") or "").strip()
-        if not author_name or author_name == "Test Author":
-            from src.ui.dialogs.settings_dialog import get_default_author_info
-            def_user, _ = get_default_author_info()
-            author_name = def_user
+        from src.ui.dialogs.settings_dialog import get_effective_author_name
+        author_name = get_effective_author_name()
         try:
             from src.ui.dialogs.pdf_signature_dialog import PDFSignatureDialog
             dlg = PDFSignatureDialog(self, default_name=author_name)
@@ -3629,6 +4166,10 @@ class AuraPDFViewer(QMainWindow):
         if hasattr(self, 'floating_capsule') and self.floating_capsule:
             self.floating_capsule.set_tools_order(order)
             self.update_floating_capsule_pos()
+        if hasattr(self, 'modern_header_bar') and hasattr(self.modern_header_bar, 'pinned_tools_capsule'):
+            self.modern_header_bar.pinned_tools_capsule.set_tools_order(order)
+        if hasattr(self, 'left_pinned_tools_bar') and self.left_pinned_tools_bar:
+            self.left_pinned_tools_bar.set_tools_order(order)
 
     def set_classic_toolbar_mode(self, enabled: bool):
         if not hasattr(self, 'toolbar'):
@@ -3673,6 +4214,11 @@ class AuraPDFViewer(QMainWindow):
         if hasattr(self, '_audio_record_dialog') and self._audio_record_dialog is not None:
             try:
                 self._audio_record_dialog.close()
+            except Exception:
+                pass
+        if hasattr(self, 'modern_right_sidebar') and hasattr(self.modern_right_sidebar, 'speech_engine'):
+            try:
+                self.modern_right_sidebar.speech_engine.stop()
             except Exception:
                 pass
         super().closeEvent(event)

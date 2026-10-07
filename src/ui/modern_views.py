@@ -22,9 +22,10 @@ from PyQt6.QtWidgets import (
     QPushButton, QScrollArea, QGridLayout, QFrame, QStackedWidget,
     QTreeWidget, QTreeWidgetItem, QListWidget, QListWidgetItem, QListView, QMenu,
     QDialog, QSizePolicy, QApplication, QSlider, QMessageBox, QFileDialog,
-    QHeaderView, QGraphicsDropShadowEffect, QAbstractItemView
+    QHeaderView, QGraphicsDropShadowEffect, QAbstractItemView, QStyleOptionViewItem,
+    QProgressBar, QButtonGroup
 )
-from PyQt6.QtCore import Qt, pyqtSignal, QSize, QPoint, QPointF, QRect, QTimer, QThread, QUrl, QEvent, QSettings
+from PyQt6.QtCore import Qt, pyqtSignal, QSize, QPoint, QPointF, QRect, QRectF, QTimer, QThread, QUrl, QEvent, QSettings
 from PyQt6.QtGui import (
     QIcon, QPixmap, QImage, QPainter, QColor, QPen, QBrush, QFont,
     QPainterPath, QCursor, QKeySequence, QShortcut, QDesktopServices,
@@ -34,9 +35,10 @@ from PyQt6.QtGui import (
 from src.core.i18n import LanguageManager
 from src.ui.icons import ModernIconFactory
 from src.ui.dialog_theme import apply_dialog_theme
+from src.core.speech_engine import AuraSpeechEngine, clean_text_for_speech
 
 
-def get_modern_theme_colors(theme_name: str = "light") -> Dict[str, str]:
+def get_modern_theme_colors(theme_name: str = "gray") -> Dict[str, str]:
     """Tüm temalarla kusursuz uyumlu renk paleti."""
     palettes = {
         "light": {
@@ -63,6 +65,7 @@ def get_modern_theme_colors(theme_name: str = "light") -> Dict[str, str]:
         },
         "gray": {
             "bg": "#232528",
+            "tab_bar_bg": "#1e2022",
             "surface": "#2b2d30",
             "surface_hover": "#35383c",
             "surface_active": "#3e4248",
@@ -232,7 +235,7 @@ def get_modern_theme_colors(theme_name: str = "light") -> Dict[str, str]:
     }
     if theme_name == "navy":
         return palettes["nord"]
-    return palettes.get(theme_name, palettes["light"])
+    return palettes.get(theme_name, palettes["gray"])
 
 
 # ==============================================================================
@@ -266,18 +269,21 @@ class ModernTabItem(QWidget):
 
         # Başlık
         self.lbl_title = QLabel(title)
+        self.lbl_title.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         layout.addWidget(self.lbl_title, stretch=1)
 
-        # Kapat Butonu
-        self.btn_close = QToolButton()
+        # Kapat Butonu (X)
+        self.btn_close = QToolButton(self)
+        self.btn_close.setObjectName("TabCloseBtn")
         self.btn_close.setIcon(ModernIconFactory.icon_close())
-        self.btn_close.setIconSize(QSize(10, 10))
-        self.btn_close.setFixedSize(18, 18)
+        self.btn_close.setIconSize(QSize(12, 12))
+        self.btn_close.setFixedSize(20, 20)
         self.btn_close.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_close.setToolTip(LanguageManager.tr("close_tab"))
         self.btn_close.clicked.connect(lambda: self.closeRequested.emit(self.index))
         layout.addWidget(self.btn_close)
 
+        self.set_title(title)
         self._apply_style("light")
 
     def mousePressEvent(self, event):
@@ -301,11 +307,17 @@ class ModernTabItem(QWidget):
 
     def set_title(self, title: str):
         self.title = title
-        self.lbl_title.setText(title)
         self.setToolTip(title)
+        fm = self.lbl_title.fontMetrics()
+        elided = fm.elidedText(title, Qt.TextElideMode.ElideRight, 155)
+        self.lbl_title.setText(elided)
 
     def _apply_style(self, theme_name: str = "light"):
         c = get_modern_theme_colors(theme_name)
+        close_icon_color = c.get('tab_active_text', '#f8fafc') if self.is_active else ('#cbd5e1' if theme_name != 'light' else '#475569')
+        if hasattr(self, 'btn_close'):
+            self.btn_close.setIcon(ModernIconFactory.icon_close(close_icon_color, hover_color="#ef4444"))
+
         if self.is_active:
             self.setStyleSheet(f"""
                 ModernTabItem {{
@@ -320,15 +332,20 @@ class ModernTabItem(QWidget):
                     font-size: 12px;
                     font-weight: 600;
                 }}
-                QToolButton {{
-                    background: transparent;
+                QToolButton#TabCloseBtn {{
+                    background-color: transparent;
                     border: none;
-                    border-radius: 9px;
-                    color: {c['text_muted']};
+                    border-radius: 10px;
+                    padding: 0px;
+                    margin: 0px;
+                    min-width: 20px;
+                    max-width: 20px;
+                    min-height: 20px;
+                    max-height: 20px;
                 }}
-                QToolButton:hover {{
-                    background-color: {c['surface_hover']};
-                    color: {c['danger']};
+                QToolButton#TabCloseBtn:hover {{
+                    background-color: rgba(239, 68, 68, 0.22);
+                    border: 1px solid rgba(239, 68, 68, 0.40);
                 }}
             """)
         else:
@@ -348,15 +365,20 @@ class ModernTabItem(QWidget):
                     font-size: 12px;
                     font-weight: 500;
                 }}
-                QToolButton {{
-                    background: transparent;
+                QToolButton#TabCloseBtn {{
+                    background-color: transparent;
                     border: none;
-                    border-radius: 9px;
-                    color: {c['text_muted']};
+                    border-radius: 10px;
+                    padding: 0px;
+                    margin: 0px;
+                    min-width: 20px;
+                    max-width: 20px;
+                    min-height: 20px;
+                    max-height: 20px;
                 }}
-                QToolButton:hover {{
-                    background-color: {c['surface_active']};
-                    color: {c['danger']};
+                QToolButton#TabCloseBtn:hover {{
+                    background-color: rgba(239, 68, 68, 0.22);
+                    border: 1px solid rgba(239, 68, 68, 0.40);
                 }}
             """)
 
@@ -443,7 +465,7 @@ class ModernTabBarWidget(QWidget):
                 background-color: {c.get('tab_bar_bg', c['bg'])};
                 border-bottom: 1px solid {c['border']};
             }}
-            QToolButton {{
+            QToolButton:not(#TabCloseBtn) {{
                 background-color: transparent;
                 border: 1px solid transparent;
                 border-radius: 6px;
@@ -452,10 +474,25 @@ class ModernTabBarWidget(QWidget):
                 font-weight: 500;
                 font-size: 12px;
             }}
-            QToolButton:hover {{
+            QToolButton:not(#TabCloseBtn):hover {{
                 background-color: {c['surface_hover']};
                 border-color: {c['border']};
                 color: {c['text']};
+            }}
+            QToolButton#TabCloseBtn {{
+                background-color: transparent;
+                border: none;
+                border-radius: 10px;
+                padding: 0px;
+                margin: 0px;
+                min-width: 20px;
+                max-width: 20px;
+                min-height: 20px;
+                max-height: 20px;
+            }}
+            QToolButton#TabCloseBtn:hover {{
+                background-color: rgba(239, 68, 68, 0.22);
+                border: 1px solid rgba(239, 68, 68, 0.40);
             }}
         """)
         self.btn_home.setStyleSheet(f"""
@@ -529,8 +566,244 @@ class ModernTabBarWidget(QWidget):
 
 
 # ==============================================================================
-# 2. MODERN ÜST GEZİNME VE EYLEM ÇUBUĞU (ModernHeaderBar)
+# 2. SABİTLENMİŞ VE ÜST GEZİNME ÇUBUĞU BİLEŞENLERİ
 # ==============================================================================
+class ModernPinnedQuickToolsBar(QFrame):
+    """
+    Üst araç çubuğuna sabitlenmiş minimalist yatay hızlı araçlar kapsülü.
+    Hareketli araç çubuğundaki tüm işlevlerle (seçim, vurgulayıcı, yorum, metin, kalem, silgi)
+    birebir senkronize çalışır ve minimalist şık bir yatay kapsül olarak görünür.
+    """
+    toolSelected = pyqtSignal(str)
+    toolSelectedWithWidget = pyqtSignal(str, object)
+    unpinRequested = pyqtSignal()
+
+    def __init__(self, parent=None, orientation=Qt.Orientation.Horizontal):
+        super().__init__(parent)
+        self.setObjectName("PinnedQuickToolsBar")
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        self.orientation = orientation
+        self.active_tool = "select"
+        self.theme_name = "gray"
+        self.buttons: Dict[str, QToolButton] = {}
+
+        if self.orientation == Qt.Orientation.Horizontal:
+            self.setFixedHeight(42)
+            layout = QHBoxLayout(self)
+            layout.setContentsMargins(6, 2, 6, 2)
+            layout.setSpacing(4)
+        else:
+            self.setFixedWidth(46)
+            layout = QVBoxLayout(self)
+            layout.setContentsMargins(4, 6, 4, 6)
+            layout.setSpacing(4)
+            layout.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignHCenter)
+
+        self.default_order = ["select", "selection", "pen", "highlighter", "eraser", "text", "insert", "comment", "pointer"]
+
+        self.tool_specs_factory = {
+            "select": ("quick_tool_select", lambda: ModernIconFactory.icon_cursor()),
+            "selection": ("quick_tool_draw_select", lambda: ModernIconFactory.icon_select_rect("#38bdf8")),
+            "pen": ("quick_tool_pen", lambda: ModernIconFactory.icon_pen("#0284c7")),
+            "highlighter": ("quick_tool_highlighter", lambda: ModernIconFactory.icon_highlighter("#eab308")),
+            "eraser": ("quick_tool_eraser", lambda: ModernIconFactory.icon_eraser("#ef4444")),
+            "text": ("quick_tool_text", lambda: ModernIconFactory.icon_text_tool("#ec4899")),
+            "insert": ("insert_btn_tip", lambda: ModernIconFactory.icon_insert("#10b981")),
+            "comment": ("quick_tool_comment", lambda: ModernIconFactory.icon_comments("#f97316")),
+            "pointer": ("quick_tool_pointer", lambda: ModernIconFactory.icon_pointer("#ef4444")),
+        }
+
+        # Kaydedilmiş araç sıralamasını yükle (ve sürüm kontrolüyle gerekirse yeni varsayılana taşı)
+        settings = QSettings("AuraPDF", "PDFViewer")
+        tb_version = settings.value("floating_tools_order_version", 0, type=int)
+        raw_order = settings.value("floating_tools_order", None)
+        loaded_order = []
+        if raw_order and tb_version >= 2:
+            try:
+                if isinstance(raw_order, str):
+                    loaded_order = json.loads(raw_order)
+                elif isinstance(raw_order, list):
+                    loaded_order = list(raw_order)
+            except Exception:
+                loaded_order = []
+
+        valid_order = [x for x in loaded_order if x in self.tool_specs_factory]
+        if not valid_order or tb_version < 2:
+            valid_order = list(self.default_order)
+        else:
+            for k in self.default_order:
+                if k not in valid_order:
+                    valid_order.append(k)
+        self.tool_order = valid_order
+
+        # Ayırıcı ve Ayır (Unpin) butonu
+        self.sep = QFrame(self)
+        if self.orientation == Qt.Orientation.Horizontal:
+            self.sep.setFrameShape(QFrame.Shape.VLine)
+            self.sep.setFixedWidth(1)
+            self.sep.setFixedHeight(24)
+        else:
+            self.sep.setFrameShape(QFrame.Shape.HLine)
+            self.sep.setFixedHeight(1)
+            self.sep.setFixedWidth(28)
+        self.sep.setObjectName("PinnedSep")
+
+        self.btn_unpin = QToolButton(self)
+        self.btn_unpin.setIcon(ModernIconFactory.icon_unpin())
+        self.btn_unpin.setIconSize(QSize(20, 20))
+        self.btn_unpin.setFixedSize(38, 38)
+        self.btn_unpin.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_unpin.setToolTip(LanguageManager.tr("capsule_unpin_float"))
+        self.btn_unpin.clicked.connect(self.unpinRequested.emit)
+
+        # Dikey yerleşimde unpin en üstte olsun
+        if self.orientation == Qt.Orientation.Vertical:
+            layout.addWidget(self.btn_unpin)
+            layout.addWidget(self.sep)
+
+        for tid in self.tool_order:
+            key, icon_func = self.tool_specs_factory[tid]
+            btn = QToolButton(self)
+            btn.setIcon(icon_func())
+            btn.setIconSize(QSize(24, 24))
+            btn.setFixedSize(38, 38)
+            btn.setCheckable(True)
+            btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            btn.setToolTip(LanguageManager.tr(key))
+            btn.clicked.connect(lambda checked, t=tid: self._on_btn_clicked(t))
+            layout.addWidget(btn)
+            self.buttons[tid] = btn
+
+        if "select" in self.buttons:
+            self.buttons["select"].setChecked(True)
+
+        # Yatay yerleşimde unpin en sağda olsun
+        if self.orientation == Qt.Orientation.Horizontal:
+            layout.addWidget(self.sep)
+            layout.addWidget(self.btn_unpin)
+
+        self.apply_theme(self.theme_name)
+
+    def set_tools_order(self, order: list):
+        """Ayarlardan veya hareketli araç çubuğundan gelen yeni sıralamaya göre butonları yeniden düzenler."""
+        cleaned_order = []
+        for x in order:
+            tid = x[4:] if x.startswith("btn_") and x[4:] in self.tool_specs_factory else x
+            if tid in self.tool_specs_factory and tid not in cleaned_order:
+                cleaned_order.append(tid)
+        valid_order = list(cleaned_order)
+        for k in self.default_order:
+            if k not in valid_order:
+                valid_order.append(k)
+        if valid_order == self.tool_order:
+            return
+        self.tool_order = valid_order
+
+        layout = self.layout()
+        for btn in self.buttons.values():
+            layout.removeWidget(btn)
+        if hasattr(self, 'sep'):
+            layout.removeWidget(self.sep)
+        if hasattr(self, 'btn_unpin'):
+            layout.removeWidget(self.btn_unpin)
+
+        if self.orientation == Qt.Orientation.Vertical:
+            if hasattr(self, 'btn_unpin'):
+                layout.addWidget(self.btn_unpin)
+            if hasattr(self, 'sep'):
+                layout.addWidget(self.sep)
+            for tid in self.tool_order:
+                if tid in self.buttons:
+                    layout.addWidget(self.buttons[tid])
+        else:
+            for tid in self.tool_order:
+                if tid in self.buttons:
+                    layout.addWidget(self.buttons[tid])
+            if hasattr(self, 'sep'):
+                layout.addWidget(self.sep)
+            if hasattr(self, 'btn_unpin'):
+                layout.addWidget(self.btn_unpin)
+
+    def _on_btn_clicked(self, tool_id: str):
+        self.set_active_tool(tool_id)
+        self.toolSelected.emit(tool_id)
+        btn = self.buttons.get(tool_id)
+        self.toolSelectedWithWidget.emit(tool_id, btn)
+
+    def set_active_tool(self, tool_id: str):
+        self.active_tool = tool_id
+        for tid, btn in self.buttons.items():
+            btn.setChecked(tid == tool_id)
+
+    def update_cursor_mode(self, mode: str):
+        btn = self.buttons.get("select")
+        if not btn: return
+        if mode == 'pan':
+            btn.setIcon(ModernIconFactory.icon_select_pan())
+            btn.setToolTip(LanguageManager.tr("tb_item_cursor"))
+        else:
+            btn.setIcon(ModernIconFactory.icon_cursor())
+            btn.setToolTip(LanguageManager.tr("quick_tool_select"))
+
+    def update_selection_mode(self, mode: str):
+        btn = self.buttons.get("selection")
+        if not btn: return
+        if mode == 'lasso':
+            btn.setIcon(ModernIconFactory.icon_select_lasso("#38bdf8"))
+            btn.setToolTip(LanguageManager.tr("sel_lasso").strip())
+        elif mode == 'move':
+            btn.setIcon(ModernIconFactory.icon_select_move("#38bdf8"))
+            btn.setToolTip(LanguageManager.tr("sel_move").strip() if LanguageManager.tr("sel_move") != "sel_move" else "Seçimi Taşı")
+        elif mode == 'ruler':
+            btn.setIcon(ModernIconFactory.icon_ruler("#38bdf8"))
+            btn.setToolTip(LanguageManager.tr("tb_item_ruler"))
+        else:
+            btn.setIcon(ModernIconFactory.icon_select_rect("#38bdf8"))
+            btn.setToolTip(LanguageManager.tr("quick_tool_draw_select"))
+
+    def retranslate_ui(self):
+        for tid, btn in self.buttons.items():
+            if tid in self.tool_specs_factory:
+                key, _ = self.tool_specs_factory[tid]
+                btn.setToolTip(LanguageManager.tr(key))
+        if hasattr(self, 'btn_unpin'):
+            self.btn_unpin.setToolTip(LanguageManager.tr("capsule_unpin_float"))
+
+    def apply_theme(self, theme_name: str = "gray"):
+        self.theme_name = theme_name
+        c = get_modern_theme_colors(theme_name)
+        if hasattr(self, 'btn_unpin'):
+            self.btn_unpin.setIcon(ModernIconFactory.icon_unpin(c['text_muted']))
+        if "select" in self.buttons and getattr(self, 'cursor_mode', 'select') == 'select':
+            self.buttons["select"].setIcon(ModernIconFactory.icon_cursor(c['text']))
+        
+        border_style = f"border: 1px solid {c['border']}; border-radius: 8px;" if self.orientation == Qt.Orientation.Horizontal else f"border-right: 1px solid {c['border']}; border-left: 1px solid {c['border']}; border-radius: 0px;"
+        self.setStyleSheet(f"""
+            #PinnedQuickToolsBar {{
+                background-color: {c['card_bg']};
+                {border_style}
+            }}
+            #PinnedSep {{
+                background-color: {c['border']};
+                border: none;
+            }}
+            QToolButton {{
+                background-color: transparent;
+                border: 1px solid transparent;
+                border-radius: 6px;
+                color: {c['text']};
+            }}
+            QToolButton:hover {{
+                background-color: {c['surface_hover']};
+                border-color: {c['border']};
+            }}
+            QToolButton:checked {{
+                background-color: {c['accent_light']};
+                border: 1px solid {c['accent']};
+            }}
+        """)
+
+
 class ModernHeaderBar(QWidget):
     """
     Üst Başlık Çubuğu:
@@ -546,16 +819,17 @@ class ModernHeaderBar(QWidget):
     printRequested = pyqtSignal()
     saveRequested = pyqtSignal()
     settingsRequested = pyqtSignal()
+    fullscreenRequested = pyqtSignal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
-        self.theme_name = "light"
+        self.theme_name = "gray"
         self.current_mode = "all_tools"
-        self.setFixedHeight(48)
+        self.setFixedHeight(50)
 
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(12, 6, 14, 6)
+        layout.setContentsMargins(12, 4, 14, 4)
         layout.setSpacing(10)
 
         # 1. Menü Butonu
@@ -597,6 +871,13 @@ class ModernHeaderBar(QWidget):
 
         layout.addStretch(1)
 
+        # Sabitlenebilir Minimalist Hızlı Araçlar Kapsülü (Orta boşlukta estetik yerleşim)
+        self.pinned_tools_capsule = ModernPinnedQuickToolsBar(self)
+        self.pinned_tools_capsule.hide()
+        layout.addWidget(self.pinned_tools_capsule)
+
+        layout.addStretch(1)
+
         # 3. Arama Çubuğu (Ctrl+K Pill Input)
         self.search_pill = QFrame()
         self.search_pill.setObjectName("SearchPill")
@@ -622,15 +903,6 @@ class ModernHeaderBar(QWidget):
         layout.addWidget(self.search_pill)
 
         # 4. Hızlı Eylem İkonları
-        # Bilgi (i)
-        self.btn_help = QToolButton()
-        self.btn_help.setIcon(ModernIconFactory.icon_info())
-        self.btn_help.setIconSize(QSize(16, 16))
-        self.btn_help.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.btn_help.setToolTip(LanguageManager.tr("shortcuts_title"))
-        self.btn_help.clicked.connect(self.helpRequested.emit)
-        layout.addWidget(self.btn_help)
-
         # Yazdır
         self.btn_print = QToolButton()
         self.btn_print.setIcon(ModernIconFactory.icon_print())
@@ -649,14 +921,15 @@ class ModernHeaderBar(QWidget):
         self.btn_save.clicked.connect(self.saveRequested.emit)
         layout.addWidget(self.btn_save)
 
-        # Ayarlar
-        self.btn_settings = QToolButton()
-        self.btn_settings.setIcon(ModernIconFactory.icon_settings())
-        self.btn_settings.setIconSize(QSize(16, 16))
-        self.btn_settings.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.btn_settings.setToolTip(LanguageManager.tr("settings_title"))
-        self.btn_settings.clicked.connect(self.settingsRequested.emit)
-        layout.addWidget(self.btn_settings)
+        # Tam Ekran (F11) - 1. Pozisyon
+        self.btn_fullscreen = QToolButton()
+        self.btn_fullscreen.setIcon(ModernIconFactory.icon_fullscreen())
+        self.btn_fullscreen.setIconSize(QSize(16, 16))
+        self.btn_fullscreen.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_fullscreen.setCheckable(True)
+        self.btn_fullscreen.setToolTip(LanguageManager.tr("tb_item_fullscreen"))
+        self.btn_fullscreen.clicked.connect(self.fullscreenRequested.emit)
+        layout.addWidget(self.btn_fullscreen)
 
         self.apply_theme(self.theme_name)
 
@@ -673,10 +946,12 @@ class ModernHeaderBar(QWidget):
             if mode_id in self.mode_buttons:
                 self.mode_buttons[mode_id].setText(LanguageManager.tr(key))
         self.lbl_search_text.setText(LanguageManager.tr("search_tools_placeholder"))
-        self.btn_help.setToolTip(LanguageManager.tr("shortcuts_title"))
         self.btn_print.setToolTip(LanguageManager.tr("print_btn"))
         self.btn_save.setToolTip(LanguageManager.tr("save_btn"))
-        self.btn_settings.setToolTip(LanguageManager.tr("settings_title"))
+        if hasattr(self, 'btn_fullscreen'):
+            self.btn_fullscreen.setToolTip(LanguageManager.tr("tb_item_fullscreen"))
+        if hasattr(self, 'pinned_tools_capsule'):
+            self.pinned_tools_capsule.retranslate_ui()
 
     def set_mode(self, mode_id: str):
         self.current_mode = mode_id
@@ -684,9 +959,11 @@ class ModernHeaderBar(QWidget):
             btn.setChecked(m == mode_id)
         self.modeChanged.emit(mode_id)
 
-    def apply_theme(self, theme_name: str = "light"):
+    def apply_theme(self, theme_name: str = "gray"):
         self.theme_name = theme_name
         c = get_modern_theme_colors(theme_name)
+        if hasattr(self, 'pinned_tools_capsule'):
+            self.pinned_tools_capsule.apply_theme(theme_name)
         self.setStyleSheet(f"""
             ModernHeaderBar {{
                 background-color: {c['surface']};
@@ -753,8 +1030,8 @@ class ModernToolItemWidget(QWidget):
         layout.setSpacing(12)
 
         self.lbl_icon = QLabel()
-        self.lbl_icon.setPixmap(icon.pixmap(18, 18))
-        self.lbl_icon.setFixedSize(18, 18)
+        self.lbl_icon.setPixmap(icon.pixmap(20, 20))
+        self.lbl_icon.setFixedSize(20, 20)
         layout.addWidget(self.lbl_icon)
 
         self.lbl_text = QLabel(label_text)
@@ -837,13 +1114,13 @@ class ModernAllToolsPanel(QWidget):
         h_head.addWidget(self.lbl_head)
         h_head.addStretch(1)
 
-        btn_close = QToolButton()
-        btn_close.setIcon(ModernIconFactory.icon_close())
-        btn_close.setIconSize(QSize(12, 12))
-        btn_close.setFixedSize(22, 22)
-        btn_close.setCursor(Qt.CursorShape.PointingHandCursor)
-        btn_close.clicked.connect(self.closeRequested.emit)
-        h_head.addWidget(btn_close)
+        self.btn_close = QToolButton()
+        self.btn_close.setIcon(ModernIconFactory.icon_close())
+        self.btn_close.setIconSize(QSize(12, 12))
+        self.btn_close.setFixedSize(22, 22)
+        self.btn_close.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_close.clicked.connect(self.closeRequested.emit)
+        h_head.addWidget(self.btn_close)
         main_layout.addLayout(h_head)
 
         # Kaydırılabilir Araçlar Listesi
@@ -860,20 +1137,20 @@ class ModernAllToolsPanel(QWidget):
         self.items: Dict[str, ModernToolItemWidget] = {}
         self.tool_keys: Dict[str, str] = {}
         standard_tool_specs = [
-            ("export_pdf", "tool_export_pdf", ModernIconFactory.icon_export_pdf("#0284c7"), "#0284c7"),
-            ("fill_sign", "tool_fill_sign", ModernIconFactory.icon_fill_sign("#8b5cf6"), "#8b5cf6"),
+            ("export_pdf", "tool_export_pdf", ModernIconFactory.icon_export_pdf("#0ea5e9"), "#0ea5e9"),
+            ("fill_sign", "tool_fill_sign", ModernIconFactory.icon_fill_sign("#a855f7"), "#a855f7"),
             ("edit_pdf", "tool_edit_pdf", ModernIconFactory.icon_edit_content("#ec4899"), "#ec4899"),
             ("create_pdf", "tool_create_pdf", ModernIconFactory.icon_new_document("#ef4444"), "#ef4444"),
-            ("combine_files", "tool_combine_files", ModernIconFactory.icon_combine_files("#0284c7"), "#0284c7"),
-            ("organize_pages", "tool_organize_pages", ModernIconFactory.icon_organize("#10b981"), "#10b981"),
-            ("add_comments", "tool_add_comments", ModernIconFactory.icon_comments("#f97316"), "#f97316"),
+            ("combine_files", "tool_combine_files", ModernIconFactory.icon_combine_files("#38bdf8"), "#38bdf8"),
+            ("organize_pages", "tool_organize_pages", ModernIconFactory.icon_organize("#22c55e"), "#22c55e"),
+            ("add_comments", "tool_add_comments", ModernIconFactory.icon_comments("#f59e0b"), "#f59e0b"),
             ("scan_ocr", "tool_scan_ocr", ModernIconFactory.icon_ocr("#10b981"), "#10b981"),
-            ("protect_pdf", "tool_protect_pdf", ModernIconFactory.icon_lock("#0284c7"), "#0284c7"),
+            ("protect_pdf", "tool_protect_pdf", ModernIconFactory.icon_lock("#3b82f6"), "#3b82f6"),
             ("redact_pdf", "tool_redact_pdf", ModernIconFactory.icon_redact("#ef4444"), "#ef4444"),
             ("compress_pdf", "tool_compress_pdf", ModernIconFactory.icon_compress("#ef4444"), "#ef4444"),
-            ("prepare_form", "tool_prepare_form", ModernIconFactory.icon_prepare_form("#9333ea"), "#9333ea"),
-            ("add_stamp", "tool_add_stamp", ModernIconFactory.icon_stamp("#a855f7"), "#a855f7"),
-            ("add_gif", "tool_add_gif", ModernIconFactory.icon_gif("#10b981"), "#10b981"),
+            ("compare_files", "tool_compare_files", ModernIconFactory.icon_compare("#a855f7"), "#a855f7"),
+            ("prepare_form", "tool_prepare_form", ModernIconFactory.icon_prepare_form("#a855f7"), "#a855f7"),
+            ("add_stamp", "tool_add_stamp", ModernIconFactory.icon_stamp("#06b6d4"), "#06b6d4"),
         ]
 
         for tid, key, icon, col in standard_tool_specs:
@@ -890,11 +1167,11 @@ class ModernAllToolsPanel(QWidget):
         v_extra.setSpacing(2)
 
         extra_tool_specs = [
-            ("print_production", "tool_print_production", ModernIconFactory.icon_print("#0284c7"), "#0284c7"),
-            ("measure_objects", "tool_measure_objects", ModernIconFactory.icon_ruler("#38bdf8"), "#38bdf8"),
-            ("compare_files", "tool_compare_files", ModernIconFactory.icon_compare("#8b5cf6"), "#8b5cf6"),
-            ("prepare_accessibility", "tool_prepare_accessibility", ModernIconFactory.icon_accessibility("#10b981"), "#10b981"),
-            ("search_index", "tool_search_index", ModernIconFactory.icon_search_index("#6366f1"), "#6366f1"),
+            ("print_production", "tool_print_production", ModernIconFactory.icon_print("#a855f7"), "#a855f7"),
+            ("measure_objects", "tool_measure_objects", ModernIconFactory.icon_ruler("#ec4899"), "#ec4899"),
+            ("search_index", "tool_search_index", ModernIconFactory.icon_search_index("#ec4899"), "#ec4899"),
+            ("prepare_accessibility", "tool_prepare_accessibility", ModernIconFactory.icon_accessibility("#a855f7"), "#a855f7"),
+            ("add_gif", "tool_add_gif", ModernIconFactory.icon_gif("#10b981"), "#10b981"),
         ]
 
         for tid, key, icon, col in extra_tool_specs:
@@ -951,7 +1228,7 @@ class ModernAllToolsPanel(QWidget):
         self.setStyleSheet(f"""
             ModernAllToolsPanel {{
                 background-color: {c['surface']};
-                border-right: 1px solid {c['border']};
+                border-left: 1px solid {c['border']};
             }}
             QScrollArea, QWidget {{
                 background-color: {c['surface']};
@@ -984,6 +1261,8 @@ class ModernAllToolsPanel(QWidget):
                 color: {c['accent_hover']};
             }}
         """)
+        if hasattr(self, 'btn_close'):
+            self.btn_close.setIcon(ModernIconFactory.icon_close(c['text']))
         for item in self.items.values():
             item._apply_style(theme_name)
 
@@ -1017,9 +1296,22 @@ class ModernDrawerItemWidget(QWidget):
         self.lbl_text.setObjectName("DrawerItemText")
         layout.addWidget(self.lbl_text, stretch=1)
 
+        self.lbl_badge = None
+        if badge_text:
+            self.lbl_badge = QLabel(badge_text)
+            self.lbl_badge.setObjectName("DrawerItemBadge")
+            layout.addWidget(self.lbl_badge)
+
     def set_title(self, title: str):
         self.title = title
         self.lbl_text.setText(title)
+
+    def set_badge(self, text: str):
+        if self.lbl_badge:
+            self.lbl_badge.setText(text)
+
+    def set_icon(self, icon: QIcon):
+        self.lbl_icon.setPixmap(icon.pixmap(18, 18))
 
     def mousePressEvent(self, e):
         if e.button() == Qt.MouseButton.LeftButton:
@@ -1040,6 +1332,15 @@ class ModernDrawerItemWidget(QWidget):
                 color: {c['text']};
                 font-size: 12.5px;
                 font-weight: 500;
+            }}
+            #DrawerItemBadge {{
+                background-color: rgba(34, 197, 94, 0.15);
+                color: #4ade80;
+                border: 1px solid rgba(34, 197, 94, 0.35);
+                border-radius: 4px;
+                padding: 1px 6px;
+                font-size: 11px;
+                font-weight: 600;
             }}
         """)
 
@@ -1082,13 +1383,13 @@ class ModernExportDrawer(QWidget):
         h_head.addWidget(self.lbl_head)
         h_head.addStretch(1)
 
-        btn_close = QToolButton()
-        btn_close.setIcon(ModernIconFactory.icon_close())
-        btn_close.setIconSize(QSize(12, 12))
-        btn_close.setFixedSize(22, 22)
-        btn_close.setCursor(Qt.CursorShape.PointingHandCursor)
-        btn_close.clicked.connect(self.closeRequested.emit)
-        h_head.addWidget(btn_close)
+        self.btn_close = QToolButton()
+        self.btn_close.setIcon(ModernIconFactory.icon_close())
+        self.btn_close.setIconSize(QSize(12, 12))
+        self.btn_close.setFixedSize(22, 22)
+        self.btn_close.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_close.clicked.connect(self.closeRequested.emit)
+        h_head.addWidget(self.btn_close)
         main_layout.addLayout(h_head)
 
         # Kategori Başlığı: EXPORT TO
@@ -1144,7 +1445,7 @@ class ModernExportDrawer(QWidget):
         self.setStyleSheet(f"""
             ModernExportDrawer {{
                 background-color: {c['surface']};
-                border-right: 1px solid {c['border']};
+                border-left: 1px solid {c['border']};
             }}
             QScrollArea, QWidget {{
                 background-color: {c['surface']};
@@ -1171,6 +1472,8 @@ class ModernExportDrawer(QWidget):
                 color: {c['text']};
             }}
         """)
+        if hasattr(self, 'btn_close'):
+            self.btn_close.setIcon(ModernIconFactory.icon_close(c['text']))
         for item in self.items:
             item._apply_style(theme_name)
 
@@ -1214,13 +1517,13 @@ class ModernEditDrawer(QWidget):
         h_head.addWidget(self.lbl_head)
         h_head.addStretch(1)
 
-        btn_close = QToolButton()
-        btn_close.setIcon(ModernIconFactory.icon_close())
-        btn_close.setIconSize(QSize(12, 12))
-        btn_close.setFixedSize(22, 22)
-        btn_close.setCursor(Qt.CursorShape.PointingHandCursor)
-        btn_close.clicked.connect(self.closeRequested.emit)
-        h_head.addWidget(btn_close)
+        self.btn_close = QToolButton()
+        self.btn_close.setIcon(ModernIconFactory.icon_close())
+        self.btn_close.setIconSize(QSize(12, 12))
+        self.btn_close.setFixedSize(22, 22)
+        self.btn_close.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_close.clicked.connect(self.closeRequested.emit)
+        h_head.addWidget(self.btn_close)
         main_layout.addLayout(h_head)
 
         # Bilgilendirme Kutusu
@@ -1274,6 +1577,7 @@ class ModernEditDrawer(QWidget):
             ("edit_text_images", "drawer_edit_text_images", ModernIconFactory.icon_edit_content("#ec4899"), "", True),
             ("text", "drawer_edit_text", ModernIconFactory.icon_text_tool("#ec4899"), "", True),
             ("image", "drawer_edit_image", ModernIconFactory.icon_image("#ec4899"), "", True),
+            ("add_gif", "drawer_edit_gif", ModernIconFactory.icon_gif("#ec4899"), "", True),
             ("header_footer", "drawer_edit_header_footer", ModernIconFactory.icon_header_footer("#ec4899"), "", True),
             ("watermark", "drawer_edit_watermark", ModernIconFactory.icon_watermark("#ec4899"), "", True),
             ("link", "drawer_edit_link", ModernIconFactory.icon_link("#ec4899"), "", True),
@@ -1308,7 +1612,7 @@ class ModernEditDrawer(QWidget):
         self.setStyleSheet(f"""
             ModernEditDrawer {{
                 background-color: {c['surface']};
-                border-right: 1px solid {c['border']};
+                border-left: 1px solid {c['border']};
             }}
             QScrollArea, QWidget {{
                 background-color: {c['surface']};
@@ -1345,6 +1649,8 @@ class ModernEditDrawer(QWidget):
                 color: {c['text']};
             }}
         """)
+        if hasattr(self, 'btn_close'):
+            self.btn_close.setIcon(ModernIconFactory.icon_close(c['text']))
         for item in self.items:
             item._apply_style(theme_name)
 
@@ -1384,12 +1690,12 @@ class ModernReadDrawer(QFrame):
         h_head.addWidget(self.lbl_head)
         h_head.addStretch(1)
 
-        btn_close = QToolButton(self)
-        btn_close.setIcon(ModernIconFactory.icon_close())
-        btn_close.setIconSize(QSize(14, 14))
-        btn_close.setCursor(Qt.CursorShape.PointingHandCursor)
-        btn_close.clicked.connect(self.closeRequested.emit)
-        h_head.addWidget(btn_close)
+        self.btn_close = QToolButton(self)
+        self.btn_close.setIcon(ModernIconFactory.icon_close())
+        self.btn_close.setIconSize(QSize(14, 14))
+        self.btn_close.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_close.clicked.connect(self.closeRequested.emit)
+        h_head.addWidget(self.btn_close)
         main_layout.addLayout(h_head)
 
         # Bilgi / İpucu Kutusu
@@ -1469,7 +1775,7 @@ class ModernReadDrawer(QFrame):
         self.setStyleSheet(f"""
             ModernReadDrawer {{
                 background-color: {c['surface']};
-                border-right: 1px solid {c['border']};
+                border-left: 1px solid {c['border']};
             }}
             QScrollArea, QWidget {{
                 background-color: {c['surface']};
@@ -1506,16 +1812,159 @@ class ModernReadDrawer(QFrame):
                 color: {c['text']};
             }}
         """)
+        if hasattr(self, 'btn_close'):
+            self.btn_close.setIcon(ModernIconFactory.icon_close(c['text']))
+        for item in self.items:
+            item._apply_style(theme_name)
+
+
+class ModernFillSignDrawer(QWidget):
+    """
+    Ekranın solundaki 'Fill & Sign' (Doldur ve İmzala / E-İmza) çekmecesi:
+    - Geri butonu (<) ve Başlık 'Fill & Sign' + Kapatma (✕)
+    - FILL (DOLDUR) başlığı
+    - 8 Hızlı Araç:
+        1. Add text (Metin Ekle) - Ready
+        2. Checkmark (Onay İşareti) - Ready
+        3. Cross (Çarpı İşareti) - Ready
+        4. Dot (Nokta) - Ready
+        5. Line (Çizgi) - Ready
+        6. Date (Tarih) - Ready
+        7. Signature (İmza) - Ready
+        8. Initials (Paraf) - Ready
+    """
+    backRequested = pyqtSignal()
+    closeRequested = pyqtSignal()
+    toolTriggered = pyqtSignal(str)
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        self.theme_name = "gray"
+        self.setFixedWidth(248)
+
+        main_layout = QVBoxLayout(self)
+        main_layout.setContentsMargins(10, 12, 10, 12)
+        main_layout.setSpacing(8)
+
+        # Üst Başlık Çubuğu
+        h_head = QHBoxLayout()
+        h_head.setContentsMargins(2, 0, 2, 4)
+
+        btn_back = QToolButton()
+        btn_back.setIcon(ModernIconFactory.icon_nav_back())
+        btn_back.setIconSize(QSize(12, 12))
+        btn_back.setFixedSize(22, 22)
+        btn_back.setCursor(Qt.CursorShape.PointingHandCursor)
+        btn_back.clicked.connect(self.backRequested.emit)
+        h_head.addWidget(btn_back)
+
+        self.lbl_head = QLabel(LanguageManager.tr("drawer_fillsign_title"))
+        self.lbl_head.setStyleSheet("font-size: 14px; font-weight: 700;")
+        h_head.addWidget(self.lbl_head)
+        h_head.addStretch(1)
+
+        self.btn_close = QToolButton()
+        self.btn_close.setIcon(ModernIconFactory.icon_close())
+        self.btn_close.setIconSize(QSize(12, 12))
+        self.btn_close.setFixedSize(22, 22)
+        self.btn_close.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_close.clicked.connect(self.closeRequested.emit)
+        h_head.addWidget(self.btn_close)
+        main_layout.addLayout(h_head)
+
+        # Kategori Başlığı: FILL
+        self.lbl_cat = QLabel(LanguageManager.tr("drawer_fill_group"))
+        self.lbl_cat.setObjectName("CategoryHeader")
+        main_layout.addWidget(self.lbl_cat)
+
+        # Kaydırma Alanı
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+
+        container = QWidget()
+        v_items = QVBoxLayout(container)
+        v_items.setContentsMargins(0, 0, 0, 0)
+        v_items.setSpacing(4)
+
+        self.items: List[ModernDrawerItemWidget] = []
+        self.specs = [
+            ("add_text", "drawer_fillsign_add_text", lambda: ModernIconFactory.icon_text_tool("#c084fc")),
+            ("checkmark", "drawer_fillsign_checkmark", lambda: ModernIconFactory.icon_check("#c084fc")),
+            ("cross", "drawer_fillsign_cross", lambda: ModernIconFactory.icon_cross("#c084fc")),
+            ("dot", "drawer_fillsign_dot", lambda: ModernIconFactory.icon_dot("#c084fc")),
+            ("line", "drawer_fillsign_line", lambda: ModernIconFactory.icon_line("#c084fc")),
+            ("date", "drawer_fillsign_date", lambda: ModernIconFactory.icon_date("#c084fc")),
+            ("signature", "drawer_fillsign_signature", lambda: ModernIconFactory.icon_signature("#c084fc")),
+            ("initials", "drawer_fillsign_initials", lambda: ModernIconFactory.icon_initials("#c084fc")),
+        ]
+
+        for cid, key, icon_func in self.specs:
+            it = ModernDrawerItemWidget(cid, LanguageManager.tr(key), icon_func(), badge_text="", is_ready=True, parent=container)
+            it.clicked.connect(self.toolTriggered.emit)
+            v_items.addWidget(it)
+            self.items.append(it)
+
+        v_items.addStretch(1)
+        scroll.setWidget(container)
+        main_layout.addWidget(scroll, stretch=1)
+
+        self.apply_theme(self.theme_name)
+
+    def retranslate_ui(self):
+        self.lbl_head.setText(LanguageManager.tr("drawer_fillsign_title"))
+        self.lbl_cat.setText(LanguageManager.tr("drawer_fill_group"))
+        for it, (_, key, _) in zip(self.items, self.specs):
+            it.set_title(LanguageManager.tr(key))
+
+    def apply_theme(self, theme_name: str = "gray"):
+        self.theme_name = theme_name
+        c = get_modern_theme_colors(theme_name)
+        self.setStyleSheet(f"""
+            ModernFillSignDrawer {{
+                background-color: {c['surface']};
+                border-left: 1px solid {c['border']};
+            }}
+            QScrollArea, QWidget {{
+                background-color: {c['surface']};
+            }}
+            QLabel {{
+                color: {c['text']};
+            }}
+            #CategoryHeader {{
+                color: {c['text_muted']};
+                font-size: 11px;
+                font-weight: 700;
+                padding-top: 8px;
+                padding-bottom: 3px;
+                letter-spacing: 0.8px;
+            }}
+            QToolButton {{
+                background-color: transparent;
+                border: none;
+                border-radius: 4px;
+                color: {c['text_muted']};
+            }}
+            QToolButton:hover {{
+                background-color: {c['surface_hover']};
+                color: {c['text']};
+            }}
+        """)
+        if hasattr(self, 'btn_close'):
+            self.btn_close.setIcon(ModernIconFactory.icon_close(c['text']))
         for item in self.items:
             item._apply_style(theme_name)
 
 
 class ModernLeftSidebar(QStackedWidget):
-    """Sol panel yığını: 0=Tüm Araçlar, 1=Export Çekmecesi, 2=Edit Çekmecesi, 3=Read Çekmecesi."""
+    """Sol panel yığını: 0=Tüm Araçlar, 1=Export Çekmecesi, 2=Edit Çekmecesi, 3=Read Çekmecesi, 4=Fill & Sign Çekmecesi."""
     toolTriggered = pyqtSignal(str)
     exportTriggered = pyqtSignal(str)
     editTriggered = pyqtSignal(str)
     readTriggered = pyqtSignal(str)
+    fillSignTriggered = pyqtSignal(str)
     closeRequested = pyqtSignal()
 
     def __init__(self, main_window=None, parent=None):
@@ -1546,11 +1995,19 @@ class ModernLeftSidebar(QStackedWidget):
         self.read_drawer.readTriggered.connect(self.readTriggered.emit)
         self.addWidget(self.read_drawer)
 
+        self.fill_sign_drawer = ModernFillSignDrawer(self)
+        self.fill_sign_drawer.backRequested.connect(lambda: self.set_page("all_tools"))
+        self.fill_sign_drawer.closeRequested.connect(self.closeRequested.emit)
+        self.fill_sign_drawer.toolTriggered.connect(self.fillSignTriggered.emit)
+        self.addWidget(self.fill_sign_drawer)
+
     def _on_tool_triggered(self, tool_id: str):
         if tool_id == "export_pdf":
             self.set_page("export")
         elif tool_id == "edit_pdf":
             self.set_page("edit")
+        elif tool_id in ("fill_sign", "esign"):
+            self.set_page("esign")
         else:
             self.toolTriggered.emit(tool_id)
 
@@ -1563,6 +2020,8 @@ class ModernLeftSidebar(QStackedWidget):
             self.setCurrentIndex(2)
         elif page_name in ("read", "reading"):
             self.setCurrentIndex(3)
+        elif page_name in ("esign", "fill_sign", "sign"):
+            self.setCurrentIndex(4)
 
     def set_active_tool(self, tool_id: Optional[str]):
         self.all_tools_panel.set_active_tool(tool_id)
@@ -1572,12 +2031,14 @@ class ModernLeftSidebar(QStackedWidget):
         self.export_drawer.apply_theme(theme_name)
         self.edit_drawer.apply_theme(theme_name)
         self.read_drawer.apply_theme(theme_name)
+        self.fill_sign_drawer.apply_theme(theme_name)
 
     def retranslate_ui(self):
         self.all_tools_panel.retranslate_ui()
         self.export_drawer.retranslate_ui()
         self.edit_drawer.retranslate_ui()
         self.read_drawer.retranslate_ui()
+        self.fill_sign_drawer.retranslate_ui()
 
 
 class FloatingQuickToolsCapsule(QFrame):
@@ -1592,18 +2053,20 @@ class FloatingQuickToolsCapsule(QFrame):
     """
     toolSelected = pyqtSignal(str)
     toolSelectedWithWidget = pyqtSignal(str, object)
+    pinToTopRequested = pyqtSignal()
+    pinToLeftRequested = pyqtSignal()
 
     def __init__(self, parent=None, main_window=None):
         super().__init__(parent)
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self.main_window = main_window
-        self.theme_name = "light"
+        self.theme_name = "gray"
         self.active_tool = "select"
         self.user_moved = False
         self._drag_active = False
         self._drag_start_pos = QPoint()
         self._is_potential_drag = False
-        self.setFixedSize(42, 368)
+        self.setFixedSize(52, 436)
 
         shadow = QGraphicsDropShadowEffect(self)
         shadow.setBlurRadius(16)
@@ -1612,20 +2075,34 @@ class FloatingQuickToolsCapsule(QFrame):
         self.setGraphicsEffect(shadow)
 
         self.layout_capsule = QVBoxLayout(self)
-        self.layout_capsule.setContentsMargins(4, 4, 4, 6)
-        self.layout_capsule.setSpacing(4)
+        self.layout_capsule.setContentsMargins(5, 5, 5, 8)
+        self.layout_capsule.setSpacing(5)
 
-        # Üst Sürükleme Tutamacı
+        # Üst Sürükleme ve Sabitleme Tutamacı
         self.grip_handle = QFrame(self)
-        self.grip_handle.setFixedHeight(12)
-        self.grip_handle.setCursor(Qt.CursorShape.SizeAllCursor)
+        self.grip_handle.setFixedHeight(20)
         l_grip = QHBoxLayout(self.grip_handle)
-        l_grip.setContentsMargins(0, 4, 0, 2)
+        l_grip.setContentsMargins(2, 2, 2, 2)
+        l_grip.setSpacing(2)
         l_grip.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
         self.grip_bar = QFrame(self.grip_handle)
-        self.grip_bar.setFixedSize(16, 3)
-        self.grip_bar.setStyleSheet("background-color: rgba(150, 150, 150, 0.45); border-radius: 1.5px;")
+        self.grip_bar.setFixedSize(18, 4)
+        self.grip_bar.setCursor(Qt.CursorShape.SizeAllCursor)
+        self.grip_bar.setToolTip(LanguageManager.tr("capsule_dock_hint"))
+        self.grip_bar.setStyleSheet("background-color: rgba(150, 150, 150, 0.45); border-radius: 2px;")
         l_grip.addWidget(self.grip_bar)
+
+        self.btn_pin = QToolButton(self.grip_handle)
+        self.btn_pin.setIcon(ModernIconFactory.icon_pin())
+        self.btn_pin.setIconSize(QSize(13, 13))
+        self.btn_pin.setFixedSize(18, 18)
+        self.btn_pin.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_pin.setToolTip(LanguageManager.tr("capsule_pin_top"))
+        self.btn_pin.setStyleSheet("background: transparent; border: none; padding: 0px;")
+        self.btn_pin.clicked.connect(self._on_pin_clicked)
+        l_grip.addWidget(self.btn_pin)
+
         self.layout_capsule.addWidget(self.grip_handle)
 
         self.buttons: Dict[str, QToolButton] = {}
@@ -1636,21 +2113,22 @@ class FloatingQuickToolsCapsule(QFrame):
         self.tool_specs_factory = {
             "select": ("quick_tool_select", lambda: ModernIconFactory.icon_cursor()),
             "selection": ("quick_tool_draw_select", lambda: ModernIconFactory.icon_select_rect("#38bdf8")),
-            "pointer": ("quick_tool_pointer", lambda: ModernIconFactory.icon_pointer("#ef4444")),
+            "pen": ("quick_tool_pen", lambda: ModernIconFactory.icon_pen("#0284c7")),
             "highlighter": ("quick_tool_highlighter", lambda: ModernIconFactory.icon_highlighter("#eab308")),
-            "comment": ("quick_tool_comment", lambda: ModernIconFactory.icon_comments("#f97316")),
+            "eraser": ("quick_tool_eraser", lambda: ModernIconFactory.icon_eraser("#ef4444")),
             "text": ("quick_tool_text", lambda: ModernIconFactory.icon_text_tool("#ec4899")),
             "insert": ("insert_btn_tip", lambda: ModernIconFactory.icon_insert("#10b981")),
-            "pen": ("quick_tool_pen", lambda: ModernIconFactory.icon_pen("#0284c7")),
-            "eraser": ("quick_tool_eraser", lambda: ModernIconFactory.icon_eraser("#ef4444")),
+            "comment": ("quick_tool_comment", lambda: ModernIconFactory.icon_comments("#f97316")),
+            "pointer": ("quick_tool_pointer", lambda: ModernIconFactory.icon_pointer("#ef4444")),
         }
-        self.default_order = ["select", "selection", "pointer", "highlighter", "comment", "text", "insert", "pen", "eraser"]
+        self.default_order = ["select", "selection", "pen", "highlighter", "eraser", "text", "insert", "comment", "pointer"]
 
-        # Kaydedilmiş araç sıralamasını yükle
+        # Kaydedilmiş araç sıralamasını yükle (ve sürüm kontrolüyle gerekirse yeni varsayılana taşı)
         settings = QSettings("AuraPDF", "PDFViewer")
+        tb_version = settings.value("floating_tools_order_version", 0, type=int)
         raw_order = settings.value("floating_tools_order", None)
         loaded_order = []
-        if raw_order:
+        if raw_order and tb_version >= 2:
             try:
                 if isinstance(raw_order, str):
                     loaded_order = json.loads(raw_order)
@@ -1660,18 +2138,21 @@ class FloatingQuickToolsCapsule(QFrame):
                 loaded_order = []
 
         valid_order = [x for x in loaded_order if x in self.tool_specs_factory]
-        for k in self.default_order:
-            if k not in valid_order:
-                valid_order.append(k)
+        if not valid_order or tb_version < 2:
+            valid_order = list(self.default_order)
+        else:
+            for k in self.default_order:
+                if k not in valid_order:
+                    valid_order.append(k)
         self.tool_order = valid_order
 
-        # Butonları oluştur
+        # Butonları oluştur (Büyük, net ve modern ikonlar - 24x24 ikon, 38x38 buton)
         for tid in self.tool_order:
             key, icon_func = self.tool_specs_factory[tid]
             btn = QToolButton(self)
             btn.setIcon(icon_func())
-            btn.setIconSize(QSize(16, 16))
-            btn.setFixedSize(32, 32)
+            btn.setIconSize(QSize(24, 24))
+            btn.setFixedSize(38, 38)
             btn.setCheckable(True)
             btn.setCursor(Qt.CursorShape.PointingHandCursor)
             btn.setToolTip(LanguageManager.tr(key))
@@ -1750,6 +2231,7 @@ class FloatingQuickToolsCapsule(QFrame):
             if getattr(self, '_drag_active', False):
                 self._drag_active = False
                 self._is_potential_drag = False
+                self._check_dock_on_release()
                 return True
             self._is_potential_drag = False
         return super().eventFilter(watched, event)
@@ -1770,7 +2252,11 @@ class FloatingQuickToolsCapsule(QFrame):
         super().mouseMoveEvent(event)
 
     def mouseReleaseEvent(self, event):
+        was_dragging = getattr(self, '_drag_active', False)
         self._drag_active = False
+        self._is_potential_drag = False
+        if was_dragging:
+            self._check_dock_on_release()
         super().mouseReleaseEvent(event)
 
     def _do_drag_move(self, global_pos: QPoint):
@@ -1787,6 +2273,48 @@ class FloatingQuickToolsCapsule(QFrame):
             self.move(new_pos)
             self.user_moved = True
 
+    def _check_dock_on_release(self):
+        """Sürükleme bırakıldığında konuma göre üst veya sol çubuğa otomatik sabitleme."""
+        # 1. Üst araç çubuğuna sabitleme: Y ekseninde tepeye yakın bırakıldıysa
+        if self.y() <= 75:
+            self.pinToTopRequested.emit()
+            return
+
+        # 2. Sol araç çubuğuna sabitleme: X ekseninde sol kenara veya sol toolbara yakın bırakıldıysa
+        left_threshold = 130
+        if self.main_window and hasattr(self.main_window, 'central_stack'):
+            try:
+                cs_x = self.main_window.central_stack.mapTo(self.main_window, QPoint(0, 0)).x()
+                left_threshold = max(110, cs_x + 60)
+            except Exception:
+                pass
+        if self.x() <= left_threshold:
+            self.pinToLeftRequested.emit()
+            return
+
+        # 3. Belge üzerinde serbestçe bırakıldıysa -> serbest hareketli mod
+        if self.main_window:
+            self.main_window.capsule_docked_to_left = False
+            self.main_window.capsule_docked_to_top = False
+            QSettings("AuraPDF", "PDFViewer").setValue("capsule_dock_position", "float")
+            QSettings("AuraPDF", "PDFViewer").setValue("capsule_docked_to_top", False)
+            QSettings("AuraPDF", "PDFViewer").setValue("capsule_docked_to_left", False)
+        self.user_moved = True
+
+    def _on_pin_clicked(self):
+        """Sabitleme butonuna tıklandığında konuma veya duruma göre sol veya üst çubuğa sabitler."""
+        left_threshold = 160
+        if self.main_window and hasattr(self.main_window, 'central_stack'):
+            try:
+                cs_x = self.main_window.central_stack.mapTo(self.main_window, QPoint(0, 0)).x()
+                left_threshold = max(140, cs_x + 80)
+            except Exception:
+                pass
+        if self.x() <= left_threshold:
+            self.pinToLeftRequested.emit()
+        else:
+            self.pinToTopRequested.emit()
+
     def retranslate_ui(self):
         for tid in self.tool_order:
             if tid in self.buttons and tid in self.tool_specs_factory:
@@ -1796,6 +2324,10 @@ class FloatingQuickToolsCapsule(QFrame):
             self.update_cursor_mode('pan')
         if getattr(self, 'selection_shape_mode', 'rect') != 'rect':
             self.update_selection_mode(self.selection_shape_mode)
+        if hasattr(self, 'btn_pin'):
+            self.btn_pin.setToolTip(LanguageManager.tr("capsule_pin_top"))
+        if hasattr(self, 'grip_bar'):
+            self.grip_bar.setToolTip(LanguageManager.tr("capsule_dock_hint"))
 
     def _on_btn_clicked(self, tool_id: str):
         self.set_active_tool(tool_id)
@@ -1811,16 +2343,20 @@ class FloatingQuickToolsCapsule(QFrame):
     def apply_theme(self, theme_name: str = "light"):
         self.theme_name = theme_name
         c = get_modern_theme_colors(theme_name)
+        if hasattr(self, 'btn_pin'):
+            self.btn_pin.setIcon(ModernIconFactory.icon_pin(c['text_muted']))
+        if "select" in self.buttons and getattr(self, 'cursor_mode', 'select') == 'select':
+            self.buttons["select"].setIcon(ModernIconFactory.icon_cursor(c['text']))
         self.setStyleSheet(f"""
             FloatingQuickToolsCapsule {{
                 background-color: {c['surface']};
                 border: 1.5px solid {c['border']};
-                border-radius: 20px;
+                border-radius: 25px;
             }}
             QToolButton {{
                 background-color: transparent;
                 border: 1px solid transparent;
-                border-radius: 16px;
+                border-radius: 19px;
                 color: {c['text']};
             }}
             QToolButton:hover {{
@@ -2153,9 +2689,27 @@ class HomeDashboardWorkspace(QWidget):
         # 3. Son Açılanlar (Recent)
         v_recent = QVBoxLayout()
         v_recent.setSpacing(14)
+
+        h_recent_header = QHBoxLayout()
+        h_recent_header.setContentsMargins(0, 0, 0, 0)
+        h_recent_header.setSpacing(10)
+
         self.lbl_recent_title = QLabel(LanguageManager.tr("home_recent_title"))
         self.lbl_recent_title.setObjectName("SectionTitle")
-        v_recent.addWidget(self.lbl_recent_title)
+        h_recent_header.addWidget(self.lbl_recent_title)
+
+        h_recent_header.addStretch(1)
+
+        self.btn_clear_recent = QPushButton()
+        self.btn_clear_recent.setObjectName("BtnClearRecent")
+        self.btn_clear_recent.setIcon(ModernIconFactory.icon_trash())
+        self.btn_clear_recent.setIconSize(QSize(13, 13))
+        self.btn_clear_recent.setText(" " + LanguageManager.tr("clear_recent_files"))
+        self.btn_clear_recent.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_clear_recent.clicked.connect(self._on_clear_recent_clicked)
+        h_recent_header.addWidget(self.btn_clear_recent)
+
+        v_recent.addLayout(h_recent_header)
 
         self.recent_list_container = QWidget()
         self.recent_list_container.setObjectName("RecentListContainer")
@@ -2188,12 +2742,17 @@ class HomeDashboardWorkspace(QWidget):
             files = self.main_window.get_recent_files()
 
         if not files:
+            if hasattr(self, 'btn_clear_recent'):
+                self.btn_clear_recent.hide()
             lbl_empty = QLabel(LanguageManager.tr("home_no_recent"))
             lbl_empty.setObjectName("RecentEmpty")
             lbl_empty.setStyleSheet("padding: 20px 4px; font-size: 13px;")
             self.v_recent_items.addWidget(lbl_empty)
             self.recent_list_container.setMinimumHeight(60)
             return
+
+        if hasattr(self, 'btn_clear_recent'):
+            self.btn_clear_recent.show()
 
         row_count = 0
         for path in files:
@@ -2230,6 +2789,18 @@ class HomeDashboardWorkspace(QWidget):
             self.content_container.layout().invalidate()
         self.content_container.updateGeometry()
 
+    def _on_clear_recent_clicked(self):
+        ans = QMessageBox.question(
+            self,
+            LanguageManager.tr("app_title"),
+            LanguageManager.tr("clear_recent_confirm"),
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+        if ans == QMessageBox.StandardButton.Yes:
+            if self.main_window and hasattr(self.main_window, 'clear_recent_files'):
+                self.main_window.clear_recent_files()
+            self.load_recent_files()
+
     def retranslate_ui(self):
         self.lbl_welcome.setText(LanguageManager.tr("home_welcome_title"))
         self.lbl_sub.setText(LanguageManager.tr("home_welcome_subtitle"))
@@ -2239,6 +2810,8 @@ class HomeDashboardWorkspace(QWidget):
         if hasattr(self, 'open_card'):
             self.open_card.retranslate_ui()
         self.lbl_recent_title.setText(LanguageManager.tr("home_recent_title"))
+        if hasattr(self, 'btn_clear_recent'):
+            self.btn_clear_recent.setText(" " + LanguageManager.tr("clear_recent_files"))
         self.load_recent_files()
 
     def apply_theme(self, theme_name: str = "light"):
@@ -2266,6 +2839,20 @@ class HomeDashboardWorkspace(QWidget):
             #RecentEmpty {{
                 color: {c['text_muted']};
             }}
+            #BtnClearRecent {{
+                background-color: transparent;
+                color: {c['text_muted']};
+                border: 1px solid {c['border']};
+                border-radius: 6px;
+                padding: 4px 10px;
+                font-size: 11px;
+                font-weight: 500;
+            }}
+            #BtnClearRecent:hover {{
+                background-color: {c['surface_hover']};
+                color: {c['danger']};
+                border-color: {c['danger']};
+            }}
         """)
         for card in self.recommended_cards:
             card.apply_theme(theme_name)
@@ -2283,6 +2870,8 @@ class PageThumbnailCard(QFrame):
     """Organize Pages görünümünde tek bir sayfanın kartı."""
     clicked = pyqtSignal(int, object)
     doubleClicked = pyqtSignal(int)
+    deleteRequested = pyqtSignal(int)
+    rotateRequested = pyqtSignal(int, int)
 
     def __init__(self, page_index: int, parent=None):
         super().__init__(parent)
@@ -2310,7 +2899,38 @@ class PageThumbnailCard(QFrame):
         self.lbl_num.setFixedHeight(22)
         layout.addWidget(self.lbl_num)
 
+        # Kart üzerine gelindiğinde görünen hızlı silme butonu
+        self.btn_quick_del = QToolButton(self)
+        self.btn_quick_del.setIcon(ModernIconFactory.icon_trash("#ef4444"))
+        self.btn_quick_del.setIconSize(QSize(13, 13))
+        self.btn_quick_del.setFixedSize(24, 24)
+        self.btn_quick_del.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_quick_del.setToolTip(LanguageManager.tr("sidebar_delete_page"))
+        self.btn_quick_del.setStyleSheet("""
+            QToolButton {
+                background: rgba(15, 23, 42, 0.82);
+                border: 1px solid rgba(239, 68, 68, 0.5);
+                border-radius: 12px;
+                padding: 2px;
+            }
+            QToolButton:hover {
+                background: #ef4444;
+                border-color: #ef4444;
+            }
+        """)
+        self.btn_quick_del.move(116, 8)
+        self.btn_quick_del.hide()
+        self.btn_quick_del.clicked.connect(lambda: self.deleteRequested.emit(self.page_index))
+
         self._apply_style("light")
+
+    def enterEvent(self, event):
+        super().enterEvent(event)
+        self.btn_quick_del.show()
+
+    def leaveEvent(self, event):
+        super().leaveEvent(event)
+        self.btn_quick_del.hide()
 
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
@@ -2321,6 +2941,20 @@ class PageThumbnailCard(QFrame):
         if event.button() == Qt.MouseButton.LeftButton:
             self.doubleClicked.emit(self.page_index)
         super().mouseDoubleClickEvent(event)
+
+    def contextMenuEvent(self, event):
+        menu = QMenu(self)
+        apply_dialog_theme(menu, self.window())
+        act_del = menu.addAction(ModernIconFactory.icon_trash("#ef4444"), "  " + LanguageManager.tr("sidebar_delete_page"))
+        act_rot_cw = menu.addAction(ModernIconFactory.icon_rotate(), "  " + LanguageManager.tr("organize_rotate_cw"))
+        act_rot_ccw = menu.addAction(ModernIconFactory.icon_undo(), "  " + LanguageManager.tr("organize_rotate_ccw"))
+        act = menu.exec(event.globalPos())
+        if act == act_del:
+            self.deleteRequested.emit(self.page_index)
+        elif act == act_rot_cw:
+            self.rotateRequested.emit(self.page_index, 90)
+        elif act == act_rot_ccw:
+            self.rotateRequested.emit(self.page_index, -90)
 
     def set_pixmap(self, pix: QPixmap):
         scaled = pix.scaled(
@@ -2520,9 +3154,26 @@ class OrganizePagesWorkspace(QWidget):
         main_layout.addWidget(self.scroll_area)
 
         self.apply_theme(self.theme_name)
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self.scroll_area.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+
+    def keyPressEvent(self, event):
+        if event.key() in (Qt.Key.Key_Delete, Qt.Key.Key_Backspace):
+            self.delete_selected_pages()
+            event.accept()
+        else:
+            super().keyPressEvent(event)
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        if not self.cards:
+            self.load_document()
 
     def load_document(self):
         """Aktif PDF belgesinin sayfalarını yükler ve kartları oluşturur."""
+        if not self.isVisible() and (self.main_window and hasattr(self.main_window, 'central_stack') and self.main_window.central_stack.currentWidget() != self):
+            return
+
         # Eski kartları ve düzen öğelerini tamamen temizle
         while self.grid_layout.count() > 0:
             item = self.grid_layout.takeAt(0)
@@ -2541,7 +3192,10 @@ class OrganizePagesWorkspace(QWidget):
             return
 
         total = len(tab_doc.doc)
-        curr = getattr(tab_doc, 'current_page', 0)
+        curr = getattr(tab_doc, 'current_page_idx', getattr(tab_doc, 'current_page', 0))
+        if curr >= total:
+            curr = max(0, total - 1)
+            tab_doc.current_page_idx = curr
         self.lbl_page_info.setText(LanguageManager.tr("organize_page_of", curr=curr + 1, total=total))
 
         # Kartları 6 sütunlu olarak ızgaraya yerleştir
@@ -2550,6 +3204,8 @@ class OrganizePagesWorkspace(QWidget):
             card = PageThumbnailCard(page_idx, parent=self.grid_container)
             card.clicked.connect(self._on_card_clicked)
             card.doubleClicked.connect(self._on_card_double_clicked)
+            card.deleteRequested.connect(self._on_card_delete_requested)
+            card.rotateRequested.connect(self._on_card_rotate_requested)
             self.cards.append(card)
             r = page_idx // cols
             c = page_idx % cols
@@ -2560,10 +3216,8 @@ class OrganizePagesWorkspace(QWidget):
             self.selected_pages.add(curr)
             self.cards[curr].set_selected(True, self.theme_name)
 
-        # Küçük resimleri hemen yükle (ilk 36 sayfa anında, kalanlar arka planda)
-        self._render_thumbnails(start=0, limit=36)
-        if total > 36:
-            QTimer.singleShot(100, lambda: self._render_thumbnails(start=36))
+        # Küçük resimleri parça parça asenkron yükle (UI kilitlenmesini engeller)
+        self._render_thumbnails(start=0, limit=24)
 
     def retranslate_ui(self):
         self.btn_rot_ccw.setToolTip(LanguageManager.tr("organize_rotate_ccw"))
@@ -2577,7 +3231,9 @@ class OrganizePagesWorkspace(QWidget):
         self.btn_close.setText(" " + LanguageManager.tr("organize_close_btn"))
         self._update_selection_info()
 
-    def _render_thumbnails(self, start: int = 0, limit: Optional[int] = None):
+    def _render_thumbnails(self, start: int = 0, limit: Optional[int] = 24):
+        if not self.isVisible() and (self.main_window and hasattr(self.main_window, 'central_stack') and self.main_window.central_stack.currentWidget() != self):
+            return
         if not self.main_window:
             return
         tab_doc = self.main_window.get_current_tab_doc()
@@ -2586,6 +3242,8 @@ class OrganizePagesWorkspace(QWidget):
 
         end = len(self.cards) if limit is None else min(len(self.cards), start + limit)
         for i in range(start, end):
+            if not self.isVisible() and (self.main_window and hasattr(self.main_window, 'central_stack') and self.main_window.central_stack.currentWidget() != self):
+                return
             card = self.cards[i]
             if card.page_index < len(tab_doc.doc):
                 try:
@@ -2593,8 +3251,12 @@ class OrganizePagesWorkspace(QWidget):
                     pix = page.get_pixmap(dpi=72)
                     qimg = QImage(pix.samples, pix.width, pix.height, pix.stride, QImage.Format.Format_RGB888)
                     card.set_pixmap(QPixmap.fromImage(qimg))
-                except Exception as e:
+                except Exception:
                     pass
+
+        # Kalan kartları akıcı şekilde arka planda işle
+        if end < len(self.cards):
+            QTimer.singleShot(25, lambda: self._render_thumbnails(start=end, limit=24))
 
     def _on_card_clicked(self, page_index: int, modifiers):
         if modifiers & Qt.KeyboardModifier.ControlModifier:
@@ -2622,6 +3284,20 @@ class OrganizePagesWorkspace(QWidget):
     def _on_card_double_clicked(self, page_index: int):
         self.openPageRequested.emit(page_index)
 
+    def _on_card_delete_requested(self, page_index: int):
+        self.selected_pages = {page_index}
+        for c in self.cards:
+            c.set_selected(c.page_index == page_index, self.theme_name)
+        self._update_selection_info()
+        self.delete_selected_pages()
+
+    def _on_card_rotate_requested(self, page_index: int, angle: int):
+        self.selected_pages = {page_index}
+        for c in self.cards:
+            c.set_selected(c.page_index == page_index, self.theme_name)
+        self._update_selection_info()
+        self._rotate_pages(angle)
+
     def _update_selection_info(self):
         total = len(self.cards)
         sel_count = len(self.selected_pages)
@@ -2646,10 +3322,20 @@ class OrganizePagesWorkspace(QWidget):
         self._rotate_pages(-90)
 
     def _rotate_pages(self, angle: int):
-        if not self.selected_pages or not self.main_window:
+        if not self.main_window:
             return
         tab_doc = self.main_window.get_current_tab_doc()
         if not tab_doc or not tab_doc.doc:
+            return
+
+        if not self.selected_pages:
+            curr = getattr(tab_doc, 'current_page_idx', getattr(tab_doc, 'current_page', 0))
+            if 0 <= curr < len(tab_doc.doc):
+                self.selected_pages.add(curr)
+                if curr < len(self.cards):
+                    self.cards[curr].set_selected(True, self.theme_name)
+
+        if not self.selected_pages:
             return
 
         for p in self.selected_pages:
@@ -2662,33 +3348,56 @@ class OrganizePagesWorkspace(QWidget):
         self._render_thumbnails()
 
     def delete_selected_pages(self):
-        if not self.selected_pages or not self.main_window:
+        if not self.main_window:
             return
         tab_doc = self.main_window.get_current_tab_doc()
         if not tab_doc or not tab_doc.doc:
             return
 
-        if len(self.selected_pages) >= len(tab_doc.doc):
-            QMessageBox.warning(self, LanguageManager.tr("app_title"), "Belgedeki tüm sayfaları silemezsiniz.")
+        if not self.selected_pages:
+            curr = getattr(tab_doc, 'current_page', getattr(tab_doc, 'current_page_idx', 0))
+            if 0 <= curr < len(tab_doc.doc):
+                self.selected_pages.add(curr)
+                if curr < len(self.cards):
+                    self.cards[curr].set_selected(True, self.theme_name)
+
+        if not self.selected_pages:
             return
+
+        if len(self.selected_pages) >= len(tab_doc.doc):
+            QMessageBox.warning(self, LanguageManager.tr("app_title"), LanguageManager.tr("sidebar_cannot_delete_last_page"))
+            return
+
+        count = len(self.selected_pages)
+        if count == 1:
+            msg = LanguageManager.tr("sidebar_delete_page_confirm", page=list(self.selected_pages)[0] + 1)
+        else:
+            msg = LanguageManager.tr("organize_delete_pages_confirm", count=count)
 
         res = QMessageBox.question(
             self, LanguageManager.tr("app_title"),
-            f"{len(self.selected_pages)} sayfa kalıcı olarak silinsin mi?",
+            msg,
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
         )
         if res != QMessageBox.StandardButton.Yes:
             return
 
-        # Sayfaları sondan başa doğru sil
-        for p in sorted(list(self.selected_pages), reverse=True):
-            tab_doc.doc.delete_page(p)
+        # Sayfaları sondan başa doğru tab_doc.delete_page ile güvenle sil
+        pages_to_delete = sorted(list(self.selected_pages), reverse=True)
+        min_p = min(self.selected_pages)
+
+        for p in pages_to_delete:
+            tab_doc.delete_page(p)
+
+        self.selected_pages.clear()
+
+        new_total = len(tab_doc.doc)
+        if new_total > 0:
+            target_page = min(min_p, new_total - 1)
+            tab_doc.current_page_idx = target_page
+            self.selected_pages = {target_page}
 
         tab_doc.set_modified(True)
-        tab_doc.total_pages = len(tab_doc.doc)
-        if tab_doc.current_page >= tab_doc.total_pages:
-            tab_doc.current_page = max(0, tab_doc.total_pages - 1)
-
         self.load_document()
         self.documentModified.emit()
 
@@ -2698,32 +3407,56 @@ class OrganizePagesWorkspace(QWidget):
             QTimer.singleShot(300, self.load_document)
 
     def extract_pages_action(self):
-        if not self.selected_pages or not self.main_window:
+        if not self.main_window:
             return
         tab_doc = self.main_window.get_current_tab_doc()
         if not tab_doc or not tab_doc.doc:
+            return
+
+        if not self.selected_pages:
+            curr = getattr(tab_doc, 'current_page', 0)
+            if 0 <= curr < len(tab_doc.doc):
+                self.selected_pages.add(curr)
+                if curr < len(self.cards):
+                    self.cards[curr].set_selected(True, self.theme_name)
+
+        if not self.selected_pages:
             return
 
         path, _ = QFileDialog.getSaveFileName(self, LanguageManager.tr("organize_extract_pages"), "extracted.pdf", "PDF (*.pdf)")
         if not path:
             return
 
-        new_doc = fitz.open()
-        for p in sorted(list(self.selected_pages)):
-            new_doc.insert_pdf(tab_doc.doc, from_page=p, to_page=p)
-        new_doc.save(path)
-        new_doc.close()
-        QMessageBox.information(self, LanguageManager.tr("app_title"), f"Sayfalar başarıyla çıkarıldı:\n{path}")
+        try:
+            new_doc = fitz.open()
+            for p in sorted(list(self.selected_pages)):
+                if 0 <= p < len(tab_doc.doc):
+                    new_doc.insert_pdf(tab_doc.doc, from_page=p, to_page=p)
+            new_doc.save(path)
+            new_doc.close()
+            QMessageBox.information(self, LanguageManager.tr("app_title"), f"Sayfalar başarıyla çıkarıldı:\n{path}")
+        except Exception as e:
+            QMessageBox.critical(self, LanguageManager.tr("app_title"), f"Hata: {e}")
 
     def split_doc_action(self):
         if hasattr(self.main_window, 'open_split_dialog'):
             self.main_window.open_split_dialog()
 
     def replace_pages_action(self):
-        if not self.selected_pages or not self.main_window:
+        if not self.main_window:
             return
         tab_doc = self.main_window.get_current_tab_doc()
         if not tab_doc or not tab_doc.doc:
+            return
+
+        if not self.selected_pages:
+            curr = getattr(tab_doc, 'current_page', 0)
+            if 0 <= curr < len(tab_doc.doc):
+                self.selected_pages.add(curr)
+                if curr < len(self.cards):
+                    self.cards[curr].set_selected(True, self.theme_name)
+
+        if not self.selected_pages:
             return
 
         src_pdf, _ = QFileDialog.getOpenFileName(self, "Değiştirilecek Kaynak PDF", "", "PDF (*.pdf)")
@@ -2733,10 +3466,16 @@ class OrganizePagesWorkspace(QWidget):
         try:
             other = fitz.open(src_pdf)
             for idx, p in enumerate(sorted(list(self.selected_pages))):
-                if idx < len(other):
+                if idx < len(other) and 0 <= p < len(tab_doc.doc):
                     tab_doc.doc.delete_page(p)
                     tab_doc.doc.insert_pdf(other, from_page=idx, to_page=idx, start_at=p)
             other.close()
+            tab_doc.direct_edit_hover_item = None
+            tab_doc.direct_edit_editor = None
+            if hasattr(tab_doc, '_page_text_blocks_cache'):
+                tab_doc._page_text_blocks_cache.clear()
+            tab_doc.render_pages_init()
+            tab_doc.rerender_visible_pages()
             tab_doc.set_modified(True)
             self.load_document()
             self.documentModified.emit()
@@ -2782,6 +3521,8 @@ class OrganizePagesWorkspace(QWidget):
                 border-color: {c['accent']};
             }}
         """)
+        if hasattr(self, 'btn_close'):
+            self.btn_close.setIcon(ModernIconFactory.icon_close(c['text']))
         for card in self.cards:
             card._apply_style(theme_name)
 
@@ -2804,28 +3545,31 @@ class ModernRightSidebar(QWidget):
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self.main_window = main_window
         self.theme_name = "light"
-        self.current_panel = "bookmarks"
+        self.current_panel = "thumbnails"
         self._current_thumb_doc = None
         self._thumb_render_queue = []
+        self._rendered_pages = set()
+        self._raw_thumb_images = {}
+        self.is_loaded = False
         self._thumb_timer = QTimer(self)
         self._thumb_timer.setSingleShot(True)
         self._thumb_timer.timeout.connect(self._process_thumb_render_queue)
-        self.setFixedWidth(270)
+        self.setFixedWidth(320)
 
         main_layout = QVBoxLayout(self)
-        main_layout.setContentsMargins(12, 12, 12, 12)
-        main_layout.setSpacing(8)
+        main_layout.setContentsMargins(10, 10, 10, 10)
+        main_layout.setSpacing(6)
 
         # Başlık Çubuğu
         h_head = QHBoxLayout()
-        h_head.setContentsMargins(4, 0, 4, 4)
+        h_head.setContentsMargins(4, 0, 4, 2)
 
         self.lbl_head_icon = QLabel()
-        self.lbl_head_icon.setPixmap(ModernIconFactory.icon_bookmark().pixmap(16, 16))
+        self.lbl_head_icon.setPixmap(ModernIconFactory.icon_thumbnails().pixmap(16, 16))
         h_head.addWidget(self.lbl_head_icon)
 
-        self.lbl_head_title = QLabel(LanguageManager.tr("bookmarks_panel_title"))
-        self.lbl_head_title.setStyleSheet("font-size: 15px; font-weight: 700;")
+        self.lbl_head_title = QLabel(LanguageManager.tr("dock_title"))
+        self.lbl_head_title.setStyleSheet("font-size: 14px; font-weight: 700;")
         h_head.addWidget(self.lbl_head_title)
         h_head.addStretch(1)
 
@@ -2834,18 +3578,84 @@ class ModernRightSidebar(QWidget):
         self.btn_add.setIconSize(QSize(12, 12))
         self.btn_add.setFixedSize(22, 22)
         self.btn_add.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.btn_add.setToolTip(LanguageManager.tr("bookmarks_add_btn"))
+        self.btn_add.setToolTip(LanguageManager.tr("sidebar_add_page"))
         self.btn_add.clicked.connect(self._on_header_add_clicked)
         h_head.addWidget(self.btn_add)
 
-        btn_close = QToolButton()
-        btn_close.setIcon(ModernIconFactory.icon_close())
-        btn_close.setIconSize(QSize(12, 12))
-        btn_close.setFixedSize(22, 22)
-        btn_close.setCursor(Qt.CursorShape.PointingHandCursor)
-        btn_close.clicked.connect(self.closeRequested.emit)
-        h_head.addWidget(btn_close)
+        self.btn_close = QToolButton()
+        self.btn_close.setIcon(ModernIconFactory.icon_close())
+        self.btn_close.setIconSize(QSize(12, 12))
+        self.btn_close.setFixedSize(22, 22)
+        self.btn_close.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_close.clicked.connect(self.closeRequested.emit)
+        h_head.addWidget(self.btn_close)
         main_layout.addLayout(h_head)
+
+        # Yatay Sekme Çubuğu (Sayfalar, İçindekiler, Ekler, Yorumlar)
+        self.tab_container = QWidget()
+        self.tab_container.setObjectName("SidebarTabContainer")
+        h_tabs = QHBoxLayout(self.tab_container)
+        h_tabs.setContentsMargins(0, 2, 0, 4)
+        h_tabs.setSpacing(2)
+
+        self.btn_tab_thumbs = QToolButton()
+        self.btn_tab_thumbs.setProperty("class", "SidebarTabButton")
+        self.btn_tab_thumbs.setIcon(ModernIconFactory.icon_thumbnails())
+        self.btn_tab_thumbs.setIconSize(QSize(14, 14))
+        self.btn_tab_thumbs.setText(" " + LanguageManager.tr("sidebar_thumbnails"))
+        self.btn_tab_thumbs.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+        self.btn_tab_thumbs.setCheckable(True)
+        self.btn_tab_thumbs.setChecked(True)
+        self.btn_tab_thumbs.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_tab_thumbs.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        h_tabs.addWidget(self.btn_tab_thumbs)
+
+        self.btn_tab_bookmarks = QToolButton()
+        self.btn_tab_bookmarks.setProperty("class", "SidebarTabButton")
+        self.btn_tab_bookmarks.setIcon(ModernIconFactory.icon_bookmark())
+        self.btn_tab_bookmarks.setIconSize(QSize(14, 14))
+        self.btn_tab_bookmarks.setText(" " + LanguageManager.tr("sidebar_bookmarks"))
+        self.btn_tab_bookmarks.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+        self.btn_tab_bookmarks.setCheckable(True)
+        self.btn_tab_bookmarks.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_tab_bookmarks.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        h_tabs.addWidget(self.btn_tab_bookmarks)
+
+        self.btn_tab_attachments = QToolButton()
+        self.btn_tab_attachments.setProperty("class", "SidebarTabButton")
+        self.btn_tab_attachments.setIcon(ModernIconFactory.icon_attachment())
+        self.btn_tab_attachments.setIconSize(QSize(14, 14))
+        self.btn_tab_attachments.setText(" " + LanguageManager.tr("sidebar_attachments"))
+        self.btn_tab_attachments.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+        self.btn_tab_attachments.setCheckable(True)
+        self.btn_tab_attachments.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_tab_attachments.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        h_tabs.addWidget(self.btn_tab_attachments)
+
+        self.btn_tab_comments = QToolButton()
+        self.btn_tab_comments.setProperty("class", "SidebarTabButton")
+        self.btn_tab_comments.setIcon(ModernIconFactory.icon_comments())
+        self.btn_tab_comments.setIconSize(QSize(14, 14))
+        self.btn_tab_comments.setText(" " + LanguageManager.tr("sidebar_comments"))
+        self.btn_tab_comments.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+        self.btn_tab_comments.setCheckable(True)
+        self.btn_tab_comments.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_tab_comments.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        h_tabs.addWidget(self.btn_tab_comments)
+
+        self.nav_button_group = QButtonGroup(self)
+        self.nav_button_group.setExclusive(True)
+        self.nav_button_group.addButton(self.btn_tab_thumbs, 0)
+        self.nav_button_group.addButton(self.btn_tab_bookmarks, 1)
+        self.nav_button_group.addButton(self.btn_tab_attachments, 2)
+        self.nav_button_group.addButton(self.btn_tab_comments, 3)
+
+        self.btn_tab_thumbs.clicked.connect(lambda: self.set_panel("thumbnails"))
+        self.btn_tab_bookmarks.clicked.connect(lambda: self.set_panel("bookmarks"))
+        self.btn_tab_attachments.clicked.connect(lambda: self.set_panel("attachments"))
+        self.btn_tab_comments.clicked.connect(lambda: self.set_panel("comments"))
+
+        main_layout.addWidget(self.tab_container)
 
         # Ana Panel Yığını: 0=Yer İmleri, 1=Yorumlar, 2=Küçük Resimler
         self.main_stack = QStackedWidget()
@@ -2962,6 +3772,7 @@ class ModernRightSidebar(QWidget):
         self.tree_comments.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.tree_comments.customContextMenuRequested.connect(self._on_comment_context_menu)
         self.tree_comments.itemClicked.connect(self._on_comment_item_clicked)
+        self.tree_comments.itemDoubleClicked.connect(self._on_comment_item_double_clicked)
         self.comments_stack.addWidget(self.tree_comments)
 
         v_com.addWidget(self.comments_stack, stretch=1)
@@ -2979,19 +3790,27 @@ class ModernRightSidebar(QWidget):
 
         # Boş Durum
         self.empty_thumbs_widget = QWidget()
+        self.empty_thumbs_widget.setAcceptDrops(True)
+        self.empty_thumbs_widget.installEventFilter(self)
         v_empty_th = QVBoxLayout(self.empty_thumbs_widget)
         v_empty_th.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        v_empty_th.setSpacing(12)
+        v_empty_th.setSpacing(10)
 
         lbl_th_icon = QLabel()
-        lbl_th_icon.setPixmap(ModernIconFactory.icon_thumbnails("#94a3b8").pixmap(36, 36))
+        lbl_th_icon.setPixmap(ModernIconFactory.icon_thumbnails("#94a3b8").pixmap(40, 40))
         lbl_th_icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
         v_empty_th.addWidget(lbl_th_icon)
 
         self.lbl_empty_thumbs = QLabel(LanguageManager.tr("sidebar_no_pages_title"))
         self.lbl_empty_thumbs.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.lbl_empty_thumbs.setStyleSheet("font-size: 13px; font-weight: 500;")
+        self.lbl_empty_thumbs.setStyleSheet("font-size: 13px; font-weight: 600;")
         v_empty_th.addWidget(self.lbl_empty_thumbs)
+
+        self.lbl_empty_desc = QLabel(LanguageManager.tr("sidebar_no_pages_desc"))
+        self.lbl_empty_desc.setWordWrap(True)
+        self.lbl_empty_desc.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.lbl_empty_desc.setStyleSheet("font-size: 11px; opacity: 0.7;")
+        v_empty_th.addWidget(self.lbl_empty_desc)
 
         self.btn_empty_insert_pdf = QPushButton(" " + LanguageManager.tr("sidebar_btn_add_pdf"))
         self.btn_empty_insert_pdf.setObjectName("PrimaryActionBtn")
@@ -3014,7 +3833,7 @@ class ModernRightSidebar(QWidget):
         # Sayfalar (Küçük Resimler) Listesi
         self.list_thumbnails = QListWidget()
         self.list_thumbnails.setObjectName("RightRailThumbnailsList")
-        self.list_thumbnails.setIconSize(QSize(180, 240))
+        self.list_thumbnails.setIconSize(QSize(160, 220))
         self.list_thumbnails.setSpacing(8)
         self.list_thumbnails.setVerticalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
         self.list_thumbnails.setAcceptDrops(True)
@@ -3024,6 +3843,10 @@ class ModernRightSidebar(QWidget):
         self.list_thumbnails.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.list_thumbnails.customContextMenuRequested.connect(self._show_thumbnails_context_menu)
         self.list_thumbnails.itemClicked.connect(self._on_thumbnail_item_clicked)
+        self.list_thumbnails.setMouseTracking(True)
+        self.list_thumbnails.viewport().setMouseTracking(True)
+        self.list_thumbnails.installEventFilter(self)
+        self.list_thumbnails.viewport().installEventFilter(self)
         self.stack_thumbnails.addWidget(self.list_thumbnails)
 
         v_th.addWidget(self.stack_thumbnails)
@@ -3076,49 +3899,226 @@ class ModernRightSidebar(QWidget):
         v_att.addWidget(self.stack_attachments)
         self.main_stack.addWidget(self.panel_attachments)
 
+        # ======================================================================
+        # PANEL 4: ERİŞİLEBİLİRLİK VE SESLİ OKUMA (EMA LIGHTNING TTS)
+        # ======================================================================
+        self.panel_accessibility = QWidget()
+        v_tts = QVBoxLayout(self.panel_accessibility)
+        v_tts.setContentsMargins(0, 0, 0, 0)
+        v_tts.setSpacing(10)
+
+        # 1. Model Durumu Kartı
+        self.card_tts_model = QFrame()
+        self.card_tts_model.setObjectName("TTSModelCard")
+        v_mcard = QVBoxLayout(self.card_tts_model)
+        v_mcard.setContentsMargins(10, 10, 10, 10)
+        v_mcard.setSpacing(6)
+
+        h_mhead = QHBoxLayout()
+        h_mhead.setSpacing(6)
+        lbl_ai_badge = QLabel("⚡ EMA LIGHTNING")
+        lbl_ai_badge.setObjectName("TTSBadge")
+        h_mhead.addWidget(lbl_ai_badge)
+        h_mhead.addStretch(1)
+
+        self.lbl_model_status_dot = QLabel("●")
+        self.lbl_model_status_dot.setObjectName("TTSStatusDot")
+        h_mhead.addWidget(self.lbl_model_status_dot)
+
+        self.lbl_model_status_text = QLabel(LanguageManager.tr("tts_status_ready"))
+        self.lbl_model_status_text.setObjectName("TTSStatusText")
+        h_mhead.addWidget(self.lbl_model_status_text)
+        v_mcard.addLayout(h_mhead)
+
+        self.lbl_model_desc = QLabel(LanguageManager.tr("tts_model_desc"))
+        self.lbl_model_desc.setObjectName("TTSDesc")
+        self.lbl_model_desc.setWordWrap(True)
+        v_mcard.addWidget(self.lbl_model_desc)
+
+        self.btn_download_model = QPushButton(" " + LanguageManager.tr("tts_btn_download_model"))
+        self.btn_download_model.setObjectName("TTSDownloadBtn")
+        self.btn_download_model.setIcon(ModernIconFactory.icon_recovery())
+        self.btn_download_model.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_download_model.clicked.connect(self._on_download_model_clicked)
+        self.btn_download_model.hide()
+        v_mcard.addWidget(self.btn_download_model)
+
+        v_tts.addWidget(self.card_tts_model)
+
+        # 2. Hızlı Eylem Butonları
+        self.btn_read_page = QPushButton(" " + LanguageManager.tr("tts_read_page"))
+        self.btn_read_page.setObjectName("TTSActionBtn")
+        self.btn_read_page.setIcon(ModernIconFactory.icon_view_single())
+        self.btn_read_page.setIconSize(QSize(15, 15))
+        self.btn_read_page.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_read_page.clicked.connect(self._read_current_page)
+        v_tts.addWidget(self.btn_read_page)
+
+        self.btn_read_selection = QPushButton(" " + LanguageManager.tr("tts_read_selection"))
+        self.btn_read_selection.setObjectName("TTSActionBtn")
+        self.btn_read_selection.setIcon(ModernIconFactory.icon_cursor())
+        self.btn_read_selection.setIconSize(QSize(15, 15))
+        self.btn_read_selection.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_read_selection.clicked.connect(self._read_selected_text)
+        v_tts.addWidget(self.btn_read_selection)
+
+        # 3. Metin Alanı
+        self.txt_tts_input = QTextEdit()
+        self.txt_tts_input.setObjectName("TTSTextInput")
+        self.txt_tts_input.setPlaceholderText(LanguageManager.tr("tts_no_text_found"))
+        self.txt_tts_input.setFixedHeight(115)
+        v_tts.addWidget(self.txt_tts_input)
+
+        # 4. Oynatıcı Kontrolleri
+        self.card_tts_player = QFrame()
+        self.card_tts_player.setObjectName("TTSPlayerCard")
+        v_pcard = QVBoxLayout(self.card_tts_player)
+        v_pcard.setContentsMargins(10, 10, 10, 10)
+        v_pcard.setSpacing(8)
+
+        h_pbtns = QHBoxLayout()
+        h_pbtns.setSpacing(8)
+
+        self.btn_tts_play = QPushButton(" " + LanguageManager.tr("tts_play_btn"))
+        self.btn_tts_play.setObjectName("TTSPlayBtn")
+        self.btn_tts_play.setIcon(ModernIconFactory.icon_play())
+        self.btn_tts_play.setIconSize(QSize(14, 14))
+        self.btn_tts_play.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_tts_play.clicked.connect(self._toggle_play_tts)
+        h_pbtns.addWidget(self.btn_tts_play, stretch=1)
+
+        self.btn_tts_pause = QToolButton()
+        self.btn_tts_pause.setObjectName("TTSControlBtn")
+        self.btn_tts_pause.setIcon(ModernIconFactory.icon_pause())
+        self.btn_tts_pause.setIconSize(QSize(14, 14))
+        self.btn_tts_pause.setFixedSize(32, 32)
+        self.btn_tts_pause.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_tts_pause.setToolTip(LanguageManager.tr("tts_pause_btn"))
+        self.btn_tts_pause.clicked.connect(self._pause_tts)
+        h_pbtns.addWidget(self.btn_tts_pause)
+
+        self.btn_tts_stop = QToolButton()
+        self.btn_tts_stop.setObjectName("TTSControlBtn")
+        self.btn_tts_stop.setIcon(ModernIconFactory.icon_close())
+        self.btn_tts_stop.setIconSize(QSize(14, 14))
+        self.btn_tts_stop.setFixedSize(32, 32)
+        self.btn_tts_stop.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_tts_stop.setToolTip(LanguageManager.tr("tts_stop_btn"))
+        self.btn_tts_stop.clicked.connect(self._stop_tts)
+        h_pbtns.addWidget(self.btn_tts_stop)
+
+        v_pcard.addLayout(h_pbtns)
+
+        # İlerleme Çubuğu ve Süre
+        self.progress_tts = QProgressBar()
+        self.progress_tts.setObjectName("TTSProgressBar")
+        self.progress_tts.setFixedHeight(5)
+        self.progress_tts.setTextVisible(False)
+        self.progress_tts.setRange(0, 1000)
+        self.progress_tts.setValue(0)
+        v_pcard.addWidget(self.progress_tts)
+
+        h_pstatus = QHBoxLayout()
+        self.lbl_tts_playback_status = QLabel(LanguageManager.tr("tts_status_ready"))
+        self.lbl_tts_playback_status.setObjectName("TTSPlaybackStatus")
+        h_pstatus.addWidget(self.lbl_tts_playback_status, stretch=1)
+
+        self.lbl_tts_time = QLabel("00:00")
+        self.lbl_tts_time.setObjectName("TTSTimeLabel")
+        h_pstatus.addWidget(self.lbl_tts_time)
+        v_pcard.addLayout(h_pstatus)
+
+        # Ses Seviyesi Kaydırıcısı
+        h_vol = QHBoxLayout()
+        h_vol.setSpacing(6)
+        lbl_vol_icon = QLabel()
+        lbl_vol_icon.setPixmap(ModernIconFactory.icon_speech().pixmap(14, 14))
+        h_vol.addWidget(lbl_vol_icon)
+
+        self.slider_tts_vol = QSlider(Qt.Orientation.Horizontal)
+        self.slider_tts_vol.setObjectName("TTSVolumeSlider")
+        self.slider_tts_vol.setRange(0, 100)
+        self.slider_tts_vol.setValue(100)
+        self.slider_tts_vol.valueChanged.connect(self._on_volume_changed)
+        h_vol.addWidget(self.slider_tts_vol, stretch=1)
+        v_pcard.addLayout(h_vol)
+
+        v_tts.addWidget(self.card_tts_player)
+        v_tts.addStretch(1)
+
+        self.main_stack.addWidget(self.panel_accessibility)
+
+        # Motor ve Sinyal Bağlantıları
+        self.speech_engine = AuraSpeechEngine(self)
+        self.speech_engine.state_changed.connect(self._on_tts_state_changed)
+        self.speech_engine.reading_started.connect(self._on_tts_reading_started)
+        self.speech_engine.reading_finished.connect(self._on_tts_reading_finished)
+        self.speech_engine.playback_progress.connect(self._on_tts_playback_progress)
+        self.speech_engine.error_occurred.connect(self._on_tts_error)
+        self.speech_engine.model_status_changed.connect(self._on_tts_model_status_changed)
+        self.speech_engine.check_and_notify_status()
+
         main_layout.addWidget(self.main_stack, stretch=1)
         self.apply_theme(self.theme_name)
 
     def set_panel(self, panel_name: str):
-        """Çekmeceyi 'bookmarks', 'comments', 'thumbnails' veya 'attachments' paneline geçirir."""
+        """Çekmeceyi 'thumbnails', 'bookmarks', 'attachments', 'comments' veya 'accessibility' paneline geçirir."""
         self.current_panel = panel_name
         if panel_name == "comments":
+            self.tab_container.show()
+            self.btn_tab_comments.setChecked(True)
             self.main_stack.setCurrentIndex(1)
-            self.lbl_head_title.setText(LanguageManager.tr("comments_panel_title"))
+            self.lbl_head_title.setText(LanguageManager.tr("dock_title"))
             self.lbl_head_icon.setPixmap(ModernIconFactory.icon_comments().pixmap(16, 16))
             self.btn_add.hide()
             self.load_comments()
         elif panel_name == "thumbnails":
+            self.tab_container.show()
+            self.btn_tab_thumbs.setChecked(True)
             self.main_stack.setCurrentIndex(2)
-            self.lbl_head_title.setText(LanguageManager.tr("sidebar_pages"))
+            self.lbl_head_title.setText(LanguageManager.tr("dock_title"))
             self.lbl_head_icon.setPixmap(ModernIconFactory.icon_thumbnails().pixmap(16, 16))
             self.btn_add.show()
             self.btn_add.setToolTip(LanguageManager.tr("sidebar_add_page"))
             self.load_thumbnails()
         elif panel_name == "attachments":
+            self.tab_container.show()
+            self.btn_tab_attachments.setChecked(True)
             self.main_stack.setCurrentIndex(3)
-            self.lbl_head_title.setText(LanguageManager.tr("sidebar_attachments"))
+            self.lbl_head_title.setText(LanguageManager.tr("dock_title"))
             self.lbl_head_icon.setPixmap(ModernIconFactory.icon_attachment().pixmap(16, 16))
             self.btn_add.show()
             self.btn_add.setToolTip(LanguageManager.tr("sidebar_add_attachment"))
             self.load_attachments()
+        elif panel_name == "accessibility":
+            self.tab_container.hide()
+            self.main_stack.setCurrentIndex(4)
+            self.lbl_head_title.setText(LanguageManager.tr("accessibility_panel_title"))
+            self.lbl_head_icon.setPixmap(ModernIconFactory.icon_accessibility().pixmap(16, 16))
+            self.btn_add.hide()
+            self.load_accessibility()
         else:
+            self.tab_container.show()
+            self.btn_tab_bookmarks.setChecked(True)
             self.main_stack.setCurrentIndex(0)
-            self.lbl_head_title.setText(LanguageManager.tr("bookmarks_panel_title"))
+            self.lbl_head_title.setText(LanguageManager.tr("dock_title"))
             self.lbl_head_icon.setPixmap(ModernIconFactory.icon_bookmark().pixmap(16, 16))
             self.btn_add.show()
             self.btn_add.setToolTip(LanguageManager.tr("bookmarks_add_btn"))
             self.load_bookmarks()
 
     def retranslate_ui(self):
-        if self.current_panel == "comments":
-            self.lbl_head_title.setText(LanguageManager.tr("comments_panel_title"))
-        elif self.current_panel == "thumbnails":
-            self.lbl_head_title.setText(LanguageManager.tr("sidebar_pages"))
-        elif self.current_panel == "attachments":
-            self.lbl_head_title.setText(LanguageManager.tr("sidebar_attachments"))
+        if hasattr(self, 'btn_tab_thumbs'):
+            self.btn_tab_thumbs.setText(" " + LanguageManager.tr("sidebar_thumbnails"))
+            self.btn_tab_bookmarks.setText(" " + LanguageManager.tr("sidebar_bookmarks"))
+            self.btn_tab_attachments.setText(" " + LanguageManager.tr("sidebar_attachments"))
+            self.btn_tab_comments.setText(" " + LanguageManager.tr("sidebar_comments"))
+
+        if self.current_panel == "accessibility":
+            self.lbl_head_title.setText(LanguageManager.tr("accessibility_panel_title"))
         else:
-            self.lbl_head_title.setText(LanguageManager.tr("bookmarks_panel_title"))
+            self.lbl_head_title.setText(LanguageManager.tr("dock_title"))
+
         self.lbl_empty_msg.setText(LanguageManager.tr("bookmarks_empty_title"))
         self.lbl_empty_comments.setText(LanguageManager.tr("comments_no_comments"))
         self.lbl_empty_comments_desc.setText(LanguageManager.tr("comments_no_comments_desc"))
@@ -3132,6 +4132,14 @@ class ModernRightSidebar(QWidget):
             self.lbl_empty_att.setText(LanguageManager.tr("sidebar_no_attachments"))
         if hasattr(self, 'empty_att_btn'):
             self.empty_att_btn.setText(" " + LanguageManager.tr("sidebar_add_attachment"))
+        if hasattr(self, 'btn_read_page'):
+            self.btn_read_page.setText(" " + LanguageManager.tr("tts_read_page"))
+            self.btn_read_selection.setText(" " + LanguageManager.tr("tts_read_selection"))
+            self.btn_tts_play.setText(" " + LanguageManager.tr("tts_play_btn"))
+            self.btn_tts_pause.setToolTip(LanguageManager.tr("tts_pause_btn"))
+            self.btn_tts_stop.setToolTip(LanguageManager.tr("tts_stop_btn"))
+            self.btn_download_model.setText(" " + LanguageManager.tr("tts_btn_download_model"))
+            self.lbl_model_desc.setText(LanguageManager.tr("tts_model_desc"))
         self.txt_filter_comments.setPlaceholderText(LanguageManager.tr("comments_filter_placeholder"))
         self.txt_new_comment.setPlaceholderText(LanguageManager.tr("comments_input_placeholder"))
         self.btn_post_comment.setText(LanguageManager.tr("comments_post_btn"))
@@ -3146,39 +4154,119 @@ class ModernRightSidebar(QWidget):
     # ==========================================================================
     # SAYFA KÜÇÜK RESİMLERİ (THUMBNAILS) İŞLEMLERİ
     # ==========================================================================
+    def _is_pos_on_bookmark_ribbon(self, pos: QPoint) -> tuple:
+        item = self.list_thumbnails.itemAt(pos)
+        if not item:
+            return False, None, -1
+        page_idx = item.data(Qt.ItemDataRole.UserRole)
+        if page_idx is None or page_idx < 0:
+            return False, item, -1
+
+        bookmarked_pages = self.get_bookmarked_pages()
+        if page_idx not in bookmarked_pages:
+            return False, item, page_idx
+
+        item_rect = self.list_thumbnails.visualItemRect(item)
+        opt = QStyleOptionViewItem()
+        self.list_thumbnails.initViewItemOption(opt)
+        opt.rect = item_rect
+        opt.features |= QStyleOptionViewItem.ViewItemFeature.HasDecoration
+        opt.decorationSize = self.list_thumbnails.iconSize()
+
+        style = self.list_thumbnails.style()
+        icon_rect = style.subElementRect(style.SubElement.SE_ItemViewItemDecoration, opt, self.list_thumbnails)
+
+        ribbon_hit_rect = QRect(icon_rect.right() - 32, icon_rect.top() - 2, 34, 38)
+        if ribbon_hit_rect.contains(pos):
+            return True, item, page_idx
+        return False, item, page_idx
+
+    def eventFilter(self, source, event):
+        if hasattr(self, 'list_thumbnails') and source == self.list_thumbnails.viewport():
+            if event.type() == QEvent.Type.MouseButtonPress and event.button() == Qt.MouseButton.LeftButton:
+                is_hit, item, page_idx = self._is_pos_on_bookmark_ribbon(event.pos())
+                if is_hit and page_idx >= 0:
+                    self.show_bookmark_for_page(page_idx)
+                    return True
+            elif event.type() == QEvent.Type.MouseMove:
+                is_hit, item, page_idx = self._is_pos_on_bookmark_ribbon(event.pos())
+                if is_hit:
+                    self.list_thumbnails.viewport().setCursor(Qt.CursorShape.PointingHandCursor)
+                else:
+                    self.list_thumbnails.viewport().unsetCursor()
+            elif event.type() == QEvent.Type.Leave:
+                self.list_thumbnails.viewport().unsetCursor()
+
+        if hasattr(self, 'list_thumbnails') and source in (self.list_thumbnails, getattr(self, 'empty_thumbs_widget', None)):
+            if event.type() in (QEvent.Type.DragEnter, QEvent.Type.DragMove):
+                if event.mimeData().hasUrls() and any(u.toLocalFile().lower().endswith('.pdf') for u in event.mimeData().urls()):
+                    event.acceptProposedAction()
+                    return True
+            elif event.type() == QEvent.Type.Drop:
+                if event.mimeData().hasUrls():
+                    pdf_urls = [u for u in event.mimeData().urls() if u.toLocalFile().lower().endswith('.pdf')]
+                    if pdf_urls:
+                        if self.main_window and hasattr(self.main_window, 'handle_dropped_urls'):
+                            self.main_window.handle_dropped_urls(pdf_urls)
+                            event.acceptProposedAction()
+                            return True
+        return super().eventFilter(source, event)
+
+    def _create_placeholder_pixmap(self, is_bookmarked: bool = False) -> QPixmap:
+        c = get_modern_theme_colors(self.theme_name)
+        pix = QPixmap(160, 220)
+        pix.fill(QColor(c.get('card_bg', '#242426')))
+        if is_bookmarked:
+            return self._draw_bookmark_ribbon_badge(pix)
+        return pix
+
     def load_thumbnails(self):
         """Aktif belgenin sayfa küçük resimlerini yükler."""
         if not self.main_window:
             self.stack_thumbnails.setCurrentIndex(0)
+            self.is_loaded = False
             return
         tab_doc = self.main_window.get_current_tab_doc()
-        if not tab_doc or not tab_doc.doc or len(tab_doc.doc) == 0:
+        if not tab_doc or not tab_doc.doc or getattr(tab_doc.doc, 'is_closed', False) or len(tab_doc.doc) == 0:
             self.stack_thumbnails.setCurrentIndex(0)
+            self.is_loaded = False
             return
 
         total_pages = len(tab_doc.doc)
         curr_idx = getattr(tab_doc, 'current_page_idx', 0)
 
-        # Hızlı yol: aynı belge ve aynı sayfa sayısı yüklüyse sadece aktif sayfayı seç
+        # Hızlı yol: aynı belge ve aynı sayfa sayısı yüklüyse sadece aktif sayfayı seç ve güncelle
         if getattr(self, '_current_thumb_doc', None) == tab_doc and self.list_thumbnails.count() == total_pages:
             self.stack_thumbnails.setCurrentIndex(1)
             self._render_thumbnail_page(tab_doc, curr_idx)
             self.select_page(curr_idx)
+            self.is_loaded = True
             return
 
         self._thumb_timer.stop()
         self.list_thumbnails.clear()
         self._thumb_render_queue.clear()
+        self._rendered_pages.clear()
+        self._raw_thumb_images.clear()
         self._current_thumb_doc = tab_doc
         self.stack_thumbnails.setCurrentIndex(1)
 
         # Boş yer tutucuları anında ekle (<1ms)
+        bookmarked_pages = self.get_bookmarked_pages()
         for idx in range(total_pages):
-            item = QListWidgetItem(f"{idx + 1}")
+            is_bm = idx in bookmarked_pages
+            placeholder_pix = self._create_placeholder_pixmap(is_bm)
+            item = QListWidgetItem(QIcon(placeholder_pix), f"{idx + 1}")
             item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             item.setData(Qt.ItemDataRole.UserRole, idx)
-            item.setSizeHint(QSize(220, 260))
+            item.setSizeHint(QSize(180, 240))
+            if is_bm:
+                item.setToolTip(LanguageManager.tr("sidebar_page_bookmarked", page=idx + 1))
+            else:
+                item.setToolTip(LanguageManager.tr("sidebar_page_tooltip", page=idx + 1))
             self.list_thumbnails.addItem(item)
+
+        self.is_loaded = True
 
         # Aktif sayfa ve yakın komşuları öncelikli çiz
         immediate = [curr_idx]
@@ -3200,6 +4288,17 @@ class ModernRightSidebar(QWidget):
         if self._thumb_render_queue:
             self._thumb_timer.start(10)
 
+    def load_thumbnails_lazy(self):
+        """ThumbnailsDock ile tam uyumluluk sağlayan takma ad."""
+        self.load_thumbnails()
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        if getattr(self, 'current_panel', '') == "thumbnails":
+            self.load_thumbnails()
+        elif getattr(self, 'current_panel', '') == "comments":
+            self.load_comments()
+
     def hideEvent(self, event):
         super().hideEvent(event)
         try:
@@ -3215,6 +4314,9 @@ class ModernRightSidebar(QWidget):
         except Exception:
             pass
         self._current_thumb_doc = None
+        self._rendered_pages.clear()
+        self._raw_thumb_images.clear()
+        self.is_loaded = False
         if hasattr(self, 'list_thumbnails'):
             self.list_thumbnails.clear()
         if hasattr(self, 'stack_thumbnails'):
@@ -3306,24 +4408,110 @@ class ModernRightSidebar(QWidget):
         if not item:
             return
 
-        try:
-            page = tab_doc.doc[page_idx]
-            pw = max(1.0, page.rect.width)
-            ph = max(1.0, page.rect.height)
-            thumb_w = 180
-            thumb_h = max(20, int(thumb_w * (ph / pw)))
-            scale = float(thumb_w) / pw
-            mat = fitz.Matrix(scale, scale)
-            pix = page.get_pixmap(matrix=mat, alpha=False)
-            img = QImage(pix.samples, pix.width, pix.height, pix.stride, QImage.Format.Format_RGB888).copy()
-            pixmap = QPixmap.fromImage(img)
-            is_bm = page_idx in self.get_bookmarked_pages()
-            if is_bm:
-                pixmap = self._draw_bookmark_ribbon_badge(pixmap)
-            item.setIcon(QIcon(pixmap))
-            item.setToolTip(f"Sayfa {page_idx + 1}" + (" • Yer İmi Ekli" if is_bm else ""))
-        except Exception:
-            pass
+        thumb_w = 160
+        img = None
+
+        # 1. Canlı çizimlerle (çizim, not, vurgulayıcı, şekiller vb.) render et
+        if hasattr(tab_doc, 'page_positions') and page_idx in tab_doc.page_positions:
+            pinfo = tab_doc.page_positions[page_idx]
+            thumb_h = max(20, int(thumb_w * (pinfo['height'] / max(1.0, pinfo['width']))))
+
+            laser = getattr(tab_doc, 'laser_pointer_item', None)
+            was_laser_vis = laser.isVisible() if laser else False
+            if laser and was_laser_vis:
+                laser.setVisible(False)
+
+            sel_item = getattr(tab_doc, 'selection_item', None)
+            was_sel_vis = sel_item.isVisible() if sel_item else False
+            if sel_item and was_sel_vis:
+                sel_item.setVisible(False)
+
+            ribbon = getattr(tab_doc, 'bookmark_ribbon_items', {}).get(page_idx, None)
+            was_ribbon_vis = ribbon.isVisible() if ribbon else False
+            if ribbon and was_ribbon_vis:
+                ribbon.setVisible(False)
+
+            selected_items = tab_doc.scene.selectedItems() if hasattr(tab_doc, 'scene') and tab_doc.scene else []
+            for sit in selected_items:
+                sit.setSelected(False)
+
+            src_rect = QRectF(pinfo.get('left', 0), pinfo['top'], pinfo['width'], pinfo['height'])
+
+            try:
+                if pinfo.get('item') and not pinfo['item'].pixmap().isNull():
+                    img = QImage(thumb_w, thumb_h, QImage.Format.Format_ARGB32_Premultiplied)
+                    img.fill(QColor(255, 255, 255))
+                    painter = QPainter(img)
+                    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+                    painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
+                    tab_doc.scene.render(painter, QRectF(0, 0, thumb_w, thumb_h), src_rect)
+                    painter.end()
+                else:
+                    page = tab_doc.doc[page_idx]
+                    pw = max(1.0, page.rect.width)
+                    scale = float(thumb_w) / pw
+                    mat = fitz.Matrix(scale, scale)
+                    pix = page.get_pixmap(matrix=mat, alpha=False)
+                    base_img = QImage(pix.samples, pix.width, pix.height, pix.stride, QImage.Format.Format_RGB888).copy()
+                    img = base_img.convertToFormat(QImage.Format.Format_ARGB32_Premultiplied)
+
+                    bg_rect = pinfo.get('bg_rect')
+                    was_bg_vis = bg_rect.isVisible() if bg_rect else False
+                    if bg_rect and was_bg_vis:
+                        bg_rect.setVisible(False)
+                    pix_item = pinfo.get('item')
+                    was_pix_vis = pix_item.isVisible() if pix_item else False
+                    if pix_item and was_pix_vis:
+                        pix_item.setVisible(False)
+
+                    painter = QPainter(img)
+                    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+                    try:
+                        tab_doc.scene.render(painter, QRectF(0, 0, thumb_w, thumb_h), src_rect)
+                    finally:
+                        painter.end()
+                        if bg_rect and was_bg_vis:
+                            bg_rect.setVisible(True)
+                        if pix_item and was_pix_vis:
+                            pix_item.setVisible(True)
+            except Exception:
+                img = None
+            finally:
+                if laser and was_laser_vis:
+                    laser.setVisible(True)
+                if sel_item and was_sel_vis:
+                    sel_item.setVisible(True)
+                if ribbon and was_ribbon_vis:
+                    ribbon.setVisible(True)
+                for sit in selected_items:
+                    sit.setSelected(True)
+
+        if img is None:
+            try:
+                page = tab_doc.doc[page_idx]
+                pw = max(1.0, page.rect.width)
+                ph = max(1.0, page.rect.height)
+                thumb_h = max(20, int(thumb_w * (ph / pw)))
+                scale = float(thumb_w) / pw
+                mat = fitz.Matrix(scale, scale)
+                pix = page.get_pixmap(matrix=mat, alpha=False)
+                base_img = QImage(pix.samples, pix.width, pix.height, pix.stride, QImage.Format.Format_RGB888).copy()
+                img = base_img.convertToFormat(QImage.Format.Format_ARGB32_Premultiplied)
+            except Exception:
+                return
+
+        self._raw_thumb_images[page_idx] = img.copy()
+
+        pixmap = QPixmap.fromImage(img)
+        bookmarked_pages = self.get_bookmarked_pages()
+        is_bm = page_idx in bookmarked_pages
+        if is_bm:
+            pixmap = self._draw_bookmark_ribbon_badge(pixmap)
+            item.setToolTip(LanguageManager.tr("sidebar_page_bookmarked", page=page_idx + 1))
+        else:
+            item.setToolTip(LanguageManager.tr("sidebar_page_tooltip", page=page_idx + 1))
+        item.setIcon(QIcon(pixmap))
+        self._rendered_pages.add(page_idx)
 
     def _process_thumb_render_queue(self):
         if not self.isVisible() or self.current_panel != "thumbnails" or not self._thumb_render_queue:
@@ -3335,7 +4523,7 @@ class ModernRightSidebar(QWidget):
             self._thumb_render_queue.clear()
             return
 
-        for _ in range(4):
+        for _ in range(3):
             if not self._thumb_render_queue:
                 break
             p_idx = self._thumb_render_queue.pop(0)
@@ -3360,8 +4548,62 @@ class ModernRightSidebar(QWidget):
             self.list_thumbnails.setCurrentRow(page_idx)
             item = self.list_thumbnails.item(page_idx)
             if item:
-                self.list_thumbnails.scrollToItem(item, QAbstractItemView.ScrollHint.EnsureVisible)
+                self.list_thumbnails.scrollToItem(item, QAbstractItemView.ScrollHint.PositionAtCenter)
             self.list_thumbnails.blockSignals(False)
+            if page_idx not in self._rendered_pages:
+                tab_doc = self.main_window.get_current_tab_doc() if self.main_window else None
+                if tab_doc:
+                    self._render_thumbnail_page(tab_doc, page_idx)
+
+    def update_thumbnail(self, page_idx: int):
+        if not self.main_window:
+            return
+        tab_doc = self.main_window.get_current_tab_doc()
+        if not tab_doc or not tab_doc.doc or getattr(tab_doc.doc, 'is_closed', False):
+            return
+        self._render_thumbnail_page(tab_doc, page_idx)
+        if hasattr(self, 'list_thumbnails'):
+            self.list_thumbnails.viewport().update()
+
+    def update_all_thumbnails(self):
+        if not self.main_window:
+            return
+        tab_doc = self.main_window.get_current_tab_doc()
+        if not tab_doc or not tab_doc.doc or getattr(tab_doc.doc, 'is_closed', False):
+            return
+        for idx in range(self.list_thumbnails.count()):
+            self._render_thumbnail_page(tab_doc, idx)
+        if hasattr(self, 'list_thumbnails'):
+            self.list_thumbnails.viewport().update()
+
+    def refresh_bookmark_indicators(self):
+        if not self.main_window:
+            return
+        tab_doc = self.main_window.get_current_tab_doc()
+        if not tab_doc or not tab_doc.doc:
+            return
+        bookmarked_pages = self.get_bookmarked_pages()
+        for idx in range(self.list_thumbnails.count()):
+            item = self.list_thumbnails.item(idx)
+            if not item:
+                continue
+            is_bm = idx in bookmarked_pages
+            if idx in self._raw_thumb_images:
+                base_img = self._raw_thumb_images[idx]
+                pix = QPixmap.fromImage(base_img)
+                if is_bm:
+                    pix = self._draw_bookmark_ribbon_badge(pix)
+                item.setIcon(QIcon(pix))
+            else:
+                placeholder_pix = self._create_placeholder_pixmap(is_bm)
+                item.setIcon(QIcon(placeholder_pix))
+
+            if is_bm:
+                item.setToolTip(LanguageManager.tr("sidebar_page_bookmarked", page=idx + 1))
+            else:
+                item.setToolTip(LanguageManager.tr("sidebar_page_tooltip", page=idx + 1))
+        if hasattr(self, 'list_thumbnails'):
+            self.list_thumbnails.viewport().update()
 
     def _on_pages_reordered(self, parent=None, start=None, end=None, destination=None, row=None):
         if not self.main_window:
@@ -3373,7 +4615,7 @@ class ModernRightSidebar(QWidget):
         for i in range(self.list_thumbnails.count()):
             it = self.list_thumbnails.item(i)
             new_order.append(it.data(Qt.ItemDataRole.UserRole))
-        tab_doc.reorder_pages(new_order)
+        tab_doc.reorder_pages(new_order, push_undo=True)
         for i in range(self.list_thumbnails.count()):
             self.list_thumbnails.item(i).setData(Qt.ItemDataRole.UserRole, i)
             self.list_thumbnails.item(i).setText(f"{i + 1}")
@@ -3396,7 +4638,7 @@ class ModernRightSidebar(QWidget):
         act_style = None
 
         if item and idx >= 0:
-            act_goto = menu.addAction(ModernIconFactory.icon_cursor(), f"Sayfaya Git ({idx + 1})")
+            act_goto = menu.addAction(ModernIconFactory.icon_cursor(), LanguageManager.tr("sidebar_goto_page", page=idx + 1))
             if idx in self.get_bookmarked_pages():
                 act_show_bm = menu.addAction(ModernIconFactory.icon_bookmark(), LanguageManager.tr("sidebar_show_in_toc"))
             menu.addSeparator()
@@ -3450,6 +4692,10 @@ class ModernRightSidebar(QWidget):
             self._on_add_pdf_clicked()
 
     def _on_add_blank_page_clicked(self, after_page: Optional[int] = None):
+        if self.main_window and hasattr(self.main_window, 'show_new_page_dialog'):
+            self.main_window.show_new_page_dialog()
+            return
+
         tab_doc = self.main_window.get_current_tab_doc() if self.main_window else None
         target_after = after_page
         if target_after is None and tab_doc:
@@ -3489,12 +4735,22 @@ class ModernRightSidebar(QWidget):
             target_after = curr_item.data(Qt.ItemDataRole.UserRole) if curr_item else getattr(tab_doc, 'current_page_idx', None)
 
         if tab_doc and tab_doc.doc is not None:
-            path, _ = QFileDialog.getOpenFileName(self, "PDF Dosyası Seç", "", "PDF Dosyaları (*.pdf)")
+            path, _ = QFileDialog.getOpenFileName(
+                self,
+                LanguageManager.tr("sidebar_select_pdf"),
+                "",
+                LanguageManager.tr("sidebar_pdf_filter")
+            )
             if path:
                 tab_doc.insert_pdf_at(path, after_page=target_after)
                 self.load_thumbnails()
         elif self.main_window:
-            paths, _ = QFileDialog.getOpenFileNames(self, "PDF Dosyası Seç", "", "PDF Dosyaları (*.pdf)")
+            paths, _ = QFileDialog.getOpenFileNames(
+                self,
+                LanguageManager.tr("sidebar_select_pdf"),
+                "",
+                LanguageManager.tr("sidebar_pdf_filter")
+            )
             if paths:
                 for p in paths:
                     self.main_window.add_pdf_tab(p)
@@ -3503,35 +4759,52 @@ class ModernRightSidebar(QWidget):
         tab_doc = self.main_window.get_current_tab_doc() if self.main_window else None
         if not tab_doc or not tab_doc.doc or not (0 <= page_idx < len(tab_doc.doc)):
             return
-        page = tab_doc.doc[page_idx]
-        page.set_rotation((page.rotation + angle) % 360)
-        tab_doc.set_modified(True)
-        tab_doc.render_all_pages()
+        if hasattr(tab_doc, 'rotate_page'):
+            tab_doc.rotate_page(page_idx, angle)
+        else:
+            page = tab_doc.doc[page_idx]
+            page.set_rotation((page.rotation + angle) % 360)
+            tab_doc.set_modified(True)
+            if hasattr(tab_doc, 'render_all_pages'):
+                tab_doc.render_all_pages()
         self.load_thumbnails()
 
     def _duplicate_page(self, page_idx: int):
         tab_doc = self.main_window.get_current_tab_doc() if self.main_window else None
         if not tab_doc or not tab_doc.doc or not (0 <= page_idx < len(tab_doc.doc)):
             return
-        try:
-            tab_doc.doc.insert_pdf(tab_doc.doc, from_page=page_idx, to_page=page_idx, start_at=page_idx + 1)
-            tab_doc.set_modified(True)
-            tab_doc.render_all_pages()
-            self.load_thumbnails()
-            tab_doc.go_to_page(page_idx + 1)
-        except Exception as e:
-            QMessageBox.warning(self, LanguageManager.tr("app_title"), f"Sayfa çoğaltılamadı: {e}")
+        if hasattr(tab_doc, 'duplicate_page'):
+            if tab_doc.duplicate_page(page_idx):
+                self.load_thumbnails()
+            else:
+                QMessageBox.warning(self, LanguageManager.tr("app_title"), LanguageManager.tr("sidebar_duplicate_page_error", error="Failed to duplicate page"))
+        else:
+            try:
+                temp = fitz.open("pdf", tab_doc.doc.tobytes())
+                tab_doc.doc.insert_pdf(temp, from_page=page_idx, to_page=page_idx, start_at=page_idx + 1)
+                temp.close()
+                if hasattr(tab_doc, 'drawings') and tab_doc.drawings:
+                    for d in tab_doc.drawings:
+                        if d.get("page", 0) > page_idx:
+                            d["page"] += 1
+                tab_doc.set_modified(True)
+                if hasattr(tab_doc, 'render_all_pages'):
+                    tab_doc.render_all_pages()
+                self.load_thumbnails()
+                tab_doc.go_to_page(page_idx + 1)
+            except Exception as e:
+                QMessageBox.warning(self, LanguageManager.tr("app_title"), LanguageManager.tr("sidebar_duplicate_page_error", error=str(e)))
 
     def _delete_page(self, page_idx: int):
         tab_doc = self.main_window.get_current_tab_doc() if self.main_window else None
         if not tab_doc or not tab_doc.doc:
             return
         if len(tab_doc.doc) <= 1:
-            QMessageBox.warning(self, LanguageManager.tr("app_title"), "Belgedeki son sayfa silinemez.")
+            QMessageBox.warning(self, LanguageManager.tr("app_title"), LanguageManager.tr("sidebar_cannot_delete_last_page"))
             return
         ans = QMessageBox.question(
             self, LanguageManager.tr("app_title"),
-            f"Sayfa {page_idx + 1} kalıcı olarak silinsin mi?",
+            LanguageManager.tr("sidebar_delete_page_confirm", page=page_idx + 1),
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
         )
         if ans == QMessageBox.StandardButton.Yes:
@@ -3631,6 +4904,8 @@ class ModernRightSidebar(QWidget):
             tab_doc.doc.set_toc(toc)
             tab_doc.set_modified(True)
             self.load_bookmarks()
+            if hasattr(tab_doc, 'update_bookmark_ribbons'):
+                tab_doc.update_bookmark_ribbons()
 
     # ==========================================================================
     # YORUMLAR İŞLEMLERİ (ADOBE ACROBAT TARZI)
@@ -3664,6 +4939,8 @@ class ModernRightSidebar(QWidget):
                         "date": date_val,
                         "type": annot.type[1],
                         "page": p_idx,
+                        "xref": getattr(annot, 'xref', 0),
+                        "rect": list(annot.rect) if hasattr(annot, 'rect') else None,
                         "annot_ref": annot
                     })
                     total_count += 1
@@ -3715,9 +4992,8 @@ class ModernRightSidebar(QWidget):
         if p_idx < 0 or p_idx >= len(tab_doc.doc):
             p_idx = 0
 
-        author = "Kullanici"
-        if hasattr(self.main_window, 'settings'):
-            author = self.main_window.settings.value("author_name", "Kullanici") or "Kullanici"
+        from src.ui.dialogs.settings_dialog import get_effective_author_name
+        author = get_effective_author_name()
 
         try:
             page = tab_doc.doc[p_idx]
@@ -3728,6 +5004,8 @@ class ModernRightSidebar(QWidget):
             tab_doc.set_modified(True)
             if hasattr(tab_doc, 'render_all_pages'):
                 tab_doc.render_all_pages()
+            if hasattr(tab_doc, 'rerender_visible_pages'):
+                tab_doc.rerender_visible_pages()
             self.txt_new_comment.clear()
             self.load_comments()
         except Exception as e:
@@ -3738,6 +5016,11 @@ class ModernRightSidebar(QWidget):
         if data and "page" in data:
             self.bookmarkClicked.emit(data["page"])
 
+    def _on_comment_item_double_clicked(self, item: QTreeWidgetItem, column: int):
+        data = item.data(0, Qt.ItemDataRole.UserRole)
+        if data:
+            self._edit_comment_item(data)
+
     def _on_comment_context_menu(self, pos):
         item = self.tree_comments.itemAt(pos)
         if not item:
@@ -3747,10 +5030,64 @@ class ModernRightSidebar(QWidget):
             return
 
         menu = QMenu(self)
+        apply_dialog_theme(menu, self)
+        act_edit = menu.addAction(ModernIconFactory.icon_edit(), LanguageManager.tr("comment_edit_btn"))
         act_del = menu.addAction(ModernIconFactory.icon_trash(), LanguageManager.tr("comments_delete_tooltip"))
         act = menu.exec(self.tree_comments.mapToGlobal(pos))
-        if act == act_del:
+        if act == act_edit:
+            self._edit_comment_item(data)
+        elif act == act_del:
             self._delete_comment_item(data)
+
+    def _edit_comment_item(self, data: dict):
+        if not self.main_window:
+            return
+        tab_doc = self.main_window.get_current_tab_doc()
+        if not tab_doc or not tab_doc.doc:
+            return
+        try:
+            from src.ui.dialogs.comment_dialog import AuraCommentInputDialog
+            curr_text = data.get("content", "")
+            curr_auth = data.get("author", "")
+            dlg = AuraCommentInputDialog(self, initial_text=curr_text, initial_author=curr_auth)
+            if dlg.exec():
+                new_text, new_author, _ = dlg.get_comment_data()
+                p_idx = data.get("page", 0)
+                if "annot_ref" in data and 0 <= p_idx < len(tab_doc.doc):
+                    page = tab_doc.doc[p_idx]
+                    annot = data["annot_ref"]
+                    updated = False
+                    try:
+                        annot.set_info(title=new_author, content=new_text)
+                        annot.update()
+                        updated = True
+                    except Exception:
+                        pass
+                    if not updated:
+                        xref = data.get("xref", 0)
+                        rect = data.get("rect")
+                        for a in page.annots():
+                            if (xref and getattr(a, 'xref', 0) == xref) or (rect and list(a.rect) == rect):
+                                a.set_info(title=new_author, content=new_text)
+                                a.update()
+                                break
+                    tab_doc.set_modified(True)
+                    if hasattr(tab_doc, 'render_all_pages'):
+                        tab_doc.render_all_pages()
+                    if hasattr(tab_doc, 'rerender_visible_pages'):
+                        tab_doc.rerender_visible_pages()
+                elif "drawing_ref" in data and hasattr(tab_doc, 'drawings'):
+                    d = data["drawing_ref"]
+                    d["text"] = new_text
+                    d["author"] = new_author
+                    tab_doc.set_modified(True)
+                    if hasattr(tab_doc, 'render_all_pages'):
+                        tab_doc.render_all_pages()
+                    if hasattr(tab_doc, 'rerender_visible_pages'):
+                        tab_doc.rerender_visible_pages()
+                self.load_comments()
+        except Exception as e:
+            QMessageBox.critical(self, LanguageManager.tr("error"), str(e))
 
     def _delete_comment_item(self, data: dict):
         if not self.main_window:
@@ -3759,20 +5096,44 @@ class ModernRightSidebar(QWidget):
         if not tab_doc or not tab_doc.doc:
             return
 
+        res = QMessageBox.question(
+            self, LanguageManager.tr("app_title"),
+            LanguageManager.tr("comments_delete_confirm"),
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+        if res != QMessageBox.StandardButton.Yes:
+            return
+
         p_idx = data.get("page", 0)
         try:
-            if "annot_ref" in data and p_idx < len(tab_doc.doc):
+            if "annot_ref" in data and 0 <= p_idx < len(tab_doc.doc):
                 page = tab_doc.doc[p_idx]
-                page.delete_annot(data["annot_ref"])
+                deleted = False
+                try:
+                    page.delete_annot(data["annot_ref"])
+                    deleted = True
+                except Exception:
+                    pass
+                if not deleted:
+                    xref = data.get("xref", 0)
+                    rect = data.get("rect")
+                    for a in page.annots():
+                        if (xref and getattr(a, 'xref', 0) == xref) or (rect and list(a.rect) == rect):
+                            page.delete_annot(a)
+                            break
                 tab_doc.set_modified(True)
                 if hasattr(tab_doc, 'render_all_pages'):
                     tab_doc.render_all_pages()
+                if hasattr(tab_doc, 'rerender_visible_pages'):
+                    tab_doc.rerender_visible_pages()
             elif "drawing_ref" in data and hasattr(tab_doc, 'drawings'):
                 if data["drawing_ref"] in tab_doc.drawings:
                     tab_doc.drawings.remove(data["drawing_ref"])
                     tab_doc.set_modified(True)
                     if hasattr(tab_doc, 'render_all_pages'):
                         tab_doc.render_all_pages()
+                    if hasattr(tab_doc, 'rerender_visible_pages'):
+                        tab_doc.rerender_visible_pages()
             self.load_comments()
         except Exception as e:
             QMessageBox.critical(self, LanguageManager.tr("error"), str(e))
@@ -3934,13 +5295,139 @@ class ModernRightSidebar(QWidget):
         elif action == act_del:
             self._delete_attachment(name)
 
+    # ==========================================================================
+    # ERİŞİLEBİLİRLİK VE SESLİ OKUMA (EMA LIGHTNING TTS) İŞLEMLERİ
+    # ==========================================================================
+    def load_accessibility(self):
+        """Erişilebilirlik ve TTS panelini günceller."""
+        if hasattr(self, 'speech_engine'):
+            self.speech_engine.check_and_notify_status()
+        tab_doc = self.main_window.get_current_tab_doc() if self.main_window else None
+        if tab_doc and getattr(tab_doc, 'selected_text', '').strip():
+            self.txt_tts_input.setPlainText(tab_doc.selected_text.strip())
+
+    def _read_current_page(self):
+        if not self.main_window:
+            return
+        tab_doc = self.main_window.get_current_tab_doc()
+        if not tab_doc or not tab_doc.doc:
+            QMessageBox.information(self, LanguageManager.tr("app_title"), LanguageManager.tr("tts_no_text_found"))
+            return
+        curr_idx = getattr(tab_doc, 'current_page_idx', 0)
+        try:
+            page = tab_doc.doc[curr_idx]
+            text = page.get_text().strip()
+        except Exception:
+            text = ""
+        cleaned = clean_text_for_speech(text)
+        if not cleaned:
+            QMessageBox.information(self, LanguageManager.tr("app_title"), LanguageManager.tr("tts_no_text_found"))
+            return
+        self.txt_tts_input.setPlainText(cleaned)
+        self.lbl_tts_playback_status.setText(LanguageManager.tr("tts_status_reading"))
+        self.speech_engine.speak(cleaned)
+
+    def _read_selected_text(self):
+        if not self.main_window:
+            return
+        tab_doc = self.main_window.get_current_tab_doc()
+        text = getattr(tab_doc, 'selected_text', '').strip() if tab_doc else ''
+        if not text:
+            text = self.txt_tts_input.toPlainText().strip()
+        cleaned = clean_text_for_speech(text)
+        if not cleaned:
+            QMessageBox.information(self, LanguageManager.tr("app_title"), LanguageManager.tr("tts_no_text_found"))
+            return
+        self.txt_tts_input.setPlainText(cleaned)
+        self.lbl_tts_playback_status.setText(LanguageManager.tr("tts_status_reading"))
+        self.speech_engine.speak(cleaned)
+
+    def _toggle_play_tts(self):
+        if self.speech_engine.is_paused():
+            self.speech_engine.resume()
+        elif self.speech_engine.is_speaking():
+            self.speech_engine.pause()
+        else:
+            text = self.txt_tts_input.toPlainText().strip()
+            if not text:
+                self._read_current_page()
+            else:
+                self.speech_engine.speak(text)
+
+    def _pause_tts(self):
+        self.speech_engine.pause()
+
+    def _stop_tts(self):
+        self.speech_engine.stop()
+        self.progress_tts.setValue(0)
+        self.lbl_tts_time.setText("00:00")
+        self.lbl_tts_playback_status.setText(LanguageManager.tr("tts_status_stopped"))
+
+    def _on_volume_changed(self, val: int):
+        self.speech_engine.set_volume(val)
+
+    def _on_download_model_clicked(self):
+        self.btn_download_model.setEnabled(False)
+        self.lbl_model_status_text.setText(LanguageManager.tr("tts_status_downloading"))
+        self.speech_engine.download_model()
+
+    def _on_tts_model_status_changed(self, is_ready: bool, message: str):
+        if is_ready:
+            self.lbl_model_status_dot.setText("●")
+            self.lbl_model_status_dot.setStyleSheet("color: #10b981; font-size: 14px;")
+            self.lbl_model_status_text.setText(LanguageManager.tr("tts_status_ready"))
+            self.btn_download_model.hide()
+        else:
+            self.lbl_model_status_dot.setText("●")
+            self.lbl_model_status_dot.setStyleSheet("color: #f59e0b; font-size: 14px;")
+            self.lbl_model_status_text.setText(message)
+            self.btn_download_model.show()
+            self.btn_download_model.setEnabled(True)
+
+    def _on_tts_state_changed(self, is_speaking: bool):
+        if is_speaking:
+            self.btn_tts_play.setText(" " + LanguageManager.tr("tts_pause_btn"))
+            self.btn_tts_play.setIcon(ModernIconFactory.icon_pause("#ffffff"))
+            self.lbl_tts_playback_status.setText(LanguageManager.tr("tts_status_reading"))
+        else:
+            self.btn_tts_play.setText(" " + LanguageManager.tr("tts_play_btn"))
+            self.btn_tts_play.setIcon(ModernIconFactory.icon_play("#ffffff"))
+            if self.speech_engine.is_paused():
+                self.lbl_tts_playback_status.setText(LanguageManager.tr("tts_status_paused"))
+
+    def _on_tts_reading_started(self, snippet: str):
+        self.lbl_tts_playback_status.setText(LanguageManager.tr("tts_status_reading"))
+
+    def _on_tts_reading_finished(self):
+        self.btn_tts_play.setText(" " + LanguageManager.tr("tts_play_btn"))
+        self.btn_tts_play.setIcon(ModernIconFactory.icon_play("#ffffff"))
+        self.lbl_tts_playback_status.setText(LanguageManager.tr("tts_status_ready"))
+        self.progress_tts.setValue(0)
+        self.lbl_tts_time.setText("00:00")
+
+    def _on_tts_playback_progress(self, pos_ms: int, dur_ms: int):
+        if dur_ms > 0:
+            frac = int((pos_ms / dur_ms) * 1000)
+            self.progress_tts.setValue(min(1000, frac))
+            sec = int(pos_ms / 1000)
+            m = sec // 60
+            s = sec % 60
+            tot_sec = int(dur_ms / 1000)
+            tm = tot_sec // 60
+            ts = tot_sec % 60
+            self.lbl_tts_time.setText(f"{m:02d}:{s:02d} / {tm:02d}:{ts:02d}")
+
+    def _on_tts_error(self, err: str):
+        self.lbl_tts_playback_status.setText(LanguageManager.tr("tts_status_error", error=err[:40]))
+        QMessageBox.warning(self, LanguageManager.tr("app_title"), LanguageManager.tr("tts_status_error", error=err))
+
     def apply_theme(self, theme_name: str = "light"):
         self.theme_name = theme_name
         c = get_modern_theme_colors(theme_name)
         self.setStyleSheet(f"""
             ModernRightSidebar {{
                 background-color: {c['surface']};
-                border-left: 1px solid {c['border']};
+                border-right: 1px solid {c['border']};
             }}
             QWidget {{
                 background-color: {c['surface']};
@@ -4060,19 +5547,153 @@ class ModernRightSidebar(QWidget):
                 color: {c['accent']};
                 font-weight: 600;
             }}
-            #PrimaryActionBtn {{
-                background-color: {c['accent']};
-                color: #ffffff;
-                font-weight: 600;
-                font-size: 11.5px;
-                border-radius: 6px;
-                padding: 6px 14px;
+            #SidebarTabContainer {{
+                background-color: transparent;
+                border-bottom: 1px solid {c['border']};
+                padding-bottom: 3px;
+            }}
+            QToolButton.SidebarTabButton {{
+                background-color: transparent;
+                color: {c['text_muted']};
                 border: none;
+                border-bottom: 2px solid transparent;
+                border-radius: 4px;
+                padding: 4px 4px;
+                font-size: 11px;
+                font-weight: 500;
+            }}
+            QToolButton.SidebarTabButton:hover {{
+                background-color: {c['surface_hover']};
+                color: {c['text']};
+            }}
+            QToolButton.SidebarTabButton:checked {{
+                background-color: {c['surface_hover']};
+                color: {c['accent']};
+                border-bottom: 2px solid {c['accent']};
+                font-weight: 700;
+            }}
+            #PrimaryActionBtn {{
+                background-color: {c['card_bg']};
+                color: {c['text']};
+                font-weight: 600;
+                font-size: 12px;
+                border-radius: 6px;
+                padding: 7px 14px;
+                border: 1px solid {c['border']};
             }}
             #PrimaryActionBtn:hover {{
-                opacity: 0.9;
+                background-color: {c['surface_hover']};
+                border-color: {c['accent']};
+                color: {c['accent']};
+            }}
+            #TTSModelCard, #TTSPlayerCard {{
+                background-color: {c['surface']};
+                border: 1px solid {c['border']};
+                border-radius: 8px;
+            }}
+            #TTSBadge {{
+                background-color: {c['accent_light']};
+                color: {c['accent']};
+                font-size: 10px;
+                font-weight: 800;
+                padding: 2px 6px;
+                border-radius: 4px;
+            }}
+            #TTSStatusDot {{
+                font-size: 14px;
+            }}
+            #TTSStatusText {{
+                color: {c['text_muted']};
+                font-size: 11px;
+                font-weight: 600;
+            }}
+            #TTSDesc {{
+                color: {c['text_muted']};
+                font-size: 11px;
+                line-height: 1.3;
+            }}
+            #TTSActionBtn {{
+                background-color: {c['card_bg']};
+                color: {c['text']};
+                border: 1px solid {c['border']};
+                border-radius: 6px;
+                padding: 7px 10px;
+                font-size: 12px;
+                font-weight: 600;
+                text-align: left;
+            }}
+            #TTSActionBtn:hover {{
+                background-color: {c['surface_hover']};
+                border-color: {c['accent']};
+                color: {c['accent']};
+            }}
+            #TTSTextInput {{
+                background-color: {c['card_bg']};
+                color: {c['text']};
+                border: 1px solid {c['border']};
+                border-radius: 6px;
+                padding: 6px;
+                font-size: 12px;
+            }}
+            #TTSTextInput:focus {{
+                border: 1.5px solid {c['accent']};
+            }}
+            #TTSPlayBtn {{
+                background-color: {c['accent']};
+                color: #ffffff;
+                border: none;
+                border-radius: 6px;
+                padding: 6px 12px;
+                font-size: 12px;
+                font-weight: 700;
+            }}
+            #TTSPlayBtn:hover {{
+                background-color: {c['accent_hover']};
+            }}
+            #TTSControlBtn {{
+                background-color: {c['card_bg']};
+                border: 1px solid {c['border']};
+                border-radius: 6px;
+                color: {c['text']};
+            }}
+            #TTSControlBtn:hover {{
+                background-color: {c['surface_hover']};
+                border-color: {c['accent']};
+            }}
+            #TTSProgressBar {{
+                background-color: {c['border_subtle']};
+                border-radius: 2px;
+                border: none;
+            }}
+            #TTSProgressBar::chunk {{
+                background-color: {c['accent']};
+                border-radius: 2px;
+            }}
+            #TTSPlaybackStatus {{
+                color: {c['text_muted']};
+                font-size: 11px;
+            }}
+            #TTSTimeLabel {{
+                color: {c['accent']};
+                font-size: 11px;
+                font-weight: 600;
+            }}
+            #TTSDownloadBtn {{
+                background-color: {c['accent_light']};
+                color: {c['accent']};
+                border: 1px solid {c['accent']};
+                border-radius: 6px;
+                padding: 5px 8px;
+                font-size: 11px;
+                font-weight: 600;
+            }}
+            #TTSDownloadBtn:hover {{
+                background-color: {c['accent']};
+                color: #ffffff;
             }}
         """)
+        if hasattr(self, 'btn_close'):
+            self.btn_close.setIcon(ModernIconFactory.icon_close(c['text']))
 
 
 # ==============================================================================
@@ -4106,10 +5727,10 @@ class ModernUtilityRail(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
-        self.theme_name = "light"
-        self.active_rail_id: Optional[str] = "thumbnails"
+        self.theme_name = "gray"
+        self.active_rail_id: Optional[str] = None
         self.total_pages = 1
-        self.setFixedWidth(56)
+        self.setFixedWidth(64)
 
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(4, 8, 4, 8)
@@ -4118,17 +5739,15 @@ class ModernUtilityRail(QWidget):
         # Üst Panel Tetikleyicileri
         self.buttons: Dict[str, QToolButton] = {}
         top_items = [
-            ("thumbnails", ModernIconFactory.icon_thumbnails(), "right_rail_thumbnails"),
-            ("bookmarks", ModernIconFactory.icon_bookmark(), "right_rail_bookmarks"),
-            ("comments", ModernIconFactory.icon_comments(), "right_rail_comments"),
-            ("attachments", ModernIconFactory.icon_attachment(), "right_rail_attachments"),
+            ("thumbnails", ModernIconFactory.icon_thumbnails(), "dock_title"),
+            ("accessibility", ModernIconFactory.icon_accessibility(), "right_rail_accessibility"),
         ]
 
         for rid, icon, tip_key in top_items:
             btn = QToolButton()
             btn.setIcon(icon)
             btn.setIconSize(QSize(18, 18))
-            btn.setFixedSize(36, 34)
+            btn.setFixedSize(40, 36)
             btn.setCheckable(True)
             btn.setCursor(Qt.CursorShape.PointingHandCursor)
             btn.setToolTip(LanguageManager.tr(tip_key))
@@ -4136,21 +5755,19 @@ class ModernUtilityRail(QWidget):
             main_layout.addWidget(btn)
             self.buttons[rid] = btn
 
-        self.buttons["thumbnails"].setChecked(True)
-
         main_layout.addStretch(1)
 
         # Alt Zoom ve Sayfa Kontrolleri
         # Sayfa No Kutusu ve Toplam Sayfa Sayısı
         page_box = QHBoxLayout()
-        page_box.setContentsMargins(2, 2, 2, 2)
+        page_box.setContentsMargins(0, 2, 0, 2)
         page_box.setSpacing(2)
         page_box.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         self.txt_page = QLineEdit("1")
         self.txt_page.setObjectName("RailPageInput")
-        self.txt_page.setFixedWidth(26)
-        self.txt_page.setFixedHeight(22)
+        self.txt_page.setFixedWidth(30)
+        self.txt_page.setFixedHeight(24)
         self.txt_page.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.txt_page.setValidator(QIntValidator(1, 99999, self))
         self.txt_page.setToolTip(LanguageManager.tr("page_input_tip"))
@@ -4167,7 +5784,7 @@ class ModernUtilityRail(QWidget):
         self.btn_prev = QToolButton()
         self.btn_prev.setIcon(ModernIconFactory.icon_chevron_up())
         self.btn_prev.setIconSize(QSize(12, 12))
-        self.btn_prev.setFixedSize(36, 20)
+        self.btn_prev.setFixedSize(40, 22)
         self.btn_prev.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_prev.clicked.connect(self.prevPageRequested.emit)
         main_layout.addWidget(self.btn_prev)
@@ -4175,7 +5792,7 @@ class ModernUtilityRail(QWidget):
         self.btn_next = QToolButton()
         self.btn_next.setIcon(ModernIconFactory.icon_chevron_down())
         self.btn_next.setIconSize(QSize(12, 12))
-        self.btn_next.setFixedSize(36, 20)
+        self.btn_next.setFixedSize(40, 22)
         self.btn_next.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_next.clicked.connect(self.nextPageRequested.emit)
         main_layout.addWidget(self.btn_next)
@@ -4190,7 +5807,7 @@ class ModernUtilityRail(QWidget):
         self.btn_fit = QToolButton()
         self.btn_fit.setIcon(ModernIconFactory.icon_fit_page())
         self.btn_fit.setIconSize(QSize(16, 16))
-        self.btn_fit.setFixedSize(36, 28)
+        self.btn_fit.setFixedSize(40, 28)
         self.btn_fit.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_fit.setToolTip(LanguageManager.tr("fit_to_page"))
         self.btn_fit.clicked.connect(self.fitPageRequested.emit)
@@ -4200,7 +5817,7 @@ class ModernUtilityRail(QWidget):
         self.btn_zin = QToolButton()
         self.btn_zin.setIcon(ModernIconFactory.icon_plus())
         self.btn_zin.setIconSize(QSize(12, 12))
-        self.btn_zin.setFixedSize(36, 24)
+        self.btn_zin.setFixedSize(40, 24)
         self.btn_zin.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_zin.clicked.connect(self.zoomInRequested.emit)
         main_layout.addWidget(self.btn_zin)
@@ -4209,7 +5826,7 @@ class ModernUtilityRail(QWidget):
         self.btn_zout = QToolButton()
         self.btn_zout.setIcon(ModernIconFactory.icon_minus())
         self.btn_zout.setIconSize(QSize(12, 12))
-        self.btn_zout.setFixedSize(36, 24)
+        self.btn_zout.setFixedSize(40, 24)
         self.btn_zout.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_zout.clicked.connect(self.zoomOutRequested.emit)
         main_layout.addWidget(self.btn_zout)
@@ -4226,10 +5843,8 @@ class ModernUtilityRail(QWidget):
 
     def retranslate_ui(self):
         tip_map = {
-            "thumbnails": "right_rail_thumbnails",
-            "bookmarks": "right_rail_bookmarks",
-            "comments": "right_rail_comments",
-            "attachments": "right_rail_attachments",
+            "thumbnails": "dock_title",
+            "accessibility": "right_rail_accessibility",
         }
         for rid, key in tip_map.items():
             if rid in self.buttons:
@@ -4250,6 +5865,8 @@ class ModernUtilityRail(QWidget):
             self.railItemToggled.emit(rail_id)
 
     def set_active_rail_item(self, rail_id: Optional[str]):
+        if rail_id in ("bookmarks", "comments", "attachments"):
+            rail_id = "thumbnails"
         self.active_rail_id = rail_id
         for r, b in self.buttons.items():
             b.setChecked(r == rail_id)
@@ -4275,7 +5892,7 @@ class ModernUtilityRail(QWidget):
         self.setStyleSheet(f"""
             ModernUtilityRail {{
                 background-color: {c['surface']};
-                border-left: 1px solid {c['border']};
+                border-right: 1px solid {c['border']};
             }}
             QLabel {{
                 color: {c['text']};
@@ -4286,7 +5903,7 @@ class ModernUtilityRail(QWidget):
                 border-radius: 4px;
                 color: {c['accent']};
                 font-weight: 700;
-                font-size: 11px;
+                font-size: 13px;
                 padding: 1px;
             }}
             #RailPageInput:focus {{
@@ -4296,11 +5913,11 @@ class ModernUtilityRail(QWidget):
             #RailPageTotal {{
                 color: {c['text_muted']};
                 font-weight: 600;
-                font-size: 10px;
+                font-size: 12px;
             }}
             #RailZoom {{
                 color: {c['text']};
-                font-size: 11px;
+                font-size: 12px;
                 font-weight: 700;
                 padding: 2px 0;
             }}
@@ -4346,6 +5963,7 @@ class ModernCommandPaletteDialog(QDialog):
         self.txt_search.setFixedHeight(38)
         self.txt_search.textChanged.connect(self._filter_commands)
         self.txt_search.returnPressed.connect(self._execute_selected)
+        self.txt_search.installEventFilter(self)
         layout.addWidget(self.txt_search)
 
         # Komut Listesi
@@ -4355,16 +5973,18 @@ class ModernCommandPaletteDialog(QDialog):
         layout.addWidget(self.list_widget, stretch=1)
 
         self.commands = [
-            ("organize_pages", "tool_organize_pages", ModernIconFactory.icon_organize("#10b981")),
+            ("organize_pages", "tool_organize_pages", ModernIconFactory.icon_organize("#22c55e")),
             ("edit_pdf", "tool_edit_pdf", ModernIconFactory.icon_edit_content("#ec4899")),
-            ("combine_files", "tool_combine_files", ModernIconFactory.icon_combine_files("#0284c7")),
+            ("combine_files", "tool_combine_files", ModernIconFactory.icon_combine_files("#38bdf8")),
             ("compress_pdf", "tool_compress_pdf", ModernIconFactory.icon_compress("#ef4444")),
             ("scan_ocr", "tool_scan_ocr", ModernIconFactory.icon_ocr("#10b981")),
-            ("export_pdf", "tool_export_pdf", ModernIconFactory.icon_export_pdf("#0284c7")),
-            ("protect_pdf", "tool_protect_pdf", ModernIconFactory.icon_lock("#0284c7")),
+            ("export_pdf", "tool_export_pdf", ModernIconFactory.icon_export_pdf("#0ea5e9")),
+            ("protect_pdf", "tool_protect_pdf", ModernIconFactory.icon_lock("#3b82f6")),
             ("redact_pdf", "tool_redact_pdf", ModernIconFactory.icon_redact("#ef4444")),
-            ("fill_sign", "tool_fill_sign", ModernIconFactory.icon_fill_sign("#8b5cf6")),
-            ("print", "print_btn", ModernIconFactory.icon_print()),
+            ("fill_sign", "tool_fill_sign", ModernIconFactory.icon_fill_sign("#a855f7")),
+            ("compare_files", "tool_compare_files", ModernIconFactory.icon_compare("#a855f7")),
+            ("add_gif", "tool_add_gif", ModernIconFactory.icon_gif("#10b981")),
+            ("print", "print_btn", ModernIconFactory.icon_print("#a855f7")),
             ("save", "save_btn", ModernIconFactory.icon_save()),
             ("settings", "settings_title", ModernIconFactory.icon_settings()),
             ("shortcuts", "shortcuts_title", ModernIconFactory.icon_info()),
@@ -4372,6 +5992,38 @@ class ModernCommandPaletteDialog(QDialog):
 
         self._filter_commands("")
         self._apply_style()
+
+    def eventFilter(self, obj, event):
+        if obj == self.txt_search and event.type() == QEvent.Type.KeyPress:
+            key = event.key()
+            if key == Qt.Key.Key_Down:
+                curr = self.list_widget.currentRow()
+                if curr < self.list_widget.count() - 1:
+                    self.list_widget.setCurrentRow(curr + 1)
+                return True
+            elif key == Qt.Key.Key_Up:
+                curr = self.list_widget.currentRow()
+                if curr > 0:
+                    self.list_widget.setCurrentRow(curr - 1)
+                return True
+            elif key == Qt.Key.Key_Escape:
+                self.reject()
+                return True
+        return super().eventFilter(obj, event)
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        self.txt_search.setFocus(Qt.FocusReason.ActiveWindowFocusReason)
+        self.txt_search.selectAll()
+        QTimer.singleShot(0, self._ensure_search_focus)
+
+    def _ensure_search_focus(self):
+        try:
+            self.activateWindow()
+            self.txt_search.setFocus()
+            self.txt_search.selectAll()
+        except Exception:
+            pass
 
     def _filter_commands(self, text: str):
         self.list_widget.clear()

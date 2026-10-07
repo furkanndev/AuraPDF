@@ -9,10 +9,11 @@ import urllib.parse
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QGraphicsView, QGraphicsScene, 
                              QGraphicsTextItem, QMessageBox, QGraphicsItem, QMenu, QInputDialog,
                              QGraphicsItemGroup, QGraphicsPathItem, QApplication, QLineEdit,
-                             QTextEdit, QCheckBox, QRadioButton, QComboBox, QGraphicsProxyWidget)
+                             QTextEdit, QCheckBox, QRadioButton, QComboBox, QGraphicsProxyWidget,
+                             QGraphicsPixmapItem)
 from PyQt6.QtGui import (QImage, QPixmap, QPen, QColor, QPainter, QPainterPath, QPainterPathStroker,
                          QBrush, QLinearGradient, QRadialGradient, QFont,
-                         QFontMetrics, QFontMetricsF, QTransform, QDesktopServices)
+                         QFontMetrics, QFontMetricsF, QTransform, QDesktopServices, QCursor)
 from PyQt6.QtCore import (Qt, QRectF, QPointF, QPoint, QTimer, QLineF, QEvent, QSettings, QUrl)
 
 from src.core.i18n import LanguageManager
@@ -908,6 +909,18 @@ class PDFTabDocument(QWidget):
         self.text_selection_page_idx: Optional[int] = None
         self.text_selection_hud = None
 
+        # Yorum Sürükleme (Draggable Comments)
+        self._dragged_comment_annot = None
+        self._dragged_comment_page = None
+        self._dragged_comment_start_scene_pos = None
+        self._dragged_comment_start_rect = None
+        self._dragged_comment_is_dragging = False
+        self._comment_drag_ghost_item = None
+
+        # E-İmza & Damga Yerleştirme Modu (Interactive Stamp Cursor Placement)
+        self.pending_stamp = None
+        self._stamp_ghost_item = None
+
         # Etkileşimli Form Alanları (AcroForms)
         self.interactive_form_proxies: List[QGraphicsProxyWidget] = []
 
@@ -1202,6 +1215,8 @@ class PDFTabDocument(QWidget):
         self.save_zoom_setting()
         self.clear_search_highlights()
         self.hide_laser_pointer()
+        self._cleanup_comment_drag()
+        self.clear_pending_stamp()
         if hasattr(self, 'active_fade_controllers') and self.active_fade_controllers:
             for c in self.active_fade_controllers:
                 try:
@@ -1957,6 +1972,13 @@ class PDFTabDocument(QWidget):
                         dock.update_thumbnail(page_idx)
                     else:
                         dock.update_all_thumbnails()
+        if hasattr(self.main_window, 'modern_right_sidebar') and self.main_window.modern_right_sidebar:
+            sidebar = self.main_window.modern_right_sidebar
+            if getattr(sidebar, 'current_panel', '') == 'thumbnails' and sidebar.isVisible():
+                if page_idx is not None:
+                    sidebar.update_thumbnail(page_idx)
+                else:
+                    sidebar.update_all_thumbnails()
 
     def clear_all_drawings(self):
         if not self.drawings: return
@@ -2170,11 +2192,7 @@ class PDFTabDocument(QWidget):
                     self.main_window.lbl_total.setText(LanguageManager.tr("page_of", total=len(self.doc)))
                 if hasattr(self.main_window, 'txt_page') and self.main_window.txt_page:
                     self.main_window.txt_page.setText(str(curr_p + 1 if len(self.doc) > 0 else 0))
-                if hasattr(self.main_window, 'thumbnails_dock') and self.main_window.thumbnails_dock:
-                    if self.main_window.thumbnails_dock.isVisible():
-                        self.main_window.thumbnails_dock.load_thumbnails_lazy()
-                        if len(self.doc) > 0:
-                            self.main_window.thumbnails_dock.select_page(curr_p)
+                self.notify_thumbnails_updated(curr_p if len(self.doc) > 0 else None)
             else:
                 self._apply_page_order(action["old_order"])
             if "old_has_page_numbers" in action:
@@ -2284,11 +2302,7 @@ class PDFTabDocument(QWidget):
                     self.main_window.lbl_total.setText(LanguageManager.tr("page_of", total=len(self.doc)))
                 if hasattr(self.main_window, 'txt_page') and self.main_window.txt_page:
                     self.main_window.txt_page.setText(str(curr_p + 1 if len(self.doc) > 0 else 0))
-                if hasattr(self.main_window, 'thumbnails_dock') and self.main_window.thumbnails_dock:
-                    if self.main_window.thumbnails_dock.isVisible():
-                        self.main_window.thumbnails_dock.load_thumbnails_lazy()
-                        if len(self.doc) > 0:
-                            self.main_window.thumbnails_dock.select_page(curr_p)
+                self.notify_thumbnails_updated(curr_p if len(self.doc) > 0 else None)
             else:
                 self._apply_page_order(action["new_order"])
             if "new_has_page_numbers" in action:
@@ -2377,6 +2391,10 @@ class PDFTabDocument(QWidget):
         old_page = self.current_page_idx
 
         self.doc.delete_page(page_idx)
+        if hasattr(self, '_page_text_blocks_cache'):
+            self._page_text_blocks_cache.clear()
+        self.direct_edit_hover_item = None
+        self.direct_edit_editor = None
 
         new_drawings = []
         for d in self.drawings:
@@ -2399,11 +2417,7 @@ class PDFTabDocument(QWidget):
             self.main_window.lbl_total.setText(LanguageManager.tr("page_of", total=len(self.doc)))
         if hasattr(self.main_window, 'txt_page') and self.main_window.txt_page:
             self.main_window.txt_page.setText(str(self.current_page_idx + 1 if len(self.doc) > 0 else 0))
-        if hasattr(self.main_window, 'thumbnails_dock') and self.main_window.thumbnails_dock:
-            if self.main_window.thumbnails_dock.isVisible():
-                self.main_window.thumbnails_dock.load_thumbnails_lazy()
-                if len(self.doc) > 0:
-                    self.main_window.thumbnails_dock.select_page(self.current_page_idx)
+        self.notify_thumbnails_updated(self.current_page_idx if len(self.doc) > 0 else None)
 
         new_bytes = b""
         try:
@@ -2454,10 +2468,7 @@ class PDFTabDocument(QWidget):
                 self.main_window.lbl_total.setText(LanguageManager.tr("page_of", total=len(self.doc)))
             if hasattr(self.main_window, 'txt_page') and self.main_window.txt_page:
                 self.main_window.txt_page.setText(str(insert_idx + 1))
-            if hasattr(self.main_window, 'thumbnails_dock') and self.main_window.thumbnails_dock:
-                if self.main_window.thumbnails_dock.isVisible():
-                    self.main_window.thumbnails_dock.load_thumbnails_lazy()
-                    self.main_window.thumbnails_dock.select_page(self.current_page_idx)
+            self.notify_thumbnails_updated(insert_idx)
 
             action = {
                 "type": "reorder_pages",
@@ -2541,6 +2552,69 @@ class PDFTabDocument(QWidget):
             shape2.commit()
         shape.commit()
 
+    def notify_thumbnails_updated(self, target_page: Optional[int] = None):
+        """Sağ çekmecedeki modern sayfa önizlemelerini ve varsa kenetlenmiş dock'u günceller."""
+        if hasattr(self.main_window, 'modern_right_sidebar') and self.main_window.modern_right_sidebar:
+            try:
+                self.main_window.modern_right_sidebar.load_thumbnails()
+                if target_page is not None and self.doc and len(self.doc) > 0 and 0 <= target_page < len(self.doc):
+                    self.main_window.modern_right_sidebar.select_page(target_page)
+            except Exception:
+                pass
+
+        if hasattr(self.main_window, 'thumbnails_dock') and self.main_window.thumbnails_dock:
+            try:
+                if self.main_window.thumbnails_dock.isVisible():
+                    self.main_window.thumbnails_dock.load_thumbnails_lazy()
+                    if target_page is not None and self.doc and len(self.doc) > 0 and 0 <= target_page < len(self.doc):
+                        self.main_window.thumbnails_dock.select_page(target_page)
+            except Exception:
+                pass
+
+    def duplicate_page(self, page_idx: int) -> bool:
+        """Belirtilen sayfayı kopyalar ve ardına ekler."""
+        if self.doc is None or not (0 <= page_idx < len(self.doc)):
+            return False
+        try:
+            old_bytes = self.doc.tobytes() if len(self.doc) > 0 else b""
+            old_drawings = [dict(d) for d in self.drawings]
+            old_page = self.current_page_idx
+
+            insert_idx = page_idx + 1
+            temp_doc = fitz.open("pdf", self.doc.tobytes())
+            self.doc.insert_pdf(temp_doc, from_page=page_idx, to_page=page_idx, start_at=insert_idx)
+            temp_doc.close()
+
+            for d in self.drawings:
+                if d.get("page", 0) >= insert_idx:
+                    d["page"] += 1
+
+            self.render_pages_init()
+            self.rerender_visible_pages()
+            self.go_to_page(insert_idx)
+
+            if hasattr(self.main_window, 'lbl_total') and self.main_window.lbl_total:
+                self.main_window.lbl_total.setText(LanguageManager.tr("page_of", total=len(self.doc)))
+            if hasattr(self.main_window, 'txt_page') and self.main_window.txt_page:
+                self.main_window.txt_page.setText(str(insert_idx + 1))
+
+            self.notify_thumbnails_updated(insert_idx)
+
+            self.push_undo_action({
+                "type": "reorder_pages",
+                "old_bytes": old_bytes,
+                "old_drawings": old_drawings,
+                "old_page": old_page,
+                "new_bytes": self.doc.tobytes(),
+                "new_drawings": [dict(d) for d in self.drawings],
+                "new_page": insert_idx,
+                "new_order": list(range(len(self.doc)))
+            })
+            self.set_modified(True)
+            return True
+        except Exception:
+            return False
+
     def insert_blank_page(self, after_page: Optional[int] = None, width: Optional[float] = None, height: Optional[float] = None, style: str = "blank"):
         """Mevcut dokümana belirtilen sayfanın ardına boş bir sayfa ekler.
         Mevcut sayfa boyut ve rotasyonuyla birebir uyumlu sayfa oluşturur."""
@@ -2594,10 +2668,7 @@ class PDFTabDocument(QWidget):
         if hasattr(self.main_window, 'txt_page') and self.main_window.txt_page:
             self.main_window.txt_page.setText(str(insert_idx + 1))
 
-        if hasattr(self.main_window, 'thumbnails_dock') and self.main_window.thumbnails_dock:
-            if self.main_window.thumbnails_dock.isVisible():
-                self.main_window.thumbnails_dock.load_thumbnails_lazy()
-                self.main_window.thumbnails_dock.select_page(insert_idx)
+        self.notify_thumbnails_updated(insert_idx)
 
         self.push_undo_action({
             "type": "insert_blank_page",
@@ -2646,11 +2717,7 @@ class PDFTabDocument(QWidget):
         self.rerender_visible_pages()
         curr_p = max(0, min(self.current_page_idx, len(self.doc) - 1))
         self.go_to_page(curr_p)
-
-        if hasattr(self.main_window, 'thumbnails_dock') and self.main_window.thumbnails_dock:
-            if self.main_window.thumbnails_dock.isVisible():
-                self.main_window.thumbnails_dock.load_thumbnails_lazy()
-                self.main_window.thumbnails_dock.select_page(curr_p)
+        self.notify_thumbnails_updated(curr_p)
 
         self.push_undo_action({
             "type": "change_page_style",
@@ -2910,6 +2977,8 @@ class PDFTabDocument(QWidget):
     def render_pages_init(self):
         if self.doc is None: return
         self.laser_pointer_item = None
+        self.direct_edit_hover_item = None
+        self.direct_edit_editor = None
         if hasattr(self, 'drawings') and self.drawings:
             for d in self.drawings:
                 it = d.get('item_ref')
@@ -3044,6 +3113,10 @@ class PDFTabDocument(QWidget):
 
         for idx, ribbon in self.bookmark_ribbon_items.items():
             ribbon.set_bookmarked(idx in bookmarked_pages)
+
+        if hasattr(self.main_window, 'modern_right_sidebar') and self.main_window.modern_right_sidebar:
+            if hasattr(self.main_window.modern_right_sidebar, 'refresh_bookmark_indicators'):
+                self.main_window.modern_right_sidebar.refresh_bookmark_indicators()
 
     def toggle_page_bookmark(self, page_idx: int):
         if self.doc is None or page_idx < 0 or page_idx >= len(self.doc):
@@ -3760,21 +3833,45 @@ class PDFTabDocument(QWidget):
         except Exception as e:
             QMessageBox.critical(self, LanguageManager.tr("error"), f"{LanguageManager.tr('direct_edit_delete_failed')}\n{e}")
 
-    def _handle_direct_edit_mouse_move(self, pos: QPointF):
-        if not self.direct_edit_hover_item:
+    def _safe_ensure_hover_item(self) -> bool:
+        try:
+            if self.direct_edit_hover_item is not None:
+                sc = self.direct_edit_hover_item.scene()
+                if sc == self.scene:
+                    return True
+        except (RuntimeError, Exception):
+            self.direct_edit_hover_item = None
+
+        try:
             from src.ui.direct_text_editor import DirectEditHoverItem
             self.direct_edit_hover_item = DirectEditHoverItem()
-            self.scene.addItem(self.direct_edit_hover_item)
+            if self.scene:
+                self.scene.addItem(self.direct_edit_hover_item)
+            return True
+        except Exception:
+            self.direct_edit_hover_item = None
+            return False
+
+    def _safe_hide_hover_item(self):
+        try:
+            if self.direct_edit_hover_item is not None:
+                self.direct_edit_hover_item.hide()
+        except (RuntimeError, Exception):
+            self.direct_edit_hover_item = None
+
+    def _handle_direct_edit_mouse_move(self, pos: QPointF):
+        if not self._safe_ensure_hover_item():
+            return
 
         page_idx = self.get_page_at_pos(pos)
         if page_idx is None:
-            self.direct_edit_hover_item.hide()
+            self._safe_hide_hover_item()
             self.view.viewport().setCursor(Qt.CursorShape.ArrowCursor)
             return
 
         p_info = self.page_positions.get(page_idx)
         if not p_info:
-            self.direct_edit_hover_item.hide()
+            self._safe_hide_hover_item()
             return
 
         page_left = p_info.get('left', 0.0)
@@ -3782,7 +3879,7 @@ class PDFTabDocument(QWidget):
         dpi = self.base_render_dpi
 
         if self.direct_edit_editor:
-            self.direct_edit_hover_item.hide()
+            self._safe_hide_hover_item()
             return
 
         pdf_x = (pos.x() - page_left) / dpi
@@ -3802,11 +3899,14 @@ class PDFTabDocument(QWidget):
             sy0 = page_top + r.y0 * dpi
             sw = (r.x1 - r.x0) * dpi
             sh = (r.y1 - r.y0) * dpi
-            self.direct_edit_hover_item.setRect(QRectF(sx0 - 2, sy0 - 2, sw + 4, sh + 4))
-            self.direct_edit_hover_item.show()
+            try:
+                self.direct_edit_hover_item.setRect(QRectF(sx0 - 2, sy0 - 2, sw + 4, sh + 4))
+                self.direct_edit_hover_item.show()
+            except (RuntimeError, Exception):
+                self.direct_edit_hover_item = None
             self.view.viewport().setCursor(Qt.CursorShape.IBeamCursor)
         else:
-            self.direct_edit_hover_item.hide()
+            self._safe_hide_hover_item()
             self.view.viewport().setCursor(Qt.CursorShape.IBeamCursor)
 
     def _handle_direct_edit_mouse_press(self, pos: QPointF, vp_pos: QPoint) -> bool:
@@ -4112,8 +4212,8 @@ class PDFTabDocument(QWidget):
                     pdf_y = 60.0
                 pdf_x = (page_pdf_w - pdf_w) / 2.0
             else:
-                pdf_x = (pos.x() - page_left) / self.base_render_dpi
-                pdf_y = (pos.y() - page_top) / self.base_render_dpi
+                pdf_x = (pos.x() - page_left) / self.base_render_dpi - pdf_w / 2.0
+                pdf_y = (pos.y() - page_top) / self.base_render_dpi - pdf_h / 2.0
 
             pdf_x = max(0.0, min(pdf_x, max(0.0, page_pdf_w - pdf_w)))
             pdf_y = max(0.0, min(pdf_y, max(0.0, page_pdf_h - pdf_h)))
@@ -4332,8 +4432,8 @@ class PDFTabDocument(QWidget):
                 pdf_x = page_pdf_w - pdf_w - 40.0
                 pdf_y = page_pdf_h - pdf_h - 60.0
             else:
-                pdf_x = (pos.x() - page_left) / self.base_render_dpi
-                pdf_y = (pos.y() - page_top) / self.base_render_dpi
+                pdf_x = (pos.x() - page_left) / self.base_render_dpi - pdf_w / 2.0
+                pdf_y = (pos.y() - page_top) / self.base_render_dpi - pdf_h / 2.0
 
             pdf_x = max(0.0, min(pdf_x, max(0.0, page_pdf_w - pdf_w)))
             pdf_y = max(0.0, min(pdf_y, max(0.0, page_pdf_h - pdf_h)))
@@ -4362,6 +4462,242 @@ class PDFTabDocument(QWidget):
             import traceback
             traceback.print_exc()
 
+    def get_comment_annot_at_pos(self, scene_pos: QPointF):
+        """
+        Belirtilen sahne koordinatında bir yorum (fitz.PDF_ANNOT_TEXT) varsa,
+        (page_idx, annot, annot_rect) döndürür. Yoksa (None, None, None) döner.
+        """
+        if not self.doc:
+            return None, None, None
+        page_idx = self.get_page_at_pos(scene_pos)
+        if page_idx is None or not (0 <= page_idx < len(self.doc)):
+            return None, None, None
+        p_info = self.page_positions.get(page_idx)
+        if not p_info:
+            return None, None, None
+        scale = self.base_render_dpi
+        pleft = p_info.get('left', 0.0)
+        ptop = p_info['top']
+        pdf_x = (scene_pos.x() - pleft) / scale
+        pdf_y = (scene_pos.y() - ptop) / scale
+        pt = fitz.Point(pdf_x, pdf_y)
+        try:
+            page = self.doc[page_idx]
+            for annot in page.annots():
+                atype = annot.type[0] if isinstance(annot.type, (tuple, list)) else annot.type
+                if atype == fitz.PDF_ANNOT_TEXT:
+                    r = annot.rect
+                    # Tıklama ve yakalama toleransı
+                    hr = fitz.Rect(r.x0 - 10, r.y0 - 10, r.x1 + 10, r.y1 + 10)
+                    if pt in hr:
+                        return page_idx, annot, r
+        except Exception:
+            pass
+        return None, None, None
+
+    def _update_comment_drag_ghost(self, scene_pos: QPointF):
+        """Yorum sürüklenirken fareyi takip eden şık yarı-saydam hayalet simgeyi günceller."""
+        if not hasattr(self, '_comment_drag_ghost_item') or self._comment_drag_ghost_item is None:
+            pix = QPixmap(36, 36)
+            pix.fill(Qt.GlobalColor.transparent)
+            p = QPainter(pix)
+            p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+            p.setBrush(QBrush(QColor(245, 158, 11, 220)))  # Amber dolgu
+            p.setPen(QPen(QColor("#ffffff"), 2.0))
+            p.drawRoundedRect(QRectF(2, 2, 32, 32), 8, 8)
+            bubble = QPainterPath()
+            bubble.moveTo(10, 11)
+            bubble.lineTo(26, 11)
+            bubble.quadTo(28, 11, 28, 13)
+            bubble.lineTo(28, 21)
+            bubble.quadTo(28, 23, 26, 23)
+            bubble.lineTo(16, 23)
+            bubble.lineTo(12, 27)
+            bubble.lineTo(12, 23)
+            bubble.lineTo(10, 23)
+            bubble.quadTo(8, 23, 8, 21)
+            bubble.lineTo(8, 13)
+            bubble.quadTo(8, 11, 10, 11)
+            bubble.closeSubpath()
+            p.setBrush(QBrush(QColor("#ffffff")))
+            p.setPen(Qt.PenStyle.NoPen)
+            p.drawPath(bubble)
+            p.end()
+
+            self._comment_drag_ghost_item = QGraphicsPixmapItem(pix)
+            self._comment_drag_ghost_item.setOpacity(0.88)
+            self._comment_drag_ghost_item.setZValue(10001)
+            self.scene.addItem(self._comment_drag_ghost_item)
+
+        if self._comment_drag_ghost_item:
+            br = self._comment_drag_ghost_item.boundingRect()
+            self._comment_drag_ghost_item.setPos(scene_pos.x() - br.width() / 2.0, scene_pos.y() - br.height() / 2.0)
+
+    def _finalize_comment_drag(self, scene_pos: QPointF):
+        """Sürüklenen yorumu yeni bırakılan konuma taşır ve PDF annot koordinatlarını günceller."""
+        if not self._dragged_comment_annot or self._dragged_comment_page is None or not self.doc:
+            return
+        page_idx = self._dragged_comment_page
+        p_info = self.page_positions.get(page_idx)
+        if not p_info:
+            return
+        scale = self.base_render_dpi
+        pleft = p_info.get('left', 0.0)
+        ptop = p_info['top']
+        page = self.doc[page_idx]
+
+        pdf_x = (scene_pos.x() - pleft) / scale
+        pdf_y = (scene_pos.y() - ptop) / scale
+
+        orig_rect = self._dragged_comment_start_rect or self._dragged_comment_annot.rect
+        w = max(16.0, orig_rect.width)
+        h = max(16.0, orig_rect.height)
+
+        new_x0 = pdf_x - w / 2.0
+        new_y0 = pdf_y - h / 2.0
+        page_w = page.rect.width
+        page_h = page.rect.height
+
+        new_x0 = max(0.0, min(new_x0, page_w - w))
+        new_y0 = max(0.0, min(new_y0, page_h - h))
+        new_rect = fitz.Rect(new_x0, new_y0, new_x0 + w, new_y0 + h)
+
+        try:
+            target_annot = None
+            if getattr(self, '_dragged_comment_xref', None):
+                target_annot = page.load_annot(self._dragged_comment_xref)
+            elif hasattr(self._dragged_comment_annot, 'xref'):
+                target_annot = page.load_annot(self._dragged_comment_annot.xref)
+            else:
+                target_annot = self._dragged_comment_annot
+
+            target_annot.set_rect(new_rect)
+            target_annot.update()
+            self.set_modified(True)
+            self.render_all_pages()
+            if hasattr(self.main_window, 'modern_right_sidebar') and self.main_window.modern_right_sidebar:
+                self.main_window.modern_right_sidebar.load_comments()
+            if hasattr(self.main_window, 'statusBar') and self.main_window.statusBar():
+                self.main_window.statusBar().showMessage(
+                    LanguageManager.tr("comment_moved_msg", page=page_idx + 1), 3500
+                )
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+
+    def _cleanup_comment_drag(self):
+        """Yorum sürükleme durumunu ve sahnedeki hayalet simgeyi temizler."""
+        if hasattr(self, '_comment_drag_ghost_item') and self._comment_drag_ghost_item:
+            try:
+                self.scene.removeItem(self._comment_drag_ghost_item)
+            except Exception:
+                pass
+            self._comment_drag_ghost_item = None
+        self._dragged_comment_annot = None
+        self._dragged_comment_xref = None
+        self._dragged_comment_page = None
+        self._dragged_comment_start_scene_pos = None
+        self._dragged_comment_start_rect = None
+        self._dragged_comment_is_dragging = False
+        if hasattr(self, 'main_window') and hasattr(self.main_window, 'update_viewport_cursor'):
+            self.main_window.update_viewport_cursor()
+
+    def _open_comment_dialog_for_annot(self, annot, vp_pos: QPoint):
+        """Mevcut bir yorumu düzenlemek için AuraCommentInputDialog açar."""
+        if not annot:
+            return
+        try:
+            target_annot = annot
+            if hasattr(annot, 'xref') and self.doc:
+                for p_idx in range(len(self.doc)):
+                    try:
+                        p = self.doc[p_idx]
+                        loaded = p.load_annot(annot.xref)
+                        if loaded:
+                            target_annot = loaded
+                            break
+                    except Exception:
+                        pass
+            info = target_annot.info or {}
+            c_text = info.get("content", "") or target_annot.get_text() or ""
+            from src.ui.dialogs.settings_dialog import get_effective_author_name
+            c_auth = (info.get("title", "") or "").strip()
+            if not c_auth or c_auth.lower() in ("kullanıcı", "kullanici", "user", "admin"):
+                c_auth = get_effective_author_name()
+            from src.ui.dialogs.comment_dialog import AuraCommentInputDialog
+            dlg = AuraCommentInputDialog(self.window(), initial_text=c_text, initial_author=c_auth)
+            g_pos = self.view.viewport().mapToGlobal(vp_pos)
+            screen = QApplication.primaryScreen().availableGeometry()
+            dx = min(g_pos.x() + 10, screen.right() - 400)
+            dy = min(g_pos.y() + 10, screen.bottom() - 340)
+            dlg.move(max(screen.left() + 20, dx), max(screen.top() + 20, dy))
+            if dlg.exec():
+                n_text, n_auth, hex_color = dlg.get_comment_data()
+                if n_text:
+                    target_annot.set_info(title=n_auth, content=n_text)
+                    if hex_color:
+                        qc = QColor(hex_color)
+                        target_annot.set_colors(stroke=(qc.redF(), qc.greenF(), qc.blueF()))
+                    target_annot.update()
+                    self.set_modified(True)
+                    self.render_all_pages()
+                    if hasattr(self.main_window, 'modern_right_sidebar') and self.main_window.modern_right_sidebar:
+                        self.main_window.modern_right_sidebar.load_comments()
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+
+    def start_stamp_placement(self, image_bytes: bytes, title: str = "Damga",
+                              default_w: float = 30.0, default_h: float = 30.0,
+                              pixmap: Optional[QPixmap] = None, symbol_type: str = "stamp"):
+        """E-İmza veya sembol damgalarını fare imleci ile belgeye yerleştirme modunu başlatır."""
+        self.clear_pending_stamp()
+        self.pending_stamp = {
+            'bytes': image_bytes,
+            'title': title,
+            'w': default_w,
+            'h': default_h,
+            'pixmap': pixmap,
+            'type': symbol_type
+        }
+        if pixmap and not pixmap.isNull():
+            target_w = max(16, int(default_w * self.base_render_dpi))
+            target_h = max(16, int(default_h * self.base_render_dpi))
+            scaled_pix = pixmap.scaled(target_w, target_h, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
+            self._stamp_ghost_item = QGraphicsPixmapItem(scaled_pix)
+            self._stamp_ghost_item.setOpacity(0.70)
+            self._stamp_ghost_item.setZValue(10000)
+            self.scene.addItem(self._stamp_ghost_item)
+            vp_pos = self.view.mapFromGlobal(QCursor.pos())
+            if self.view.viewport().rect().contains(vp_pos):
+                s_pos = self.view.mapToScene(vp_pos)
+                self._update_stamp_ghost(s_pos)
+
+        self.view.viewport().setCursor(Qt.CursorShape.CrossCursor)
+        if hasattr(self.main_window, 'statusBar') and self.main_window.statusBar():
+            hint = LanguageManager.tr("stamp_place_hint", title=title)
+            self.main_window.statusBar().showMessage(hint, 10000)
+
+    def _update_stamp_ghost(self, scene_pos: QPointF):
+        """Damga yerleştirme hayalet öğesinin sahne konumunu günceller."""
+        if hasattr(self, '_stamp_ghost_item') and self._stamp_ghost_item:
+            br = self._stamp_ghost_item.boundingRect()
+            self._stamp_ghost_item.setPos(scene_pos.x() - br.width() / 2.0, scene_pos.y() - br.height() / 2.0)
+
+    def clear_pending_stamp(self):
+        """Bekleyen damga yerleştirme modunu ve sahnedeki hayaleti iptal eder."""
+        if hasattr(self, '_stamp_ghost_item') and self._stamp_ghost_item:
+            try:
+                self.scene.removeItem(self._stamp_ghost_item)
+            except Exception:
+                pass
+            self._stamp_ghost_item = None
+        self.pending_stamp = None
+        if hasattr(self, 'main_window') and hasattr(self.main_window, 'update_viewport_cursor'):
+            self.main_window.update_viewport_cursor()
+        else:
+            self.view.viewport().setCursor(Qt.CursorShape.ArrowCursor)
+
     # --- Sayfa Yönetimi ---
     @property
     def current_page(self) -> int:
@@ -4370,6 +4706,14 @@ class PDFTabDocument(QWidget):
     @current_page.setter
     def current_page(self, page_idx: int):
         self.current_page_idx = page_idx
+
+    @property
+    def total_pages(self) -> int:
+        return len(self.doc) if self.doc is not None else 0
+
+    @total_pages.setter
+    def total_pages(self, val: int):
+        pass
 
     def record_nav_position(self):
         if getattr(self, '_nav_recording_disabled', False) or self.doc is None:
@@ -4455,14 +4799,105 @@ class PDFTabDocument(QWidget):
                 total_p = len(self.doc) if self.doc is not None else 1
                 self.main_window.modern_utility_rail.update_page_info(self.current_page_idx, total_p)
 
-    def rotate_all_pages(self):
-        if self.doc is None: return
-        for page in self.doc: page.set_rotation((page.rotation + 90) % 360)
+    def render_all_pages(self):
+        """Tüm sayfaları yeniden başlatır, görünür olanları çizer ve arayüz göstergelerini günceller."""
+        if self.doc is None:
+            return
+
+        if len(self.doc) > 0:
+            if self.current_page_idx >= len(self.doc):
+                self.current_page_idx = max(0, len(self.doc) - 1)
+        else:
+            self.current_page_idx = 0
+
         self.render_pages_init()
-        self.rerender_visible_pages()
-        self.main_window.thumbnails_dock.is_loaded = False
-        if self.main_window.thumbnails_dock.isVisible():
-            self.main_window.thumbnails_dock.load_thumbnails_lazy()
+        self.rerender_visible_pages(force=True)
+
+        if hasattr(self, 'update_tab_title'):
+            try:
+                self.update_tab_title()
+            except Exception:
+                pass
+
+        if getattr(self.main_window, 'lbl_total', None):
+            self.main_window.lbl_total.setText(LanguageManager.tr("page_of", total=len(self.doc)))
+        if getattr(self.main_window, 'txt_page', None):
+            self.main_window.txt_page.setText(str(self.current_page_idx + 1 if len(self.doc) > 0 else 0))
+        if getattr(self.main_window, 'modern_utility_rail', None):
+            try:
+                self.main_window.modern_utility_rail.update_page_info(self.current_page_idx, len(self.doc))
+            except Exception:
+                pass
+        if getattr(self.main_window, 'modern_right_sidebar', None):
+            try:
+                if self.main_window.modern_right_sidebar.isVisible():
+                    self.main_window.modern_right_sidebar.load_thumbnails()
+            except Exception:
+                pass
+        if getattr(self.main_window, 'thumbnails_dock', None):
+            try:
+                self.main_window.thumbnails_dock.is_loaded = False
+                if self.main_window.thumbnails_dock.isVisible():
+                    self.main_window.thumbnails_dock.load_thumbnails_lazy()
+            except Exception:
+                pass
+
+    def rotate_page(self, page_idx: int, angle: int = 90):
+        """Belirtilen indeksteki tek sayfayı döndürür ve görünümü yeniler."""
+        if self.doc is None or not (0 <= page_idx < len(self.doc)):
+            return
+        page = self.doc[page_idx]
+        page.set_rotation((page.rotation + angle) % 360)
+        self.set_modified(True)
+        self.render_all_pages()
+
+    def rotate_all_pages(self):
+        """Belgedeki tüm sayfaları 90 derece saat yönünde döndürür ve görünümü yeniler."""
+        if self.doc is None:
+            return
+        for page in self.doc:
+            page.set_rotation((page.rotation + 90) % 360)
+        self.set_modified(True)
+        self.render_all_pages()
+
+    def duplicate_page(self, page_idx: int) -> bool:
+        """Belirtilen indeksteki sayfayı kopyalar ve hemen ardına ekler."""
+        if self.doc is None or not (0 <= page_idx < len(self.doc)):
+            return False
+        try:
+            old_bytes = self.doc.tobytes() if len(self.doc) > 0 else b""
+            old_drawings = [dict(d) for d in self.drawings]
+            old_page = self.current_page_idx
+
+            temp = fitz.open("pdf", old_bytes)
+            self.doc.insert_pdf(temp, from_page=page_idx, to_page=page_idx, start_at=page_idx + 1)
+            temp.close()
+
+            # Yeni sayfadan sonrakilerin çizim indekslerini 1 kaydır
+            if hasattr(self, 'drawings') and self.drawings:
+                for d in self.drawings:
+                    if d.get("page", 0) > page_idx:
+                        d["page"] += 1
+
+            self.set_modified(True)
+            self.render_all_pages()
+            self.go_to_page(page_idx + 1)
+
+            self.push_undo_action({
+                "type": "insert_blank_page",
+                "old_bytes": old_bytes,
+                "old_drawings": old_drawings,
+                "old_page": old_page,
+                "new_bytes": self.doc.tobytes(),
+                "new_drawings": [dict(d) for d in self.drawings],
+                "new_page": page_idx + 1,
+                "insert_idx": page_idx + 1
+            })
+            return True
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            return False
 
     def erase_at(self, pos, prev_pos=None):
         radius = max(3.0, self.main_window.eraser_popup.thickness / 2.0)
@@ -4921,6 +5356,41 @@ class PDFTabDocument(QWidget):
                 self.zoom_in() if event.angleDelta().y() > 0 else self.zoom_out()
                 return True
 
+        # Klavyeden Escape tuşu ile bekleyen damga veya yorum sürüklemeyi iptal et
+        if event.type() == QEvent.Type.KeyPress and event.key() == Qt.Key.Key_Escape:
+            if getattr(self, 'pending_stamp', None):
+                self.clear_pending_stamp()
+                return True
+            if getattr(self, '_dragged_comment_annot', None):
+                self._cleanup_comment_drag()
+                return True
+
+        # Bekleyen Damga (Stamp) yerleştirme modu aktifse fare olaylarını yakala
+        if getattr(self, 'pending_stamp', None):
+            if event.type() == QEvent.Type.MouseMove:
+                pos = self.view.mapToScene(event.pos())
+                self._update_stamp_ghost(pos)
+                return True
+            elif event.type() == QEvent.Type.MouseButtonPress:
+                if event.button() == Qt.MouseButton.LeftButton:
+                    pos = self.view.mapToScene(event.pos())
+                    p_idx = self.get_page_at_pos(pos)
+                    if p_idx is not None:
+                        stamp = self.pending_stamp
+                        self.add_image_media(
+                            stamp['bytes'],
+                            title=stamp.get('title', 'Görsel'),
+                            page_idx=p_idx,
+                            pos=pos,
+                            default_w=stamp.get('w'),
+                            default_h=stamp.get('h')
+                        )
+                        self.clear_pending_stamp()
+                        return True
+                elif event.button() == Qt.MouseButton.RightButton:
+                    self.clear_pending_stamp()
+                    return True
+
         if tool == 'direct_edit' or getattr(self, 'direct_edit_mode', False):
             if event.type() == QEvent.Type.KeyPress:
                 if event.key() == Qt.Key.Key_Escape:
@@ -4933,7 +5403,10 @@ class PDFTabDocument(QWidget):
 
             elif event.type() == QEvent.Type.MouseMove and not (event.buttons() & Qt.MouseButton.LeftButton):
                 pos = self.view.mapToScene(event.pos())
-                self._handle_direct_edit_mouse_move(pos)
+                try:
+                    self._handle_direct_edit_mouse_move(pos)
+                except Exception:
+                    pass
                 return True
 
             elif event.type() == QEvent.Type.MouseButtonPress and event.button() == Qt.MouseButton.LeftButton:
@@ -4941,6 +5414,13 @@ class PDFTabDocument(QWidget):
                 return self._handle_direct_edit_mouse_press(pos, event.pos())
 
             return super().eventFilter(source, event)
+
+        if event.type() == QEvent.Type.MouseButtonDblClick and event.button() == Qt.MouseButton.LeftButton:
+            pos = self.view.mapToScene(event.pos())
+            _, c_annot, _ = self.get_comment_annot_at_pos(pos)
+            if c_annot:
+                self._open_comment_dialog_for_annot(c_annot, event.pos())
+                return True
 
         if tool == 'select':
             # 1. Klavye Kısayolları (Ctrl+C ile panoya kopyalama)
@@ -4950,15 +5430,31 @@ class PDFTabDocument(QWidget):
                         self.copy_selected_text()
                         return True
 
-            # 2. Fare Gezinme (Hover): Köprüleri (Hyperlinks) algıla ve I-Beam/El imleci göster
+            # 2. Fare Gezinme (Hover): Yorumları ve Köprüleri (Hyperlinks) algıla
             elif event.type() == QEvent.Type.MouseMove and not (event.buttons() & Qt.MouseButton.LeftButton):
                 pos = self.view.mapToScene(event.pos())
+                _, c_annot, _ = self.get_comment_annot_at_pos(pos)
+                if c_annot:
+                    self.view.viewport().setCursor(Qt.CursorShape.SizeAllCursor)
+                    return True
                 self._handle_select_hover(pos)
 
-            # 3. Fare Tıklama (Press): Köprü tıklaması veya metin seçimi başlatma
+            # 3. Fare Tıklama (Press): Yorum sürükleme, köprü tıklaması veya metin seçimi başlatma
             elif event.type() == QEvent.Type.MouseButtonPress:
                 if event.button() == Qt.MouseButton.LeftButton:
                     pos = self.view.mapToScene(event.pos())
+                    # Yorum ikonu tıklandıysa doğrudan sürükleme başlat
+                    c_p_idx, c_annot, c_rect = self.get_comment_annot_at_pos(pos)
+                    if c_annot:
+                        self._dragged_comment_annot = c_annot
+                        self._dragged_comment_xref = getattr(c_annot, 'xref', None)
+                        self._dragged_comment_page = c_p_idx
+                        self._dragged_comment_start_scene_pos = pos
+                        self._dragged_comment_start_rect = fitz.Rect(c_rect)
+                        self._dragged_comment_is_dragging = False
+                        self.view.viewport().setCursor(Qt.CursorShape.SizeAllCursor)
+                        return True
+
                     # Önce tıklanabilir bağlantı var mı kontrol et
                     if self._handle_link_click(pos):
                         return True
@@ -4972,21 +5468,36 @@ class PDFTabDocument(QWidget):
                     self._start_text_selection(pos)
                     return True
                 elif event.button() == Qt.MouseButton.RightButton:
+                    if getattr(self, '_dragged_comment_annot', None):
+                        self._cleanup_comment_drag()
+                        return True
                     if getattr(self, 'selected_text', ''):
                         self._show_text_context_menu(self.view.viewport().mapToGlobal(event.pos()))
                         return True
 
-            # 4. Fare Sürükleme (Move with Left Button): Metin seçimi güncelleme
+            # 4. Fare Sürükleme (Move with Left Button): Yorum taşıma veya metin seçimi güncelleme
             elif event.type() == QEvent.Type.MouseMove and (event.buttons() & Qt.MouseButton.LeftButton):
+                pos = self.view.mapToScene(event.pos())
+                if getattr(self, '_dragged_comment_annot', None):
+                    diff = (pos - self._dragged_comment_start_scene_pos).manhattanLength()
+                    if diff > 3:
+                        self._dragged_comment_is_dragging = True
+                    if self._dragged_comment_is_dragging:
+                        self._update_comment_drag_ghost(pos)
+                    return True
                 if getattr(self, 'is_selecting_text', False):
-                    pos = self.view.mapToScene(event.pos())
                     self._update_text_selection(pos)
                     return True
 
-            # 5. Fare Bırakma (Release): Metin seçimini tamamla ve mini çubuğu göster
+            # 5. Fare Bırakma (Release): Yorum taşımayı tamamla veya metin seçimini bitir
             elif event.type() == QEvent.Type.MouseButtonRelease and event.button() == Qt.MouseButton.LeftButton:
+                pos = self.view.mapToScene(event.pos())
+                if getattr(self, '_dragged_comment_annot', None):
+                    if self._dragged_comment_is_dragging:
+                        self._finalize_comment_drag(pos)
+                    self._cleanup_comment_drag()
+                    return True
                 if getattr(self, 'is_selecting_text', False):
-                    pos = self.view.mapToScene(event.pos())
                     self._finish_text_selection(pos, event.pos())
                     return True
 
@@ -5609,6 +6120,14 @@ class PDFTabDocument(QWidget):
             self.view.viewport().setCursor(Qt.CursorShape.PointingHandCursor)
             return
 
+        if tool == 'comment':
+            _, c_annot, _ = self.get_comment_annot_at_pos(pos)
+            if c_annot:
+                self.view.viewport().setCursor(Qt.CursorShape.SizeAllCursor)
+            else:
+                self.view.viewport().setCursor(Qt.CursorShape.PointingHandCursor)
+            return
+
         if tool == 'selection_tool':
             sel_mode = getattr(self.main_window, 'selection_shape_mode', 'rect')
             if sel_mode == 'move':
@@ -5647,6 +6166,18 @@ class PDFTabDocument(QWidget):
 
     def _handle_mouse_press(self, event, tool):
         pos = self.view.mapToScene(event.pos())
+
+        # Yorum ikonu tıklandıysa yorum sürüklemeyi başlat
+        c_p_idx, c_annot, c_rect = self.get_comment_annot_at_pos(pos)
+        if c_annot:
+            self._dragged_comment_annot = c_annot
+            self._dragged_comment_xref = getattr(c_annot, 'xref', None)
+            self._dragged_comment_page = c_p_idx
+            self._dragged_comment_start_scene_pos = pos
+            self._dragged_comment_start_rect = fitz.Rect(c_rect)
+            self._dragged_comment_is_dragging = False
+            self.view.viewport().setCursor(Qt.CursorShape.SizeAllCursor)
+            return True
 
         page_idx = self.get_page_at_pos(pos)
 
@@ -5759,7 +6290,47 @@ class PDFTabDocument(QWidget):
                 self.erase_at(pos, prev_pos=None)
             return True
 
-        if tool == 'text':
+        if tool == 'comment':
+            p_info = self.page_positions[page_idx]
+            scale = self.base_render_dpi
+            pleft = p_info.get('left', 0.0)
+            ptop = p_info['top']
+            pdf_x = (pos.x() - pleft) / scale
+            pdf_y = (pos.y() - ptop) / scale
+            try:
+                page = self.doc[page_idx]
+                from src.ui.dialogs.settings_dialog import get_effective_author_name
+                from src.ui.dialogs.comment_dialog import AuraCommentInputDialog
+                dlg = AuraCommentInputDialog(self.window(), initial_author=get_effective_author_name())
+
+                g_pos = self.view.viewport().mapToGlobal(event.pos())
+                screen = QApplication.primaryScreen().availableGeometry()
+                dx = min(g_pos.x() + 10, screen.right() - 400)
+                dy = min(g_pos.y() + 10, screen.bottom() - 340)
+                dlg.move(max(screen.left() + 20, dx), max(screen.top() + 20, dy))
+
+                if dlg.exec():
+                    comment_text, author, hex_color = dlg.get_comment_data()
+                    if comment_text:
+                        annot = page.add_text_annot(fitz.Point(pdf_x, pdf_y), comment_text)
+                        annot.set_info(title=author, content=comment_text)
+                        qc = QColor(hex_color)
+                        annot.set_colors(stroke=(qc.redF(), qc.greenF(), qc.blueF()))
+                        annot.update()
+
+                        self.set_modified(True)
+                        if hasattr(self, 'render_all_pages'):
+                            self.render_all_pages()
+                        if hasattr(self.main_window, 'modern_right_sidebar') and self.main_window.modern_right_sidebar:
+                            self.main_window.modern_right_sidebar.load_comments()
+                        if hasattr(self.main_window, 'statusBar') and self.main_window.statusBar():
+                            self.main_window.statusBar().showMessage(LanguageManager.tr("comment_added_msg", page=page_idx + 1), 3500)
+            except Exception as e:
+                from PyQt6.QtWidgets import QMessageBox
+                QMessageBox.critical(self, LanguageManager.tr("error"), str(e))
+            return True
+
+        elif tool == 'text':
             self.create_inline_text(pos, page_idx)
         elif tool == 'eraser':
             self.active_drawing_page = page_idx
@@ -5816,6 +6387,14 @@ class PDFTabDocument(QWidget):
 
     def _handle_mouse_move(self, event, tool):
         pos = self.view.mapToScene(event.pos())
+
+        if getattr(self, '_dragged_comment_annot', None):
+            diff = (pos - self._dragged_comment_start_scene_pos).manhattanLength()
+            if diff > 3:
+                self._dragged_comment_is_dragging = True
+            if self._dragged_comment_is_dragging:
+                self._update_comment_drag_ghost(pos)
+            return True
 
         if tool == 'ruler':
             if self.active_measurement_item is not None:
@@ -5941,6 +6520,19 @@ class PDFTabDocument(QWidget):
 
     def _handle_mouse_release(self, event, tool):
         pos = self.view.mapToScene(event.pos())
+
+        if getattr(self, '_dragged_comment_annot', None):
+            if self._dragged_comment_is_dragging:
+                self._finalize_comment_drag(pos)
+                self._cleanup_comment_drag()
+                return True
+            else:
+                annot = self._dragged_comment_annot
+                self._cleanup_comment_drag()
+                if tool == 'comment':
+                    self._open_comment_dialog_for_annot(annot, event.pos())
+                    return True
+                return True
 
         if tool == 'ruler':
             if self.active_measurement_item is not None:

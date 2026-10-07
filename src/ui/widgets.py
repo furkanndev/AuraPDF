@@ -3501,7 +3501,10 @@ class AuraSearchBar(QFrame):
 
         # Close button
         self.btn_close = QToolButton()
-        self.btn_close.setText("✕")
+        self.btn_close.setIcon(ModernIconFactory.icon_close())
+        self.btn_close.setIconSize(QSize(12, 12))
+        self.btn_close.setFixedSize(24, 24)
+        self.btn_close.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_close.setToolTip(LanguageManager.tr("search_close_tip"))
         self.btn_close.clicked.connect(self.hide_search)
         layout.addWidget(self.btn_close)
@@ -3576,6 +3579,8 @@ class AuraSearchBar(QFrame):
                 border: 1px solid {accent};
             }}
         """)
+        if hasattr(self, 'btn_close'):
+            self.btn_close.setIcon(ModernIconFactory.icon_close(text))
 
     def show_search(self):
         self.reposition()

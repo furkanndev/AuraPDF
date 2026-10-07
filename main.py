@@ -186,6 +186,31 @@ def main():
         pass
 
     app = QApplication(sys.argv)
+    from PyQt6.QtCore import QSettings
+    settings = QSettings("AuraPDF", "PDFViewer")
+    saved_font_size = settings.value("app_font_size", 10, type=int)
+    if saved_font_size <= 0:
+        saved_font_size = 10
+    f = app.font()
+    f.setPointSize(saved_font_size)
+    app.setFont(f)
+    app.setStyleSheet(f"""
+        QWidget {{
+            font-size: {saved_font_size}pt;
+        }}
+        QDialog {{
+            font-size: {saved_font_size}pt;
+        }}
+        QMenu {{
+            font-size: {saved_font_size}pt;
+        }}
+        QMenu::item {{
+            font-size: {saved_font_size}pt;
+        }}
+        QToolTip {{
+            font-size: {max(9, saved_font_size - 1)}pt;
+        }}
+    """)
     app_icon = AuraIconFactory.icon_app()
     app.setWindowIcon(app_icon)
 

@@ -102,9 +102,24 @@ def get_current_theme(parent: Optional[Any] = None) -> str:
         return "gray"
 
 
+def get_current_font_size(parent: Optional[Any] = None) -> int:
+    """Aktif uygulama yazı tipi boyutunu (pt) okur (Varsayılan: 10pt)."""
+    if parent is not None:
+        if hasattr(parent, 'app_font_size') and parent.app_font_size:
+            return int(parent.app_font_size)
+        if hasattr(parent, 'main_window') and hasattr(parent.main_window, 'app_font_size') and parent.main_window.app_font_size:
+            return int(parent.main_window.app_font_size)
+    try:
+        settings = QSettings("AuraPDF", "PDFViewer")
+        val = settings.value("app_font_size", 10)
+        return int(val) if val else 10
+    except Exception:
+        return 10
+
+
 def get_dialog_theme_stylesheet(parent: Optional[Any] = None, extra_css: str = "") -> str:
     """
-    Diyalog pencereleri için tema stil şablonunu üretir.
+    Diyalog pencereleri için tema stil şablonunu ve aktif font boyutunu üretir.
     """
     theme = get_current_theme(parent)
 
@@ -594,13 +609,46 @@ def get_dialog_theme_stylesheet(parent: Optional[Any] = None, extra_css: str = "
             }}
         """
 
+    fs = get_current_font_size(parent)
+    font_scale_css = f"""
+        QDialog, QWidget {{
+            font-size: {fs}pt;
+        }}
+        QLabel, QLineEdit, QTextEdit, QPlainTextEdit, QComboBox, QSpinBox, QDoubleSpinBox, QPushButton {{
+            font-size: {fs}pt;
+        }}
+        QGroupBox {{
+            font-size: {fs}pt;
+        }}
+        QGroupBox::title {{
+            font-size: {fs}pt;
+        }}
+        QListWidget, QTableWidget, QTreeWidget, QHeaderView::section {{
+            font-size: {fs}pt;
+        }}
+        QCheckBox, QRadioButton {{
+            font-size: {fs}pt;
+        }}
+        QMenu, QMenu::item {{
+            font-size: {fs}pt;
+        }}
+    """
+    css += "\n" + font_scale_css
+
     if extra_css:
         css += "\n" + extra_css
     return css
 
 
 def apply_dialog_theme(dialog: Any, parent: Optional[Any] = None, extra_css: str = "") -> None:
-    """Belirtilen diyalog nesnesine geçerli tema stilini uygular."""
+    """Belirtilen diyalog nesnesine geçerli tema stilini ve aktif font boyutunu uygular."""
+    fs = get_current_font_size(parent)
+    try:
+        f = dialog.font()
+        f.setPointSize(fs)
+        dialog.setFont(f)
+    except Exception:
+        pass
     dialog.setStyleSheet(get_dialog_theme_stylesheet(parent, extra_css))
 
 apply_aura_dialog_style = apply_dialog_theme

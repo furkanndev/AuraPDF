@@ -3,9 +3,10 @@ import datetime
 from typing import Optional
 from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel, 
                              QPushButton, QLineEdit, QStackedWidget, QWidget,
-                             QGridLayout, QFrame, QScrollArea, QGraphicsDropShadowEffect)
+                             QGridLayout, QFrame, QScrollArea, QGraphicsDropShadowEffect,
+                             QComboBox, QDateEdit)
 from PyQt6.QtGui import (QPainter, QPen, QBrush, QColor, QFont, QPixmap, QImage, QPainterPath)
-from PyQt6.QtCore import Qt, QSize, QRectF, QBuffer, QIODevice, QPointF
+from PyQt6.QtCore import Qt, QSize, QRectF, QBuffer, QIODevice, QPointF, QDate, QSettings
 
 from src.core.i18n import LanguageManager
 from src.ui.dialog_theme import apply_dialog_theme
@@ -367,3 +368,212 @@ class ModernStampDialog(QDialog):
         self.stamp_bytes = bytes(buf.data())
         self.stamp_name = self.selected_text
         self.accept()
+
+
+class DateStampDialog(QDialog):
+    """
+    Kullanıcının tarih formatını, gününü, yazı rengini ve boyutunu
+    özelleştirebildiği modern tarih imzası / damgası iletişim kutusu.
+    """
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle(LanguageManager.tr("date_stamp_dialog_title"))
+        self.setFixedSize(480, 430)
+        self.settings = QSettings("AuraPDF", "PDFViewer")
+
+        self.result_bytes: Optional[bytes] = None
+        self.result_title: str = "Date Stamp"
+        self.default_w: float = 85.0
+        self.default_h: float = 26.0
+
+        self._build_ui()
+        apply_dialog_theme(self, parent)
+        self._update_preview()
+
+    def _build_ui(self):
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setSpacing(14)
+
+        # 1. Tarih Seçimi
+        h_date = QHBoxLayout()
+        lbl_date = QLabel(LanguageManager.tr("date_stamp_select_date"))
+        lbl_date.setStyleSheet("font-weight: 600; font-size: 13px;")
+        self.date_edit = QDateEdit(QDate.currentDate())
+        self.date_edit.setCalendarPopup(True)
+        self.date_edit.setFixedHeight(32)
+        self.date_edit.dateChanged.connect(self._update_preview)
+        h_date.addWidget(lbl_date)
+        h_date.addWidget(self.date_edit, stretch=1)
+        layout.addLayout(h_date)
+
+        # 2. Format Seçimi
+        h_fmt = QHBoxLayout()
+        lbl_fmt = QLabel(LanguageManager.tr("date_stamp_format_lbl"))
+        lbl_fmt.setStyleSheet("font-weight: 600; font-size: 13px;")
+        self.cmb_format = QComboBox()
+        self.cmb_format.setFixedHeight(32)
+        self.cmb_format.addItem("GG.AA.YYYY  (ör. 07.10.2026)", "%d.%m.%Y")
+        self.cmb_format.addItem("GG/AA/YYYY  (ör. 07/10/2026)", "%d/%m/%Y")
+        self.cmb_format.addItem("YYYY-AA-GG  (ör. 2026-10-07)", "%Y-%m-%d")
+        self.cmb_format.addItem("GG.AA.YYYY SS:dd  (ör. 07.10.2026 14:30)", "%d.%m.%Y %H:%M")
+        self.cmb_format.addItem("AA/GG/YYYY  (ör. 10/07/2026)", "%m/%d/%Y")
+
+        saved_fmt = self.settings.value("date_stamp_format", "%d.%m.%Y")
+        idx = self.cmb_format.findData(saved_fmt)
+        if idx >= 0:
+            self.cmb_format.setCurrentIndex(idx)
+        self.cmb_format.currentIndexChanged.connect(self._update_preview)
+        h_fmt.addWidget(lbl_fmt)
+        h_fmt.addWidget(self.cmb_format, stretch=1)
+        layout.addLayout(h_fmt)
+
+        # 3. Renk Seçimi
+        h_col = QHBoxLayout()
+        lbl_col = QLabel(LanguageManager.tr("date_stamp_color_lbl"))
+        lbl_col.setStyleSheet("font-weight: 600; font-size: 13px;")
+        self.cmb_color = QComboBox()
+        self.cmb_color.setFixedHeight(32)
+        self.cmb_color.addItem("Koyu Grafit (#0f172a)", "#0f172a")
+        self.cmb_color.addItem("Klasik Siyah (#000000)", "#000000")
+        self.cmb_color.addItem("Lacivert Mavi (#1d4ed8)", "#1d4ed8")
+        self.cmb_color.addItem("Zümrüt Yeşili (#047857)", "#047857")
+        self.cmb_color.addItem("Bordo Kırmızı (#b91c1c)", "#b91c1c")
+        self.cmb_color.addItem("Asil Mor (#6d28d9)", "#6d28d9")
+
+        saved_col = self.settings.value("date_stamp_color", "#0f172a")
+        c_idx = self.cmb_color.findData(saved_col)
+        if c_idx >= 0:
+            self.cmb_color.setCurrentIndex(c_idx)
+        self.cmb_color.currentIndexChanged.connect(self._update_preview)
+        h_col.addWidget(lbl_col)
+        h_col.addWidget(self.cmb_color, stretch=1)
+        layout.addLayout(h_col)
+
+        # 4. Özel Metin (İsteğe bağlı)
+        h_custom = QHBoxLayout()
+        lbl_custom = QLabel(LanguageManager.tr("date_stamp_custom_text"))
+        lbl_custom.setStyleSheet("font-weight: 600; font-size: 13px;")
+        self.txt_custom = QLineEdit()
+        self.txt_custom.setFixedHeight(32)
+        self.txt_custom.setPlaceholderText("Format yerine özel metin yazabilirsiniz...")
+        self.txt_custom.textChanged.connect(self._update_preview)
+        h_custom.addWidget(lbl_custom)
+        h_custom.addWidget(self.txt_custom, stretch=1)
+        layout.addLayout(h_custom)
+
+        # 5. Canlı Önizleme Kartı
+        lbl_prev_title = QLabel(LanguageManager.tr("date_stamp_preview_lbl"))
+        lbl_prev_title.setStyleSheet("font-weight: 600; font-size: 12px; color: #64748b;")
+        layout.addWidget(lbl_prev_title)
+
+        self.preview_card = QFrame()
+        self.preview_card.setFixedHeight(75)
+        self.preview_card.setStyleSheet("""
+            QFrame {
+                background-color: #ffffff;
+                border: 1.5px dashed #cbd5e1;
+                border-radius: 8px;
+            }
+        """)
+        l_prev = QHBoxLayout(self.preview_card)
+        l_prev.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.lbl_preview = QLabel()
+        self.lbl_preview.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        l_prev.addWidget(self.lbl_preview)
+        layout.addWidget(self.preview_card)
+
+        # 6. Alt Eylem Butonları
+        layout.addStretch(1)
+        h_btn = QHBoxLayout()
+        h_btn.addStretch(1)
+
+        btn_cancel = QPushButton(LanguageManager.tr("cancel"))
+        btn_cancel.setFixedHeight(34)
+        btn_cancel.clicked.connect(self.reject)
+        h_btn.addWidget(btn_cancel)
+
+        btn_ok = QPushButton(LanguageManager.tr("date_stamp_btn_insert"))
+        btn_ok.setObjectName("PrimaryBtn")
+        btn_ok.setFixedHeight(34)
+        btn_ok.setStyleSheet("font-weight: bold; padding: 0 16px;")
+        btn_ok.clicked.connect(self._apply_and_accept)
+        h_btn.addWidget(btn_ok)
+
+        layout.addLayout(h_btn)
+
+    def _get_date_string(self) -> str:
+        try:
+            if hasattr(self, 'txt_custom'):
+                custom = self.txt_custom.text().strip()
+                if custom:
+                    return custom
+            qdate = self.date_edit.date() if hasattr(self, 'date_edit') else QDate.currentDate()
+            now = datetime.datetime.now()
+            dt = datetime.datetime(qdate.year(), qdate.month(), qdate.day(), now.hour, now.minute)
+            fmt = "%d.%m.%Y"
+            if hasattr(self, 'cmb_format'):
+                fmt = str(self.cmb_format.currentData() or "%d.%m.%Y")
+            return dt.strftime(fmt)
+        except Exception:
+            return datetime.datetime.now().strftime("%d.%m.%Y")
+
+    def get_stamp_text(self) -> str:
+        return self._get_date_string()
+
+    def get_stamp_color(self) -> str:
+        if hasattr(self, 'cmb_color'):
+            return str(self.cmb_color.currentData() or "#0f172a")
+        return "#0f172a"
+
+    def _update_preview(self):
+        try:
+            text = self._get_date_string()
+            col = QColor(self.get_stamp_color())
+            pix = self._render_pixmap(text, col, scale=1.0)
+            if hasattr(self, 'lbl_preview'):
+                self.lbl_preview.setPixmap(pix)
+        except Exception:
+            pass
+
+    def _render_pixmap(self, text: str, col: QColor, scale: float = 2.0) -> QPixmap:
+        font = QFont("Segoe UI", int(15 * scale), QFont.Weight.Medium)
+        from PyQt6.QtGui import QFontMetrics
+        fm = QFontMetrics(font)
+        text_w = fm.horizontalAdvance(text) + int(16 * scale)
+        text_h = fm.height() + int(10 * scale)
+
+        pix = QPixmap(max(int(60 * scale), text_w), max(int(24 * scale), text_h))
+        pix.fill(Qt.GlobalColor.transparent)
+        p = QPainter(pix)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        p.setRenderHint(QPainter.RenderHint.TextAntialiasing, True)
+        p.setPen(col)
+        p.setFont(font)
+        p.drawText(QRectF(0, 0, pix.width(), pix.height()), Qt.AlignmentFlag.AlignCenter, text)
+        p.end()
+        return pix
+
+    def _apply_and_accept(self):
+        try:
+            text = self._get_date_string()
+            col_str = self.get_stamp_color()
+            col = QColor(col_str)
+
+            if hasattr(self, 'settings') and hasattr(self, 'cmb_format'):
+                self.settings.setValue("date_stamp_format", self.cmb_format.currentData())
+            if hasattr(self, 'settings') and hasattr(self, 'cmb_color'):
+                self.settings.setValue("date_stamp_color", col_str)
+
+            hi_pix = self._render_pixmap(text, col, scale=2.0)
+            buf = QBuffer()
+            buf.open(QIODevice.OpenModeFlag.WriteOnly)
+            hi_pix.save(buf, "PNG")
+            self.result_bytes = bytes(buf.data())
+            self.result_title = f"Date {text}"
+            self.default_w = max(60.0, hi_pix.width() / 2.0)
+            self.default_h = max(22.0, hi_pix.height() / 2.0)
+            self.accept()
+        except Exception:
+            self.reject()
+

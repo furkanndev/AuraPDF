@@ -73,7 +73,7 @@ FLOATING_TOOLBAR_ITEMS_META = {
 }
 
 DEFAULT_FLOATING_TOOLBAR_ORDER = [
-    "select", "selection", "pointer", "highlighter", "comment", "text", "insert", "pen", "eraser"
+    "select", "selection", "pen", "highlighter", "eraser", "text", "insert", "comment", "pointer"
 ]
 
 OLD_TO_FLOATING_KEY_MAP = {
@@ -214,6 +214,17 @@ def get_default_author_info():
             computer_name = ""
 
     return username, computer_name
+
+
+def get_effective_author_name() -> str:
+    """Kullanıcının belirlediği yazar adını, yoksa işletim sistemi oturum kullanıcı adını döner."""
+    settings = QSettings("AuraPDF", "PDFViewer")
+    author = str(settings.value("author_name", "") or "").strip()
+    if not author or author.lower() in ("kullanıcı", "kullanici", "user", "test author", "admin"):
+        username, _ = get_default_author_info()
+        if username and username.strip():
+            author = username.strip()
+    return author or "AuraPDF User"
 
 
 class CursorPreviewBox(QFrame):
@@ -357,7 +368,8 @@ class ModernShortcutEdit(QWidget):
         self.btn_input = ModernShortcutButton(self)
 
         self.btn_clear = QToolButton(self)
-        self.btn_clear.setText("✕")
+        self.btn_clear.setIcon(ModernIconFactory.icon_close("#ef4444"))
+        self.btn_clear.setIconSize(QSize(12, 12))
         self.btn_clear.setToolTip(LanguageManager.tr("shortcut_clear_tooltip"))
         self.btn_clear.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_clear.setFixedSize(28, 32)
@@ -954,6 +966,16 @@ class AuraSettingsDialog(QDialog):
         self.cmb_default_template.addItem(LanguageManager.tr("style_cover_title"), "cover")
         card_layout.addWidget(self.cmb_default_template)
 
+        card_layout.addSpacing(6)
+        card_layout.addWidget(QLabel(LanguageManager.tr("settings_app_font_size_lbl")))
+        self.cmb_app_font_size = QComboBox()
+        self.cmb_app_font_size.addItem(LanguageManager.tr("font_size_small", size=9), 9)
+        self.cmb_app_font_size.addItem(LanguageManager.tr("font_size_standard", size=10), 10)
+        self.cmb_app_font_size.addItem(LanguageManager.tr("font_size_medium", size=11), 11)
+        self.cmb_app_font_size.addItem(LanguageManager.tr("font_size_large", size=12), 12)
+        self.cmb_app_font_size.addItem(LanguageManager.tr("font_size_xlarge", size=14), 14)
+        card_layout.addWidget(self.cmb_app_font_size)
+
         layout.addWidget(card)
 
         # Fabrika Ayarlarına Sıfırlama Kartı
@@ -1013,6 +1035,8 @@ class AuraSettingsDialog(QDialog):
         # Zoom modu
         self._set_cmb_data(self.cmb_zoom_mode, "last")
         self._set_cmb_data(self.cmb_default_template, "blank")
+        if hasattr(self, 'cmb_app_font_size'):
+            self._set_cmb_data(self.cmb_app_font_size, 10)
 
         # Yazar bilgileri
         def_user, def_comp = get_default_author_info()
@@ -1128,9 +1152,34 @@ class AuraSettingsDialog(QDialog):
         layout.setContentsMargins(18, 18, 18, 18)
         layout.setSpacing(12)
 
+        h_head = QHBoxLayout()
+        h_head.setContentsMargins(0, 0, 0, 0)
         lbl_title = QLabel(LanguageManager.tr("shortcuts_section_title"))
         lbl_title.setStyleSheet("font-size: 15px; font-weight: bold;")
-        layout.addWidget(lbl_title)
+        h_head.addWidget(lbl_title, stretch=1)
+
+        self.btn_open_shortcuts_guide = QPushButton(" " + LanguageManager.tr("shortcuts_dialog_title") + " (F1)")
+        self.btn_open_shortcuts_guide.setIcon(ModernIconFactory.icon_info("#38bdf8"))
+        self.btn_open_shortcuts_guide.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_open_shortcuts_guide.setStyleSheet("""
+            QPushButton {
+                background: rgba(56, 189, 248, 0.12);
+                border: 1px solid rgba(56, 189, 248, 0.35);
+                border-radius: 6px;
+                padding: 6px 14px;
+                font-weight: 600;
+                font-size: 12px;
+                color: #38bdf8;
+            }
+            QPushButton:hover {
+                background: rgba(56, 189, 248, 0.25);
+                border-color: #38bdf8;
+                color: #ffffff;
+            }
+        """)
+        self.btn_open_shortcuts_guide.clicked.connect(self._open_shortcuts_guide_dialog)
+        h_head.addWidget(self.btn_open_shortcuts_guide)
+        layout.addLayout(h_head)
 
         lbl_desc = QLabel(LanguageManager.tr("shortcuts_section_desc"))
         lbl_desc.setStyleSheet(" font-size: 12px;")
@@ -1200,6 +1249,11 @@ class AuraSettingsDialog(QDialog):
         for action, default_seq in DEFAULT_SHORTCUTS.items():
             if action in self.shortcut_edits:
                 self.shortcut_edits[action].setShortcutValue(default_seq)
+
+    def _open_shortcuts_guide_dialog(self):
+        from src.ui.dialogs.shortcuts_dialog import KeyboardShortcutsDialog
+        dlg = KeyboardShortcutsDialog(self)
+        dlg.exec()
 
     # ----------------------------------------------------
     # SEKME: PDF YAZAR PROFİLİ
@@ -1304,23 +1358,6 @@ class AuraSettingsDialog(QDialog):
         layout.setContentsMargins(18, 18, 18, 18)
         layout.setSpacing(14)
 
-        # Klasik Araç Çubuğu Seçeneği
-        card_classic = QFrame()
-        card_classic.setProperty("class", "card")
-        l_classic = QVBoxLayout(card_classic)
-        l_classic.setContentsMargins(12, 10, 12, 10)
-        l_classic.setSpacing(4)
-
-        self.chk_classic_toolbar = QCheckBox(LanguageManager.tr("settings_use_classic_toolbar"))
-        self.chk_classic_toolbar.setStyleSheet("font-weight: bold; font-size: 13px;")
-        l_classic.addWidget(self.chk_classic_toolbar)
-
-        lbl_classic_desc = QLabel(LanguageManager.tr("settings_use_classic_toolbar_desc"))
-        lbl_classic_desc.setStyleSheet("font-size: 11px; color: #94a3b8;")
-        lbl_classic_desc.setWordWrap(True)
-        l_classic.addWidget(lbl_classic_desc)
-
-        layout.addWidget(card_classic)
 
         lbl_title = QLabel(LanguageManager.tr("toolbar_order_title"))
         lbl_title.setStyleSheet("font-size: 15px; font-weight: bold;")
@@ -1908,12 +1945,15 @@ class AuraSettingsDialog(QDialog):
         saved_tpl = self.settings.value("default_page_template", "blank")
         self._set_cmb_data(self.cmb_default_template, saved_tpl)
 
-        # 6. Hareketli Toolbar Sıralaması
+        # Uygulama Font Boyutu
+        if hasattr(self, 'cmb_app_font_size'):
+            saved_fs = int(self.settings.value("app_font_size", 10))
+            self._set_cmb_data(self.cmb_app_font_size, saved_fs)
+
+        tb_version = self.settings.value("floating_tools_order_version", 0, type=int)
         raw_tb = self.settings.value("floating_tools_order", None)
-        if not raw_tb:
-            raw_tb = self.settings.value("toolbar_order", None)
         saved_tb = []
-        if raw_tb:
+        if raw_tb and tb_version >= 2:
             try:
                 if isinstance(raw_tb, str):
                     parsed = json.loads(raw_tb)
@@ -1928,13 +1968,16 @@ class AuraSettingsDialog(QDialog):
             except Exception:
                 saved_tb = []
 
-        for k in DEFAULT_FLOATING_TOOLBAR_ORDER:
-            if k not in saved_tb:
-                saved_tb.append(k)
+        if not saved_tb or tb_version < 2:
+            saved_tb = list(DEFAULT_FLOATING_TOOLBAR_ORDER)
+            self.settings.setValue("floating_tools_order", json.dumps(DEFAULT_FLOATING_TOOLBAR_ORDER))
+            self.settings.setValue("floating_tools_order_version", 2)
+        else:
+            for k in DEFAULT_FLOATING_TOOLBAR_ORDER:
+                if k not in saved_tb:
+                    saved_tb.append(k)
 
         self._populate_toolbar_list(saved_tb)
-        if hasattr(self, 'chk_classic_toolbar'):
-            self.chk_classic_toolbar.setChecked(self.settings.value("use_classic_toolbar", False, type=bool))
 
         # 7. İmleç Ayarlarını Yükle
         saved_preset = self.settings.value("cursor_preset", "apple")
@@ -2006,6 +2049,20 @@ class AuraSettingsDialog(QDialog):
         tpl_mode = self.cmb_default_template.currentData()
         self.settings.setValue("default_page_template", tpl_mode)
 
+        # Uygulama Font Boyutu
+        if hasattr(self, 'cmb_app_font_size'):
+            font_size = self.cmb_app_font_size.currentData()
+            if font_size:
+                self.settings.setValue("app_font_size", int(font_size))
+                if hasattr(self.main_window, 'apply_app_font_size'):
+                    self.main_window.apply_app_font_size(int(font_size))
+                else:
+                    app = QApplication.instance()
+                    if app:
+                        f = app.font()
+                        f.setPointSize(int(font_size))
+                        app.setFont(f)
+
         # 6. Toolbar Düzenini Kaydet & Uygula
         reordered_items = []
         for i in range(self.list_toolbar.count()):
@@ -2015,16 +2072,11 @@ class AuraSettingsDialog(QDialog):
                 reordered_items.append(item_id)
         if reordered_items:
             self.settings.setValue("floating_tools_order", json.dumps(reordered_items))
+            self.settings.setValue("floating_tools_order_version", 2)
             if hasattr(self.main_window, 'apply_floating_tools_order'):
                 self.main_window.apply_floating_tools_order(reordered_items)
             if hasattr(self.main_window, 'restore_toolbar_order'):
                 self.main_window.restore_toolbar_order()
-
-        if hasattr(self, 'chk_classic_toolbar'):
-            use_classic = self.chk_classic_toolbar.isChecked()
-            self.settings.setValue("use_classic_toolbar", use_classic)
-            if hasattr(self.main_window, 'set_classic_toolbar_mode'):
-                self.main_window.set_classic_toolbar_mode(use_classic)
 
         # 7. İmleç Ayarlarını Kaydet & Uygula
         self.settings.setValue("cursor_preset", self.cmb_cursor_preset.currentData())

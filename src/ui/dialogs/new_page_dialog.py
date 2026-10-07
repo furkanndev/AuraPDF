@@ -256,11 +256,12 @@ class NewPageDialog(QDialog):
     Kullanıcının boş sayfa veya yeni belge oluştururken stil, yön, boyut ve
     yerleşim seçebildiği modern önizlemeli diyalog penceresi.
     """
-    def __init__(self, main_window=None, parent=None, default_style: str = "blank", force_new_doc: bool = False):
+    def __init__(self, main_window=None, parent=None, default_style: str = "blank", force_new_doc: bool = False, default_placement: str = "after_current"):
         super().__init__(parent or main_window)
         self.main_window = main_window
         self.selected_style = default_style
         self.force_new_doc = force_new_doc
+        self.default_placement = default_placement
 
         theme = get_current_theme(parent or main_window)
         self.palette = THEME_PALETTES.get(theme, THEME_PALETTES["gray"])
@@ -533,10 +534,13 @@ class NewPageDialog(QDialog):
 
         self.cmb_placement = QComboBox()
         if has_active_doc and not self.force_new_doc:
-            self.cmb_placement.addItem(LanguageManager.tr("placement_at_end"), "end")
             self.cmb_placement.addItem(LanguageManager.tr("placement_after_current"), "after_current")
+            self.cmb_placement.addItem(LanguageManager.tr("placement_at_end"), "end")
             self.cmb_placement.addItem(LanguageManager.tr("placement_before_current"), "before_current")
             self.cmb_placement.addItem(LanguageManager.tr("placement_new_document"), "new_doc")
+            target_idx = self.cmb_placement.findData(getattr(self, 'default_placement', 'after_current'))
+            if target_idx >= 0:
+                self.cmb_placement.setCurrentIndex(target_idx)
         else:
             self.cmb_placement.addItem(LanguageManager.tr("placement_new_document"), "new_doc")
 
