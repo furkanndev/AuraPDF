@@ -1304,6 +1304,24 @@ class AuraSettingsDialog(QDialog):
         layout.setContentsMargins(18, 18, 18, 18)
         layout.setSpacing(14)
 
+        # Klasik Araç Çubuğu Seçeneği
+        card_classic = QFrame()
+        card_classic.setProperty("class", "card")
+        l_classic = QVBoxLayout(card_classic)
+        l_classic.setContentsMargins(12, 10, 12, 10)
+        l_classic.setSpacing(4)
+
+        self.chk_classic_toolbar = QCheckBox(LanguageManager.tr("settings_use_classic_toolbar"))
+        self.chk_classic_toolbar.setStyleSheet("font-weight: bold; font-size: 13px;")
+        l_classic.addWidget(self.chk_classic_toolbar)
+
+        lbl_classic_desc = QLabel(LanguageManager.tr("settings_use_classic_toolbar_desc"))
+        lbl_classic_desc.setStyleSheet("font-size: 11px; color: #94a3b8;")
+        lbl_classic_desc.setWordWrap(True)
+        l_classic.addWidget(lbl_classic_desc)
+
+        layout.addWidget(card_classic)
+
         lbl_title = QLabel(LanguageManager.tr("toolbar_order_title"))
         lbl_title.setStyleSheet("font-size: 15px; font-weight: bold;")
         layout.addWidget(lbl_title)
@@ -1915,6 +1933,8 @@ class AuraSettingsDialog(QDialog):
                 saved_tb.append(k)
 
         self._populate_toolbar_list(saved_tb)
+        if hasattr(self, 'chk_classic_toolbar'):
+            self.chk_classic_toolbar.setChecked(self.settings.value("use_classic_toolbar", False, type=bool))
 
         # 7. İmleç Ayarlarını Yükle
         saved_preset = self.settings.value("cursor_preset", "apple")
@@ -1999,6 +2019,12 @@ class AuraSettingsDialog(QDialog):
                 self.main_window.apply_floating_tools_order(reordered_items)
             if hasattr(self.main_window, 'restore_toolbar_order'):
                 self.main_window.restore_toolbar_order()
+
+        if hasattr(self, 'chk_classic_toolbar'):
+            use_classic = self.chk_classic_toolbar.isChecked()
+            self.settings.setValue("use_classic_toolbar", use_classic)
+            if hasattr(self.main_window, 'set_classic_toolbar_mode'):
+                self.main_window.set_classic_toolbar_mode(use_classic)
 
         # 7. İmleç Ayarlarını Kaydet & Uygula
         self.settings.setValue("cursor_preset", self.cmb_cursor_preset.currentData())

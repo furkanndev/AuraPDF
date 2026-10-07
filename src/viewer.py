@@ -596,7 +596,10 @@ class AuraPDFViewer(QMainWindow):
             self.btn_redo.setEnabled(can_redo)
 
     def toggle_toolbar_visibility(self):
-        if hasattr(self, 'floating_capsule') and self.floating_capsule:
+        settings = QSettings("AuraPDF", "PDFViewer")
+        if settings.value("use_classic_toolbar", False, type=bool) and hasattr(self, 'toolbar'):
+            self.toolbar.setVisible(not self.toolbar.isVisible())
+        elif hasattr(self, 'floating_capsule') and self.floating_capsule:
             self.floating_capsule.setVisible(not self.floating_capsule.isVisible())
 
     def _init_docks(self):
@@ -1017,6 +1020,13 @@ class AuraPDFViewer(QMainWindow):
         self.restore_toolbar_order()
         self.update_undo_redo_state()
 
+        settings = QSettings("AuraPDF", "PDFViewer")
+        if settings.value("use_classic_toolbar", False, type=bool):
+            self.addToolBar(self.toolbar)
+            self.toolbar.show()
+        else:
+            self.toolbar.hide()
+
     def _init_modern_ui(self):
         """Adobe Acrobat yeni nesil modern arayüzünü (Sekmeler, Header, Araçlar, Organize, Sağ Çekmece, Ray) kurar."""
         self.tab_widget.tabBar().hide()
@@ -1218,6 +1228,8 @@ class AuraPDFViewer(QMainWindow):
             self.modern_tab_bar.set_home_active(True)
         if hasattr(self, 'floating_capsule'):
             self.floating_capsule.hide()
+        if hasattr(self, 'toolbar'):
+            self.toolbar.hide()
         if hasattr(self, 'modern_right_sidebar'):
             self.modern_right_sidebar.hide()
         if hasattr(self, 'thumbnails_dock') and self.thumbnails_dock:
@@ -1252,6 +1264,14 @@ class AuraPDFViewer(QMainWindow):
                 self.update_floating_capsule_pos()
                 self.floating_capsule.show()
                 self.floating_capsule.raise_()
+            settings = QSettings("AuraPDF", "PDFViewer")
+            if settings.value("use_classic_toolbar", False, type=bool) and hasattr(self, 'toolbar'):
+                if self.toolBarArea(self.toolbar) == Qt.ToolBarArea.NoToolBarArea:
+                    self.addToolBar(self.toolbar)
+                self.toolbar.show()
+                self.restore_toolbar_order()
+            elif hasattr(self, 'toolbar'):
+                self.toolbar.hide()
             if hasattr(self, 'modern_utility_rail'):
                 self.modern_utility_rail.show()
                 if hasattr(self, 'modern_right_sidebar'):
@@ -1807,11 +1827,16 @@ class AuraPDFViewer(QMainWindow):
             if getattr(self, '_sidebar_was_visible', False):
                 self.thumbnails_dock.show()
 
-            self.tab_widget.tabBar().show()
+            self.tab_widget.tabBar().hide()
             if hasattr(self, 'modern_tab_bar'):
                 self.modern_tab_bar.show()
             if hasattr(self, 'modern_header_bar'):
                 self.modern_header_bar.show()
+            settings = QSettings("AuraPDF", "PDFViewer")
+            if settings.value("use_classic_toolbar", False, type=bool) and hasattr(self, 'toolbar') and hasattr(self, 'central_stack') and self.central_stack.currentWidget() == self.tab_widget:
+                if self.toolBarArea(self.toolbar) == Qt.ToolBarArea.NoToolBarArea:
+                    self.addToolBar(self.toolbar)
+                self.toolbar.show()
             if hasattr(self, 'modern_utility_rail') and hasattr(self, 'central_stack') and self.central_stack.currentWidget() != getattr(self, 'home_workspace', None):
                 self.modern_utility_rail.show()
             if hasattr(self, 'floating_capsule') and hasattr(self, 'central_stack') and self.central_stack.currentWidget() == self.tab_widget:
@@ -3604,6 +3629,19 @@ class AuraPDFViewer(QMainWindow):
         if hasattr(self, 'floating_capsule') and self.floating_capsule:
             self.floating_capsule.set_tools_order(order)
             self.update_floating_capsule_pos()
+
+    def set_classic_toolbar_mode(self, enabled: bool):
+        if not hasattr(self, 'toolbar'):
+            return
+        if enabled:
+            if self.toolBarArea(self.toolbar) == Qt.ToolBarArea.NoToolBarArea:
+                self.addToolBar(self.toolbar)
+            if hasattr(self, 'central_stack') and self.central_stack.currentWidget() == self.tab_widget:
+                self.toolbar.show()
+            self.restore_toolbar_order()
+        else:
+            self.removeToolBar(self.toolbar)
+            self.toolbar.hide()
 
     def closeEvent(self, event):
         self.save_toolbar_order()

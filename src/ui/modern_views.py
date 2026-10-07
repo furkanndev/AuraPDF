@@ -24,15 +24,16 @@ from PyQt6.QtWidgets import (
     QDialog, QSizePolicy, QApplication, QSlider, QMessageBox, QFileDialog,
     QHeaderView, QGraphicsDropShadowEffect, QAbstractItemView
 )
-from PyQt6.QtCore import Qt, pyqtSignal, QSize, QPoint, QRect, QTimer, QThread, QUrl, QEvent, QSettings
+from PyQt6.QtCore import Qt, pyqtSignal, QSize, QPoint, QPointF, QRect, QTimer, QThread, QUrl, QEvent, QSettings
 from PyQt6.QtGui import (
     QIcon, QPixmap, QImage, QPainter, QColor, QPen, QBrush, QFont,
     QPainterPath, QCursor, QKeySequence, QShortcut, QDesktopServices,
-    QFontMetrics, QIntValidator
+    QFontMetrics, QIntValidator, QLinearGradient
 )
 
 from src.core.i18n import LanguageManager
 from src.ui.icons import ModernIconFactory
+from src.ui.dialog_theme import apply_dialog_theme
 
 
 def get_modern_theme_colors(theme_name: str = "light") -> Dict[str, str]:
@@ -424,23 +425,12 @@ class ModernTabBarWidget(QWidget):
 
         layout.addStretch(1)
 
-        # 4. Sağ Taraf Kısayolu (Bilgi / Kısayollar)
-        self.btn_help = QToolButton()
-        self.btn_help.setIcon(ModernIconFactory.icon_info())
-        self.btn_help.setIconSize(QSize(14, 14))
-        self.btn_help.setFixedSize(28, 28)
-        self.btn_help.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.btn_help.setToolTip(LanguageManager.tr("shortcuts_title"))
-        self.btn_help.clicked.connect(self.helpRequested.emit)
-        layout.addWidget(self.btn_help)
-
         self.apply_theme(self.theme_name)
 
     def retranslate_ui(self):
         self.btn_home.setText(" " + LanguageManager.tr("home_tab_text"))
         self.btn_new_tab.setText(" " + LanguageManager.tr("open"))
         self.btn_new_tab.setToolTip(LanguageManager.tr("open_tooltip"))
-        self.btn_help.setToolTip(LanguageManager.tr("shortcuts_title"))
 
     def apply_theme(self, theme_name: str = "light"):
         self.theme_name = theme_name
@@ -3002,14 +2992,37 @@ class ModernRightSidebar(QWidget):
         self.lbl_empty_thumbs.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.lbl_empty_thumbs.setStyleSheet("font-size: 13px; font-weight: 500;")
         v_empty_th.addWidget(self.lbl_empty_thumbs)
+
+        self.btn_empty_insert_pdf = QPushButton(" " + LanguageManager.tr("sidebar_btn_add_pdf"))
+        self.btn_empty_insert_pdf.setObjectName("PrimaryActionBtn")
+        self.btn_empty_insert_pdf.setIcon(ModernIconFactory.icon_new_document("#ffffff"))
+        self.btn_empty_insert_pdf.setIconSize(QSize(14, 14))
+        self.btn_empty_insert_pdf.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_empty_insert_pdf.clicked.connect(lambda: self._on_add_pdf_clicked())
+        v_empty_th.addWidget(self.btn_empty_insert_pdf)
+
+        self.btn_empty_add_blank = QPushButton(" " + LanguageManager.tr("sidebar_btn_add_blank"))
+        self.btn_empty_add_blank.setObjectName("PrimaryActionBtn")
+        self.btn_empty_add_blank.setIcon(ModernIconFactory.icon_add_page("#ffffff"))
+        self.btn_empty_add_blank.setIconSize(QSize(14, 14))
+        self.btn_empty_add_blank.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_empty_add_blank.clicked.connect(lambda: self._on_add_blank_page_clicked())
+        v_empty_th.addWidget(self.btn_empty_add_blank)
+
         self.stack_thumbnails.addWidget(self.empty_thumbs_widget)
 
-        # Küçük Resimler Listesi
+        # Sayfalar (Küçük Resimler) Listesi
         self.list_thumbnails = QListWidget()
         self.list_thumbnails.setObjectName("RightRailThumbnailsList")
         self.list_thumbnails.setIconSize(QSize(180, 240))
         self.list_thumbnails.setSpacing(8)
         self.list_thumbnails.setVerticalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
+        self.list_thumbnails.setAcceptDrops(True)
+        self.list_thumbnails.setDragDropMode(QAbstractItemView.DragDropMode.InternalMove)
+        self.list_thumbnails.setDefaultDropAction(Qt.DropAction.MoveAction)
+        self.list_thumbnails.model().rowsMoved.connect(self._on_pages_reordered)
+        self.list_thumbnails.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.list_thumbnails.customContextMenuRequested.connect(self._show_thumbnails_context_menu)
         self.list_thumbnails.itemClicked.connect(self._on_thumbnail_item_clicked)
         self.stack_thumbnails.addWidget(self.list_thumbnails)
 
@@ -3077,9 +3090,10 @@ class ModernRightSidebar(QWidget):
             self.load_comments()
         elif panel_name == "thumbnails":
             self.main_stack.setCurrentIndex(2)
-            self.lbl_head_title.setText(LanguageManager.tr("thumbnails_panel_title"))
+            self.lbl_head_title.setText(LanguageManager.tr("sidebar_pages"))
             self.lbl_head_icon.setPixmap(ModernIconFactory.icon_thumbnails().pixmap(16, 16))
-            self.btn_add.hide()
+            self.btn_add.show()
+            self.btn_add.setToolTip(LanguageManager.tr("sidebar_add_page"))
             self.load_thumbnails()
         elif panel_name == "attachments":
             self.main_stack.setCurrentIndex(3)
@@ -3100,7 +3114,7 @@ class ModernRightSidebar(QWidget):
         if self.current_panel == "comments":
             self.lbl_head_title.setText(LanguageManager.tr("comments_panel_title"))
         elif self.current_panel == "thumbnails":
-            self.lbl_head_title.setText(LanguageManager.tr("thumbnails_panel_title"))
+            self.lbl_head_title.setText(LanguageManager.tr("sidebar_pages"))
         elif self.current_panel == "attachments":
             self.lbl_head_title.setText(LanguageManager.tr("sidebar_attachments"))
         else:
@@ -3110,6 +3124,10 @@ class ModernRightSidebar(QWidget):
         self.lbl_empty_comments_desc.setText(LanguageManager.tr("comments_no_comments_desc"))
         if hasattr(self, 'lbl_empty_thumbs'):
             self.lbl_empty_thumbs.setText(LanguageManager.tr("sidebar_no_pages_title"))
+        if hasattr(self, 'btn_empty_insert_pdf'):
+            self.btn_empty_insert_pdf.setText(" " + LanguageManager.tr("sidebar_btn_add_pdf"))
+        if hasattr(self, 'btn_empty_add_blank'):
+            self.btn_empty_add_blank.setText(" " + LanguageManager.tr("sidebar_btn_add_blank"))
         if hasattr(self, 'lbl_empty_att'):
             self.lbl_empty_att.setText(LanguageManager.tr("sidebar_no_attachments"))
         if hasattr(self, 'empty_att_btn'):
@@ -3120,6 +3138,8 @@ class ModernRightSidebar(QWidget):
         if hasattr(self, 'btn_add'):
             if self.current_panel == "attachments":
                 self.btn_add.setToolTip(LanguageManager.tr("sidebar_add_attachment"))
+            elif self.current_panel == "thumbnails":
+                self.btn_add.setToolTip(LanguageManager.tr("sidebar_add_page"))
             else:
                 self.btn_add.setToolTip(LanguageManager.tr("bookmarks_add_btn"))
 
@@ -3200,6 +3220,81 @@ class ModernRightSidebar(QWidget):
         if hasattr(self, 'stack_thumbnails'):
             self.stack_thumbnails.setCurrentIndex(0)
 
+    def get_bookmarked_pages(self) -> set:
+        if not self.main_window:
+            return set()
+        tab_doc = self.main_window.get_current_tab_doc()
+        if not tab_doc or not tab_doc.doc:
+            return set()
+        try:
+            toc = tab_doc.doc.get_toc(simple=False)
+            return {
+                entry[2] - 1 for entry in toc
+                if len(entry) > 2 and isinstance(entry[2], int) and entry[2] >= 1
+            }
+        except Exception:
+            return set()
+
+    def _draw_bookmark_ribbon_badge(self, base_pixmap: QPixmap) -> QPixmap:
+        pix = base_pixmap.copy()
+        painter = QPainter(pix)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+
+        rw = 16.0
+        rh = 24.0
+        rnotch = 5.5
+        rx = max(0.0, float(pix.width()) - rw - 5.0)
+        ry = 0.0
+
+        shadow_path = QPainterPath()
+        shadow_path.moveTo(rx + 1.0, ry + 1.0)
+        shadow_path.lineTo(rx + rw + 1.0, ry + 1.0)
+        shadow_path.lineTo(rx + rw + 1.0, ry + rh + 1.5)
+        shadow_path.lineTo(rx + rw / 2.0 + 1.0, ry + rh - rnotch + 1.5)
+        shadow_path.lineTo(rx + 1.0, ry + rh + 1.5)
+        shadow_path.closeSubpath()
+        painter.fillPath(shadow_path, QColor(0, 0, 0, 80))
+
+        ribbon_path = QPainterPath()
+        ribbon_path.moveTo(rx, ry)
+        ribbon_path.lineTo(rx + rw, ry)
+        ribbon_path.lineTo(rx + rw, ry + rh)
+        ribbon_path.lineTo(rx + rw / 2.0, ry + rh - rnotch)
+        ribbon_path.lineTo(rx, ry + rh)
+        ribbon_path.closeSubpath()
+
+        grad = QLinearGradient(rx, ry, rx + rw, ry + rh)
+        grad.setColorAt(0.0, QColor("#fb7185"))
+        grad.setColorAt(0.45, QColor("#ef4444"))
+        grad.setColorAt(1.0, QColor("#be123c"))
+
+        painter.setPen(QPen(QColor("#881337"), 1.0))
+        painter.setBrush(QBrush(grad))
+        painter.drawPath(ribbon_path)
+
+        painter.setPen(QPen(QColor(255, 255, 255, 160), 1.0))
+        painter.drawLine(QPointF(rx + 1, ry + 0.5), QPointF(rx + rw - 1, ry + 0.5))
+
+        iw = 6.6
+        ih = 8.8
+        inot = 2.2
+        ix = rx + (rw - iw) / 2.0
+        iy = ry + 4.0
+        ipath = QPainterPath()
+        ipath.moveTo(ix, iy)
+        ipath.lineTo(ix + iw, iy)
+        ipath.lineTo(ix + iw, iy + ih)
+        ipath.lineTo(ix + iw / 2.0, iy + ih - inot)
+        ipath.lineTo(ix, iy + ih)
+        ipath.closeSubpath()
+
+        painter.setPen(QPen(QColor(255, 255, 255, 235), 0.9))
+        painter.setBrush(QBrush(QColor(255, 255, 255, 75)))
+        painter.drawPath(ipath)
+
+        painter.end()
+        return pix
+
     def _render_thumbnail_page(self, tab_doc, page_idx: int):
         if not tab_doc or not tab_doc.doc or getattr(tab_doc.doc, 'is_closed', False):
             return
@@ -3222,7 +3317,11 @@ class ModernRightSidebar(QWidget):
             pix = page.get_pixmap(matrix=mat, alpha=False)
             img = QImage(pix.samples, pix.width, pix.height, pix.stride, QImage.Format.Format_RGB888).copy()
             pixmap = QPixmap.fromImage(img)
+            is_bm = page_idx in self.get_bookmarked_pages()
+            if is_bm:
+                pixmap = self._draw_bookmark_ribbon_badge(pixmap)
             item.setIcon(QIcon(pixmap))
+            item.setToolTip(f"Sayfa {page_idx + 1}" + (" • Yer İmi Ekli" if is_bm else ""))
         except Exception:
             pass
 
@@ -3263,6 +3362,213 @@ class ModernRightSidebar(QWidget):
             if item:
                 self.list_thumbnails.scrollToItem(item, QAbstractItemView.ScrollHint.EnsureVisible)
             self.list_thumbnails.blockSignals(False)
+
+    def _on_pages_reordered(self, parent=None, start=None, end=None, destination=None, row=None):
+        if not self.main_window:
+            return
+        tab_doc = self.main_window.get_current_tab_doc()
+        if not tab_doc or not tab_doc.doc:
+            return
+        new_order = []
+        for i in range(self.list_thumbnails.count()):
+            it = self.list_thumbnails.item(i)
+            new_order.append(it.data(Qt.ItemDataRole.UserRole))
+        tab_doc.reorder_pages(new_order)
+        for i in range(self.list_thumbnails.count()):
+            self.list_thumbnails.item(i).setData(Qt.ItemDataRole.UserRole, i)
+            self.list_thumbnails.item(i).setText(f"{i + 1}")
+        self.load_thumbnails()
+
+    def _show_thumbnails_context_menu(self, pos: QPoint):
+        item = self.list_thumbnails.itemAt(pos)
+        idx = item.data(Qt.ItemDataRole.UserRole) if item else -1
+        tab_doc = self.main_window.get_current_tab_doc() if self.main_window else None
+
+        menu = QMenu(self)
+        apply_dialog_theme(menu, self)
+
+        act_goto = None
+        act_show_bm = None
+        act_rotate_cw = None
+        act_rotate_ccw = None
+        act_dup = None
+        act_del = None
+        act_style = None
+
+        if item and idx >= 0:
+            act_goto = menu.addAction(ModernIconFactory.icon_cursor(), f"Sayfaya Git ({idx + 1})")
+            if idx in self.get_bookmarked_pages():
+                act_show_bm = menu.addAction(ModernIconFactory.icon_bookmark(), LanguageManager.tr("sidebar_show_in_toc"))
+            menu.addSeparator()
+            act_rotate_cw = menu.addAction(ModernIconFactory.icon_rotate(), LanguageManager.tr("sidebar_rotate_cw"))
+            act_rotate_ccw = menu.addAction(ModernIconFactory.icon_undo(), LanguageManager.tr("sidebar_rotate_ccw"))
+            menu.addSeparator()
+
+        act_blank = menu.addAction(ModernIconFactory.icon_add_page(), LanguageManager.tr("sidebar_btn_add_blank"))
+        act_pdf = menu.addAction(ModernIconFactory.icon_new_document(), LanguageManager.tr("sidebar_btn_add_pdf"))
+
+        if item and idx >= 0:
+            if hasattr(self.main_window, 'show_change_page_style_dialog'):
+                act_style = menu.addAction(ModernIconFactory.icon_brush(), LanguageManager.tr("change_page_style_action"))
+            act_dup = menu.addAction(ModernIconFactory.icon_new_document(), LanguageManager.tr("sidebar_duplicate_page"))
+            menu.addSeparator()
+            act_del = menu.addAction(ModernIconFactory.icon_trash(), LanguageManager.tr("sidebar_delete_page"))
+
+        chosen = menu.exec(self.list_thumbnails.mapToGlobal(pos))
+        if not chosen:
+            return
+
+        if chosen == act_goto and tab_doc:
+            tab_doc.go_to_page(idx)
+        elif chosen == act_show_bm and idx >= 0:
+            self.show_bookmark_for_page(idx)
+        elif chosen == act_rotate_cw and idx >= 0:
+            self._rotate_page(idx, 90)
+        elif chosen == act_rotate_ccw and idx >= 0:
+            self._rotate_page(idx, -90)
+        elif chosen == act_blank:
+            self._on_add_blank_page_clicked(idx if idx >= 0 else None)
+        elif chosen == act_pdf:
+            self._on_add_pdf_clicked(idx if idx >= 0 else None)
+        elif chosen == act_style and idx >= 0 and hasattr(self.main_window, 'show_change_page_style_dialog'):
+            self.main_window.show_change_page_style_dialog(idx)
+        elif chosen == act_dup and idx >= 0:
+            self._duplicate_page(idx)
+        elif chosen == act_del and idx >= 0:
+            self._delete_page(idx)
+
+    def _on_add_page_menu_requested(self):
+        menu = QMenu(self)
+        apply_dialog_theme(menu, self)
+        act_blank = menu.addAction(ModernIconFactory.icon_add_page(), LanguageManager.tr("sidebar_btn_add_blank"))
+        act_pdf = menu.addAction(ModernIconFactory.icon_new_document(), LanguageManager.tr("sidebar_btn_add_pdf"))
+        pos = self.btn_add.mapToGlobal(QPoint(0, self.btn_add.height() + 2)) if hasattr(self, 'btn_add') else QCursor.pos()
+        chosen = menu.exec(pos)
+        if chosen == act_blank:
+            self._on_add_blank_page_clicked()
+        elif chosen == act_pdf:
+            self._on_add_pdf_clicked()
+
+    def _on_add_blank_page_clicked(self, after_page: Optional[int] = None):
+        tab_doc = self.main_window.get_current_tab_doc() if self.main_window else None
+        target_after = after_page
+        if target_after is None and tab_doc:
+            curr_item = self.list_thumbnails.currentItem()
+            target_after = curr_item.data(Qt.ItemDataRole.UserRole) if curr_item else getattr(tab_doc, 'current_page_idx', None)
+
+        menu = QMenu(self)
+        apply_dialog_theme(menu, self)
+        styles = [
+            (LanguageManager.tr("template_blank"), "blank"),
+            (LanguageManager.tr("template_grid"), "grid"),
+            (LanguageManager.tr("template_lines"), "lined"),
+            (LanguageManager.tr("template_dotted"), "dotted"),
+            (LanguageManager.tr("template_cornell"), "cornell"),
+            (LanguageManager.tr("template_cover"), "cover")
+        ]
+        for name, style_code in styles:
+            act = menu.addAction(name)
+            act.setData(style_code)
+
+        chosen = menu.exec(QCursor.pos())
+        if chosen:
+            style = chosen.data()
+            if tab_doc and tab_doc.doc is not None:
+                tab_doc.insert_blank_page(after_page=target_after, style=style)
+                self.load_thumbnails()
+                if target_after is not None:
+                    tab_doc.go_to_page(target_after + 1)
+            elif self.main_window and hasattr(self.main_window, 'new_blank_document'):
+                self.main_window.new_blank_document(style)
+
+    def _on_add_pdf_clicked(self, after_page: Optional[int] = None):
+        tab_doc = self.main_window.get_current_tab_doc() if self.main_window else None
+        target_after = after_page
+        if target_after is None and tab_doc:
+            curr_item = self.list_thumbnails.currentItem()
+            target_after = curr_item.data(Qt.ItemDataRole.UserRole) if curr_item else getattr(tab_doc, 'current_page_idx', None)
+
+        if tab_doc and tab_doc.doc is not None:
+            path, _ = QFileDialog.getOpenFileName(self, "PDF Dosyası Seç", "", "PDF Dosyaları (*.pdf)")
+            if path:
+                tab_doc.insert_pdf_at(path, after_page=target_after)
+                self.load_thumbnails()
+        elif self.main_window:
+            paths, _ = QFileDialog.getOpenFileNames(self, "PDF Dosyası Seç", "", "PDF Dosyaları (*.pdf)")
+            if paths:
+                for p in paths:
+                    self.main_window.add_pdf_tab(p)
+
+    def _rotate_page(self, page_idx: int, angle: int):
+        tab_doc = self.main_window.get_current_tab_doc() if self.main_window else None
+        if not tab_doc or not tab_doc.doc or not (0 <= page_idx < len(tab_doc.doc)):
+            return
+        page = tab_doc.doc[page_idx]
+        page.set_rotation((page.rotation + angle) % 360)
+        tab_doc.set_modified(True)
+        tab_doc.render_all_pages()
+        self.load_thumbnails()
+
+    def _duplicate_page(self, page_idx: int):
+        tab_doc = self.main_window.get_current_tab_doc() if self.main_window else None
+        if not tab_doc or not tab_doc.doc or not (0 <= page_idx < len(tab_doc.doc)):
+            return
+        try:
+            tab_doc.doc.insert_pdf(tab_doc.doc, from_page=page_idx, to_page=page_idx, start_at=page_idx + 1)
+            tab_doc.set_modified(True)
+            tab_doc.render_all_pages()
+            self.load_thumbnails()
+            tab_doc.go_to_page(page_idx + 1)
+        except Exception as e:
+            QMessageBox.warning(self, LanguageManager.tr("app_title"), f"Sayfa çoğaltılamadı: {e}")
+
+    def _delete_page(self, page_idx: int):
+        tab_doc = self.main_window.get_current_tab_doc() if self.main_window else None
+        if not tab_doc or not tab_doc.doc:
+            return
+        if len(tab_doc.doc) <= 1:
+            QMessageBox.warning(self, LanguageManager.tr("app_title"), "Belgedeki son sayfa silinemez.")
+            return
+        ans = QMessageBox.question(
+            self, LanguageManager.tr("app_title"),
+            f"Sayfa {page_idx + 1} kalıcı olarak silinsin mi?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+        if ans == QMessageBox.StandardButton.Yes:
+            tab_doc.delete_page(page_idx)
+            self.load_thumbnails()
+
+    def show_bookmark_for_page(self, page_idx: int):
+        self.set_panel("bookmarks")
+        def search_item(parent):
+            for i in range(parent.childCount()):
+                ch = parent.child(i)
+                if ch.data(0, Qt.ItemDataRole.UserRole) == page_idx:
+                    return ch
+                found = search_item(ch)
+                if found:
+                    return found
+            return None
+
+        target = None
+        for i in range(self.tree_bookmarks.topLevelItemCount()):
+            top = self.tree_bookmarks.topLevelItem(i)
+            if top.data(0, Qt.ItemDataRole.UserRole) == page_idx:
+                target = top
+                break
+            target = search_item(top)
+            if target:
+                break
+
+        if target:
+            p = target.parent()
+            while p:
+                p.setExpanded(True)
+                p = p.parent()
+            self.tree_bookmarks.clearSelection()
+            target.setSelected(True)
+            self.tree_bookmarks.setCurrentItem(target)
+            self.tree_bookmarks.scrollToItem(target)
 
     def load_bookmarks(self):
         """Aktif belgenin yer imlerini yükler."""
@@ -3488,6 +3794,8 @@ class ModernRightSidebar(QWidget):
     def _on_header_add_clicked(self):
         if self.current_panel == "attachments":
             self._add_attachment_action()
+        elif self.current_panel == "thumbnails":
+            self._on_add_page_menu_requested()
         else:
             self._add_bookmark_action()
 
