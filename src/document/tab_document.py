@@ -14,13 +14,71 @@ from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QGraphicsView, QGraphicsScene
 from PyQt6.QtGui import (QImage, QPixmap, QPen, QColor, QPainter, QPainterPath, QPainterPathStroker,
                          QBrush, QLinearGradient, QRadialGradient, QFont,
                          QFontMetrics, QFontMetricsF, QTransform, QDesktopServices, QCursor)
-from PyQt6.QtCore import (Qt, QRectF, QPointF, QPoint, QTimer, QLineF, QEvent, QSettings, QUrl)
+from PyQt6.QtCore import (Qt, QRectF, QPointF, QPoint, QTimer, QLineF, QEvent, QSettings, QUrl,
+                          QThread, pyqtSignal as _pyqtSignal, QMutex, QMutexLocker)
 
 from src.core.i18n import LanguageManager
 from src.ui.icons import ModernIconFactory
 from src.ui.cursors import CursorFactory
 from src.ui.widgets import EditableInlineTextItem
 from src.document.media_items import PDFTableItem, PDFResizableImageItem, PDFAudioItem, PDFVideoItem
+
+
+# ---------------------------------------------------------------------------
+# Async PDF Render Worker - ana thread'i bloklamadan sayfaları render eder
+# ---------------------------------------------------------------------------
+class _PageRenderWorker(QThread):
+    """Arka planda PDF sayfalarını render edip QPixmap olarak ana thread'e gönderir."""
+    page_rendered = _pyqtSignal(int, object)  # (page_idx, QPixmap)
+    finished_all  = _pyqtSignal()
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._mutex  = QMutex()
+        self._jobs: list = []   # [(page_idx, fitz.Matrix, str, fitz.Document)]
+        self._abort = False
+
+    def schedule(self, jobs: list):
+        """jobs: [(page_idx, matrix, color_mode, doc_ptr)] listesi."""
+        with QMutexLocker(self._mutex):
+            self._jobs = list(jobs)
+            self._abort = False
+
+    def abort(self):
+        with QMutexLocker(self._mutex):
+            self._abort = True
+            self._jobs.clear()
+
+    def run(self):
+        while True:
+            with QMutexLocker(self._mutex):
+                if not self._jobs:
+                    break
+                job = self._jobs.pop(0)
+                if len(job) >= 5:
+                    page_idx, mat, mode, doc, annots_flag = job[:5]
+                else:
+                    page_idx, mat, mode, doc = job[:4]
+                    annots_flag = True
+                if self._abort:
+                    break
+            try:
+                pix = doc[page_idx].get_pixmap(matrix=mat, annots=annots_flag)
+                if mode == 'dark':
+                    pix.invert_irect()
+                qimg = QImage(pix.samples, pix.width, pix.height,
+                              pix.stride, QImage.Format.Format_RGB888)
+                if mode == 'sepia':
+                    p_sepia = QPainter(qimg)
+                    p_sepia.setCompositionMode(
+                        QPainter.CompositionMode.CompositionMode_Multiply)
+                    p_sepia.fillRect(qimg.rect(), QColor(246, 238, 220))
+                    p_sepia.end()
+                qpix = QPixmap.fromImage(qimg)
+                self.page_rendered.emit(page_idx, qpix)
+            except Exception:
+                pass
+        self.finished_all.emit()
 
 
 def build_fountain_pen_path(raw_pts: List[QPointF], base_width: float = 6.0, min_width: float = 1.8) -> QPainterPath:
@@ -258,24 +316,40 @@ class BookmarkRibbonItem(QGraphicsItem):
         h = self.HEIGHT
         notch = self.NOTCH
 
-        path = QPainterPath()
-        path.moveTo(0, 0)
-        path.lineTo(w, 0)
-        path.lineTo(w, h)
-        path.lineTo(w / 2.0, h - notch)
-        path.lineTo(0, h)
-        path.closeSubpath()
+        # Path caching - her repaint'te yeniden oluşturmak yerine cache kullan
+        if not hasattr(self, '_cached_path') or self._cached_path is None:
+            self._cached_path = QPainterPath()
+            self._cached_path.moveTo(0, 0)
+            self._cached_path.lineTo(w, 0)
+            self._cached_path.lineTo(w, h)
+            self._cached_path.lineTo(w / 2.0, h - notch)
+            self._cached_path.lineTo(0, h)
+            self._cached_path.closeSubpath()
+
+            self._cached_shadow_path = QPainterPath()
+            self._cached_shadow_path.moveTo(1, 1)
+            self._cached_shadow_path.lineTo(w + 1, 1)
+            self._cached_shadow_path.lineTo(w + 1, h + 2)
+            self._cached_shadow_path.lineTo(w / 2.0 + 1, h - notch + 2)
+            self._cached_shadow_path.lineTo(1, h + 2)
+            self._cached_shadow_path.closeSubpath()
+
+            iw, ih = w * 0.44, h * 0.42
+            ix, iy = (w - iw) / 2.0, 7.0
+            inotch = notch * 0.42
+            self._cached_icon_path = QPainterPath()
+            self._cached_icon_path.moveTo(ix, iy)
+            self._cached_icon_path.lineTo(ix + iw, iy)
+            self._cached_icon_path.lineTo(ix + iw, iy + ih)
+            self._cached_icon_path.lineTo(ix + iw / 2.0, iy + ih - inotch)
+            self._cached_icon_path.lineTo(ix, iy + ih)
+            self._cached_icon_path.closeSubpath()
+
+        path = self._cached_path
 
         if self.is_bookmarked:
             # 1. Alt gölge
-            shadow_path = QPainterPath()
-            shadow_path.moveTo(1, 1)
-            shadow_path.lineTo(w + 1, 1)
-            shadow_path.lineTo(w + 1, h + 2)
-            shadow_path.lineTo(w / 2.0 + 1, h - notch + 2)
-            shadow_path.lineTo(1, h + 2)
-            shadow_path.closeSubpath()
-            painter.fillPath(shadow_path, QColor(0, 0, 0, 45))
+            painter.fillPath(self._cached_shadow_path, QColor(0, 0, 0, 45))
 
             # 2. Canlı kırmızı gövde gradient
             grad = QLinearGradient(0, 0, w, h)
@@ -295,20 +369,9 @@ class BookmarkRibbonItem(QGraphicsItem):
             painter.drawLine(QPointF(1, 1), QPointF(w - 1, 1))
 
             # 4. İç zarif yer imi ikonu
-            icon_path = QPainterPath()
-            iw, ih = w * 0.44, h * 0.42
-            ix, iy = (w - iw) / 2.0, 7.0
-            inotch = notch * 0.42
-            icon_path.moveTo(ix, iy)
-            icon_path.lineTo(ix + iw, iy)
-            icon_path.lineTo(ix + iw, iy + ih)
-            icon_path.lineTo(ix + iw / 2.0, iy + ih - inotch)
-            icon_path.lineTo(ix, iy + ih)
-            icon_path.closeSubpath()
-
             painter.setPen(QPen(QColor(255, 255, 255, 220), 1.2))
             painter.setBrush(QBrush(QColor(255, 255, 255, 45)))
-            painter.drawPath(icon_path)
+            painter.drawPath(self._cached_icon_path)
 
         else:
             if self.is_hovered:
@@ -736,7 +799,7 @@ ModernMeasurementItem = AuraMeasurementItem
 
 # --- 9. TEKİL SEKME BELGE YÖNETİCİSİ (TAB DOCUMENT) ---
 class PDFTabDocument(QWidget):
-    def __init__(self, file_path: Optional[str], main_window: 'AuraPDFViewer', initial_style: Optional[str] = None, initial_width: Optional[float] = None, initial_height: Optional[float] = None, create_initial_page: bool = False):
+    def __init__(self, file_path: Optional[str] = None, main_window: Optional['AuraPDFViewer'] = None, initial_style: Optional[str] = None, initial_width: Optional[float] = None, initial_height: Optional[float] = None, create_initial_page: bool = False):
         super().__init__()
         self.file_path = file_path
         self.main_window = main_window
@@ -799,6 +862,10 @@ class PDFTabDocument(QWidget):
         self.save_undo_index = 0
         self.bookmark_ribbon_items: Dict[int, BookmarkRibbonItem] = {}
         self._last_hovered_ribbon: Optional[BookmarkRibbonItem] = None
+        self.is_form_design_mode: bool = False
+        self.form_designer_items: list = []
+        self.pending_form_field_type: Optional[str] = None
+        self._form_ghost_item = None
 
         # Page numbering tracking
         self.pre_numbering_bytes = None
@@ -930,6 +997,7 @@ class PDFTabDocument(QWidget):
         if self.zoom_level != 1.0:
             self.view.scale(self.zoom_level, self.zoom_level)
         self.rerender_visible_pages()
+        QTimer.singleShot(0, lambda: self.go_to_page(self.current_page_idx) if hasattr(self, 'current_page_idx') else None)
 
     def _setup_ui(self):
         layout = QVBoxLayout(self)
@@ -937,9 +1005,19 @@ class PDFTabDocument(QWidget):
 
         self.scene = QGraphicsScene(self)
         self.view = QGraphicsView(self.scene)
+        self.view.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        # Antialiasing yalnızca vektörel çizimler için; pixmap render hint devre dışı
+        # → CPU yükünü azaltır, kasmayı önler
         self.view.setRenderHint(QPainter.RenderHint.Antialiasing)
-        self.view.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
-        self.view.setViewportUpdateMode(QGraphicsView.ViewportUpdateMode.BoundingRectViewportUpdate)
+        self.view.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform, False)
+        # SmartViewportUpdate: Değişen bölgeleri ve hareketli öğeleri pürüzsüz günceller, yırtılma ve hayalet kalıntıları önler
+        self.view.setViewportUpdateMode(QGraphicsView.ViewportUpdateMode.SmartViewportUpdate)
+        # Sürükleme optimizasyonu
+        self.view.setDragMode(QGraphicsView.DragMode.NoDrag)
+        # Optimal caching
+        self.view.setCacheMode(QGraphicsView.CacheModeFlag.CacheBackground)
+        self.view.setOptimizationFlag(
+            QGraphicsView.OptimizationFlag.DontAdjustForAntialiasing, False)
         self.view.setStyleSheet("background-color: #181818; border: none;")
         self.view.setAcceptDrops(True)
         self.view.viewport().setAcceptDrops(True)
@@ -951,9 +1029,23 @@ class PDFTabDocument(QWidget):
         self.view.installEventFilter(self)
         self.view.verticalScrollBar().valueChanged.connect(self.on_scroll_change)
 
+        # Ana render timer - scroll/zoom sonrası tetiklenir
         self.rerender_timer = QTimer(self)
         self.rerender_timer.setSingleShot(True)
         self.rerender_timer.timeout.connect(self.rerender_visible_pages)
+
+        # Async render worker
+        self._render_worker = _PageRenderWorker(self)
+        self._render_worker.page_rendered.connect(self._on_page_rendered)
+
+        # Zoom ayarı kaydetme için debounce timer (her zoom'da disk I/O yapmamak için)
+        self._zoom_save_timer = QTimer(self)
+        self._zoom_save_timer.setSingleShot(True)
+        self._zoom_save_timer.setInterval(1500)
+        self._zoom_save_timer.timeout.connect(self._do_save_zoom_setting)
+
+        # Scroll debounce - hızlı scroll'da gereksiz render'ı önler
+        self._scroll_pending = False
 
     @staticmethod
     def _parse_da_string(da_str: str):
@@ -1212,11 +1304,31 @@ class PDFTabDocument(QWidget):
                 pass
 
     def close_document(self):
-        self.save_zoom_setting()
+        # Zoom ayarını hemen diske yaz (debounce geç kalabilir)
+        try:
+            if hasattr(self, '_zoom_save_timer') and self._zoom_save_timer:
+                self._zoom_save_timer.stop()
+        except Exception:
+            pass
+        self._do_save_zoom_setting()
+
         self.clear_search_highlights()
         self.hide_laser_pointer()
         self._cleanup_comment_drag()
         self.clear_pending_stamp()
+        self.cancel_form_field_placement()
+        self.clear_form_designer_items()
+
+        # Async render worker'ı güvenli şekilde durdur
+        if hasattr(self, '_render_worker') and self._render_worker:
+            try:
+                self._render_worker.abort()
+                if self._render_worker.isRunning():
+                    self._render_worker.quit()
+                    self._render_worker.wait(500)
+            except Exception:
+                pass
+
         if hasattr(self, 'active_fade_controllers') and self.active_fade_controllers:
             for c in self.active_fade_controllers:
                 try:
@@ -1296,11 +1408,37 @@ class PDFTabDocument(QWidget):
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
+        self.center_current_page_horizontal()
         self.rerender_visible_pages()
         if hasattr(self, 'direct_edit_banner') and self.direct_edit_banner:
             self.direct_edit_banner.reposition()
         if hasattr(self, 'direct_edit_editor') and self.direct_edit_editor:
             self.direct_edit_editor.reposition()
+
+    def center_current_page_horizontal(self):
+        """Panel açılıp kapandığında veya pencere boyutu değiştiğinde açık sayfanın yatayda tam ortalanmasını sağlar."""
+        if not hasattr(self, 'view') or not self.view or not hasattr(self, 'doc') or not self.doc:
+            return
+        if not hasattr(self, 'page_positions') or not self.page_positions:
+            return
+        try:
+            p_idx = getattr(self, 'current_page_idx', 0)
+            if p_idx not in self.page_positions:
+                p_idx = min(self.page_positions.keys(), key=lambda k: abs(k - p_idx)) if self.page_positions else 0
+            if p_idx in self.page_positions:
+                p_info = self.page_positions[p_idx]
+                page_center_x = p_info.get('left', 0.0) + p_info.get('width', 0.0) / 2.0
+            else:
+                s_rect = self.scene.sceneRect()
+                page_center_x = s_rect.center().x()
+
+            vp = self.view.viewport()
+            if not vp or vp.width() <= 0 or vp.height() <= 0:
+                return
+            current_center_scene = self.view.mapToScene(vp.rect().center())
+            self.view.centerOn(page_center_x, current_center_scene.y())
+        except Exception:
+            pass
 
     # --- DRY (Don't Repeat Yourself) Uygulaması: PDF'e aktarım mantığı ---
     def export_drawings_to_pdf(self, target_doc: fitz.Document, page_mapping: Optional[List[int]] = None):
@@ -2349,9 +2487,10 @@ class PDFTabDocument(QWidget):
         if not order_changed and not rotations_changed:
             return
 
-        old_bytes = self.doc.tobytes()
         old_drawings = [dict(d) for d in self.drawings]
         old_page = self.current_page_idx
+        old_to_new = {old: new for new, old in enumerate(new_order)}
+        old_order = [old_to_new[i] for i in range(len(new_order))]
 
         if order_changed:
             self._apply_page_order(new_order)
@@ -2359,8 +2498,9 @@ class PDFTabDocument(QWidget):
             for i, rot in enumerate(rotations):
                 if rot is not None:
                     self.doc[i].set_rotation(rot % 360)
-            self.render_pages_init()
-            self.rerender_visible_pages()
+            if self.isVisible():
+                self.render_pages_init()
+                self.rerender_visible_pages()
             if hasattr(self.main_window, 'thumbnails_dock') and self.main_window.thumbnails_dock:
                 if self.main_window.thumbnails_dock.isVisible():
                     self.main_window.thumbnails_dock.load_thumbnails_lazy()
@@ -2369,13 +2509,12 @@ class PDFTabDocument(QWidget):
         if push_undo:
             action = {
                 "type": "reorder_pages",
-                "old_bytes": old_bytes,
+                "old_order": old_order,
+                "new_order": list(new_order),
                 "old_drawings": old_drawings,
                 "old_page": old_page,
-                "new_bytes": self.doc.tobytes(),
                 "new_drawings": [dict(d) for d in self.drawings],
                 "new_page": self.current_page_idx,
-                "new_order": list(new_order)
             }
             self.push_undo_action(action)
         self.set_modified(True)
@@ -2385,6 +2524,14 @@ class PDFTabDocument(QWidget):
             return
         if not (0 <= page_idx < len(self.doc)):
             return
+
+        if hasattr(self, '_render_worker') and self._render_worker:
+            try:
+                if self._render_worker.isRunning():
+                    self._render_worker.abort()
+                    self._render_worker.wait()
+            except Exception:
+                pass
 
         old_bytes = self.doc.tobytes() if len(self.doc) > 0 else b""
         old_drawings = [dict(d) for d in self.drawings]
@@ -2581,8 +2728,9 @@ class PDFTabDocument(QWidget):
             old_page = self.current_page_idx
 
             insert_idx = page_idx + 1
-            temp_doc = fitz.open("pdf", self.doc.tobytes())
-            self.doc.insert_pdf(temp_doc, from_page=page_idx, to_page=page_idx, start_at=insert_idx)
+            temp_doc = fitz.open()
+            temp_doc.insert_pdf(self.doc, from_page=page_idx, to_page=page_idx)
+            self.doc.insert_pdf(temp_doc, start_at=insert_idx)
             temp_doc.close()
 
             for d in self.drawings:
@@ -2614,6 +2762,55 @@ class PDFTabDocument(QWidget):
             return True
         except Exception:
             return False
+
+    def insert_pdf_at(self, pdf_path: str, after_page: Optional[int] = None) -> int:
+        """Harici bir PDF dosyasının tüm sayfalarını belirtilen sayfanın ardına ekler."""
+        if self.doc is None or not os.path.exists(pdf_path):
+            return 0
+        if after_page is None:
+            after_page = self.current_page_idx
+        insert_idx = max(0, min(after_page + 1, len(self.doc)))
+
+        old_bytes = self.doc.tobytes() if len(self.doc) > 0 else b""
+        old_drawings = [dict(d) for d in self.drawings]
+        old_page = self.current_page_idx
+
+        ext_doc = fitz.open(pdf_path)
+        page_count = len(ext_doc)
+        if page_count == 0:
+            ext_doc.close()
+            return 0
+
+        self.doc.insert_pdf(ext_doc, start_at=insert_idx)
+        ext_doc.close()
+
+        for d in self.drawings:
+            if d.get("page", 0) >= insert_idx:
+                d["page"] += page_count
+
+        self.render_pages_init()
+        self.rerender_visible_pages()
+        self.go_to_page(insert_idx)
+
+        if hasattr(self.main_window, 'lbl_total') and self.main_window.lbl_total:
+            self.main_window.lbl_total.setText(LanguageManager.tr("page_of", total=len(self.doc)))
+        if hasattr(self.main_window, 'txt_page') and self.main_window.txt_page:
+            self.main_window.txt_page.setText(str(insert_idx + 1))
+
+        self.notify_thumbnails_updated(insert_idx)
+
+        self.push_undo_action({
+            "type": "reorder_pages",
+            "old_bytes": old_bytes,
+            "old_drawings": old_drawings,
+            "old_page": old_page,
+            "new_bytes": self.doc.tobytes(),
+            "new_drawings": [dict(d) for d in self.drawings],
+            "new_page": insert_idx,
+            "new_order": list(range(len(self.doc)))
+        })
+        self.set_modified(True)
+        return page_count
 
     def insert_blank_page(self, after_page: Optional[int] = None, width: Optional[float] = None, height: Optional[float] = None, style: str = "blank"):
         """Mevcut dokümana belirtilen sayfanın ardına boş bir sayfa ekler.
@@ -2733,6 +2930,15 @@ class PDFTabDocument(QWidget):
         self.set_modified(True)
 
     def _apply_page_order(self, order: List[int]):
+        # Arka plan render worker'i varsa once durdur ve bekle (MuPDF islem guvenligi)
+        if hasattr(self, '_render_worker') and self._render_worker:
+            try:
+                if self._render_worker.isRunning():
+                    self._render_worker.abort()
+                    self._render_worker.wait() # Indefinite wait guarantees worker stops before doc mutation
+            except Exception:
+                pass
+
         if getattr(self, 'active_text_item', None):
             if hasattr(self.active_text_item, 'toPlainText'):
                 if self.active_text_item.toPlainText().strip():
@@ -2758,12 +2964,19 @@ class PDFTabDocument(QWidget):
                 remaining_drawings.append(d)
         self.drawings = remaining_drawings
 
-        self.render_pages_init()
-        self.rerender_visible_pages()
+        is_tab_visible = self.isVisible() and (
+            self.main_window and hasattr(self.main_window, 'central_stack')
+            and self.main_window.central_stack.currentWidget() == getattr(self.main_window, 'tab_widget', None)
+        )
+        if is_tab_visible:
+            self.render_pages_init()
+            self.rerender_visible_pages()
 
         new_curr = old_to_new.get(prev_current_page, min(prev_current_page, len(self.doc) - 1))
         new_curr = max(0, min(new_curr, len(self.doc) - 1))
-        self.go_to_page(new_curr)
+        self.current_page_idx = new_curr
+        if is_tab_visible:
+            self.go_to_page(new_curr)
 
         if hasattr(self.main_window, 'thumbnails_dock'):
             dock = self.main_window.thumbnails_dock
@@ -3001,34 +3214,53 @@ class PDFTabDocument(QWidget):
             brush_col = QColor(246, 238, 220)
             pen_col = QColor(90, 77, 63)
 
+        num_pages = len(self.doc)
+        if self.page_view_mode == "double":
+            max_row_w = 0.0
+            i = 0
+            while i < num_pages:
+                pr1 = self.doc[i].rect
+                rw = pr1.width * self.base_render_dpi
+                if i + 1 < num_pages:
+                    pr2 = self.doc[i + 1].rect
+                    rw += self.PAGE_MARGIN + (pr2.width * self.base_render_dpi)
+                    i += 2
+                else:
+                    i += 1
+                if rw > max_row_w:
+                    max_row_w = rw
+        else:
+            max_row_w = max((self.doc[idx].rect.width * self.base_render_dpi for idx in range(num_pages)), default=595.0 * self.base_render_dpi)
+
         if self.page_view_mode == "double":
             y_offset = 15
-            num_pages = len(self.doc)
             i = 0
             while i < num_pages:
                 p_rect1 = self.doc[i].rect
                 w1, h1 = p_rect1.width * self.base_render_dpi, p_rect1.height * self.base_render_dpi
 
-                bg_rect1 = self.scene.addRect(0, y_offset, w1, h1, QPen(pen_col, 1), QBrush(brush_col))
-                bg_rect1.setZValue(-2)
-                bg_rect1.setFlag(QGraphicsItem.GraphicsItemFlag.ItemClipsChildrenToShape, True)
-
-                pix_item1 = self.scene.addPixmap(QPixmap())
-                pix_item1.setPos(0, y_offset)
-                pix_item1.setZValue(-1)
-
-                self.page_positions[i] = {
-                    'item': pix_item1, 'bg_rect': bg_rect1,
-                    'left': 0.0, 'right': w1,
-                    'top': y_offset, 'bottom': y_offset + h1,
-                    'height': h1, 'width': w1, 'rendered_zoom': 0.0
-                }
-
-                row_h = h1
                 if i + 1 < num_pages:
                     p_rect2 = self.doc[i + 1].rect
                     w2, h2 = p_rect2.width * self.base_render_dpi, p_rect2.height * self.base_render_dpi
-                    x2 = w1 + self.PAGE_MARGIN
+                    row_w = w1 + self.PAGE_MARGIN + w2
+                    row_x_offset = max(0.0, (max_row_w - row_w) / 2.0)
+                    x1 = row_x_offset
+                    x2 = row_x_offset + w1 + self.PAGE_MARGIN
+
+                    bg_rect1 = self.scene.addRect(x1, y_offset, w1, h1, QPen(pen_col, 1), QBrush(brush_col))
+                    bg_rect1.setZValue(-2)
+                    bg_rect1.setFlag(QGraphicsItem.GraphicsItemFlag.ItemClipsChildrenToShape, True)
+
+                    pix_item1 = self.scene.addPixmap(QPixmap())
+                    pix_item1.setPos(x1, y_offset)
+                    pix_item1.setZValue(-1)
+
+                    self.page_positions[i] = {
+                        'item': pix_item1, 'bg_rect': bg_rect1,
+                        'left': float(x1), 'right': float(x1 + w1),
+                        'top': y_offset, 'bottom': y_offset + h1,
+                        'height': h1, 'width': w1, 'rendered_zoom': 0.0
+                    }
 
                     bg_rect2 = self.scene.addRect(x2, y_offset, w2, h2, QPen(pen_col, 1), QBrush(brush_col))
                     bg_rect2.setZValue(-2)
@@ -3047,26 +3279,43 @@ class PDFTabDocument(QWidget):
                     row_h = max(h1, h2)
                     i += 2
                 else:
+                    row_x_offset = max(0.0, (max_row_w - w1) / 2.0)
+                    bg_rect1 = self.scene.addRect(row_x_offset, y_offset, w1, h1, QPen(pen_col, 1), QBrush(brush_col))
+                    bg_rect1.setZValue(-2)
+                    bg_rect1.setFlag(QGraphicsItem.GraphicsItemFlag.ItemClipsChildrenToShape, True)
+
+                    pix_item1 = self.scene.addPixmap(QPixmap())
+                    pix_item1.setPos(row_x_offset, y_offset)
+                    pix_item1.setZValue(-1)
+
+                    self.page_positions[i] = {
+                        'item': pix_item1, 'bg_rect': bg_rect1,
+                        'left': float(row_x_offset), 'right': float(row_x_offset + w1),
+                        'top': y_offset, 'bottom': y_offset + h1,
+                        'height': h1, 'width': w1, 'rendered_zoom': 0.0
+                    }
+                    row_h = h1
                     i += 1
 
                 y_offset += row_h + self.PAGE_MARGIN
         else:
             y_offset = 15
-            for idx in range(len(self.doc)):
+            for idx in range(num_pages):
                 p_rect = self.doc[idx].rect
                 w, h = p_rect.width * self.base_render_dpi, p_rect.height * self.base_render_dpi
+                x_offset = max(0.0, (max_row_w - w) / 2.0)
 
-                bg_rect = self.scene.addRect(0, y_offset, w, h, QPen(pen_col, 1), QBrush(brush_col))
+                bg_rect = self.scene.addRect(x_offset, y_offset, w, h, QPen(pen_col, 1), QBrush(brush_col))
                 bg_rect.setZValue(-2)
                 bg_rect.setFlag(QGraphicsItem.GraphicsItemFlag.ItemClipsChildrenToShape, True)
 
                 pix_item = self.scene.addPixmap(QPixmap())
-                pix_item.setPos(0, y_offset)
+                pix_item.setPos(x_offset, y_offset)
                 pix_item.setZValue(-1)
 
                 self.page_positions[idx] = {
                     'item': pix_item, 'bg_rect': bg_rect,
-                    'left': 0.0, 'right': w,
+                    'left': float(x_offset), 'right': float(x_offset + w),
                     'top': y_offset, 'bottom': y_offset + h,
                     'height': h, 'width': w, 'rendered_zoom': 0.0
                 }
@@ -3076,7 +3325,12 @@ class PDFTabDocument(QWidget):
             self.restore_drawing_item(record)
         self.init_bookmark_ribbons()
         self._load_interactive_form_widgets()
-        self.scene.setSceneRect(self.scene.itemsBoundingRect().adjusted(-20, -10, 20, 20))
+        if self.page_positions:
+            max_right = max(p['right'] for p in self.page_positions.values())
+            max_bottom = max(p['bottom'] for p in self.page_positions.values())
+            self.scene.setSceneRect(-20, -10, max_right + 40, max_bottom + 20)
+        else:
+            self.scene.setSceneRect(self.scene.itemsBoundingRect().adjusted(-20, -10, 20, 20))
 
     def init_bookmark_ribbons(self):
         self.bookmark_ribbon_items = {}
@@ -3256,36 +3510,107 @@ class PDFTabDocument(QWidget):
             self.main_window.thumbnails_dock.load_bookmarks()
 
     def rerender_visible_pages(self, force: bool = False):
-        if self.doc is None or not self.page_positions: return
+        """Görünür sayfaları arka plan thread'inde render eder.
+        Küçük sayfa sayısı veya forced mod için senkron render uygulanır;
+        büyük belgeler async worker'a devredilir.
+        """
+        if self.doc is None or not self.page_positions:
+            return
 
         visible_rect = self.view.mapToScene(self.view.viewport().rect()).boundingRect()
-        buffer_top, buffer_bottom = visible_rect.top() - 800, visible_rect.bottom() + 800
-        target_scale = self.base_render_dpi * self.zoom_level
-        mat = fitz.Matrix(target_scale, target_scale)
+        # Buffer: viewport yüksekliğinin yarısı kadar ön-yükleme
+        vp_h = self.view.viewport().height()
+        buffer = max(600, vp_h * 0.6)
+        buffer_top    = visible_rect.top()    - buffer
+        buffer_bottom = visible_rect.bottom() + buffer
+        # Uzak sayfaları temizleme eşiği
+        unload_dist   = max(3000, vp_h * 2.5)
 
+        target_scale = self.base_render_dpi * self.zoom_level
+        mat  = fitz.Matrix(target_scale, target_scale)
         mode = getattr(self, 'reading_color_mode', 'normal')
+        zoom = self.zoom_level
+
+        jobs_needed: list[tuple] = []
 
         for idx, pinfo in self.page_positions.items():
-            if not (pinfo['bottom'] < buffer_top or pinfo['top'] > buffer_bottom):
-                if force or abs(pinfo.get('rendered_zoom', 0.0) - self.zoom_level) > 0.05 or pinfo['item'].pixmap().isNull():
-                    pix = self.doc[idx].get_pixmap(matrix=mat)
-                    if mode == 'dark':
+            page_top    = pinfo['top']
+            page_bottom = pinfo['bottom']
+            in_viewport = not (page_bottom < buffer_top or page_top > buffer_bottom)
+
+            if in_viewport:
+                needs_render = (
+                    force
+                    or pinfo['item'].pixmap().isNull()
+                    or abs(pinfo.get('rendered_zoom', 0.0) - zoom) > 0.05
+                )
+                if needs_render:
+                    render_annots = not getattr(self, 'is_form_design_mode', False)
+                    jobs_needed.append((idx, mat, mode, self.doc, render_annots))
+            else:
+                # Uzak sayfaların pixmap'ini serbest bırak (bellek tasarrufu)
+                if pinfo.get('rendered_zoom', 0.0) > 0.0:
+                    dist = min(
+                        abs(page_bottom - visible_rect.top()),
+                        abs(page_top    - visible_rect.bottom())
+                    )
+                    if dist > unload_dist:
+                        pinfo['item'].setPixmap(QPixmap())
+                        pinfo['rendered_zoom'] = 0.0
+
+        if not jobs_needed:
+            return
+
+        # Az sayfa veya forced: senkron render (scroll animasyonu sırasında gecikme olmasın)
+        SYNC_THRESHOLD = 3
+        if force or len(jobs_needed) <= SYNC_THRESHOLD:
+            for job in jobs_needed:
+                idx, mat2, mode2, doc2 = job[0], job[1], job[2], job[3]
+                annots_flag = job[4] if len(job) > 4 else not getattr(self, 'is_form_design_mode', False)
+                try:
+                    pix = doc2[idx].get_pixmap(matrix=mat2, annots=annots_flag)
+                    if mode2 == 'dark':
                         pix.invert_irect()
-                    qimg = QImage(pix.samples, pix.width, pix.height, pix.stride, QImage.Format.Format_RGB888)
-                    if mode == 'sepia':
+                    qimg = QImage(pix.samples, pix.width, pix.height,
+                                  pix.stride, QImage.Format.Format_RGB888)
+                    if mode2 == 'sepia':
                         p_sepia = QPainter(qimg)
-                        p_sepia.setCompositionMode(QPainter.CompositionMode.CompositionMode_Multiply)
+                        p_sepia.setCompositionMode(
+                            QPainter.CompositionMode.CompositionMode_Multiply)
                         p_sepia.fillRect(qimg.rect(), QColor(246, 238, 220))
                         p_sepia.end()
+                    qpix = QPixmap.fromImage(qimg)
+                    pinfo2 = self.page_positions.get(idx)
+                    if pinfo2:
+                        pinfo2['item'].setPixmap(qpix)
+                        pinfo2['item'].setScale(1.0 / zoom)
+                        pinfo2['rendered_zoom'] = zoom
+                except Exception:
+                    pass
+        else:
+            # Çok sayfalı render: async worker
+            if hasattr(self, '_render_worker') and self._render_worker:
+                try:
+                    if self._render_worker.isRunning():
+                        self._render_worker.abort()
+                        self._render_worker.wait(200)
+                    self._render_worker.schedule(jobs_needed)
+                    self._render_worker.start(QThread.Priority.LowPriority)
+                except Exception:
+                    pass
 
-                    pinfo['item'].setPixmap(QPixmap.fromImage(qimg))
-                    pinfo['item'].setScale(1.0 / self.zoom_level)
-                    pinfo['rendered_zoom'] = self.zoom_level
-            elif pinfo.get('rendered_zoom', 0.0) > 0.0:
-                dist = min(abs(pinfo['bottom'] - visible_rect.top()), abs(pinfo['top'] - visible_rect.bottom()))
-                if dist > 2500:
-                    pinfo['item'].setPixmap(QPixmap())
-                    pinfo['rendered_zoom'] = 0.0
+    def _on_page_rendered(self, idx: int, qpix):
+        """Async worker'dan gelen render sonuçlarını UI thread'inde uygular."""
+        if self.doc is None:
+            return
+        pinfo = self.page_positions.get(idx)
+        if pinfo:
+            try:
+                pinfo['item'].setPixmap(qpix)
+                pinfo['item'].setScale(1.0 / self.zoom_level)
+                pinfo['rendered_zoom'] = self.zoom_level
+            except RuntimeError:
+                pass
 
     def set_reading_color_mode(self, mode: str):
         if mode not in ("normal", "dark", "sepia"):
@@ -3357,13 +3682,24 @@ class PDFTabDocument(QWidget):
         return 1.0
 
     def save_zoom_setting(self):
+        """Zoom ayarını debounce ile kaydeder (disk I/O fırtınasını önler)."""
+        if hasattr(self, '_zoom_save_timer') and self._zoom_save_timer:
+            try:
+                self._zoom_save_timer.start()  # restart debounce
+            except RuntimeError:
+                self._do_save_zoom_setting()
+        else:
+            self._do_save_zoom_setting()
+
+    def _do_save_zoom_setting(self):
+        """Gerçek disk yazma işlemi - yalnızca debounce sonrası çağrılır."""
         try:
+            import json
             settings = QSettings("AuraPDF", "PDFViewer")
             settings.setValue("last_zoom_level", float(round(self.zoom_level, 2)))
             if getattr(self, 'file_path', None):
                 norm = os.path.abspath(self.file_path)
                 raw = settings.value("file_zoom_levels", "{}")
-                import json
                 data = json.loads(raw) if isinstance(raw, str) else dict(raw)
                 data[norm] = float(round(self.zoom_level, 2))
                 if len(data) > 1000:
@@ -3373,14 +3709,14 @@ class PDFTabDocument(QWidget):
             pass
 
     def apply_zoom(self, new_level):
-        new_level = max(0.4, min(round(new_level, 2), 4.0))
+        new_level = max(0.2, min(round(new_level, 2), 5.0))
         if new_level == self.zoom_level: return
         self.view.scale(new_level / self.zoom_level, new_level / self.zoom_level)
         self.zoom_level = new_level
         if hasattr(self.main_window, 'update_zoom_display'):
-            self.main_window.update_zoom_display(int(self.zoom_level * 100))
+            self.main_window.update_zoom_display(int(round(self.zoom_level * 100)))
         elif hasattr(self.main_window, 'lbl_zoom'):
-            self.main_window.lbl_zoom.setText(f" {LanguageManager.tr('percent_format', val=int(self.zoom_level * 100))} ")
+            self.main_window.lbl_zoom.setText(f" {LanguageManager.tr('percent_format', val=int(round(self.zoom_level * 100)))} ")
         self.rerender_timer.start(250)
         self.save_zoom_setting()
         if hasattr(self, 'direct_edit_editor') and self.direct_edit_editor:
@@ -3390,23 +3726,29 @@ class PDFTabDocument(QWidget):
 
     def zoom_in(self): self.apply_zoom(self.zoom_level + 0.15)
     def zoom_out(self): self.apply_zoom(self.zoom_level - 0.15)
+    def set_zoom(self, new_level: float): self.apply_zoom(new_level)
     def fit_to_width(self):
         if not self.page_positions or self.doc is None:
             return
         if self.page_view_mode == "double":
-            p0 = self.page_positions.get(0, {})
-            p1 = self.page_positions.get(1, {})
-            total_w = p0.get('width', 595.0) + (p1.get('width', 595.0) + self.PAGE_MARGIN if p1 else 0)
+            cur_p = self.page_positions.get(self.current_page_idx, {})
+            is_even = (self.current_page_idx % 2 == 0)
+            other_idx = self.current_page_idx + 1 if is_even else self.current_page_idx - 1
+            other_p = self.page_positions.get(other_idx, {})
+            total_w = cur_p.get('width', 595.0) + (other_p.get('width', 0.0) + self.PAGE_MARGIN if other_p else 0)
             viewport_w = self.view.viewport().width() - 40
             if total_w > 0 and viewport_w > 100:
                 target_zoom = viewport_w / total_w
                 self.apply_zoom(target_zoom)
+                self.go_to_page(self.current_page_idx)
         else:
-            first_page_w = self.page_positions[0]['width']
+            cur_p = self.page_positions.get(self.current_page_idx, self.page_positions.get(0, {}))
+            page_w = cur_p.get('width', 595.0)
             viewport_w = self.view.viewport().width() - 40
-            if first_page_w > 0 and viewport_w > 100:
-                target_zoom = viewport_w / first_page_w
+            if page_w > 0 and viewport_w > 100:
+                target_zoom = viewport_w / page_w
                 self.apply_zoom(target_zoom)
+                self.go_to_page(self.current_page_idx)
 
     def fit_to_page(self):
         if not self.page_positions or self.doc is None:
@@ -3423,7 +3765,9 @@ class PDFTabDocument(QWidget):
 
     def on_scroll_change(self):
         self.update_current_page_indicator()
-        self.rerender_timer.start(150)
+        # Scroll debounce: hızlı scroll sırasında gereksiz re-render'ı önle
+        # 200ms timeout: scroll durduğunda tek bir render tetikle
+        self.rerender_timer.start(200)
         if hasattr(self, 'direct_edit_editor') and self.direct_edit_editor:
             self.direct_edit_editor.reposition()
         if hasattr(self, 'direct_edit_banner') and self.direct_edit_banner:
@@ -3674,6 +4018,8 @@ class PDFTabDocument(QWidget):
                 self.direct_edit_banner = DirectEditBanner(self)
             self.direct_edit_banner.show()
             self.direct_edit_banner.reposition()
+            if hasattr(self.main_window, 'current_tool'):
+                self.direct_edit_banner.update_active_tool(self.main_window.current_tool)
             self.view.viewport().setCursor(Qt.CursorShape.IBeamCursor)
         else:
             self.close_inplace_editor()
@@ -3688,10 +4034,89 @@ class PDFTabDocument(QWidget):
         self.main_window.set_tool_state('select')
 
     def close_inplace_editor(self):
+        self.remove_direct_edit_camouflage()
         if hasattr(self, 'direct_edit_editor') and self.direct_edit_editor:
             self.direct_edit_editor.hide()
             self.direct_edit_editor.deleteLater()
             self.direct_edit_editor = None
+
+    def create_direct_edit_camouflage(self, page_idx: int, orig_bbox: fitz.Rect, vector_underline_rect: fitz.Rect = None):
+        """Metin düzenleme veya taşıma esnasında orijinal metnin sahne üzerinde temizlenmiş arka planla gizlenmesini sağlar."""
+        self.remove_direct_edit_camouflage()
+        if not self.doc or page_idx >= len(self.doc):
+            return
+        p_info = self.page_positions.get(page_idx)
+        if not p_info:
+            return
+
+        page_left = p_info.get('left', 0.0)
+        page_top = p_info.get('top', 0.0)
+        dpi = self.base_render_dpi
+
+        try:
+            tmp_doc = fitz.open()
+            tmp_doc.insert_pdf(self.doc, from_page=page_idx, to_page=page_idx)
+            tmp_page = tmp_doc[0]
+
+            clean_rect = fitz.Rect(orig_bbox)
+            clean_rect.x0 = max(0.0, clean_rect.x0 - 0.5)
+            clean_rect.y0 = max(0.0, clean_rect.y0 - 0.5)
+            clean_rect.x1 = min(tmp_page.rect.width, clean_rect.x1 + 0.5)
+            clean_rect.y1 = min(tmp_page.rect.height, clean_rect.y1 + 0.5)
+            tmp_page.add_redact_annot(clean_rect)
+            tmp_page.apply_redactions(
+                images=fitz.PDF_REDACT_IMAGE_NONE,
+                graphics=fitz.PDF_REDACT_LINE_ART_NONE,
+                text=fitz.PDF_REDACT_TEXT_REMOVE
+            )
+            if vector_underline_rect:
+                d_r = fitz.Rect(vector_underline_rect)
+                d_r.x0 = max(0.0, d_r.x0 - 0.5)
+                d_r.y0 = max(0.0, d_r.y0 - 0.5)
+                d_r.x1 = min(tmp_page.rect.width, d_r.x1 + 0.5)
+                d_r.y1 = min(tmp_page.rect.height, d_r.y1 + 0.5)
+                tmp_page.add_redact_annot(d_r)
+                tmp_page.apply_redactions(
+                    images=fitz.PDF_REDACT_IMAGE_NONE,
+                    graphics=fitz.PDF_REDACT_LINE_ART_REMOVE_IF_COVERED,
+                    text=fitz.PDF_REDACT_TEXT_NONE
+                )
+
+            mat = fitz.Matrix(dpi, dpi)
+            pix = tmp_page.get_pixmap(clip=clean_rect, matrix=mat)
+            tmp_doc.close()
+
+            mode = getattr(self, 'reading_color_mode', 'normal')
+            if mode == 'dark':
+                pix.invert_irect()
+
+            from PyQt6.QtGui import QImage, QPixmap
+            from PyQt6.QtWidgets import QGraphicsPixmapItem
+            qimg = QImage(pix.samples, pix.width, pix.height, pix.stride, QImage.Format.Format_RGB888)
+            if mode == 'sepia':
+                from PyQt6.QtGui import QPainter
+                p_sepia = QPainter(qimg)
+                p_sepia.setCompositionMode(QPainter.CompositionMode.CompositionMode_Multiply)
+                p_sepia.fillRect(qimg.rect(), QColor(246, 238, 220))
+                p_sepia.end()
+
+            item = QGraphicsPixmapItem(QPixmap.fromImage(qimg))
+            item.setPos(page_left + clean_rect.x0 * dpi, page_top + clean_rect.y0 * dpi)
+            item.setZValue(90)
+            self.scene.addItem(item)
+            self._direct_edit_camo_item = item
+        except Exception:
+            self._direct_edit_camo_item = None
+
+    def remove_direct_edit_camouflage(self):
+        """Geçici arka plan kamuflaj öğesini sahneden güvenle kaldırır."""
+        if hasattr(self, '_direct_edit_camo_item') and self._direct_edit_camo_item is not None:
+            try:
+                if self._direct_edit_camo_item.scene() == self.scene:
+                    self.scene.removeItem(self._direct_edit_camo_item)
+            except Exception:
+                pass
+            self._direct_edit_camo_item = None
 
     def get_page_text_blocks(self, page_idx: int) -> List[Dict[str, Any]]:
         if not self.doc or page_idx >= len(self.doc):
@@ -3703,11 +4128,15 @@ class PDFTabDocument(QWidget):
 
     def open_inplace_editor_at_block(self, page_idx: int, blk: dict):
         self.close_inplace_editor()
+        self.create_direct_edit_camouflage(page_idx, blk["bbox"], blk.get("vector_underline_rect", None))
         from src.ui.direct_text_editor import DirectTextInplaceEditor
         editor = DirectTextInplaceEditor(
             self, page_idx, blk["bbox"], blk["text"],
             font_size=blk["font_size"], color_rgb=blk["color_rgb"],
-            bold=blk["bold"], italic=blk["italic"], is_new=False
+            bold=blk["bold"], italic=blk["italic"],
+            underline=blk.get("underline", False),
+            vector_underline_rect=blk.get("vector_underline_rect", None),
+            font_name=blk.get("font_name", "Arial"), is_new=False
         )
         self.direct_edit_editor = editor
         editor.show()
@@ -3728,55 +4157,84 @@ class PDFTabDocument(QWidget):
         editor = DirectTextInplaceEditor(
             self, page_idx, pdf_rect, "",
             font_size=12.0, color_rgb=(0.0, 0.0, 0.0),
-            bold=False, italic=False, is_new=True
+            bold=False, italic=False, underline=False,
+            vector_underline_rect=None,
+            font_name="Arial", is_new=True
         )
         self.direct_edit_editor = editor
         editor.show()
 
     def commit_direct_text_edit(self, page_idx: int, orig_bbox: fitz.Rect, new_text: str,
-                                font_size: float, color_rgb: tuple, bold: bool, italic: bool, is_new: bool = False):
+                                font_size: float, color_rgb: tuple, bold: bool, italic: bool,
+                                underline: bool = False, vector_underline_rect: fitz.Rect = None,
+                                font_name: str = "Arial", is_new: bool = False,
+                                target_bbox: fitz.Rect = None, target_page_idx: int = None):
         if not self.doc or page_idx >= len(self.doc):
             return
+        if target_page_idx is None:
+            target_page_idx = page_idx
+        if target_page_idx >= len(self.doc):
+            target_page_idx = page_idx
+
         page = self.doc[page_idx]
+        target_page = self.doc[target_page_idx]
         old_bytes = self.doc.tobytes()
 
+        import os
         from src.ui.direct_text_editor import get_unicode_font_path, find_fitting_box
 
         try:
             # 1. Eski metin alanını kalıcı olarak temizle (redact)
             if not is_new:
                 clean_rect = fitz.Rect(orig_bbox)
-                clean_rect.x0 = max(0.0, clean_rect.x0 - 1.2)
-                clean_rect.y0 = max(0.0, clean_rect.y0 - 1.2)
-                clean_rect.x1 = min(page.rect.width, clean_rect.x1 + 1.2)
-                clean_rect.y1 = min(page.rect.height, clean_rect.y1 + 1.2)
-                page.add_redact_annot(clean_rect, fill=(1, 1, 1))
-                page.apply_redactions()
+                clean_rect.x0 = max(0.0, clean_rect.x0 - 0.5)
+                clean_rect.y0 = max(0.0, clean_rect.y0 - 0.5)
+                clean_rect.x1 = min(page.rect.width, clean_rect.x1 + 0.5)
+                clean_rect.y1 = min(page.rect.height, clean_rect.y1 + 0.5)
+                page.add_redact_annot(clean_rect)
+                # KRİTİK: images=0, graphics=0 sayesinde arka plan resimleri ve vektör şekilleri ASLA silinmez veya beyaza boyanmaz!
+                page.apply_redactions(
+                    images=fitz.PDF_REDACT_IMAGE_NONE,
+                    graphics=fitz.PDF_REDACT_LINE_ART_NONE,
+                    text=fitz.PDF_REDACT_TEXT_REMOVE
+                )
+                if vector_underline_rect:
+                    d_r = fitz.Rect(vector_underline_rect)
+                    d_r.x0 = max(0.0, d_r.x0 - 0.5)
+                    d_r.y0 = max(0.0, d_r.y0 - 0.5)
+                    d_r.x1 = min(page.rect.width, d_r.x1 + 0.5)
+                    d_r.y1 = min(page.rect.height, d_r.y1 + 0.5)
+                    page.add_redact_annot(d_r)
+                    page.apply_redactions(
+                        images=fitz.PDF_REDACT_IMAGE_NONE,
+                        graphics=fitz.PDF_REDACT_LINE_ART_REMOVE_IF_COVERED,
+                        text=fitz.PDF_REDACT_TEXT_NONE
+                    )
 
-            # 2. Yeni metni yaz
+            # 2. Yeni metni yaz (hedef sayfaya ve hedef konuma)
             if new_text.strip():
-                fontfile = get_unicode_font_path(bold=bold, italic=italic)
-                fontname = "f_arial_u"
+                fontfile = get_unicode_font_path(font_name=font_name, bold=bold, italic=italic)
+                b_str = 'b' if bold else ''
+                i_str = 'i' if italic else ''
+                fontname = f"f_{font_name.lower().replace(' ', '_')[:5]}{b_str}{i_str}"
                 try:
-                    page.insert_font(fontname=fontname, fontfile=fontfile)
+                    target_page.insert_font(fontname=fontname, fontfile=fontfile)
                 except Exception:
                     pass
 
-                fit_rect, fit_fs = find_fitting_box(page, orig_bbox, new_text, target_fs=font_size, fontfile=fontfile, fontname=fontname)
-                if not is_new and fit_rect.y1 > clean_rect.y1:
-                    extra_r = fitz.Rect(fit_rect.x0, clean_rect.y1, fit_rect.x1, fit_rect.y1)
-                    page.add_redact_annot(extra_r, fill=(1, 1, 1))
-                    page.apply_redactions()
+                dest_rect = target_bbox if target_bbox else orig_bbox
+                fit_rect, fit_fs = find_fitting_box(target_page, dest_rect, new_text, target_fs=font_size, fontfile=fontfile, fontname=fontname)
 
-                res = page.insert_textbox(
+                res = target_page.insert_textbox(
                     fit_rect, new_text,
                     fontsize=fit_fs,
                     fontname=fontname,
                     fontfile=fontfile,
-                    color=color_rgb
+                    color=color_rgb,
+                    align=0
                 )
                 if res < 0:
-                    page.insert_text(
+                    target_page.insert_text(
                         fitz.Point(fit_rect.x0, fit_rect.y0 + fit_fs),
                         new_text,
                         fontsize=fit_fs,
@@ -3785,15 +4243,40 @@ class PDFTabDocument(QWidget):
                         color=color_rgb
                     )
 
+                # 3. Eğer altı çizili ise veya orijinalde alt çizgi varsa yeni metin genişliğine göre alt çizgi çiz
+                if underline:
+                    try:
+                        f_obj = fitz.Font(fontfile=fontfile) if (fontfile and os.path.isfile(fontfile)) else None
+                        tw = f_obj.text_length(new_text, fontsize=fit_fs) if f_obj else len(new_text) * fit_fs * 0.55
+                    except Exception:
+                        tw = len(new_text) * fit_fs * 0.55
+
+                    if vector_underline_rect and not target_bbox:
+                        under_y = (vector_underline_rect.y0 + vector_underline_rect.y1) / 2.0
+                    else:
+                        under_y = min(target_page.rect.height - 1.0, fit_rect.y0 + fit_fs * 1.05)
+
+                    target_page.draw_line(
+                        fitz.Point(fit_rect.x0, under_y),
+                        fitz.Point(fit_rect.x0 + tw, under_y),
+                        color=color_rgb,
+                        width=1.8
+                    )
+
             new_bytes = self.doc.tobytes()
             self.push_undo_action({
                 "type": "direct_text_edit",
                 "old_bytes": old_bytes,
                 "new_bytes": new_bytes,
-                "page_idx": page_idx
+                "page_idx": page_idx,
+                "target_page_idx": target_page_idx
             })
 
             self._page_text_blocks_cache.pop(page_idx, None)
+            if target_page_idx != page_idx:
+                self._page_text_blocks_cache.pop(target_page_idx, None)
+
+            self.remove_direct_edit_camouflage()
             self.set_modified(True)
             self.rerender_visible_pages(force=True)
             self.close_inplace_editor()
@@ -3801,21 +4284,38 @@ class PDFTabDocument(QWidget):
                 self.main_window.statusBar().showMessage(LanguageManager.tr("direct_edit_success"), 3500)
 
         except Exception as e:
+            self.remove_direct_edit_camouflage()
             QMessageBox.critical(self, LanguageManager.tr("error"), f"{LanguageManager.tr('direct_edit_failed')}\n{e}")
 
-    def delete_direct_text_block(self, page_idx: int, orig_bbox: fitz.Rect):
+    def delete_direct_text_block(self, page_idx: int, orig_bbox: fitz.Rect, vector_underline_rect: fitz.Rect = None):
         if not self.doc or page_idx >= len(self.doc):
             return
         page = self.doc[page_idx]
         old_bytes = self.doc.tobytes()
         try:
             clean_rect = fitz.Rect(orig_bbox)
-            clean_rect.x0 = max(0.0, clean_rect.x0 - 1.2)
-            clean_rect.y0 = max(0.0, clean_rect.y0 - 1.2)
-            clean_rect.x1 = min(page.rect.width, clean_rect.x1 + 1.2)
-            clean_rect.y1 = min(page.rect.height, clean_rect.y1 + 1.2)
-            page.add_redact_annot(clean_rect, fill=(1, 1, 1))
-            page.apply_redactions()
+            clean_rect.x0 = max(0.0, clean_rect.x0 - 0.5)
+            clean_rect.y0 = max(0.0, clean_rect.y0 - 0.5)
+            clean_rect.x1 = min(page.rect.width, clean_rect.x1 + 0.5)
+            clean_rect.y1 = min(page.rect.height, clean_rect.y1 + 0.5)
+            page.add_redact_annot(clean_rect)
+            page.apply_redactions(
+                images=fitz.PDF_REDACT_IMAGE_NONE,
+                graphics=fitz.PDF_REDACT_LINE_ART_NONE,
+                text=fitz.PDF_REDACT_TEXT_REMOVE
+            )
+            if vector_underline_rect:
+                d_r = fitz.Rect(vector_underline_rect)
+                d_r.x0 = max(0.0, d_r.x0 - 0.5)
+                d_r.y0 = max(0.0, d_r.y0 - 0.5)
+                d_r.x1 = min(page.rect.width, d_r.x1 + 0.5)
+                d_r.y1 = min(page.rect.height, d_r.y1 + 0.5)
+                page.add_redact_annot(d_r)
+                page.apply_redactions(
+                    images=fitz.PDF_REDACT_IMAGE_NONE,
+                    graphics=fitz.PDF_REDACT_LINE_ART_REMOVE_IF_COVERED,
+                    text=fitz.PDF_REDACT_TEXT_NONE
+                )
 
             new_bytes = self.doc.tobytes()
             self.push_undo_action({
@@ -3825,12 +4325,14 @@ class PDFTabDocument(QWidget):
                 "page_idx": page_idx
             })
             self._page_text_blocks_cache.pop(page_idx, None)
+            self.remove_direct_edit_camouflage()
             self.set_modified(True)
             self.rerender_visible_pages(force=True)
             self.close_inplace_editor()
             if hasattr(self.main_window, 'statusBar') and self.main_window.statusBar():
                 self.main_window.statusBar().showMessage(LanguageManager.tr("direct_edit_deleted"), 3500)
         except Exception as e:
+            self.remove_direct_edit_camouflage()
             QMessageBox.critical(self, LanguageManager.tr("error"), f"{LanguageManager.tr('direct_edit_delete_failed')}\n{e}")
 
     def _safe_ensure_hover_item(self) -> bool:
@@ -3888,10 +4390,15 @@ class PDFTabDocument(QWidget):
 
         blocks = self.get_page_text_blocks(page_idx)
         hit_blk = None
+        hit_candidates = []
         for blk in blocks:
-            if pdf_pt in blk["bbox"]:
-                hit_blk = blk
-                break
+            r = fitz.Rect(blk["bbox"])
+            r_padded = fitz.Rect(r.x0 - 1.5, r.y0 - 1.5, r.x1 + 1.5, r.y1 + 1.5)
+            if pdf_pt in r_padded:
+                hit_candidates.append(blk)
+
+        if hit_candidates:
+            hit_blk = min(hit_candidates, key=lambda b: fitz.Rect(b["bbox"]).get_area())
 
         if hit_blk:
             r = hit_blk["bbox"]
@@ -3910,12 +4417,21 @@ class PDFTabDocument(QWidget):
             self.view.viewport().setCursor(Qt.CursorShape.IBeamCursor)
 
     def _handle_direct_edit_mouse_press(self, pos: QPointF, vp_pos: QPoint) -> bool:
-        if self.direct_edit_editor and self.direct_edit_editor.geometry().contains(vp_pos):
-            return False
+        if self.direct_edit_editor:
+            if hasattr(self.direct_edit_editor, 'contains_viewport_pos') and self.direct_edit_editor.contains_viewport_pos(vp_pos):
+                return False
+            elif self.direct_edit_editor.geometry().contains(vp_pos):
+                return False
+
+        had_active_editor = bool(self.direct_edit_editor)
+        if had_active_editor:
+            if hasattr(self.direct_edit_editor, 'has_uncommitted_changes') and self.direct_edit_editor.has_uncommitted_changes():
+                self.direct_edit_editor.apply_changes()
+            else:
+                self.close_inplace_editor()
 
         page_idx = self.get_page_at_pos(pos)
         if page_idx is None:
-            self.close_inplace_editor()
             return True
 
         p_info = self.page_positions.get(page_idx)
@@ -3932,20 +4448,23 @@ class PDFTabDocument(QWidget):
 
         blocks = self.get_page_text_blocks(page_idx)
         hit_blk = None
+        hit_candidates = []
         for blk in blocks:
-            if pdf_pt in blk["bbox"]:
-                hit_blk = blk
-                break
+            r = fitz.Rect(blk["bbox"])
+            r_padded = fitz.Rect(r.x0 - 2.0, r.y0 - 2.0, r.x1 + 2.0, r.y1 + 2.0)
+            if pdf_pt in r_padded:
+                hit_candidates.append(blk)
+
+        if hit_candidates:
+            hit_blk = min(hit_candidates, key=lambda b: fitz.Rect(b["bbox"]).get_area())
 
         if hit_blk:
             self.open_inplace_editor_at_block(page_idx, hit_blk)
             return True
-        else:
-            if self.direct_edit_editor:
-                self.close_inplace_editor()
-            else:
-                self.open_inplace_editor_for_new_text(page_idx, pos)
+        elif not had_active_editor:
+            self.open_inplace_editor_for_new_text(page_idx, pos)
             return True
+        return True
 
     def render_text_item(self, record):
         p_info = self.page_positions.get(record["page"])
@@ -4756,14 +5275,139 @@ class PDFTabDocument(QWidget):
             self.record_nav_position()
             self.current_page_idx = page_idx
             if page_idx in self.page_positions:
-                self.view.verticalScrollBar().setValue(int(self.page_positions[page_idx]['top'] * self.zoom_level))
-                if self.page_view_mode == "double":
-                    self.view.horizontalScrollBar().setValue(int(self.page_positions[page_idx].get('left', 0.0) * self.zoom_level))
+                p_info = self.page_positions[page_idx]
+                p_left = p_info.get('left', 0.0)
+                p_width = p_info.get('width', 0.0)
+                p_top = p_info.get('top', 0.0)
+                page_center_x = p_left + p_width / 2.0
+                vp_h = self.view.viewport().height()
+                zoom = self.zoom_level if self.zoom_level > 0 else 1.0
+                center_y = p_top + (vp_h / (2.0 * zoom))
+                self.view.centerOn(page_center_x, center_y)
             self.record_nav_position()
             self.update_current_page_indicator()
 
     def scroll_to_page(self, page_idx):
         self.go_to_page(page_idx)
+
+    def get_page_preview_pixmap(self, page_idx: int, max_width: float = 190.0, max_height: float = 230.0) -> Optional[QPixmap]:
+        """Sayfanın canlı çizimler, notlar, vurgulayıcılar ve eklemeler dahil yüksek kaliteli küçük resim önizlemesini üretir."""
+        if not self.doc or getattr(self.doc, 'is_closed', False):
+            return None
+        if page_idx < 0 or page_idx >= len(self.doc):
+            return None
+
+        # Sayfa boyutları
+        pinfo = self.page_positions.get(page_idx) if hasattr(self, 'page_positions') else None
+        if pinfo:
+            pw = max(1.0, float(pinfo.get('width', 1.0)))
+            ph = max(1.0, float(pinfo.get('height', 1.0)))
+        else:
+            try:
+                page = self.doc[page_idx]
+                pw = max(1.0, float(page.rect.width))
+                ph = max(1.0, float(page.rect.height))
+            except Exception:
+                return None
+
+        scale = min(max_width / pw, max_height / ph)
+        scale = max(0.05, min(scale, 1.5))
+        thumb_w = max(20, int(pw * scale))
+        thumb_h = max(20, int(ph * scale))
+
+        img = None
+
+        # 1. Canlı çizimler, notlar ve ek açıklamalarla sahneden (QGraphicsScene) render et
+        if pinfo and hasattr(self, 'scene') and self.scene:
+            laser = getattr(self, 'laser_pointer_item', None)
+            was_laser_vis = laser.isVisible() if laser else False
+            if laser and was_laser_vis:
+                laser.setVisible(False)
+
+            sel_item = getattr(self, 'selection_item', None)
+            was_sel_vis = sel_item.isVisible() if sel_item else False
+            if sel_item and was_sel_vis:
+                sel_item.setVisible(False)
+
+            ribbon = getattr(self, 'bookmark_ribbon_items', {}).get(page_idx, None)
+            was_ribbon_vis = ribbon.isVisible() if ribbon else False
+            if ribbon and was_ribbon_vis:
+                ribbon.setVisible(False)
+
+            hover_item = getattr(self, 'direct_edit_hover_item', None)
+            was_hover_vis = hover_item.isVisible() if hover_item else False
+            if hover_item and was_hover_vis:
+                hover_item.setVisible(False)
+
+            selected_items = self.scene.selectedItems() if self.scene else []
+            for sit in selected_items:
+                sit.setSelected(False)
+
+            src_rect = QRectF(pinfo.get('left', 0.0), pinfo['top'], pinfo['width'], pinfo['height'])
+
+            try:
+                pix_item = pinfo.get('item')
+                if pix_item and not pix_item.pixmap().isNull():
+                    # Sayfa sahnede aktif ve çizilmiş: Doğrudan sahneyi render et
+                    img = QImage(thumb_w, thumb_h, QImage.Format.Format_ARGB32_Premultiplied)
+                    img.fill(QColor(255, 255, 255))
+                    painter = QPainter(img)
+                    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+                    painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
+                    self.scene.render(painter, QRectF(0, 0, thumb_w, thumb_h), src_rect)
+                    painter.end()
+                else:
+                    # Sayfa henüz ekranda çizilmemişse: PyMuPDF tabanını oluşturup sahnedeki çizimleri üstüne çiz
+                    page = self.doc[page_idx]
+                    mat = fitz.Matrix(scale, scale)
+                    pix = page.get_pixmap(matrix=mat, alpha=False)
+                    base_img = QImage(pix.samples, pix.width, pix.height, pix.stride, QImage.Format.Format_RGB888).copy()
+                    img = base_img.convertToFormat(QImage.Format.Format_ARGB32_Premultiplied)
+
+                    bg_rect = pinfo.get('bg_rect')
+                    was_bg_vis = bg_rect.isVisible() if bg_rect else False
+                    if bg_rect and was_bg_vis:
+                        bg_rect.setVisible(False)
+                    was_pix_vis = pix_item.isVisible() if pix_item else False
+                    if pix_item and was_pix_vis:
+                        pix_item.setVisible(False)
+
+                    painter = QPainter(img)
+                    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+                    painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
+                    try:
+                        self.scene.render(painter, QRectF(0, 0, thumb_w, thumb_h), src_rect)
+                    finally:
+                        painter.end()
+                        if bg_rect and was_bg_vis:
+                            bg_rect.setVisible(True)
+                        if pix_item and was_pix_vis:
+                            pix_item.setVisible(True)
+            except Exception:
+                img = None
+            finally:
+                if laser and was_laser_vis:
+                    laser.setVisible(True)
+                if sel_item and was_sel_vis:
+                    sel_item.setVisible(True)
+                if ribbon and was_ribbon_vis:
+                    ribbon.setVisible(True)
+                if hover_item and was_hover_vis:
+                    hover_item.setVisible(True)
+                for sit in selected_items:
+                    sit.setSelected(True)
+
+        # 2. Eğer sahneden render alınamadıysa PyMuPDF ile taban sayfayı render et
+        if img is None:
+            try:
+                page = self.doc[page_idx]
+                mat = fitz.Matrix(scale, scale)
+                pix = page.get_pixmap(matrix=mat, alpha=False)
+                img = QImage(pix.samples, pix.width, pix.height, pix.stride, QImage.Format.Format_RGB888).copy()
+            except Exception:
+                return None
+
+        return QPixmap.fromImage(img)
 
     def get_page_at_pos(self, pos_or_y):
         if hasattr(pos_or_y, 'x') and hasattr(pos_or_y, 'y'):
@@ -4784,10 +5428,17 @@ class PDFTabDocument(QWidget):
     def update_current_page_indicator(self):
         if self.doc is None or not self.page_positions: return
         center_y = self.view.mapToScene(self.view.viewport().rect().center()).y()
+        new_page_idx = self.current_page_idx  # başlangıç değeri
         for idx, bounds in self.page_positions.items():
             if bounds['top'] <= center_y <= bounds['bottom']:
-                self.current_page_idx = idx
+                new_page_idx = idx
                 break
+
+        # Sayfa değişmediyse UI güncellemelerini atla (scroll sırasında gereksiz işlemi önler)
+        if new_page_idx == self.current_page_idx and self.current_page_idx >= 0:
+            return
+        self.current_page_idx = new_page_idx
+
         if self == self.main_window.get_current_tab_doc():
             if getattr(self.main_window, 'txt_page', None) and not self.main_window.txt_page.hasFocus():
                 self.main_window.txt_page.setText(str(self.current_page_idx + 1))
@@ -4795,9 +5446,22 @@ class PDFTabDocument(QWidget):
                 self.main_window.thumbnails_dock.select_page(self.current_page_idx)
             if getattr(self.main_window, 'modern_right_sidebar', None) and hasattr(self.main_window.modern_right_sidebar, 'select_page'):
                 self.main_window.modern_right_sidebar.select_page(self.current_page_idx)
-            if getattr(self.main_window, 'modern_utility_rail', None):
-                total_p = len(self.doc) if self.doc is not None else 1
-                self.main_window.modern_utility_rail.update_page_info(self.current_page_idx, total_p)
+            total_p = len(self.doc) if self.doc is not None else 1
+            if getattr(self.main_window, 'modern_header_bar', None):
+                self.main_window.modern_header_bar.update_page_info(self.current_page_idx + 1, total_p)
+            if self.main_window.isFullScreen():
+                lbl_str = None
+                try:
+                    if self.doc and hasattr(self.doc[self.current_page_idx], 'get_label'):
+                        custom_lbl = self.doc[self.current_page_idx].get_label()
+                        if custom_lbl and custom_lbl != str(self.current_page_idx + 1):
+                            lbl_str = custom_lbl
+                except Exception:
+                    pass
+                if hasattr(self.main_window, 'show_fullscreen_page_osd'):
+                    self.main_window.show_fullscreen_page_osd(self.current_page_idx + 1, total_p, lbl_str)
+                if hasattr(self.main_window, 'fullscreen_reading_hud') and self.main_window.fullscreen_reading_hud is not None:
+                    self.main_window.fullscreen_reading_hud.update_state()
 
     def render_all_pages(self):
         """Tüm sayfaları yeniden başlatır, görünür olanları çizer ve arayüz göstergelerini günceller."""
@@ -4823,9 +5487,9 @@ class PDFTabDocument(QWidget):
             self.main_window.lbl_total.setText(LanguageManager.tr("page_of", total=len(self.doc)))
         if getattr(self.main_window, 'txt_page', None):
             self.main_window.txt_page.setText(str(self.current_page_idx + 1 if len(self.doc) > 0 else 0))
-        if getattr(self.main_window, 'modern_utility_rail', None):
+        if getattr(self.main_window, 'modern_header_bar', None):
             try:
-                self.main_window.modern_utility_rail.update_page_info(self.current_page_idx, len(self.doc))
+                self.main_window.modern_header_bar.update_page_info(self.current_page_idx + 1, len(self.doc))
             except Exception:
                 pass
         if getattr(self.main_window, 'modern_right_sidebar', None):
@@ -5358,12 +6022,65 @@ class PDFTabDocument(QWidget):
 
         # Klavyeden Escape tuşu ile bekleyen damga veya yorum sürüklemeyi iptal et
         if event.type() == QEvent.Type.KeyPress and event.key() == Qt.Key.Key_Escape:
+            if getattr(self, 'pending_form_field_type', None):
+                self.cancel_form_field_placement()
+                return True
             if getattr(self, 'pending_stamp', None):
                 self.clear_pending_stamp()
                 return True
             if getattr(self, '_dragged_comment_annot', None):
                 self._cleanup_comment_drag()
                 return True
+
+        # Bekleyen Form Alanı (Form Field) yerleştirme modu aktifse fare olaylarını yakala
+        if getattr(self, 'pending_form_field_type', None):
+            if event.type() == QEvent.Type.MouseMove:
+                pos = self.view.mapToScene(event.pos())
+                if getattr(self, '_form_ghost_item', None):
+                    self._form_ghost_item.setPos(pos)
+                return True
+            elif event.type() == QEvent.Type.MouseButtonPress:
+                if event.button() == Qt.MouseButton.LeftButton:
+                    pos = self.view.mapToScene(event.pos())
+                    p_idx = self.get_page_at_pos(pos)
+                    if p_idx is None:
+                        p_idx = max(0, min(getattr(self, 'current_page_idx', 0), len(self.doc) - 1)) if self.doc else 0
+                    if p_idx is not None and self.doc and p_idx < len(self.doc):
+                        scale = self.base_render_dpi
+                        p_info = self.page_positions.get(p_idx, {})
+                        pdf_x0 = (pos.x() - p_info.get('left', 0.0)) / scale
+                        pdf_y0 = (pos.y() - p_info.get('top', 0.0)) / scale
+                        ghost_w = self._form_ghost_item.w if getattr(self, '_form_ghost_item', None) else 160.0
+                        ghost_h = self._form_ghost_item.h if getattr(self, '_form_ghost_item', None) else 28.0
+                        pw = ghost_w / scale
+                        ph = ghost_h / scale
+                        p_rect = self.doc[p_idx].rect
+                        pdf_x0 = max(0.0, min(pdf_x0, p_rect.width - pw))
+                        pdf_y0 = max(0.0, min(pdf_y0, p_rect.height - ph))
+                        rect = fitz.Rect(pdf_x0, pdf_y0, pdf_x0 + pw, pdf_y0 + ph)
+                        f_type = self.pending_form_field_type
+                        self.cancel_form_field_placement()
+                        fname = self.add_acroform_field(f_type, page_idx=p_idx, rect=rect)
+                        main_win = getattr(self, 'main_window', None)
+                        if main_win and hasattr(main_win, 'modern_left_sidebar'):
+                            drawer = getattr(main_win.modern_left_sidebar, 'prepare_form_drawer', None)
+                            if drawer:
+                                drawer.refresh_fields_list()
+                                if fname:
+                                    drawer.select_field_in_list(fname, p_idx)
+                        return True
+                elif event.button() == Qt.MouseButton.RightButton:
+                    self.cancel_form_field_placement()
+                    return True
+
+        # Form Tasarım Modu aktifken Delete / Backspace ile silme
+        if getattr(self, 'is_form_design_mode', False):
+            if event.type() == QEvent.Type.KeyPress and event.key() in (Qt.Key.Key_Delete, Qt.Key.Key_Backspace):
+                sel = [it for it in getattr(self, 'form_designer_items', []) if it.isSelected()]
+                if sel:
+                    for it in sel:
+                        self.delete_form_field(it.page_idx, it.field_name)
+                    return True
 
         # Bekleyen Damga (Stamp) yerleştirme modu aktifse fare olaylarını yakala
         if getattr(self, 'pending_stamp', None):
@@ -5391,7 +6108,7 @@ class PDFTabDocument(QWidget):
                     self.clear_pending_stamp()
                     return True
 
-        if tool == 'direct_edit' or getattr(self, 'direct_edit_mode', False):
+        if tool == 'direct_edit':
             if event.type() == QEvent.Type.KeyPress:
                 if event.key() == Qt.Key.Key_Escape:
                     if self.direct_edit_editor:
@@ -5959,17 +6676,25 @@ class PDFTabDocument(QWidget):
                     elif w.field_type == fitz.PDF_WIDGET_TYPE_CHECKBOX:
                         chk = QCheckBox()
                         chk.setChecked(bool(w.field_value))
-                        chk.setStyleSheet("""
-                            QCheckBox::indicator {
-                                width: 16px;
-                                height: 16px;
+                        chk.setFixedSize(max(18, int(sw)), max(18, int(sh)))
+                        chk.setCursor(Qt.CursorShape.PointingHandCursor)
+                        ind_w = min(16, max(12, int(sw) - 2))
+                        ind_h = min(16, max(12, int(sh) - 2))
+                        chk.setStyleSheet(f"""
+                            QCheckBox {{
+                                background-color: rgba(255, 255, 255, 0.96);
+                                border-radius: 3px;
+                            }}
+                            QCheckBox::indicator {{
+                                width: {ind_w}px;
+                                height: {ind_h}px;
                                 border: 1.5px solid #0284c7;
                                 border-radius: 3px;
-                                background-color: rgba(255, 255, 255, 0.95);
-                            }
-                            QCheckBox::indicator:checked {
+                                background-color: #ffffff;
+                            }}
+                            QCheckBox::indicator:checked {{
                                 background-color: #0284c7;
-                            }
+                            }}
                         """)
                         def make_chk_updater(p_num, f_name):
                             return lambda state: self._on_form_field_changed(p_num, f_name, bool(state))
@@ -5988,17 +6713,25 @@ class PDFTabDocument(QWidget):
                     elif w.field_type == getattr(fitz, 'PDF_WIDGET_TYPE_RADIOBUTTON', 4):
                         rb = QRadioButton()
                         rb.setChecked(bool(w.field_value))
-                        rb.setStyleSheet("""
-                            QRadioButton::indicator {
-                                width: 16px;
-                                height: 16px;
+                        rb.setFixedSize(max(18, int(sw)), max(18, int(sh)))
+                        rb.setCursor(Qt.CursorShape.PointingHandCursor)
+                        ind_w = min(16, max(12, int(sw) - 2))
+                        ind_h = min(16, max(12, int(sh) - 2))
+                        rb.setStyleSheet(f"""
+                            QRadioButton {{
+                                background-color: rgba(255, 255, 255, 0.96);
+                                border-radius: {ind_w // 2}px;
+                            }}
+                            QRadioButton::indicator {{
+                                width: {ind_w}px;
+                                height: {ind_h}px;
                                 border: 1.5px solid #0284c7;
-                                border-radius: 8px;
-                                background-color: rgba(255, 255, 255, 0.95);
-                            }
-                            QRadioButton::indicator:checked {
+                                border-radius: {ind_w // 2}px;
+                                background-color: #ffffff;
+                            }}
+                            QRadioButton::indicator:checked {{
                                 background-color: #0284c7;
-                            }
+                            }}
                         """)
                         def make_rb_updater(p_num, f_name):
                             return lambda state: self._on_form_field_changed(p_num, f_name, bool(state))
@@ -6097,6 +6830,327 @@ class PDFTabDocument(QWidget):
                             break
                 except Exception:
                     pass
+
+    def enter_form_design_mode(self):
+        """Form hazırlama / tasarım modunu etkinleştirir."""
+        self.is_form_design_mode = True
+        for p in getattr(self, 'interactive_form_proxies', []):
+            try:
+                p.hide()
+            except Exception:
+                pass
+
+        self.clear_form_designer_items()
+        if not self.doc:
+            return
+
+        from src.ui.form_builder import AuraFormFieldDesignerItem
+        for p_idx in range(len(self.doc)):
+            page = self.doc[p_idx]
+            p_info = self.page_positions.get(p_idx)
+            if not p_info:
+                continue
+            for w in page.widgets():
+                w_type = "text"
+                if w.field_type == fitz.PDF_WIDGET_TYPE_CHECKBOX:
+                    w_type = "checkbox"
+                elif w.field_type == getattr(fitz, 'PDF_WIDGET_TYPE_RADIOBUTTON', 4):
+                    w_type = "radio"
+                elif w.field_type == fitz.PDF_WIDGET_TYPE_COMBOBOX:
+                    w_type = "combobox"
+                elif w.field_type == fitz.PDF_WIDGET_TYPE_SIGNATURE:
+                    w_type = "signature"
+
+                choices = []
+                if hasattr(w, 'choice_values') and w.choice_values:
+                    choices = list(w.choice_values)
+
+                item = AuraFormFieldDesignerItem(
+                    tab_doc=self,
+                    page_idx=p_idx,
+                    widget_data={
+                        "name": w.field_name or f"Field_{w_type}_{p_idx}",
+                        "type": w_type,
+                        "value": w.field_value,
+                        "tooltip": getattr(w, 'tooltip', ""),
+                        "readonly": getattr(w, 'is_readonly', False),
+                        "required": getattr(w, 'is_required', False),
+                        "multiline": getattr(w, 'is_multiline', False),
+                        "choices": choices,
+                        "font_size": getattr(w, 'text_fontsize', 11.0),
+                        "rect": w.rect
+                    }
+                )
+                self.scene.addItem(item)
+                self.form_designer_items.append(item)
+
+        # Arka plan pixmap'lerini widget'lar OLMADAN yeniden çiz
+        # Böylece öğeler taşındığında veya yeniden boyutlandırıldığında altta donmuş kalıntı kalmaz!
+        self.rerender_visible_pages(force=True)
+
+    def exit_form_design_mode(self):
+        """Form hazırlama modundan çıkarak etkileşimli doldurma moduna döner."""
+        self.is_form_design_mode = False
+        self.cancel_form_field_placement()
+        self.clear_form_designer_items()
+        self._load_interactive_form_widgets()
+        self.rerender_visible_pages(force=True)
+
+    def clear_form_designer_items(self):
+        for item in getattr(self, 'form_designer_items', []):
+            try:
+                if item.scene() == self.scene:
+                    self.scene.removeItem(item)
+            except Exception:
+                pass
+        self.form_designer_items = []
+
+    def start_form_field_placement(self, field_type: str):
+        """Yeni bir form alanı yerleştirmek için fare takip modunu başlatır."""
+        if not self.is_form_design_mode:
+            self.enter_form_design_mode()
+
+        self.cancel_form_field_placement()
+        self.pending_form_field_type = field_type
+
+        dims = {
+            "text": (160.0, 28.0),
+            "checkbox": (22.0, 22.0),
+            "radio": (22.0, 22.0),
+            "combobox": (160.0, 28.0),
+            "signature": (160.0, 48.0),
+        }
+        w, h = dims.get(field_type, (160.0, 28.0))
+
+        from src.ui.form_builder import AuraFormFieldGhostItem
+        ghost = AuraFormFieldGhostItem(field_type, w=w, h=h)
+        self.scene.addItem(ghost)
+        self._form_ghost_item = ghost
+
+        self.view.setCursor(Qt.CursorShape.CrossCursor)
+        self.view.viewport().setCursor(Qt.CursorShape.CrossCursor)
+
+    def cancel_form_field_placement(self):
+        """Bekleyen form alanı yerleştirmesini iptal eder."""
+        self.pending_form_field_type = None
+        if getattr(self, '_form_ghost_item', None):
+            try:
+                if self._form_ghost_item.scene() == self.scene:
+                    self.scene.removeItem(self._form_ghost_item)
+            except Exception:
+                pass
+            self._form_ghost_item = None
+        self.view.setCursor(Qt.CursorShape.ArrowCursor)
+        self.view.viewport().setCursor(Qt.CursorShape.ArrowCursor)
+        self.view.viewport().update()
+
+    def select_form_field_on_scene(self, field_name: str, page_idx: int):
+        """Sahnedeki ilgili form alanı tasarım öğesini seçer ve odaklar."""
+        for item in getattr(self, 'form_designer_items', []):
+            if item.page_idx == page_idx and item.field_name == field_name:
+                item.setSelected(True)
+                self.view.ensureVisible(item)
+            else:
+                item.setSelected(False)
+
+    def duplicate_form_field(self, designer_item):
+        """Seçili form alanını çoğaltır."""
+        if not self.doc or designer_item.page_idx >= len(self.doc):
+            return
+        p_idx = designer_item.page_idx
+        page = self.doc[p_idx]
+        scale = self.base_render_dpi
+        pdf_w = designer_item.w / scale
+        pdf_h = designer_item.h / scale
+
+        p_info = self.page_positions.get(p_idx, {})
+        orig_x = (designer_item.pos().x() - p_info.get('left', 0.0)) / scale
+        orig_y = (designer_item.pos().y() - p_info.get('top', 0.0)) / scale
+        p_rect = page.rect
+        new_x = min(orig_x + 15.0, p_rect.width - pdf_w)
+        new_y = min(orig_y + 35.0, p_rect.height - pdf_h)
+        rect = fitz.Rect(new_x, new_y, new_x + pdf_w, new_y + pdf_h)
+
+        fname = self.add_acroform_field(designer_item.field_type, page_idx=p_idx, rect=rect)
+        if self.main_window and hasattr(self.main_window, 'modern_left_sidebar'):
+            drawer = getattr(self.main_window.modern_left_sidebar, 'prepare_form_drawer', None)
+            if drawer:
+                drawer.refresh_fields_list()
+                if fname:
+                    drawer.select_field_in_list(fname, p_idx)
+
+    def add_acroform_field(self, field_type: str, page_idx: Optional[int] = None, rect: Optional[fitz.Rect] = None, name: Optional[str] = None):
+        """PDF sayfasına yeni bir etkileşimli form alanı ekler."""
+        if not self.doc or len(self.doc) == 0:
+            return None
+        if page_idx is None:
+            page_idx = max(0, min(self.current_page_idx, len(self.doc) - 1))
+        page = self.doc[page_idx]
+
+        p_rect = page.rect
+        if rect is None:
+            cx = p_rect.width / 2.0
+            cy = p_rect.height / 3.0
+            if field_type == "text":
+                rect = fitz.Rect(cx - 80, cy, cx + 80, cy + 24)
+            elif field_type in ("checkbox", "radio"):
+                rect = fitz.Rect(cx - 10, cy, cx + 10, cy + 20)
+            elif field_type == "combobox":
+                rect = fitz.Rect(cx - 80, cy, cx + 80, cy + 24)
+            elif field_type == "signature":
+                rect = fitz.Rect(cx - 80, cy, cx + 80, cy + 45)
+            else:
+                rect = fitz.Rect(cx - 80, cy, cx + 80, cy + 24)
+
+        existing_names = set()
+        for p in self.doc:
+            for w in p.widgets():
+                if w.field_name:
+                    existing_names.add(w.field_name)
+
+        base_name = f"Field_{field_type.capitalize()}"
+        idx = 1
+        while f"{base_name}_{idx}" in existing_names:
+            idx += 1
+        final_name = name or f"{base_name}_{idx}"
+
+        widget = fitz.Widget()
+        widget.rect = rect
+        widget.field_name = final_name
+
+        if field_type == "text":
+            widget.field_type = fitz.PDF_WIDGET_TYPE_TEXT
+            widget.field_value = ""
+        elif field_type == "checkbox":
+            widget.field_type = fitz.PDF_WIDGET_TYPE_CHECKBOX
+            widget.field_value = False
+        elif field_type == "radio":
+            widget.field_type = getattr(fitz, 'PDF_WIDGET_TYPE_RADIOBUTTON', 4)
+            widget.field_value = False
+        elif field_type == "combobox":
+            widget.field_type = fitz.PDF_WIDGET_TYPE_COMBOBOX
+            widget.choice_values = ["Seçenek 1", "Seçenek 2", "Seçenek 3"]
+            widget.field_value = "Seçenek 1"
+        elif field_type == "signature":
+            widget.field_type = fitz.PDF_WIDGET_TYPE_SIGNATURE
+        else:
+            widget.field_type = fitz.PDF_WIDGET_TYPE_TEXT
+
+        try:
+            page.add_widget(widget)
+            self.set_modified(True)
+            if self.is_form_design_mode:
+                from src.ui.form_builder import AuraFormFieldDesignerItem
+                choices = list(widget.choice_values) if hasattr(widget, 'choice_values') and widget.choice_values else []
+                item = AuraFormFieldDesignerItem(
+                    tab_doc=self,
+                    page_idx=page_idx,
+                    widget_data={
+                        "name": final_name,
+                        "type": field_type,
+                        "value": widget.field_value,
+                        "tooltip": getattr(widget, 'tooltip', ""),
+                        "readonly": getattr(widget, 'is_readonly', False),
+                        "required": getattr(widget, 'is_required', False),
+                        "multiline": getattr(widget, 'is_multiline', False),
+                        "choices": choices,
+                        "font_size": getattr(widget, 'text_fontsize', 11.0),
+                        "rect": widget.rect
+                    }
+                )
+                self.scene.addItem(item)
+                self.form_designer_items.append(item)
+                item.setSelected(True)
+            else:
+                self._load_interactive_form_widgets()
+            return final_name
+        except Exception:
+            return None
+
+    def clear_all_form_fields(self):
+        """Belgedeki tüm form alanlarının değerlerini sıfırlar."""
+        if not self.doc:
+            return
+        for page in self.doc:
+            for w in page.widgets():
+                try:
+                    if w.field_type == fitz.PDF_WIDGET_TYPE_TEXT:
+                        w.field_value = ""
+                    elif w.field_type in (fitz.PDF_WIDGET_TYPE_CHECKBOX, getattr(fitz, 'PDF_WIDGET_TYPE_RADIOBUTTON', 4)):
+                        w.field_value = False
+                    w.update()
+                except Exception:
+                    pass
+        self.set_modified(True)
+        for it in getattr(self, 'form_designer_items', []):
+            if it.field_type == "text":
+                it.field_value = ""
+            elif it.field_type in ("checkbox", "radio"):
+                it.field_value = False
+            it.update()
+        if self.scene:
+            self.scene.update()
+        if not self.is_form_design_mode:
+            self._load_interactive_form_widgets()
+
+    def delete_form_field(self, page_idx: int, field_name: str):
+        """Belirtilen form alanını sayfadan siler."""
+        if not self.doc or page_idx >= len(self.doc):
+            return
+        page = self.doc[page_idx]
+        for w in page.widgets():
+            if w.field_name == field_name:
+                try:
+                    page.delete_widget(w)
+                    self.set_modified(True)
+                except Exception:
+                    pass
+                break
+
+        to_remove = [it for it in getattr(self, 'form_designer_items', []) if it.page_idx == page_idx and it.field_name == field_name]
+        for it in to_remove:
+            try:
+                if it.scene() == self.scene:
+                    self.scene.removeItem(it)
+                self.form_designer_items.remove(it)
+            except Exception:
+                pass
+
+        if self.scene:
+            self.scene.update()
+
+        if not self.is_form_design_mode:
+            self._load_interactive_form_widgets()
+
+        if self.main_window and hasattr(self.main_window, 'modern_left_sidebar'):
+            drawer = getattr(self.main_window.modern_left_sidebar, 'prepare_form_drawer', None)
+            if drawer:
+                drawer.refresh_fields_list()
+
+    def get_all_form_fields(self) -> list:
+        """Belgedeki tüm form alanlarının listesini döndürür."""
+        fields = []
+        if not self.doc:
+            return fields
+        type_names = {
+            fitz.PDF_WIDGET_TYPE_TEXT: "Text",
+            fitz.PDF_WIDGET_TYPE_CHECKBOX: "Checkbox",
+            getattr(fitz, 'PDF_WIDGET_TYPE_RADIOBUTTON', 4): "Radio",
+            fitz.PDF_WIDGET_TYPE_COMBOBOX: "ComboBox",
+            getattr(fitz, 'PDF_WIDGET_TYPE_LISTBOX', 3): "ListBox",
+            fitz.PDF_WIDGET_TYPE_SIGNATURE: "Signature",
+            fitz.PDF_WIDGET_TYPE_BUTTON: "Button",
+        }
+        for p_idx, page in enumerate(self.doc):
+            for w in page.widgets():
+                fields.append({
+                    'page': p_idx,
+                    'name': w.field_name or f"Field_{p_idx}",
+                    'type': type_names.get(w.field_type, "Field"),
+                    'value': w.field_value,
+                    'rect': (w.rect.x0, w.rect.y0, w.rect.x1, w.rect.y1)
+                })
+        return fields
 
     def _handle_mouse_hover(self, event, tool):
         pos = self.view.mapToScene(event.pos())

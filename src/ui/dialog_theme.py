@@ -1,27 +1,10 @@
 import os
 import sys
 from typing import Optional, Any
-from PyQt6.QtCore import QSettings
+from PyQt6.QtCore import QSettings, Qt, QObject, QEvent
+from PyQt6.QtWidgets import QWidget, QFrame, QLabel, QHBoxLayout, QVBoxLayout
 
 THEME_PALETTES = {
-    "light": {
-        "bg": "#f8fafc",
-        "card": "#ffffff",
-        "border": "#cbd5e1",
-        "accent": "#0284c7",
-        "accent_hover": "#0369a1",
-        "text": "#0f172a",
-        "muted": "#475569",
-    },
-    "dark": {
-        "bg": "#121212",
-        "card": "#1c1c1c",
-        "border": "#2e2e2e",
-        "accent": "#388bfd",
-        "accent_hover": "#58a6ff",
-        "text": "#f8fafc",
-        "muted": "#cbd5e1",
-    },
     "gray": {
         "bg": "#2b2d30",
         "card": "#35383c",
@@ -86,35 +69,167 @@ THEME_PALETTES = {
         "muted": "#cbd5e1",
     },
 }
+# Geriye dönük uyumluluk ve güvenli eşleme:
+THEME_PALETTES["light"] = THEME_PALETTES["gray"]
+THEME_PALETTES["dark"] = THEME_PALETTES["gray"]
+
+def get_custom_dialog_palette() -> dict:
+    try:
+        from src.ui.modern_views import get_modern_theme_colors
+        c = get_modern_theme_colors("custom")
+        return {
+            "bg": c["bg"],
+            "card": c["surface"],
+            "border": c["border"],
+            "accent": c["accent"],
+            "accent_hover": c["accent_hover"],
+            "text": c["text"],
+            "muted": c["text_muted"],
+        }
+    except Exception:
+        return THEME_PALETTES["gray"].copy()
+
+THEME_PALETTES["custom"] = get_custom_dialog_palette()
 
 
 def get_current_theme(parent: Optional[Any] = None) -> str:
     """Aktif temayı ana pencereden veya QSettings'ten okur."""
+    th = "gray"
     if parent is not None:
         if hasattr(parent, 'current_theme') and parent.current_theme:
-            return parent.current_theme
-        if hasattr(parent, 'main_window') and hasattr(parent.main_window, 'current_theme') and parent.main_window.current_theme:
-            return parent.main_window.current_theme
-    try:
-        settings = QSettings("AuraPDF", "PDFViewer")
-        return settings.value("app_theme", "gray")
-    except Exception:
+            th = parent.current_theme
+        elif hasattr(parent, 'main_window') and hasattr(parent.main_window, 'current_theme') and parent.main_window.current_theme:
+            th = parent.main_window.current_theme
+    else:
+        try:
+            settings = QSettings("AuraPDF", "PDFViewer")
+            th = settings.value("app_theme", "gray")
+        except Exception:
+            th = "gray"
+    if th in ("light", "dark"):
         return "gray"
+    return th
 
 
 def get_current_font_size(parent: Optional[Any] = None) -> int:
     """Aktif uygulama yazı tipi boyutunu (pt) okur (Varsayılan: 10pt)."""
     if parent is not None:
-        if hasattr(parent, 'app_font_size') and parent.app_font_size:
-            return int(parent.app_font_size)
-        if hasattr(parent, 'main_window') and hasattr(parent.main_window, 'app_font_size') and parent.main_window.app_font_size:
-            return int(parent.main_window.app_font_size)
+        if hasattr(parent, 'app_font_size') and parent.app_font_size and int(parent.app_font_size) > 0:
+            return max(8, int(parent.app_font_size))
+        if hasattr(parent, 'main_window') and hasattr(parent.main_window, 'app_font_size') and parent.main_window.app_font_size and int(parent.main_window.app_font_size) > 0:
+            return max(8, int(parent.main_window.app_font_size))
     try:
         settings = QSettings("AuraPDF", "PDFViewer")
         val = settings.value("app_font_size", 10)
-        return int(val) if val else 10
+        return max(8, int(val)) if val and int(val) > 0 else 10
     except Exception:
         return 10
+
+
+def get_theme_palette(parent_or_theme: Optional[Any] = None) -> dict:
+    """Aktif temaya karşılık gelen renk paleti sözlüğünü döner."""
+    if isinstance(parent_or_theme, str):
+        theme = parent_or_theme
+    else:
+        theme = get_current_theme(parent_or_theme)
+    if theme == "custom":
+        pal = get_custom_dialog_palette()
+        THEME_PALETTES["custom"] = pal
+        return pal
+    return THEME_PALETTES.get(theme, THEME_PALETTES["gray"])
+
+
+class ModernInfoCard(QFrame):
+    """
+    Tüm temalarla (dark, gray, emerald, purple, crimson, nord, vice_city, apple, light)
+    tam uyumlu, otomatik metin kaydırmalı (wordWrap=True),
+    vektörel ikonlu modern bilgilendirme / ipucu / uyarı paneli.
+    """
+    def __init__(
+        self,
+        text: str = "",
+        title: Optional[str] = None,
+        icon_type: str = "info",
+        parent: Optional[Any] = None,
+        is_warning: bool = False,
+    ):
+        super().__init__(parent)
+        self.is_warning = is_warning
+        self.icon_type = icon_type
+        self.setObjectName("ModernInfoCard")
+        self.setProperty("class", "info-card")
+        
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(12, 10, 12, 10)
+        layout.setSpacing(10)
+        
+        self.lbl_icon = QLabel(self)
+        self.lbl_icon.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignHCenter)
+        layout.addWidget(self.lbl_icon)
+        
+        text_layout = QVBoxLayout()
+        text_layout.setContentsMargins(0, 0, 0, 0)
+        text_layout.setSpacing(2)
+        
+        self.lbl_title = QLabel(self)
+        self.lbl_title.setWordWrap(True)
+        if title:
+            self.lbl_title.setText(f"<b>{title}</b>")
+            self.lbl_title.setVisible(True)
+        else:
+            self.lbl_title.setVisible(False)
+        text_layout.addWidget(self.lbl_title)
+        
+        self.lbl_text = QLabel(text, self)
+        self.lbl_text.setWordWrap(True)
+        text_layout.addWidget(self.lbl_text)
+        
+        layout.addLayout(text_layout, 1)
+        self.apply_theme(get_current_theme(parent))
+
+    def set_text(self, text: str):
+        self.lbl_text.setText(text)
+
+    def set_title(self, title: Optional[str]):
+        if title:
+            self.lbl_title.setText(f"<b>{title}</b>")
+            self.lbl_title.setVisible(True)
+        else:
+            self.lbl_title.setVisible(False)
+
+    def apply_theme(self, theme_name: str = "gray"):
+        from src.ui.icons import ModernIconFactory
+        pal = THEME_PALETTES.get(theme_name, THEME_PALETTES["gray"])
+        accent = pal["accent"] if not self.is_warning else "#f59e0b"
+        
+        if self.icon_type == "ocr" and hasattr(ModernIconFactory, "icon_ocr"):
+            icon = ModernIconFactory.icon_ocr(accent)
+        elif self.icon_type == "redact" and hasattr(ModernIconFactory, "icon_redact"):
+            icon = ModernIconFactory.icon_redact(accent)
+        elif self.is_warning or self.icon_type == "warning":
+            icon = ModernIconFactory.icon_warning(accent)
+        else:
+            icon = ModernIconFactory.icon_info(accent)
+        self.lbl_icon.setPixmap(icon.pixmap(22, 22))
+        
+        card_bg = pal["card"]
+        border_col = pal["border"]
+        text_col = pal["text"]
+        
+        self.setStyleSheet(f"""
+            QFrame#ModernInfoCard {{
+                background-color: {card_bg};
+                border: 1px solid {border_col};
+                border-left: 3.5px solid {accent};
+                border-radius: 8px;
+            }}
+            QLabel {{
+                background: transparent;
+                border: none;
+            }}
+        """)
+        self.lbl_title.setStyleSheet(f"color: {accent}; font-size: 12px; font-weight: 600; background: transparent;")
+        self.lbl_text.setStyleSheet(f"color: {text_col}; font-size: 11px; background: transparent;")
 
 
 def get_dialog_theme_stylesheet(parent: Optional[Any] = None, extra_css: str = "") -> str:
@@ -128,6 +243,39 @@ def get_dialog_theme_stylesheet(parent: Optional[Any] = None, extra_css: str = "
             QDialog {
                 background-color: #16181f;
                 color: #f5f5f7;
+            }
+            QLabel {
+                color: #f5f5f7;
+                font-size: 12px;
+            }
+            QLabel[class="muted"], QLabel#MutedLabel {
+                color: #cbd5e1;
+            }
+            QLabel[class="accent"], QLabel#AccentLabel, QLabel[class="accent-title"] {
+                color: #38bdf8;
+                font-weight: 600;
+            }
+            QFrame[class="card"], QFrame.card, QFrame#CardFrame {
+                background-color: #1a1d24;
+                border: 1px solid #2e3340;
+                border-radius: 8px;
+            }
+            QFrame[class="info-card"], QFrame.InfoCard, QFrame#InfoCard, QFrame#InfoBox, QFrame#ModernInfoCard {
+                background-color: #1a1d24;
+                border: 1px solid #2e3340;
+                border-left: 3.5px solid #38bdf8;
+                border-radius: 8px;
+            }
+            QFrame[class="tip-card"], QFrame.TipCard {
+                background-color: #1a1d24;
+                border: 1px solid #2e3340;
+                border-left: 3px solid #38bdf8;
+                border-radius: 6px;
+            }
+            QFrame[class="preview-card"], QFrame#PreviewCard, QFrame#PreviewFrame, QFrame.PreviewBox, QFrame#preview_frame, QFrame#frame_box {
+                background-color: #0e1014;
+                border: 1px solid #2e3340;
+                border-radius: 8px;
             }
             QGroupBox {
                 color: #0a84ff;
@@ -186,10 +334,24 @@ def get_dialog_theme_stylesheet(parent: Optional[Any] = None, extra_css: str = "
                 color: #ffffff;
                 border: 1.2px solid rgba(255, 255, 255, 0.14);
                 border-radius: 6px;
-                padding: 4px 8px;
+                padding: 4px 22px 4px 8px;
             }
             QSpinBox:focus, QDoubleSpinBox:focus {
                 border-color: #0a84ff;
+            }
+            QSpinBox::up-button, QDoubleSpinBox::up-button {
+                subcontrol-origin: border;
+                subcontrol-position: top right;
+                width: 18px;
+                border-left: 1px solid rgba(255, 255, 255, 0.14);
+                background-color: transparent;
+            }
+            QSpinBox::down-button, QDoubleSpinBox::down-button {
+                subcontrol-origin: border;
+                subcontrol-position: bottom right;
+                width: 18px;
+                border-left: 1px solid rgba(255, 255, 255, 0.14);
+                background-color: transparent;
             }
             QPushButton {
                 background-color: rgba(255, 255, 255, 0.07);
@@ -408,8 +570,32 @@ def get_dialog_theme_stylesheet(parent: Optional[Any] = None, extra_css: str = "
                 color: {pal['text']};
                 font-size: 12px;
             }}
-            QFrame[class="card"], QFrame.card {{
+            QLabel[class="muted"], QLabel#MutedLabel {{
+                color: {pal['muted']};
+            }}
+            QLabel[class="accent"], QLabel#AccentLabel, QLabel[class="accent-title"] {{
+                color: {pal['accent']};
+                font-weight: 600;
+            }}
+            QFrame[class="card"], QFrame.card, QFrame#CardFrame {{
                 background-color: {pal['card']};
+                border: 1px solid {pal['border']};
+                border-radius: 8px;
+            }}
+            QFrame[class="info-card"], QFrame.InfoCard, QFrame#InfoCard, QFrame#InfoBox, QFrame#ModernInfoCard {{
+                background-color: {pal['card']};
+                border: 1px solid {pal['border']};
+                border-left: 3.5px solid {pal['accent']};
+                border-radius: 8px;
+            }}
+            QFrame[class="tip-card"], QFrame.TipCard {{
+                background-color: {pal['card']};
+                border: 1px solid {pal['border']};
+                border-left: 3px solid {pal['accent']};
+                border-radius: 6px;
+            }}
+            QFrame[class="preview-card"], QFrame#PreviewCard, QFrame#PreviewFrame, QFrame.PreviewBox, QFrame#preview_frame, QFrame#frame_box {{
+                background-color: {pal['bg']};
                 border: 1px solid {pal['border']};
                 border-radius: 8px;
             }}
@@ -462,7 +648,24 @@ def get_dialog_theme_stylesheet(parent: Optional[Any] = None, extra_css: str = "
                 color: {pal['text']};
                 border: 1px solid {pal['border']};
                 border-radius: 5px;
-                padding: 3px 6px;
+                padding: 3px 22px 3px 6px;
+            }}
+            QSpinBox:focus, QDoubleSpinBox:focus {{
+                border-color: {pal['accent']};
+            }}
+            QSpinBox::up-button, QDoubleSpinBox::up-button {{
+                subcontrol-origin: border;
+                subcontrol-position: top right;
+                width: 18px;
+                border-left: 1px solid {pal['border']};
+                background-color: transparent;
+            }}
+            QSpinBox::down-button, QDoubleSpinBox::down-button {{
+                subcontrol-origin: border;
+                subcontrol-position: bottom right;
+                width: 18px;
+                border-left: 1px solid {pal['border']};
+                background-color: transparent;
             }}
             QPushButton {{
                 background-color: {pal['card']};
@@ -642,14 +845,75 @@ def get_dialog_theme_stylesheet(parent: Optional[Any] = None, extra_css: str = "
 
 def apply_dialog_theme(dialog: Any, parent: Optional[Any] = None, extra_css: str = "") -> None:
     """Belirtilen diyalog nesnesine geçerli tema stilini ve aktif font boyutunu uygular."""
-    fs = get_current_font_size(parent)
+    fs = max(8, get_current_font_size(parent))
     try:
         f = dialog.font()
-        f.setPointSize(fs)
-        dialog.setFont(f)
+        if fs > 0:
+            f.setPointSize(fs)
+            dialog.setFont(f)
     except Exception:
         pass
     dialog.setStyleSheet(get_dialog_theme_stylesheet(parent, extra_css))
+
+    curr_theme = get_current_theme(parent)
+
+    # 1. ModernStepper / ModernSpinBox / ModernDoubleSpinBox çocuk bileşenlerini tema ile senkronize et
+    try:
+        from src.ui.modern_stepper import ModernSpinBox, ModernDoubleSpinBox
+        for sp in dialog.findChildren(ModernSpinBox):
+            sp.apply_theme(curr_theme)
+        for dsp in dialog.findChildren(ModernDoubleSpinBox):
+            dsp.apply_theme(curr_theme)
+    except Exception:
+        pass
+
+    # 2. ModernInfoCard çocuk bileşenlerini tema ile senkronize et
+    try:
+        for card in dialog.findChildren(ModernInfoCard):
+            card.apply_theme(curr_theme)
+    except Exception:
+        pass
+
+    # 3. Otomatik Metin Kaydırma (Word-Wrap) Güvenliği
+    # Diyalog pencerelerinde uzun metinlerin, ipuçlarının ve açıklamaların
+    # pencere sınırlarından taşmasını veya kesilmesini kesin olarak önler.
+    def _apply_word_wraps():
+        try:
+            for lbl in dialog.findChildren(QLabel):
+                txt = lbl.text()
+                if txt and len(txt) > 35 and not lbl.wordWrap():
+                    lbl.setWordWrap(True)
+        except Exception:
+            pass
+
+    _apply_word_wraps()
+
+    # adjustSize çağrıldığında etiketleri yeniden tara
+    try:
+        if not getattr(dialog, "_wrap_hook_installed", False):
+            orig_adjust = dialog.adjustSize
+            def _safe_adjust_size(*args, **kwargs):
+                _apply_word_wraps()
+                return orig_adjust(*args, **kwargs)
+            dialog.adjustSize = _safe_adjust_size
+            dialog._wrap_hook_installed = True
+    except Exception:
+        pass
+
+    # Pencere gösterildiğinde (Show / Polish) sonradan eklenen etiketleri de otomatik olarak sar
+    try:
+        class _ThemeSafetyFilter(QObject):
+            def eventFilter(self, watched, event):
+                if event.type() in (QEvent.Type.Show, QEvent.Type.Polish):
+                    _apply_word_wraps()
+                return super().eventFilter(watched, event)
+
+        if not getattr(dialog, "_theme_filter_installed", False):
+            flt = _ThemeSafetyFilter(dialog)
+            dialog.installEventFilter(flt)
+            dialog._theme_filter_installed = True
+    except Exception:
+        pass
 
 apply_aura_dialog_style = apply_dialog_theme
 apply_modern_dialog_style = apply_dialog_theme

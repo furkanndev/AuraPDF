@@ -21,7 +21,7 @@ from PyQt6.QtMultimedia import (QMediaCaptureSession, QAudioInput, QMediaRecorde
 from PyQt6.QtSvg import QSvgRenderer
 
 from src.core.i18n import LanguageManager
-from src.ui.dialog_theme import get_dialog_theme_stylesheet, get_current_theme, THEME_PALETTES
+from src.ui.dialog_theme import get_dialog_theme_stylesheet, apply_dialog_theme, ModernInfoCard, get_current_theme, THEME_PALETTES
 from src.ui.icons import ModernIconFactory
 
 
@@ -329,8 +329,8 @@ class TableInsertDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Tablo Ekle")
-        self.setFixedSize(740, 530)
-        self.setStyleSheet(get_dialog_theme_stylesheet(self))
+        self.setMinimumSize(760, 580)
+        self.resize(800, 600)
 
         self.border_color = QColor("#7c3aed")
         self.header_bg = QColor("#7c3aed")
@@ -532,54 +532,25 @@ class TableInsertDialog(QDialog):
         self.preview_widget = TablePreviewWidget(self)
         right_col.addWidget(self.preview_widget, 1)
 
-        lbl_tip = QLabel("Tablo sayfaya eklendikten sonra köşelerinden tutularak serbestçe boyutlandırılabilir.")
-        lbl_tip.setWordWrap(True)
-        lbl_tip.setStyleSheet(" font-size: 10px;")
-        right_col.addWidget(lbl_tip)
+        tip_card = ModernInfoCard(
+            text=LanguageManager.tr("table_resize_hint", default="Tablo sayfaya eklendikten sonra köşelerinden tutularak serbestçe boyutlandırılabilir."),
+            parent=self
+        )
+        right_col.addWidget(tip_card)
 
         body_layout.addLayout(right_col, 6)
         root_layout.addLayout(body_layout)
 
         # Alt Butonlar
         btn_box = QHBoxLayout()
-        btn_cancel = QPushButton("İptal")
+        btn_cancel = QPushButton(LanguageManager.tr("cancel"))
+        btn_cancel.setObjectName("CancelBtn")
         btn_cancel.setCursor(Qt.CursorShape.PointingHandCursor)
-        btn_cancel.setStyleSheet("""
-            QPushButton {
-                padding: 8px 20px;
-                background-color: #334155;
-                color: #e2e8f0;
-                border: 1px solid #475569;
-                border-radius: 8px;
-                font-size: 12px;
-                font-weight: 600;
-            }
-            QPushButton:hover {
-                background-color: #475569;
-                color: #ffffff;
-            }
-        """)
         btn_cancel.clicked.connect(self.reject)
 
-        btn_ok = QPushButton("Tabloyu Ekle")
+        btn_ok = QPushButton(LanguageManager.tr("table_insert_btn", default="Tabloyu Ekle"))
+        btn_ok.setObjectName("PrimaryBtn")
         btn_ok.setCursor(Qt.CursorShape.PointingHandCursor)
-        btn_ok.setStyleSheet("""
-            QPushButton {
-                padding: 8px 24px;
-                background-color: #2563eb;
-                color: #ffffff;
-                border: none;
-                border-radius: 8px;
-                font-size: 12px;
-                font-weight: bold;
-            }
-            QPushButton:hover {
-                background-color: #1d4ed8;
-            }
-            QPushButton:pressed {
-                background-color: #1e40af;
-            }
-        """)
         btn_ok.clicked.connect(self.accept)
 
         btn_box.addStretch()
@@ -588,6 +559,7 @@ class TableInsertDialog(QDialog):
         root_layout.addLayout(btn_box)
 
         self._update_preview()
+        apply_dialog_theme(self, parent)
 
     def _apply_preset(self, p: Dict[str, str], clicked_btn: Optional[QPushButton] = None):
         self.header_bg = QColor(p["header_bg"])
@@ -709,9 +681,9 @@ class TableStyleDialog(QDialog):
     def __init__(self, table_item, parent=None):
         super().__init__(parent)
         self.table_item = table_item
-        self.setWindowTitle("Tablo Metin ve Renk Ayarları")
-        self.setFixedSize(480, 590)
-        self.setStyleSheet(get_dialog_theme_stylesheet(self))
+        self.setWindowTitle(LanguageManager.tr("table_style_title", default="Tablo Metin ve Renk Ayarları"))
+        self.setMinimumSize(480, 590)
+        self.resize(500, 610)
 
         self.text_color = QColor(table_item.text_color)
         self.header_text_color = QColor(table_item.header_text_color)
@@ -926,28 +898,15 @@ class TableStyleDialog(QDialog):
 
         # Butonlar
         btn_box = QHBoxLayout()
-        btn_close = QPushButton("Kapat")
+        btn_close = QPushButton(LanguageManager.tr("btn_close", default="Kapat"))
+        btn_close.setObjectName("PrimaryBtn")
         btn_close.setCursor(Qt.CursorShape.PointingHandCursor)
-        btn_close.setStyleSheet("""
-            QPushButton {
-                padding: 8px 24px;
-                
-                
-                font-size: 12px;
-                font-weight: bold;
-                border-radius: 8px;
-            }
-            QPushButton:hover {
-                
-            }
-            QPushButton:pressed {
-                
-            }
-        """)
         btn_close.clicked.connect(self.accept)
         btn_box.addStretch()
         btn_box.addWidget(btn_close)
         layout.addLayout(btn_box)
+
+        apply_dialog_theme(self, parent)
 
     def _apply_preset(self, p: Dict[str, str], clicked_btn: Optional[QPushButton] = None):
         self.header_bg = QColor(p["header_bg"])
@@ -1849,7 +1808,8 @@ class EmojiGifPickerDialog(QDialog):
         self.muted_col = self.theme_palette.get("muted", "#94a3b8")
 
         self.setWindowTitle("GIF & Emoji")
-        self.setFixedSize(450, 560)
+        self.setMinimumSize(460, 560)
+        self.resize(480, 580)
         self.setStyleSheet(get_dialog_theme_stylesheet(self) + f"""
             QDialog {{
                 background-color: {self.dialog_bg};
@@ -2483,9 +2443,9 @@ class ImageInsertDialog(QDialog):
     """
     def __init__(self, parent=None, default_tab=0):
         super().__init__(parent)
-        self.setWindowTitle("Görsel Ekle")
-        self.setFixedSize(480, 440)
-        self.setStyleSheet(get_dialog_theme_stylesheet(self))
+        self.setWindowTitle(LanguageManager.tr("insert_image_title", default="Görsel Ekle"))
+        self.setMinimumSize(480, 480)
+        self.resize(500, 500)
 
         self.image_bytes: Optional[bytes] = None
         self.image_pixmap: Optional[QPixmap] = None
@@ -2496,12 +2456,6 @@ class ImageInsertDialog(QDialog):
         layout.setContentsMargins(18, 18, 18, 18)
 
         self.tabs = QTabWidget()
-        self.tabs.setStyleSheet("""
-            QTabWidget::pane { border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 6px; background-color: rgba(255, 255, 255, 0.02); }
-            QTabBar::tab { background: rgba(255, 255, 255, 0.04); color: #94a3b8; padding: 8px 18px; border-top-left-radius: 4px; border-top-right-radius: 4px; font-size: 12px; font-weight: bold; }
-            QTabBar::tab:hover { background: rgba(255, 255, 255, 0.08); color: #ffffff; }
-            QTabBar::tab:selected { background: rgba(255, 255, 255, 0.1); color: #38bdf8; border-bottom: 2px solid #38bdf8; }
-        """)
 
         # Sekme 1: Bilgisayardan
         tab_local = QWidget()
@@ -2521,7 +2475,9 @@ class ImageInsertDialog(QDialog):
         tl_layout.addWidget(btn_browse)
 
         self.lbl_local_info = QLabel("Desteklenen formatlar: PNG, JPG, JPEG, WEBP, BMP, SVG, GIF")
-        self.lbl_local_info.setStyleSheet(" font-size: 11px;")
+        self.lbl_local_info.setWordWrap(True)
+        self.lbl_local_info.setProperty("class", "muted")
+        self.lbl_local_info.setStyleSheet("font-size: 11px;")
         tl_layout.addWidget(self.lbl_local_info)
 
         self.lbl_local_preview = QLabel("Önizleme yok")
@@ -2540,22 +2496,13 @@ class ImageInsertDialog(QDialog):
         tu_layout.setContentsMargins(14, 14, 14, 14)
 
         lbl_url_desc = QLabel("Web Sitesi veya Görsel Adresi (URL):")
-        lbl_url_desc.setStyleSheet(" font-size: 12px; font-weight: bold;")
+        lbl_url_desc.setWordWrap(True)
+        lbl_url_desc.setStyleSheet("font-size: 12px; font-weight: bold;")
         tu_layout.addWidget(lbl_url_desc)
 
         url_input_box = QHBoxLayout()
         self.txt_url = QLineEdit()
         self.txt_url.setPlaceholderText("https://ornek.com/resim.jpg")
-        self.txt_url.setStyleSheet("""
-            QLineEdit {
-                background-color: rgba(255, 255, 255, 0.06);
-                color: #f1f5f9;
-                border: 1px solid rgba(255, 255, 255, 0.12);
-                border-radius: 6px;
-                padding: 8px; font-size: 12px;
-            }
-            QLineEdit:focus { border-color: #38bdf8; }
-        """)
         btn_fetch = QPushButton("İndir ve Önizle")
         btn_fetch.setStyleSheet("""
             QPushButton {
@@ -2599,25 +2546,21 @@ class ImageInsertDialog(QDialog):
 
         # Alt Butonlar
         btn_box = QHBoxLayout()
-        btn_cancel = QPushButton("İptal")
-        btn_cancel.setStyleSheet("padding: 8px 16px;   border-radius: 6px;")
+        btn_cancel = QPushButton(LanguageManager.tr("btn_cancel", default="İptal"))
+        btn_cancel.setObjectName("CancelBtn")
         btn_cancel.clicked.connect(self.reject)
 
-        self.btn_insert = QPushButton("Belgeye Ekle")
+        self.btn_insert = QPushButton(LanguageManager.tr("btn_insert", default="Belgeye Ekle"))
+        self.btn_insert.setObjectName("PrimaryBtn")
         self.btn_insert.setEnabled(False)
-        self.btn_insert.setStyleSheet("""
-            QPushButton {
-                padding: 8px 20px;  
-                font-weight: bold; border-radius: 6px;
-            }
-            QPushButton:disabled {   }
-        """)
         self.btn_insert.clicked.connect(self.accept)
 
         btn_box.addStretch()
         btn_box.addWidget(btn_cancel)
         btn_box.addWidget(self.btn_insert)
         layout.addLayout(btn_box)
+
+        apply_dialog_theme(self, parent)
 
     @property
     def keep_aspect_ratio(self) -> bool:
@@ -2857,9 +2800,9 @@ class AudioRecordDialog(QDialog):
     """
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("Ses Kaydı Ekle")
-        self.setFixedSize(500, 520)
-        self.setStyleSheet(get_dialog_theme_stylesheet(self))
+        self.setWindowTitle(LanguageManager.tr("audio_record_title", default="Ses Kaydı Ekle"))
+        self.setMinimumSize(500, 530)
+        self.resize(520, 550)
 
         # Belgeyi düzenlemeye devam edebilmek için modeless ve üstte kalma bayrakları
         self.setWindowFlags(
@@ -2918,7 +2861,7 @@ class AudioRecordDialog(QDialog):
         hdr_box.addWidget(hdr)
         hdr_box.addStretch()
 
-        self.btn_compact = QPushButton("🗕 Kompakt Mod")
+        self.btn_compact = QPushButton(LanguageManager.tr("compact_view", default="Kompakt Görünüm"))
         self.btn_compact.setToolTip("Belgeyi rahatça düzenleyebilmek için pencereyi küçültür / genişletir")
         self.btn_compact.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_compact.setStyleSheet("""
@@ -3072,26 +3015,21 @@ class AudioRecordDialog(QDialog):
         layout.addStretch()
 
         btn_box = QHBoxLayout()
-        self.btn_cancel = QPushButton("İptal")
-        self.btn_cancel.setStyleSheet("padding: 8px 16px;   border-radius: 6px; font-size: 12px;")
+        self.btn_cancel = QPushButton(LanguageManager.tr("btn_cancel", default="İptal"))
+        self.btn_cancel.setObjectName("CancelBtn")
         self.btn_cancel.clicked.connect(self._on_cancel)
 
-        self.btn_ok = QPushButton("Belgeye Ekle")
+        self.btn_ok = QPushButton(LanguageManager.tr("btn_insert", default="Belgeye Ekle"))
+        self.btn_ok.setObjectName("PrimaryBtn")
         self.btn_ok.setEnabled(False)
-        self.btn_ok.setStyleSheet(f"""
-            QPushButton {{
-                padding: 8px 20px;  
-                font-weight: bold; border-radius: 6px; font-size: 12px;
-            }}
-            QPushButton:hover {{  }}
-            QPushButton:disabled {{ {btn_disabled_css} }}
-        """)
         self.btn_ok.clicked.connect(self.accept)
 
         btn_box.addStretch()
         btn_box.addWidget(self.btn_cancel)
         btn_box.addWidget(self.btn_ok)
         layout.addLayout(btn_box)
+
+        apply_dialog_theme(self, parent)
 
     def _toggle_compact_mode(self):
         self.is_compact = not self.is_compact
@@ -3108,7 +3046,7 @@ class AudioRecordDialog(QDialog):
             self.lbl_status.setStyleSheet(
                 " font-size: 11px; font-weight: 500; border: none; background: transparent; padding: 0;"
             )
-            self.btn_compact.setText("🗖 Tam Görünüm")
+            self.btn_compact.setText(LanguageManager.tr("full_view", default="Tam Görünüm"))
             self.btn_compact.setStyleSheet("""
                 QPushButton {
                     background-color: rgba(255, 255, 255, 0.06);
@@ -3384,9 +3322,9 @@ class VideoInsertDialog(QDialog):
     """
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("Video Ekle")
-        self.setFixedSize(440, 380)
-        self.setStyleSheet(get_dialog_theme_stylesheet(self))
+        self.setWindowTitle(LanguageManager.tr("insert_video_title", default="Video Ekle"))
+        self.setMinimumSize(480, 420)
+        self.resize(500, 440)
 
         self.video_url_or_path: str = ""
         self.thumbnail_bytes: Optional[bytes] = None
@@ -3418,7 +3356,7 @@ class VideoInsertDialog(QDialog):
         tl = QVBoxLayout(tab_local)
         tl.setSpacing(10)
         btn_sel_video = QPushButton("Bilgisayardan Video Seç (.mp4, .mkv, .avi, .webm)...")
-        btn_sel_video.setStyleSheet("background-color: #2563eb; color: #ffffff; font-weight: bold; padding: 10px; border-radius: 6px; border: none;")
+        btn_sel_video.setObjectName("PrimaryBtn")
         btn_sel_video.clicked.connect(self._select_local_video)
         tl.addWidget(btn_sel_video)
 
@@ -3463,25 +3401,21 @@ class VideoInsertDialog(QDialog):
 
         # Butonlar
         btn_box = QHBoxLayout()
-        btn_cancel = QPushButton("İptal")
-        btn_cancel.setStyleSheet("padding: 8px 16px;   border-radius: 6px;")
+        btn_cancel = QPushButton(LanguageManager.tr("btn_cancel", default="İptal"))
+        btn_cancel.setObjectName("CancelBtn")
         btn_cancel.clicked.connect(self.reject)
 
-        self.btn_ok = QPushButton("Belgeye Ekle")
+        self.btn_ok = QPushButton(LanguageManager.tr("btn_insert", default="Belgeye Ekle"))
+        self.btn_ok.setObjectName("PrimaryBtn")
         self.btn_ok.setEnabled(False)
-        self.btn_ok.setStyleSheet("""
-            QPushButton {
-                padding: 8px 20px;  
-                font-weight: bold; border-radius: 6px;
-            }
-            QPushButton:disabled {   }
-        """)
         self.btn_ok.clicked.connect(self.accept)
 
         btn_box.addStretch()
         btn_box.addWidget(btn_cancel)
         btn_box.addWidget(self.btn_ok)
         layout.addLayout(btn_box)
+
+        apply_dialog_theme(self, parent)
 
     def _select_local_video(self):
         fpath, _ = QFileDialog.getOpenFileName(self, "Video Seç", "", "Video Dosyaları (*.mp4 *.mkv *.avi *.mov *.webm)")

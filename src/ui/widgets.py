@@ -11,7 +11,7 @@ from PyQt6.QtWidgets import (QToolButton, QToolBar, QGraphicsTextItem,
                              QStyleOptionViewItem)
 from PyQt6.QtGui import (QDrag, QColor, QFocusEvent, QPainter, QPixmap, QIcon, QFont, QImage,
                          QDesktopServices, QTextCursor, QTextCharFormat, QTextFormat, QCursor, QBrush, QAction,
-                         QPainterPath, QPen, QLinearGradient)
+                         QPainterPath, QPen, QLinearGradient, QIntValidator)
 from PyQt6.QtCore import (Qt, QMimeData, QPoint, QPointF, QSize, pyqtSignal, QEvent, QRect, QRectF, QTimer, QUrl,
                           QEasingCurve, QPropertyAnimation, QSettings)
 from src.core.i18n import LanguageManager
@@ -1166,6 +1166,7 @@ class FullscreenSlideToolbar(QFrame):
         if edge not in ("left", "right", "top", "bottom"):
             edge = "left"
         self.edge = edge
+        self.edge_offset_ratio = settings.value("fullscreen_toolbar_offset", 0.5, type=float)
 
         self.box_layout = QBoxLayout(QBoxLayout.Direction.TopToBottom, self)
         self.box_layout.setContentsMargins(6, 6, 6, 6)
@@ -1184,13 +1185,14 @@ class FullscreenSlideToolbar(QFrame):
             ('highlighter', ModernIconFactory.icon_highlighter(), 'Vurgulayıcı (Renk & Boyut Paneli için tıkla)'),
             ('eraser', ModernIconFactory.icon_eraser(), 'Silgi (Silgi Ayarları için tıkla)'),
             ('text', ModernIconFactory.icon_text_box(), 'Metin Kutusu (Yazı & Biçim Paneli için tıkla)'),
-            ('insert', ModernIconFactory.icon_insert(), LanguageManager.tr("insert_btn_tip")),
+            ('insert', ModernIconFactory.icon_insert("#10b981"), LanguageManager.tr("insert_btn_tip")),
             ('pointer', ModernIconFactory.icon_pointer(), 'Lazer İşaretçi (İşaretçi Ayarları için tıkla)')
         ]
 
         for name, icon, tip in tools:
             btn = QToolButton(self)
             btn.setIcon(icon)
+            btn.setIconSize(QSize(22, 22))
             btn.setToolTip(tip)
             if name != 'insert':
                 btn.setCheckable(True)
@@ -1331,10 +1333,13 @@ class FullscreenSlideToolbar(QFrame):
     def set_edge(self, edge):
         if edge not in ("left", "right", "top", "bottom"):
             return
+        if hasattr(self.main_window, 'ensure_distinct_fullscreen_edges'):
+            self.main_window.ensure_distinct_fullscreen_edges(self, edge)
         self._apply_edge_layout(edge)
         settings = QSettings("AuraPDF", "PDFViewer")
         settings.setValue("fullscreen_toolbar_edge", self.edge)
         settings.setValue("fullscreen_toolbar_side", self.edge)
+        settings.setValue("fullscreen_toolbar_offset", self.edge_offset_ratio)
         self.slide_in()
         self.hide_timer.start(3000)
 
@@ -1376,7 +1381,52 @@ class FullscreenSlideToolbar(QFrame):
                 return True
             self._drag_start_pos = None
             self._drag_target_button = None
+        elif event.type() == QEvent.Type.MouseButtonDblClick:
+            if watched in (self, self.grip):
+                self.reset_to_center()
+                return True
         return super().eventFilter(watched, event)
+
+    def reset_to_center(self):
+        self.edge_offset_ratio = 0.5
+        settings = QSettings("AuraPDF", "PDFViewer")
+        settings.setValue("fullscreen_toolbar_offset", 0.5)
+        self.slide_in()
+
+    def reset_to_default(self):
+        self.edge_offset_ratio = 0.5
+        self.set_edge("left")
+
+    def contextMenuEvent(self, event):
+        menu = QMenu(self)
+        menu.setStyleSheet("""
+            QMenu {
+                background-color: #1e1e24;
+                color: #f1f5f9;
+                border: 1px solid rgba(255, 255, 255, 0.18);
+                border-radius: 8px;
+                padding: 4px;
+            }
+            QMenu::item {
+                padding: 6px 20px;
+                border-radius: 4px;
+            }
+            QMenu::item:selected {
+                background-color: #388bfd;
+            }
+        """)
+        menu_dock = menu.addMenu(LanguageManager.tr("fs_dock_position"))
+        for edge_key, label_key in [('left', 'fs_dock_left'), ('right', 'fs_dock_right'), ('top', 'fs_dock_top'), ('bottom', 'fs_dock_bottom')]:
+            act = menu_dock.addAction(LanguageManager.tr(label_key))
+            act.setCheckable(True)
+            act.setChecked(self.edge == edge_key)
+            act.triggered.connect(lambda chk=False, ek=edge_key: self.set_edge(ek))
+        menu.addSeparator()
+        act_center = menu.addAction(ModernIconFactory.icon_refresh(), LanguageManager.tr("fs_center_position"))
+        act_center.triggered.connect(self.reset_to_center)
+        act_reset = menu.addAction(ModernIconFactory.icon_refresh(), LanguageManager.tr("fullscreen_tb_reset_pos"))
+        act_reset.triggered.connect(self.reset_to_default)
+        menu.exec(event.globalPos())
 
     def _finish_drag(self):
         self._is_dragging = False
@@ -1397,13 +1447,19 @@ class FullscreenSlideToolbar(QFrame):
         min_norm = min(norm_left, norm_right, norm_top, norm_bottom)
         if min_norm == norm_top:
             new_edge = 'top'
+            self.edge_offset_ratio = max(0.08, min(0.92, center_x / float(win_w)))
         elif min_norm == norm_bottom:
             new_edge = 'bottom'
+            self.edge_offset_ratio = max(0.08, min(0.92, center_x / float(win_w)))
         elif min_norm == norm_left:
             new_edge = 'left'
+            self.edge_offset_ratio = max(0.08, min(0.92, center_y / float(win_h)))
         else:
             new_edge = 'right'
+            self.edge_offset_ratio = max(0.08, min(0.92, center_y / float(win_h)))
 
+        settings = QSettings("AuraPDF", "PDFViewer")
+        settings.setValue("fullscreen_toolbar_offset", self.edge_offset_ratio)
         self.set_edge(new_edge)
 
     def update_active_tool(self, tool_name):
@@ -1577,61 +1633,53 @@ class FullscreenSlideToolbar(QFrame):
 
     def _show_insert_menu(self, btn):
         self.hide_timer.stop()
-        menu = QMenu(self)
-        menu.setStyleSheet("""
-            QMenu { 
-                background-color: #1c1c1e; 
-                color: #f1f5f9; 
-                border: 1px solid rgba(255, 255, 255, 0.16); 
-                border-radius: 10px; 
-                padding: 6px; 
-            }
-            QMenu::item { 
-                padding: 8px 22px 8px 12px; 
-                border-radius: 6px; 
-                font-size: 13px; 
-            }
-            QMenu::item:selected { 
-                background-color: #0284c7; 
-                color: #ffffff; 
-            }
-            QMenu::separator { 
-                height: 1px; 
-                background: rgba(255, 255, 255, 0.12); 
-                margin: 4px 8px; 
-            }
-        """)
+        mw = self.main_window
+        if not mw:
+            return
 
-        # 1. Tablo Ekle
-        act_table = menu.addAction(ModernIconFactory.icon_table(), "  " + LanguageManager.tr("insert_table"))
-        act_table.triggered.connect(self.main_window.show_insert_table_dialog)
-
-        # 3. Emoji, Çıkartma ve GIF Ekle
-        act_emoji = menu.addAction(ModernIconFactory.icon_emoji(), "  " + LanguageManager.tr("insert_emoji"))
-        act_emoji.triggered.connect(self.main_window.show_insert_emoji_dialog)
-
-        menu.addSeparator()
-
-        # 4. Görsel Ekle
-        act_img = menu.addAction(ModernIconFactory.icon_image(), "  " + LanguageManager.tr("insert_image"))
-        act_img.triggered.connect(lambda: self.main_window.show_insert_image_dialog(default_tab=0))
-
-        menu.addSeparator()
-
-        # 5. Ses Dosyası / Kayıt Ekle
-        act_audio = menu.addAction(ModernIconFactory.icon_mic(), "  " + LanguageManager.tr("insert_audio"))
-        act_audio.triggered.connect(self.main_window.show_insert_audio_dialog)
-
-        # 6. Video / Animasyon Ekle
-        act_video = menu.addAction(ModernIconFactory.icon_video(), "  " + LanguageManager.tr("insert_video"))
-        act_video.triggered.connect(self.main_window.show_insert_video_dialog)
+        # Normal ekrandaki hareketli toolbardaki ekle butonunun menüsüyle birebir aynı menü
+        menu = getattr(getattr(mw, 'btn_insert', None), 'menu', lambda: None)()
+        if not menu:
+            menu = QMenu(self)
+            menu.setStyleSheet("""
+                QMenu {
+                    background-color: #1f1f23;
+                    color: #f1f5f9;
+                    border: 1px solid rgba(255, 255, 255, 0.12);
+                    border-radius: 10px;
+                    padding: 6px 4px;
+                }
+                QMenu::item {
+                    padding: 8px 22px 8px 14px;
+                    border-radius: 6px;
+                    font-size: 13px;
+                    font-weight: 500;
+                    margin: 1px 4px;
+                }
+                QMenu::item:selected {
+                    background-color: rgba(255, 255, 255, 0.08);
+                    color: #ffffff;
+                }
+                QMenu::separator {
+                    height: 1px;
+                    background-color: rgba(255, 255, 255, 0.1);
+                    margin: 4px 10px;
+                }
+            """)
+            menu.addAction(ModernIconFactory.icon_menu_voice_recording(), "  " + LanguageManager.tr("insert_voice_recording"), mw.show_insert_audio_dialog)
+            menu.addSeparator()
+            menu.addAction(ModernIconFactory.icon_menu_image(), "  " + LanguageManager.tr("insert_image"), lambda: mw.show_insert_image_dialog(default_tab=0))
+            menu.addAction(ModernIconFactory.icon_menu_camera(), "  " + LanguageManager.tr("insert_camera"), mw.show_insert_video_dialog)
+            menu.addAction(ModernIconFactory.icon_menu_audio(), "  " + LanguageManager.tr("insert_audio_file"), mw.show_insert_audio_file_picker)
+            menu.addAction(ModernIconFactory.icon_menu_drawing(), "  " + LanguageManager.tr("insert_drawing"), mw.show_insert_emoji_dialog)
+            menu.addAction(ModernIconFactory.icon_menu_table(), "  " + LanguageManager.tr("insert_table"), mw.show_insert_table_dialog)
 
         # Menü konumunu kenar yönüne göre konumlandır
         menu.adjustSize()
         hint = menu.sizeHint()
         btn_pos = btn.mapToGlobal(QPoint(0, 0)) if hasattr(btn, 'mapToGlobal') else self.mapToGlobal(QPoint(0, 0))
-        win_w = max(100, self.main_window.width())
-        win_h = max(100, self.main_window.height())
+        win_w = max(100, mw.width())
+        win_h = max(100, mw.height())
 
         if self.edge == "left":
             x = btn_pos.x() + (btn.width() if hasattr(btn, 'width') else 40) + 6
@@ -1646,6 +1694,10 @@ class FullscreenSlideToolbar(QFrame):
             x = max(10, min(win_w - hint.width() - 10, btn_pos.x()))
             y = btn_pos.y() - hint.height() - 6
 
+        try:
+            menu.aboutToHide.disconnect()
+        except Exception:
+            pass
         menu.aboutToHide.connect(lambda: self.hide_timer.start(2500))
         menu.exec(QPoint(int(x), int(y)))
 
@@ -1658,18 +1710,19 @@ class FullscreenSlideToolbar(QFrame):
         win_h = self.main_window.height()
         w = self.width()
         h = self.height()
+        offset_ratio = getattr(self, 'edge_offset_ratio', 0.5)
 
         if self.edge == "left":
             x = 16 if visible else (-w - 10)
-            y = max(20, (win_h - h) // 2)
+            y = max(16, min(win_h - h - 16, int(win_h * offset_ratio - h / 2.0)))
         elif self.edge == "right":
             x = (win_w - w - 16) if visible else (win_w + 10)
-            y = max(20, (win_h - h) // 2)
+            y = max(16, min(win_h - h - 16, int(win_h * offset_ratio - h / 2.0)))
         elif self.edge == "top":
-            x = max(20, (win_w - w) // 2)
+            x = max(16, min(win_w - w - 16, int(win_w * offset_ratio - w / 2.0)))
             y = 16 if visible else (-h - 10)
         else: # bottom
-            x = max(20, (win_w - w) // 2)
+            x = max(16, min(win_w - w - 16, int(win_w * offset_ratio - w / 2.0)))
             y = (win_h - h - 16) if visible else (win_h + 10)
 
         return QPoint(int(x), int(y))
@@ -1750,6 +1803,680 @@ class FullscreenSlideToolbar(QFrame):
         self.hide()
         self.is_slid_in = False
         self.move(-self.width() - 80, -self.height() - 80)
+
+
+class FullscreenReadingHUD(QFrame):
+    """
+    Tam ekran modunda ekranın alt ortasında veya kullanıcının sürüklediği serbest konumda süzülen,
+    sayfa çevirme denetimleri (ilk, önceki, sayfa no, sonraki, son),
+    sayfa görünüm modları (tekli, çift sayfa),
+    okuma renk modları (açık, gece, sepya) ve sığdırma araçlarını barındıran,
+    sürüklenebilir (drag-and-drop), fare yaklaştığında kayarak açılan ve
+    kullanıcı etkileşimi kesildiğinde kendiliğinden gizlenen modern panel.
+    """
+    STYLE_NORMAL = ""
+    STYLE_DRAGGING = ""
+
+    def __init__(self, main_window):
+        super().__init__(main_window)
+        self.setObjectName("FullscreenReadingHUD")
+        self.main_window = main_window
+        self.is_slid_in = False
+
+        settings = QSettings("AuraPDF", "PDFViewer")
+        current_th = settings.value("app_theme", "gray")
+        if current_th in ("light", "dark"):
+            current_th = "gray"
+        self.apply_theme(current_th)
+
+        # Gölge efekti
+        shadow = QGraphicsDropShadowEffect(self)
+        shadow.setBlurRadius(24)
+        shadow.setColor(QColor(0, 0, 0, 160))
+        shadow.setOffset(0, 6)
+        self.setGraphicsEffect(shadow)
+
+        self.box_layout = QBoxLayout(QBoxLayout.Direction.LeftToRight, self)
+        self.box_layout.setContentsMargins(12, 6, 12, 6)
+        self.box_layout.setSpacing(6)
+
+        self.separators = []
+
+        def _add_sep():
+            sep = QFrame(self)
+            sep.setFrameShape(QFrame.Shape.NoFrame)
+            sep.setFixedSize(1, 20)
+            sep.setStyleSheet("border: none; background-color: rgba(255, 255, 255, 0.18);")
+            self.box_layout.addWidget(sep)
+            self.separators.append(sep)
+
+        # 0. Sürükle-Bırak Tutamacı (Grip)
+        self.grip = FullscreenToolbarGrip(self)
+        self.grip.set_orientation(is_horizontal=True)
+        self.grip.setToolTip(LanguageManager.tr("hud_drag_hint"))
+        self.box_layout.addWidget(self.grip)
+
+        _add_sep()
+
+        # 1. Sayfa Çevirme & Gezinti
+        self.btn_first = QToolButton(self)
+        self.btn_first.setIcon(ModernIconFactory.icon_first_page())
+        self.btn_first.setToolTip(LanguageManager.tr("fs_hud_first_page"))
+        self.btn_first.setFixedSize(34, 34)
+        self.btn_first.clicked.connect(self._go_first)
+        self.box_layout.addWidget(self.btn_first)
+
+        self.btn_prev = QToolButton(self)
+        self.btn_prev.setIcon(ModernIconFactory.icon_move_left())
+        self.btn_prev.setToolTip(LanguageManager.tr("fs_hud_prev_page"))
+        self.btn_prev.setFixedSize(34, 34)
+        self.btn_prev.clicked.connect(self._go_prev)
+        self.box_layout.addWidget(self.btn_prev)
+
+        # Sayfa kutusu
+        self.page_box = QBoxLayout(QBoxLayout.Direction.LeftToRight)
+        self.page_box.setSpacing(4)
+        self.page_box.setContentsMargins(2, 0, 2, 0)
+
+        self.txt_page = QLineEdit(self)
+        self.txt_page.setObjectName("HUDPageInput")
+        self.txt_page.setFixedWidth(40)
+        self.txt_page.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.txt_page.setText("1")
+        self.txt_page.setValidator(QIntValidator(1, 99999, self))
+        self.txt_page.returnPressed.connect(self._on_page_submitted)
+        self.page_box.addWidget(self.txt_page)
+
+        self.lbl_total = QLabel("/ 1", self)
+        self.page_box.addWidget(self.lbl_total)
+        self.box_layout.addLayout(self.page_box)
+
+        self.btn_next = QToolButton(self)
+        self.btn_next.setIcon(ModernIconFactory.icon_move_right())
+        self.btn_next.setToolTip(LanguageManager.tr("fs_hud_next_page"))
+        self.btn_next.setFixedSize(34, 34)
+        self.btn_next.clicked.connect(self._go_next)
+        self.box_layout.addWidget(self.btn_next)
+
+        self.btn_last = QToolButton(self)
+        self.btn_last.setIcon(ModernIconFactory.icon_last_page())
+        self.btn_last.setToolTip(LanguageManager.tr("fs_hud_last_page"))
+        self.btn_last.setFixedSize(34, 34)
+        self.btn_last.clicked.connect(self._go_last)
+        self.box_layout.addWidget(self.btn_last)
+
+        _add_sep()
+
+        # 2. Sayfa Görünüm Modları (Tekli / İkili)
+        self.btn_single = QToolButton(self)
+        self.btn_single.setIcon(ModernIconFactory.icon_view_single())
+        self.btn_single.setToolTip(LanguageManager.tr("view_mode_single"))
+        self.btn_single.setCheckable(True)
+        self.btn_single.setFixedSize(34, 34)
+        self.btn_single.clicked.connect(lambda: self._set_page_view_mode("single"))
+        self.box_layout.addWidget(self.btn_single)
+
+        self.btn_double = QToolButton(self)
+        self.btn_double.setIcon(ModernIconFactory.icon_view_double())
+        self.btn_double.setToolTip(LanguageManager.tr("view_mode_double"))
+        self.btn_double.setCheckable(True)
+        self.btn_double.setFixedSize(34, 34)
+        self.btn_double.clicked.connect(lambda: self._set_page_view_mode("double"))
+        self.box_layout.addWidget(self.btn_double)
+
+        _add_sep()
+
+        # 3. Okuma Renk Modları (Gündüz, Gece, Sepya)
+        self.btn_color_light = QToolButton(self)
+        self.btn_color_light.setIcon(ModernIconFactory.icon_reading_mode())
+        self.btn_color_light.setToolTip(LanguageManager.tr("reading_mode_normal"))
+        self.btn_color_light.setCheckable(True)
+        self.btn_color_light.setFixedSize(34, 34)
+        self.btn_color_light.clicked.connect(lambda: self._set_reading_color("normal"))
+        self.box_layout.addWidget(self.btn_color_light)
+
+        self.btn_color_dark = QToolButton(self)
+        self.btn_color_dark.setIcon(ModernIconFactory.icon_reading_dark())
+        self.btn_color_dark.setToolTip(LanguageManager.tr("reading_mode_dark"))
+        self.btn_color_dark.setCheckable(True)
+        self.btn_color_dark.setFixedSize(34, 34)
+        self.btn_color_dark.clicked.connect(lambda: self._set_reading_color("dark"))
+        self.box_layout.addWidget(self.btn_color_dark)
+
+        self.btn_color_sepia = QToolButton(self)
+        self.btn_color_sepia.setIcon(ModernIconFactory.icon_reading_sepia())
+        self.btn_color_sepia.setToolTip(LanguageManager.tr("reading_mode_sepia"))
+        self.btn_color_sepia.setCheckable(True)
+        self.btn_color_sepia.setFixedSize(34, 34)
+        self.btn_color_sepia.clicked.connect(lambda: self._set_reading_color("sepia"))
+        self.box_layout.addWidget(self.btn_color_sepia)
+
+        _add_sep()
+
+        # 4. Sığdırma Butonları (Genişlik & Sayfa)
+        self.btn_fit_width = QToolButton(self)
+        self.btn_fit_width.setIcon(ModernIconFactory.icon_fit_width())
+        self.btn_fit_width.setToolTip(LanguageManager.tr("fit_to_width"))
+        self.btn_fit_width.setFixedSize(34, 34)
+        self.btn_fit_width.clicked.connect(self._fit_width)
+        self.box_layout.addWidget(self.btn_fit_width)
+
+        self.btn_fit_page = QToolButton(self)
+        self.btn_fit_page.setIcon(ModernIconFactory.icon_fit_page())
+        self.btn_fit_page.setToolTip(LanguageManager.tr("fit_to_page"))
+        self.btn_fit_page.setFixedSize(34, 34)
+        self.btn_fit_page.clicked.connect(self._fit_page)
+        self.box_layout.addWidget(self.btn_fit_page)
+
+        _add_sep()
+
+        # 5. Kapat / Gizle Butonu
+        self.btn_close = QToolButton(self)
+        self.btn_close.setIcon(ModernIconFactory.icon_close())
+        self.btn_close.setToolTip(LanguageManager.tr("fs_hud_hide"))
+        self.btn_close.setFixedSize(30, 30)
+        self.btn_close.clicked.connect(self.slide_out)
+        self.box_layout.addWidget(self.btn_close)
+
+        # Sürükleme durumu ve kenar yönetimi
+        self._is_dragging = False
+        self._drag_start_pos = None
+        self._drag_start_panel_pos = None
+        self._drag_target_button = None
+
+        settings = QSettings("AuraPDF", "PDFViewer")
+        edge = settings.value("fullscreen_hud_edge", "bottom", type=str)
+        if edge not in ("left", "right", "top", "bottom"):
+            edge = "bottom"
+        self.edge = edge
+        self.edge_offset_ratio = settings.value("fullscreen_hud_offset", 0.5, type=float)
+        self._apply_edge_layout(self.edge)
+
+        # Olay filtresi: panel, tutamaç ve butonlardan sürüklemeyi yakalar
+        self.installEventFilter(self)
+        self.grip.installEventFilter(self)
+        for w in (self.btn_first, self.btn_prev, self.btn_next, self.btn_last,
+                  self.btn_single, self.btn_double, self.btn_color_light,
+                  self.btn_color_dark, self.btn_color_sepia, self.btn_fit_width,
+                  self.btn_fit_page, self.btn_close, self.lbl_total):
+            w.installEventFilter(self)
+
+        # Animasyon & Zamanlayıcı
+        self.anim = QPropertyAnimation(self, b"pos", self)
+        enable_anim = settings.value("enable_animations", True, type=bool)
+        self.anim.setDuration(240 if enable_anim else 0)
+        self.anim.finished.connect(self._on_anim_finished)
+
+        self.hide_timer = QTimer(self)
+        self.hide_timer.setSingleShot(True)
+        self.hide_timer.setInterval(2800)
+        self.hide_timer.timeout.connect(self.slide_out)
+
+        self.hide()
+
+    def apply_theme(self, theme_name: str = "gray", spec: Optional[dict] = None):
+        if theme_name in ("light", "dark", "navy"):
+            theme_name = "gray"
+        if not spec:
+            from src.ui.popups import POPUP_THEME_SPECS
+            spec = POPUP_THEME_SPECS.get(theme_name, POPUP_THEME_SPECS.get("gray", {}))
+
+        tb_bg = spec.get("tb_bg", "#1c1c1c")
+        tb_border = spec.get("tb_border", "#404040")
+        accent = spec.get("accent", "#388bfd")
+        btn_hover = spec.get("btn_hover", "rgba(255, 255, 255, 0.16)")
+        text = spec.get("main_text", "#f8fafc")
+
+        self.STYLE_NORMAL = f"""
+            QFrame#FullscreenReadingHUD {{
+                background-color: {tb_bg};
+                border: 1px solid {tb_border};
+                border-radius: 18px;
+            }}
+            QToolButton {{
+                background-color: transparent;
+                border: none;
+                border-radius: 8px;
+                padding: 6px;
+                color: {text};
+            }}
+            QToolButton:hover {{
+                background-color: {btn_hover};
+            }}
+            QToolButton:checked {{
+                background-color: {accent};
+                border: 1px solid {accent};
+            }}
+            QToolButton:disabled {{
+                opacity: 0.35;
+            }}
+            QLineEdit#HUDPageInput {{
+                background-color: rgba(255, 255, 255, 0.12);
+                color: {text};
+                border: 1px solid {tb_border};
+                border-radius: 6px;
+                padding: 2px 4px;
+                font-weight: 700;
+                font-size: 13px;
+            }}
+            QLineEdit#HUDPageInput:focus {{
+                border: 1px solid {accent};
+                background-color: rgba(255, 255, 255, 0.22);
+            }}
+            QLabel {{
+                color: {text};
+                font-weight: 600;
+                font-size: 13px;
+            }}
+        """
+
+        self.STYLE_DRAGGING = f"""
+            QFrame#FullscreenReadingHUD {{
+                background-color: {tb_bg};
+                border: 1.5px solid {accent};
+                border-radius: 18px;
+            }}
+            QToolButton {{
+                background-color: transparent;
+                border: none;
+                border-radius: 8px;
+                padding: 6px;
+                color: {text};
+            }}
+            QToolButton:hover {{
+                background-color: {btn_hover};
+            }}
+            QToolButton:checked {{
+                background-color: {accent};
+                border: 1px solid {accent};
+            }}
+            QToolButton:disabled {{
+                opacity: 0.35;
+            }}
+            QLineEdit#HUDPageInput {{
+                background-color: rgba(255, 255, 255, 0.12);
+                color: {text};
+                border: 1px solid {accent};
+                border-radius: 6px;
+                padding: 2px 4px;
+                font-weight: 700;
+                font-size: 13px;
+            }}
+            QLineEdit#HUDPageInput:focus {{
+                border: 1px solid {accent};
+                background-color: rgba(255, 255, 255, 0.22);
+            }}
+            QLabel {{
+                color: {text};
+                font-weight: 600;
+                font-size: 13px;
+            }}
+        """
+
+        self.setStyleSheet(self.STYLE_DRAGGING if getattr(self, '_is_dragging', False) else self.STYLE_NORMAL)
+        for sep in getattr(self, 'separators', []):
+            sep.setStyleSheet(f"border: none; background-color: {tb_border};")
+
+    def _go_first(self):
+        tab_doc = self.main_window.get_current_tab_doc()
+        if tab_doc and tab_doc.doc and len(tab_doc.doc) > 0:
+            tab_doc.go_to_page(0)
+            self.update_state()
+
+    def _go_prev(self):
+        tab_doc = self.main_window.get_current_tab_doc()
+        if tab_doc and tab_doc.doc and len(tab_doc.doc) > 0:
+            target = max(0, tab_doc.current_page_idx - 1)
+            tab_doc.go_to_page(target)
+            self.update_state()
+
+    def _go_next(self):
+        tab_doc = self.main_window.get_current_tab_doc()
+        if tab_doc and tab_doc.doc and len(tab_doc.doc) > 0:
+            target = min(len(tab_doc.doc) - 1, tab_doc.current_page_idx + 1)
+            tab_doc.go_to_page(target)
+            self.update_state()
+
+    def _go_last(self):
+        tab_doc = self.main_window.get_current_tab_doc()
+        if tab_doc and tab_doc.doc and len(tab_doc.doc) > 0:
+            tab_doc.go_to_page(len(tab_doc.doc) - 1)
+            self.update_state()
+
+    def _on_page_submitted(self):
+        tab_doc = self.main_window.get_current_tab_doc()
+        if tab_doc and tab_doc.doc and len(tab_doc.doc) > 0:
+            val = self.txt_page.text().strip()
+            if val.isdigit():
+                target = max(0, min(len(tab_doc.doc) - 1, int(val) - 1))
+                tab_doc.go_to_page(target)
+                self.update_state()
+
+    def _set_page_view_mode(self, mode: str):
+        if hasattr(self.main_window, 'set_page_view_mode'):
+            self.main_window.set_page_view_mode(mode)
+        self.update_state()
+
+    def _set_reading_color(self, mode: str):
+        if hasattr(self.main_window, 'set_reading_color_mode'):
+            self.main_window.set_reading_color_mode(mode)
+        self.update_state()
+
+    def _fit_width(self):
+        if hasattr(self.main_window, 'fit_to_width'):
+            self.main_window.fit_to_width()
+
+    def _fit_page(self):
+        if hasattr(self.main_window, 'fit_to_page'):
+            self.main_window.fit_to_page()
+
+    def update_state(self):
+        tab_doc = self.main_window.get_current_tab_doc()
+        if not tab_doc or not tab_doc.doc or len(tab_doc.doc) == 0:
+            self.txt_page.setText("1")
+            self.lbl_total.setText("/ 1")
+            self.btn_first.setEnabled(False)
+            self.btn_prev.setEnabled(False)
+            self.btn_next.setEnabled(False)
+            self.btn_last.setEnabled(False)
+            return
+
+        curr = tab_doc.current_page_idx
+        total = len(tab_doc.doc)
+        if not self.txt_page.hasFocus():
+            self.txt_page.setText(str(curr + 1))
+        self.lbl_total.setText(f"/ {total}")
+
+        self.btn_first.setEnabled(curr > 0)
+        self.btn_prev.setEnabled(curr > 0)
+        self.btn_next.setEnabled(curr < total - 1)
+        self.btn_last.setEnabled(curr < total - 1)
+
+        # View mode durumu
+        vm = getattr(tab_doc, 'page_view_mode', 'single')
+        self.btn_single.blockSignals(True)
+        self.btn_double.blockSignals(True)
+        self.btn_single.setChecked(vm == 'single')
+        self.btn_double.setChecked(vm == 'double')
+        self.btn_single.blockSignals(False)
+        self.btn_double.blockSignals(False)
+
+        # Okuma rengi durumu
+        rc = getattr(tab_doc, 'reading_color_mode', 'normal')
+        self.btn_color_light.blockSignals(True)
+        self.btn_color_dark.blockSignals(True)
+        self.btn_color_sepia.blockSignals(True)
+        self.btn_color_light.setChecked(rc == 'normal')
+        self.btn_color_dark.setChecked(rc == 'dark')
+        self.btn_color_sepia.setChecked(rc == 'sepia')
+        self.btn_color_light.blockSignals(False)
+        self.btn_color_dark.blockSignals(False)
+        self.btn_color_sepia.blockSignals(False)
+
+    def _apply_edge_layout(self, edge: str):
+        self.edge = edge
+        is_horiz = edge in ('top', 'bottom')
+        self.setMinimumSize(0, 0)
+        self.setMaximumSize(16777215, 16777215)
+        if is_horiz:
+            self.box_layout.setDirection(QBoxLayout.Direction.LeftToRight)
+            self.box_layout.setContentsMargins(12, 6, 12, 6)
+            self.grip.set_orientation(is_horizontal=True)
+            self.page_box.setDirection(QBoxLayout.Direction.LeftToRight)
+            self.txt_page.setFixedWidth(40)
+            self.lbl_total.setAlignment(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft)
+            for sep in getattr(self, 'separators', []):
+                sep.setFixedSize(1, 20)
+            self.setFixedHeight(54)
+        else:
+            self.box_layout.setDirection(QBoxLayout.Direction.TopToBottom)
+            self.box_layout.setContentsMargins(6, 12, 6, 12)
+            self.grip.set_orientation(is_horizontal=False)
+            self.page_box.setDirection(QBoxLayout.Direction.TopToBottom)
+            self.txt_page.setFixedWidth(34)
+            self.lbl_total.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            for sep in getattr(self, 'separators', []):
+                sep.setFixedSize(20, 1)
+            self.setFixedWidth(54)
+        self.adjustSize()
+
+    def set_edge(self, edge: str):
+        if edge not in ("left", "right", "top", "bottom"):
+            return
+        if hasattr(self.main_window, 'ensure_distinct_fullscreen_edges'):
+            self.main_window.ensure_distinct_fullscreen_edges(self, edge)
+        self._apply_edge_layout(edge)
+        settings = QSettings("AuraPDF", "PDFViewer")
+        settings.setValue("fullscreen_hud_edge", self.edge)
+        settings.setValue("fullscreen_hud_offset", self.edge_offset_ratio)
+        self.slide_in()
+        self.hide_timer.start(3500)
+
+    def get_target_coords(self, visible=True) -> QPoint:
+        self.adjustSize()
+        w = max(54, self.width())
+        h = max(54, self.height())
+        win_w = max(100, self.main_window.width())
+        win_h = max(100, self.main_window.height())
+        offset_ratio = getattr(self, 'edge_offset_ratio', 0.5)
+
+        if self.edge == "left":
+            x = 16 if visible else (-w - 10)
+            y = max(16, min(win_h - h - 16, int(win_h * offset_ratio - h / 2.0)))
+        elif self.edge == "right":
+            x = (win_w - w - 16) if visible else (win_w + 10)
+            y = max(16, min(win_h - h - 16, int(win_h * offset_ratio - h / 2.0)))
+        elif self.edge == "top":
+            x = max(16, min(win_w - w - 16, int(win_w * offset_ratio - w / 2.0)))
+            y = 16 if visible else (-h - 10)
+        else: # bottom
+            x = max(16, min(win_w - w - 16, int(win_w * offset_ratio - w / 2.0)))
+            y = (win_h - h - 16) if visible else (win_h + 10)
+
+        return QPoint(int(x), int(y))
+
+    def reposition(self):
+        if self._is_dragging:
+            return
+        target_pos = self.get_target_coords(visible=self.is_slid_in)
+        self.move(target_pos)
+
+    def eventFilter(self, watched, event):
+        if event.type() == QEvent.Type.MouseButtonPress:
+            if event.button() == Qt.MouseButton.LeftButton:
+                self._drag_start_pos = event.globalPosition().toPoint() if hasattr(event, 'globalPosition') else event.globalPos()
+                self._drag_start_panel_pos = self.pos()
+                self._is_dragging = False
+                self._drag_target_button = watched if isinstance(watched, QToolButton) else None
+        elif event.type() == QEvent.Type.MouseMove:
+            if self._drag_start_pos and (event.buttons() & Qt.MouseButton.LeftButton):
+                cur_pos = event.globalPosition().toPoint() if hasattr(event, 'globalPosition') else event.globalPos()
+                diff = cur_pos - self._drag_start_pos
+                if not self._is_dragging and diff.manhattanLength() > 6:
+                    self._is_dragging = True
+                    self.hide_timer.stop()
+                    self.anim.stop()
+                    self.setStyleSheet(self.STYLE_DRAGGING)
+                    if self._drag_target_button:
+                        self._drag_target_button.setDown(False)
+                if self._is_dragging:
+                    win_w = max(100, self.main_window.width())
+                    win_h = max(100, self.main_window.height())
+                    new_x = self._drag_start_panel_pos.x() + diff.x()
+                    new_y = self._drag_start_panel_pos.y() + diff.y()
+                    clamped_x = max(0, min(win_w - self.width(), new_x))
+                    clamped_y = max(0, min(win_h - self.height(), new_y))
+                    self.move(int(clamped_x), int(clamped_y))
+                    return True
+        elif event.type() == QEvent.Type.MouseButtonRelease:
+            if self._is_dragging:
+                self._finish_drag()
+                return True
+            self._drag_start_pos = None
+            self._drag_target_button = None
+        elif event.type() == QEvent.Type.MouseButtonDblClick:
+            if watched in (self, self.grip):
+                self.reset_to_center()
+                return True
+        return super().eventFilter(watched, event)
+
+    def _finish_drag(self):
+        self._is_dragging = False
+        self._drag_start_pos = None
+        self._drag_target_button = None
+        self.setStyleSheet(self.STYLE_NORMAL)
+
+        win_w = max(1, self.main_window.width())
+        win_h = max(1, self.main_window.height())
+        center_x = self.x() + self.width() / 2.0
+        center_y = self.y() + self.height() / 2.0
+
+        norm_left = center_x / win_w
+        norm_right = 1.0 - norm_left
+        norm_top = center_y / win_h
+        norm_bottom = 1.0 - norm_top
+
+        min_norm = min(norm_left, norm_right, norm_top, norm_bottom)
+        if min_norm == norm_top:
+            new_edge = 'top'
+            self.edge_offset_ratio = max(0.08, min(0.92, center_x / float(win_w)))
+        elif min_norm == norm_bottom:
+            new_edge = 'bottom'
+            self.edge_offset_ratio = max(0.08, min(0.92, center_x / float(win_w)))
+        elif min_norm == norm_left:
+            new_edge = 'left'
+            self.edge_offset_ratio = max(0.08, min(0.92, center_y / float(win_h)))
+        else:
+            new_edge = 'right'
+            self.edge_offset_ratio = max(0.08, min(0.92, center_y / float(win_h)))
+
+        settings = QSettings("AuraPDF", "PDFViewer")
+        settings.setValue("fullscreen_hud_offset", self.edge_offset_ratio)
+        self.set_edge(new_edge)
+
+    def reset_to_center(self):
+        self.edge_offset_ratio = 0.5
+        settings = QSettings("AuraPDF", "PDFViewer")
+        settings.setValue("fullscreen_hud_offset", 0.5)
+        self.slide_in()
+
+    def reset_to_default_pos(self):
+        self.edge_offset_ratio = 0.5
+        self.set_edge("bottom")
+
+    def contextMenuEvent(self, event):
+        menu = QMenu(self)
+        menu.setStyleSheet("""
+            QMenu {
+                background-color: #1e1e24;
+                color: #f1f5f9;
+                border: 1px solid rgba(255, 255, 255, 0.18);
+                border-radius: 8px;
+                padding: 4px;
+            }
+            QMenu::item {
+                padding: 6px 20px;
+                border-radius: 4px;
+            }
+            QMenu::item:selected {
+                background-color: #388bfd;
+            }
+        """)
+        menu_dock = menu.addMenu(LanguageManager.tr("fs_dock_position"))
+        for edge_key, label_key in [('left', 'fs_dock_left'), ('right', 'fs_dock_right'), ('top', 'fs_dock_top'), ('bottom', 'fs_dock_bottom')]:
+            act = menu_dock.addAction(LanguageManager.tr(label_key))
+            act.setCheckable(True)
+            act.setChecked(self.edge == edge_key)
+            act.triggered.connect(lambda chk=False, ek=edge_key: self.set_edge(ek))
+        menu.addSeparator()
+        act_center = menu.addAction(ModernIconFactory.icon_refresh(), LanguageManager.tr("fs_center_position"))
+        act_center.triggered.connect(self.reset_to_center)
+        act_reset = menu.addAction(ModernIconFactory.icon_refresh(), LanguageManager.tr("hud_reset_pos"))
+        act_reset.triggered.connect(self.reset_to_default_pos)
+        menu.exec(event.globalPos())
+
+    def slide_in(self):
+        if not self.main_window.isFullScreen():
+            return
+        if self._is_dragging:
+            return
+        self.hide_timer.stop()
+        self.update_state()
+        self.adjustSize()
+        target_pos = self.get_target_coords(visible=True)
+        self.show()
+        self.raise_()
+        self.anim.stop()
+        self.anim.setEasingCurve(QEasingCurve.Type.OutCubic)
+
+        if not self.isVisible() or not self.is_slid_in:
+            win_w = self.main_window.width()
+            win_h = self.main_window.height()
+            w = self.width()
+            h = self.height()
+            if self.edge == "left":
+                start_x = -w if self.x() > win_w // 2 else self.x()
+                start_pos = QPoint(int(start_x), target_pos.y())
+            elif self.edge == "right":
+                start_x = win_w + 10 if self.x() < win_w // 2 else self.x()
+                start_pos = QPoint(int(start_x), target_pos.y())
+            elif self.edge == "top":
+                start_y = -h if self.y() > win_h // 2 else self.y()
+                start_pos = QPoint(target_pos.x(), int(start_y))
+            else: # bottom
+                start_y = win_h + 10 if self.y() < win_h // 2 else self.y()
+                start_pos = QPoint(target_pos.x(), int(start_y))
+            self.anim.setStartValue(start_pos)
+        else:
+            self.anim.setStartValue(self.pos())
+
+        self.anim.setEndValue(target_pos)
+        self.anim.start()
+        self.is_slid_in = True
+        self.hide_timer.start(3500)
+
+    def _on_anim_finished(self):
+        if not self.is_slid_in:
+            self.hide()
+
+    def slide_out(self):
+        if not self.isVisible() or not self.is_slid_in:
+            return
+        if self._is_dragging:
+            return
+        self.hide_timer.stop()
+        self.is_slid_in = False
+        target_pos = self.get_target_coords(visible=False)
+        if self.anim.duration() == 0:
+            self.move(target_pos)
+            self.hide()
+            return
+        self.anim.stop()
+        self.anim.setEasingCurve(QEasingCurve.Type.InCubic)
+        self.anim.setStartValue(self.pos())
+        self.anim.setEndValue(target_pos)
+        self.anim.start()
+
+    def hide_fullscreen_mode(self):
+        self.hide_timer.stop()
+        self.anim.stop()
+        self.is_slid_in = False
+        self.hide()
+
+    def reposition(self):
+        if not self.isVisible():
+            return
+        target_pos = self.get_target_coords(visible=self.is_slid_in)
+        self.move(target_pos)
+
+    def enterEvent(self, event):
+        self.hide_timer.stop()
+        super().enterEvent(event)
+
+    def leaveEvent(self, event):
+        if self.is_slid_in and self.main_window.isFullScreen() and not self._is_dragging:
+            self.hide_timer.start(1800)
+        super().leaveEvent(event)
 
 
 # --- 10. SOL ÇOK SEKMELİ YAN PANEL (THUMBNAILS, BOOKMARKS & ATTACHMENTS DOCK) ---
@@ -3134,7 +3861,15 @@ class ThumbnailsDock(QDockWidget):
         for idx in range(total_pages):
             is_bm = idx in bookmarked_pages
             placeholder_pix = self._create_placeholder_pixmap(is_bm)
-            item = QListWidgetItem(QIcon(placeholder_pix), f"{idx + 1}")
+            lbl = f"{idx + 1}"
+            try:
+                if hasattr(tab_doc.doc[idx], 'get_label'):
+                    pl = tab_doc.doc[idx].get_label()
+                    if pl and pl != str(idx + 1):
+                        lbl = f"{idx + 1} ({pl})"
+            except Exception:
+                pass
+            item = QListWidgetItem(QIcon(placeholder_pix), lbl)
             item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             item.setData(Qt.ItemDataRole.UserRole, idx)
             if is_bm:
@@ -3287,6 +4022,16 @@ class ThumbnailsDock(QDockWidget):
             else:
                 item.setToolTip(f"Sayfa {page_idx + 1}")
             item.setIcon(QIcon(pixmap))
+            lbl = f"{page_idx + 1}"
+            try:
+                if hasattr(tab_doc.doc[page_idx], 'get_label'):
+                    pl = tab_doc.doc[page_idx].get_label()
+                    if pl and pl != str(page_idx + 1):
+                        lbl = f"{page_idx + 1} ({pl})"
+            except Exception:
+                pass
+            if item.text() != lbl:
+                item.setText(lbl)
             self.list_widget.viewport().update()
         self._rendered_pages.add(page_idx)
 
@@ -3675,5 +4420,5 @@ class AuraSearchBar(QFrame):
 ModernSearchBar = AuraSearchBar
 AuraLinkInputDialog = ModernLinkInputDialog
 
-
-
+# Modern Stepper / SpinBox Bileşenleri
+from src.ui.modern_stepper import ModernSpinBox, ModernDoubleSpinBox, AuraSpinBox, AuraDoubleSpinBox

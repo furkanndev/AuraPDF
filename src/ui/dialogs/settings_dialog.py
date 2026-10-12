@@ -14,12 +14,12 @@ from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel,
                              QComboBox, QMessageBox, QKeySequenceEdit, QScrollArea,
                              QGridLayout, QListWidget, QListWidgetItem, QAbstractItemView,
                              QFileDialog, QApplication, QToolButton, QMenu)
-from PyQt6.QtCore import Qt, QSettings, QRectF, QPointF, QTimer, QEvent
+from PyQt6.QtCore import Qt, QSettings, QRectF, QPointF, QTimer, QEvent, pyqtSignal
 from PyQt6.QtGui import QIcon, QFont, QColor, QKeySequence, QPainter, QPen, QBrush
 from PyQt6.QtCore import QSize
 
 from src.core.i18n import LanguageManager
-from src.ui.dialog_theme import get_dialog_theme_stylesheet
+from src.ui.dialog_theme import get_dialog_theme_stylesheet, apply_dialog_theme, ModernInfoCard
 from src.core.shortcut_helper import (
     is_mouse_shortcut,
     parse_mouse_shortcut,
@@ -569,6 +569,696 @@ class ModernShortcutEdit(QWidget):
         )
 
 
+class ThemeOptionCard(QFrame):
+    """
+    Modern temayı, başlığını, açıklamasını ve renk paleti önizleme haplarını
+    içeren interaktif, tıklanabilir ve odaklanılabilir şık kart bileşeni.
+    """
+    def __init__(self, theme_code, title, desc, palette_colors, radio_btn, parent=None):
+        super().__init__(parent)
+        self.theme_code = theme_code
+        self.radio_btn = radio_btn
+        self.palette_colors = palette_colors
+        self.setObjectName("ThemeOptionCard")
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+
+        h_layout = QHBoxLayout(self)
+        h_layout.setContentsMargins(14, 10, 14, 10)
+        h_layout.setSpacing(14)
+
+        # Radyo butonu (Metin kart etiketinde gösterilecektir)
+        self.radio_btn.setText("")
+        h_layout.addWidget(self.radio_btn, 0, Qt.AlignmentFlag.AlignVCenter)
+
+        # Başlık ve açıklama
+        v_info = QVBoxLayout()
+        v_info.setSpacing(3)
+        self.lbl_title = QLabel(title)
+        self.lbl_title.setStyleSheet("font-size: 13px; font-weight: bold;")
+        self.lbl_desc = QLabel(desc)
+        self.lbl_desc.setStyleSheet("font-size: 11px; color: #94a3b8;")
+        self.lbl_desc.setWordWrap(True)
+        v_info.addWidget(self.lbl_title)
+        v_info.addWidget(self.lbl_desc)
+        h_layout.addLayout(v_info, 1)
+
+        # Renk paleti önizleme hapları
+        self.pills_layout = QHBoxLayout()
+        self.pills_layout.setSpacing(5)
+        self._pills = []
+        for col in palette_colors:
+            pill = QFrame()
+            pill.setFixedSize(16, 16)
+            pill.setStyleSheet(
+                f"background-color: {col}; border-radius: 8px; border: 1.5px solid rgba(255, 255, 255, 0.25);"
+            )
+            self._pills.append(pill)
+            self.pills_layout.addWidget(pill)
+        h_layout.addLayout(self.pills_layout, 0)
+
+        self.radio_btn.toggled.connect(self.update_card_style)
+        self.update_card_style()
+
+    def update_palette_pills(self, colors: list):
+        self.palette_colors = list(colors)
+        for pill, col in zip(self._pills, colors):
+            pill.setStyleSheet(
+                f"background-color: {col}; border-radius: 8px; border: 1.5px solid rgba(255, 255, 255, 0.25);"
+            )
+        self.update_card_style()
+
+    def update_card_style(self):
+        is_checked = self.radio_btn.isChecked()
+        accent_color = self.palette_colors[-1] if self.palette_colors else "#38bdf8"
+        if is_checked:
+            self.setStyleSheet(f"""
+                QFrame#ThemeOptionCard {{
+                    background-color: rgba(255, 255, 255, 0.08);
+                    border: 1.5px solid {accent_color};
+                    border-radius: 9px;
+                }}
+            """)
+        else:
+            self.setStyleSheet("""
+                QFrame#ThemeOptionCard {{
+                    background-color: rgba(255, 255, 255, 0.02);
+                    border: 1px solid rgba(255, 255, 255, 0.08);
+                    border-radius: 9px;
+                }}
+                QFrame#ThemeOptionCard:hover {{
+                    background-color: rgba(255, 255, 255, 0.05);
+                    border-color: rgba(255, 255, 255, 0.22);
+                }}
+            """)
+
+    def mousePressEvent(self, event):
+        self.radio_btn.setChecked(True)
+        super().mousePressEvent(event)
+
+
+class ThemeMiniPreviewCard(QFrame):
+    """
+    Kullanıcının seçtiği renk paletini gerçek bir AuraPDF penceresi şeklinde
+    canlı olarak simüle eden ultra-modern minyatür önizleme bileşeni.
+    """
+    def __init__(self, colors: dict, parent=None):
+        super().__init__(parent)
+        self.setObjectName("ThemeMiniPreviewCard")
+        self.setFixedHeight(105)
+        self._colors = dict(colors)
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        self._build_ui()
+
+    def update_preview(self, colors: dict):
+        self._colors = dict(colors)
+        self._apply_mockup_styles()
+
+    def _build_ui(self):
+        v = QVBoxLayout(self)
+        v.setContentsMargins(1, 1, 1, 1)
+        v.setSpacing(0)
+
+        # 1. Mini Başlık Çubuğu
+        self.mini_titlebar = QFrame()
+        self.mini_titlebar.setFixedHeight(26)
+        h_tb = QHBoxLayout(self.mini_titlebar)
+        h_tb.setContentsMargins(8, 0, 8, 0)
+        h_tb.setSpacing(6)
+
+        # 3 Pencere Noktası
+        h_dots = QHBoxLayout()
+        h_dots.setSpacing(3)
+        for dcol in ("#ef4444", "#f59e0b", "#10b981"):
+            dot = QFrame()
+            dot.setFixedSize(6, 6)
+            dot.setStyleSheet(f"background-color: {dcol}; border-radius: 3px;")
+            h_dots.addWidget(dot)
+        h_tb.addLayout(h_dots)
+
+        # Mini Sekme
+        self.mini_active_tab = QFrame()
+        self.mini_active_tab.setFixedHeight(18)
+        h_mtab = QHBoxLayout(self.mini_active_tab)
+        h_mtab.setContentsMargins(8, 0, 8, 0)
+        h_mtab.setSpacing(4)
+        self.lbl_mtab = QLabel("AuraPDF Belgesi.pdf")
+        self.lbl_mtab.setStyleSheet("font-size: 9.5px; font-weight: 600;")
+        h_mtab.addWidget(self.lbl_mtab)
+        h_tb.addWidget(self.mini_active_tab)
+
+        h_tb.addStretch(1)
+
+        # Canlı Önizleme Rozeti
+        badge_live = QFrame()
+        h_bl = QHBoxLayout(badge_live)
+        h_bl.setContentsMargins(5, 2, 5, 2)
+        h_bl.setSpacing(4)
+        dot_live = QLabel("●")
+        dot_live.setStyleSheet("color: #10b981; font-size: 8px;")
+        h_bl.addWidget(dot_live)
+        lbl_bl = QLabel(LanguageManager.tr("theme_preview_badge"))
+        lbl_bl.setStyleSheet("font-size: 9px; font-weight: 700; color: #94a3b8;")
+        h_bl.addWidget(lbl_bl)
+        h_tb.addWidget(badge_live)
+
+        v.addWidget(self.mini_titlebar)
+
+        # 2. Gövde: Sol Mini Çekmece + Tuval
+        self.mini_body = QFrame()
+        h_body = QHBoxLayout(self.mini_body)
+        h_body.setContentsMargins(0, 0, 0, 0)
+        h_body.setSpacing(0)
+
+        # Sol Mini Araç Çubuğu
+        self.mini_sidebar = QFrame()
+        self.mini_sidebar.setFixedWidth(30)
+        v_sb = QVBoxLayout(self.mini_sidebar)
+        v_sb.setContentsMargins(4, 6, 4, 6)
+        v_sb.setSpacing(4)
+
+        self.mini_tool_active = QFrame()
+        self.mini_tool_active.setFixedSize(22, 16)
+        v_sb.addWidget(self.mini_tool_active)
+
+        self.mini_tool_idle = QFrame()
+        self.mini_tool_idle.setFixedSize(22, 14)
+        v_sb.addWidget(self.mini_tool_idle)
+        v_sb.addStretch(1)
+        h_body.addWidget(self.mini_sidebar)
+
+        # Mini Tuval & Belge Alanı
+        self.mini_canvas = QFrame()
+        v_can = QVBoxLayout(self.mini_canvas)
+        v_can.setContentsMargins(12, 8, 12, 8)
+        v_can.setSpacing(5)
+
+        # Mini Belge Kartı
+        self.mini_doc_card = QFrame()
+        v_doc = QVBoxLayout(self.mini_doc_card)
+        v_doc.setContentsMargins(8, 6, 8, 6)
+        v_doc.setSpacing(4)
+
+        self.lbl_doc_title = QLabel("AuraPDF Modern Arayüz")
+        self.lbl_doc_title.setStyleSheet("font-size: 10px; font-weight: 700;")
+        v_doc.addWidget(self.lbl_doc_title)
+
+        # Vurgulu Çizgi
+        self.mini_doc_line = QFrame()
+        self.mini_doc_line.setFixedHeight(2)
+        v_doc.addWidget(self.mini_doc_line)
+
+        # Eylem Düğmesi
+        h_btn = QHBoxLayout()
+        h_btn.setContentsMargins(0, 0, 0, 0)
+        self.mini_btn = QLabel("  Belgeyi Aç  ")
+        self.mini_btn.setFixedHeight(16)
+        self.mini_btn.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.mini_btn.setStyleSheet("font-size: 9px; font-weight: 700; border-radius: 4px;")
+        h_btn.addWidget(self.mini_btn)
+        h_btn.addStretch(1)
+        v_doc.addLayout(h_btn)
+
+        v_can.addWidget(self.mini_doc_card)
+        h_body.addWidget(self.mini_canvas, 1)
+
+        v.addWidget(self.mini_body, 1)
+        self._apply_mockup_styles()
+
+    def _apply_mockup_styles(self):
+        c_acc = self._colors.get("accent", "#38bdf8")
+        c_bg = self._colors.get("bg", "#14171d")
+        c_surf = self._colors.get("surface", "#1e222b")
+        c_text = self._colors.get("text", "#f1f5f9")
+        c_border = self._colors.get("border", "#2e3442")
+
+        self.setStyleSheet(f"""
+            QFrame#ThemeMiniPreviewCard {{
+                background-color: {c_bg};
+                border: 1.5px solid {c_border};
+                border-radius: 10px;
+            }}
+        """)
+        self.mini_titlebar.setStyleSheet(f"""
+            background-color: {c_surf};
+            border-top-left-radius: 9px;
+            border-top-right-radius: 9px;
+            border-bottom: 1px solid {c_border};
+        """)
+        self.mini_active_tab.setStyleSheet(f"""
+            background-color: {c_bg};
+            border: 1px solid {c_border};
+            border-top: 2px solid {c_acc};
+            border-radius: 4px;
+        """)
+        self.lbl_mtab.setStyleSheet(f"color: {c_text}; font-size: 9.5px; font-weight: 600; border: none; background: transparent;")
+
+        self.mini_sidebar.setStyleSheet(f"""
+            background-color: {c_surf};
+            border-right: 1px solid {c_border};
+            border-bottom-left-radius: 9px;
+        """)
+        self.mini_tool_active.setStyleSheet(f"""
+            background-color: {c_acc};
+            border-radius: 4px;
+        """)
+        self.mini_tool_idle.setStyleSheet(f"""
+            background-color: rgba(255, 255, 255, 0.08);
+            border-radius: 4px;
+        """)
+
+        self.mini_canvas.setStyleSheet(f"""
+            background-color: {c_bg};
+            border-bottom-right-radius: 9px;
+        """)
+        self.mini_doc_card.setStyleSheet(f"""
+            background-color: {c_surf};
+            border: 1px solid {c_border};
+            border-radius: 6px;
+        """)
+        self.lbl_doc_title.setStyleSheet(f"color: {c_text}; font-size: 10px; font-weight: 700; border: none; background: transparent;")
+        self.mini_doc_line.setStyleSheet(f"background-color: {c_acc}; border: none;")
+
+        is_acc_dark = QColor(c_acc).lightness() < 140
+        btn_txt_col = "#ffffff" if is_acc_dark else "#0f172a"
+        self.mini_btn.setStyleSheet(f"""
+            background-color: {c_acc};
+            color: {btn_txt_col};
+            font-size: 9px;
+            font-weight: 700;
+            border-radius: 4px;
+            border: none;
+            padding: 0 4px;
+        """)
+
+
+class ModernColorSlotCard(QFrame):
+    """
+    Tek bir renk bileşeni için (Vurgu, Arka Plan, Yüzey, Metin)
+    büyük renk çemberi, HEX etiketi ve 'Değiştir' butonuna sahip şık kart.
+    """
+    colorChanged = pyqtSignal(str, str)  # (key, hex_color)
+
+    def __init__(self, key: str, title: str, desc: str, initial_hex: str, parent=None):
+        super().__init__(parent)
+        self.key = key
+        self.title = title
+        self.current_hex = initial_hex.upper()
+        self.setObjectName("ModernColorSlotCard")
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+
+        h = QHBoxLayout(self)
+        h.setContentsMargins(10, 8, 10, 8)
+        h.setSpacing(10)
+
+        # 1. Renk Yuvarlak Önizlemesi
+        self.swatch = QFrame()
+        self.swatch.setFixedSize(30, 30)
+        h.addWidget(self.swatch)
+
+        # 2. Başlık ve Açıklama
+        v_info = QVBoxLayout()
+        v_info.setSpacing(1)
+        lbl_t = QLabel(title)
+        lbl_t.setStyleSheet("font-size: 11.5px; font-weight: 700; color: #f8fafc;")
+        v_info.addWidget(lbl_t)
+
+        lbl_d = QLabel(desc)
+        lbl_d.setStyleSheet("font-size: 9.5px; color: #94a3b8;")
+        lbl_d.setWordWrap(True)
+        v_info.addWidget(lbl_d)
+        h.addLayout(v_info, 1)
+
+        # 3. İnteraktif HEX Butonu & İkon
+        self.btn_hex = QPushButton(f" {self.current_hex}")
+        self.btn_hex.setIcon(ModernIconFactory.icon_brush())
+        self.btn_hex.setIconSize(QSize(12, 12))
+        self.btn_hex.setFont(QFont("Consolas", 9, QFont.Weight.Bold))
+        self.btn_hex.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_hex.setToolTip(LanguageManager.tr("theme_btn_pick_color"))
+        self.btn_hex.setStyleSheet("""
+            QPushButton {
+                background-color: rgba(255, 255, 255, 0.08);
+                border: 1px solid rgba(255, 255, 255, 0.18);
+                border-radius: 6px;
+                padding: 3px 6px;
+                color: #ffffff;
+            }
+            QPushButton:hover {
+                background-color: rgba(255, 255, 255, 0.16);
+                border-color: #38bdf8;
+                color: #38bdf8;
+            }
+        """)
+        self.btn_hex.clicked.connect(self._open_picker)
+        h.addWidget(self.btn_hex)
+
+        # Geriye dönük referanslar
+        self.btn_edit = self.btn_hex
+        self.lbl_hex = self.btn_hex
+
+        self._update_swatch()
+
+    def set_color(self, hex_col: str):
+        self.current_hex = hex_col.upper()
+        self.lbl_hex.setText(self.current_hex)
+        self._update_swatch()
+
+    def _update_swatch(self):
+        c = QColor(self.current_hex)
+        border_col = "#ffffff" if c.lightness() < 128 else "#000000"
+        self.swatch.setStyleSheet(f"""
+            background-color: {self.current_hex};
+            border: 2px solid {border_col};
+            border-radius: 15px;
+        """)
+        self.setStyleSheet("""
+            QFrame#ModernColorSlotCard {
+                background-color: rgba(255, 255, 255, 0.03);
+                border: 1px solid rgba(255, 255, 255, 0.08);
+                border-radius: 8px;
+            }
+            QFrame#ModernColorSlotCard:hover {
+                background-color: rgba(255, 255, 255, 0.06);
+                border-color: rgba(255, 255, 255, 0.18);
+            }
+        """)
+
+    def mousePressEvent(self, event):
+        self._open_picker()
+        super().mousePressEvent(event)
+
+    def _open_picker(self):
+        from src.ui.dialogs.modern_color_picker import ModernColorPickerDialog
+        chosen = ModernColorPickerDialog.get_color(
+            initial_color=self.current_hex,
+            role_title=self.title,
+            parent=self.window()
+        )
+        if chosen:
+            self.set_color(chosen)
+            self.colorChanged.emit(self.key, chosen)
+
+
+class ModernThemeStudioCard(QFrame):
+    """
+    Canlı Vurgu Önayarları, 4 Renk Yuvası, Canlı Uygulama Önizlemesi
+    ve Sıfırlama / Aktif Temadan Kopyalama aksiyonlarını barındıran komple modern stüdyo paneli.
+    """
+    colorsChanged = pyqtSignal(dict)
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setObjectName("ModernThemeStudioCard")
+        from src.ui.modern_views import get_custom_theme_colors
+        self._colors = get_custom_theme_colors()
+
+        main_v = QVBoxLayout(self)
+        main_v.setContentsMargins(12, 12, 12, 12)
+        main_v.setSpacing(10)
+
+        # 1. Stüdyo Başlık Şeridi
+        h_head = QHBoxLayout()
+        h_head.setContentsMargins(0, 0, 0, 0)
+        h_head.setSpacing(10)
+
+        lbl_icon = QLabel()
+        lbl_icon.setPixmap(ModernIconFactory.icon_palette_grid("#38bdf8").pixmap(20, 20))
+        h_head.addWidget(lbl_icon)
+
+        v_t = QVBoxLayout()
+        v_t.setSpacing(2)
+        lbl_title = QLabel(LanguageManager.tr("theme_studio_title"))
+        lbl_title.setStyleSheet("font-size: 13.5px; font-weight: 700; color: #f8fafc;")
+        v_t.addWidget(lbl_title)
+
+        lbl_desc = QLabel(LanguageManager.tr("theme_studio_desc"))
+        lbl_desc.setStyleSheet("font-size: 11px; color: #94a3b8;")
+        v_t.addWidget(lbl_desc)
+        h_head.addLayout(v_t, 1)
+
+        lbl_badge = QLabel("STUDIO")
+        lbl_badge.setStyleSheet("""
+            background-color: rgba(56, 189, 248, 0.15);
+            color: #38bdf8;
+            border: 1px solid rgba(56, 189, 248, 0.3);
+            border-radius: 4px;
+            font-size: 10px;
+            font-weight: 700;
+            padding: 2px 6px;
+        """)
+        h_head.addWidget(lbl_badge)
+        main_v.addLayout(h_head)
+
+        # 2. Hızlı Vurgu Önayarları ve Hızlı Aksiyonlar
+        v_acc = QVBoxLayout()
+        v_acc.setSpacing(5)
+
+        lbl_acc_title = QLabel(LanguageManager.tr("theme_accent_presets_title"))
+        lbl_acc_title.setStyleSheet("font-size: 11px; font-weight: 700; color: #cbd5e1;")
+        v_acc.addWidget(lbl_acc_title)
+
+        h_acc_bar = QHBoxLayout()
+        h_acc_bar.setContentsMargins(0, 0, 0, 0)
+        h_acc_bar.setSpacing(8)
+
+        accent_presets = [
+            ("#38bdf8", "Sky Cyan"),
+            ("#6366f1", "Electric Indigo"),
+            ("#10b981", "Forest Emerald"),
+            ("#a855f7", "Royal Purple"),
+            ("#ff2a85", "Cyber Fuchsia"),
+            ("#f43f5e", "Crimson Flame"),
+            ("#f59e0b", "Sunset Amber"),
+            ("#14b8a6", "Teal Mint"),
+            ("#64748b", "Apple Titanium"),
+            ("#f97316", "Coral Orange"),
+        ]
+        self._preset_btns = []
+        for c_hex, c_tip in accent_presets:
+            btn_p = QPushButton()
+            btn_p.setFixedSize(20, 20)
+            btn_p.setCursor(Qt.CursorShape.PointingHandCursor)
+            btn_p.setToolTip(f"{c_tip} ({c_hex})")
+            btn_p.setStyleSheet(f"""
+                QPushButton {{
+                    background-color: {c_hex};
+                    border: 1.5px solid rgba(255, 255, 255, 0.3);
+                    border-radius: 10px;
+                }}
+                QPushButton:hover {{
+                    border: 2px solid #ffffff;
+                }}
+            """)
+            btn_p.clicked.connect(lambda checked, col=c_hex: self._on_accent_preset_clicked(col))
+            self._preset_btns.append(btn_p)
+            h_acc_bar.addWidget(btn_p)
+
+        h_acc_bar.addStretch(1)
+
+        # Hızlı Aksiyon Butonları (Kopyala & Sıfırla)
+        self.btn_copy_active = QPushButton(" " + LanguageManager.tr("theme_btn_copy_active"))
+        self.btn_copy_active.setIcon(ModernIconFactory.icon_paste())
+        self.btn_copy_active.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_copy_active.setStyleSheet("""
+            QPushButton {
+                background-color: rgba(255, 255, 255, 0.05);
+                border: 1px solid rgba(255, 255, 255, 0.12);
+                border-radius: 6px;
+                padding: 4px 8px;
+                font-size: 11px;
+                font-weight: 500;
+                color: #cbd5e1;
+            }
+            QPushButton:hover {
+                background-color: rgba(255, 255, 255, 0.12);
+                border-color: #38bdf8;
+                color: #ffffff;
+            }
+        """)
+        h_acc_bar.addWidget(self.btn_copy_active)
+
+        self.btn_reset = QPushButton(" " + LanguageManager.tr("theme_btn_reset_defaults"))
+        self.btn_reset.setIcon(ModernIconFactory.icon_recovery())
+        self.btn_reset.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_reset.setStyleSheet("""
+            QPushButton {
+                background-color: rgba(255, 255, 255, 0.05);
+                border: 1px solid rgba(255, 255, 255, 0.12);
+                border-radius: 6px;
+                padding: 4px 8px;
+                font-size: 11px;
+                font-weight: 500;
+                color: #cbd5e1;
+            }
+            QPushButton:hover {
+                background-color: rgba(255, 255, 255, 0.12);
+                border-color: #ef4444;
+                color: #ffffff;
+            }
+        """)
+        h_acc_bar.addWidget(self.btn_reset)
+
+        v_acc.addLayout(h_acc_bar)
+        main_v.addLayout(v_acc)
+
+        # 3. 4 Renk Yuvası Kartları (2x2 Grid)
+        grid_slots = QGridLayout()
+        grid_slots.setHorizontalSpacing(10)
+        grid_slots.setVerticalSpacing(8)
+
+        self.slot_accent = ModernColorSlotCard(
+            "accent",
+            LanguageManager.tr("theme_color_accent"),
+            LanguageManager.tr("theme_color_accent_desc"),
+            self._colors.get("accent", "#38bdf8"),
+            self
+        )
+        self.slot_accent.colorChanged.connect(self._on_slot_color_changed)
+        grid_slots.addWidget(self.slot_accent, 0, 0)
+
+        self.slot_bg = ModernColorSlotCard(
+            "bg",
+            LanguageManager.tr("theme_color_bg"),
+            LanguageManager.tr("theme_color_bg_desc"),
+            self._colors.get("bg", "#14171d"),
+            self
+        )
+        self.slot_bg.colorChanged.connect(self._on_slot_color_changed)
+        grid_slots.addWidget(self.slot_bg, 0, 1)
+
+        self.slot_surface = ModernColorSlotCard(
+            "surface",
+            LanguageManager.tr("theme_color_surface"),
+            LanguageManager.tr("theme_color_surface_desc"),
+            self._colors.get("surface", "#1e222b"),
+            self
+        )
+        self.slot_surface.colorChanged.connect(self._on_slot_color_changed)
+        grid_slots.addWidget(self.slot_surface, 1, 0)
+
+        self.slot_text = ModernColorSlotCard(
+            "text",
+            LanguageManager.tr("theme_color_text"),
+            LanguageManager.tr("theme_color_text_desc"),
+            self._colors.get("text", "#f1f5f9"),
+            self
+        )
+        self.slot_text.colorChanged.connect(self._on_slot_color_changed)
+        grid_slots.addWidget(self.slot_text, 1, 1)
+
+        main_v.addLayout(grid_slots)
+
+        # 4. Canlı Minyatür Uygulama Önizlemesi
+        self.preview_card = ThemeMiniPreviewCard(self._colors, self)
+        main_v.addWidget(self.preview_card)
+
+        self.setStyleSheet("""
+            QFrame#ModernThemeStudioCard {
+                background-color: rgba(255, 255, 255, 0.02);
+                border: 1px solid rgba(255, 255, 255, 0.09);
+                border-radius: 12px;
+            }
+        """)
+
+    def _on_accent_preset_clicked(self, hex_col: str):
+        self._on_slot_color_changed("accent", hex_col)
+
+    def _on_slot_color_changed(self, key: str, hex_col: str):
+        self._colors[key] = hex_col
+        if key == "accent":
+            self.slot_accent.set_color(hex_col)
+        elif key == "bg":
+            self.slot_bg.set_color(hex_col)
+        elif key == "surface":
+            self.slot_surface.set_color(hex_col)
+            self._colors["border"] = QColor(hex_col).lighter(120).name()
+        elif key == "text":
+            self.slot_text.set_color(hex_col)
+
+        self.preview_card.update_preview(self._colors)
+        self.colorsChanged.emit(dict(self._colors))
+
+    def set_all_colors(self, new_colors: dict):
+        self._colors.update(new_colors)
+        if "accent" in self._colors:
+            self.slot_accent.set_color(self._colors["accent"])
+        if "bg" in self._colors:
+            self.slot_bg.set_color(self._colors["bg"])
+        if "surface" in self._colors:
+            self.slot_surface.set_color(self._colors["surface"])
+        if "text" in self._colors:
+            self.slot_text.set_color(self._colors["text"])
+        self.preview_card.update_preview(self._colors)
+        self.colorsChanged.emit(dict(self._colors))
+
+    def get_colors(self) -> dict:
+        return dict(self._colors)
+
+    def save_to_settings(self):
+        settings = QSettings("AuraPDF", "PDFViewer")
+        import json
+        settings.setValue("custom_theme_colors", json.dumps(self._colors))
+
+
+class LangOptionCard(QFrame):
+    """
+    Dil seçimini modern ve şık bir kart formatında sunan bileşen.
+    """
+    def __init__(self, title, desc, radio_btn, parent=None):
+        super().__init__(parent)
+        self.radio_btn = radio_btn
+        self.setObjectName("LangOptionCard")
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+
+        h_layout = QHBoxLayout(self)
+        h_layout.setContentsMargins(14, 12, 14, 12)
+        h_layout.setSpacing(14)
+
+        self.radio_btn.setText("")
+        h_layout.addWidget(self.radio_btn, 0, Qt.AlignmentFlag.AlignVCenter)
+
+        v_info = QVBoxLayout()
+        v_info.setSpacing(3)
+        self.lbl_title = QLabel(title)
+        self.lbl_title.setStyleSheet("font-size: 13px; font-weight: bold;")
+        self.lbl_desc = QLabel(desc)
+        self.lbl_desc.setStyleSheet("font-size: 11px; color: #94a3b8;")
+        self.lbl_desc.setWordWrap(True)
+        v_info.addWidget(self.lbl_title)
+        v_info.addWidget(self.lbl_desc)
+        h_layout.addLayout(v_info, 1)
+
+        self.radio_btn.toggled.connect(self.update_card_style)
+        self.update_card_style()
+
+    def update_card_style(self):
+        is_checked = self.radio_btn.isChecked()
+        if is_checked:
+            self.setStyleSheet("""
+                QFrame#LangOptionCard {{
+                    background-color: rgba(255, 255, 255, 0.08);
+                    border: 1.5px solid #38bdf8;
+                    border-radius: 9px;
+                }}
+            """)
+        else:
+            self.setStyleSheet("""
+                QFrame#LangOptionCard {{
+                    background-color: rgba(255, 255, 255, 0.02);
+                    border: 1px solid rgba(255, 255, 255, 0.08);
+                    border-radius: 9px;
+                }}
+                QFrame#LangOptionCard:hover {{
+                    background-color: rgba(255, 255, 255, 0.05);
+                    border-color: rgba(255, 255, 255, 0.22);
+                }}
+            """)
+
+    def mousePressEvent(self, event):
+        self.radio_btn.setChecked(True)
+        super().mousePressEvent(event)
+
+
 class AuraSettingsDialog(QDialog):
     def __init__(self, main_window=None, parent=None):
         super().__init__(parent or main_window)
@@ -578,292 +1268,181 @@ class AuraSettingsDialog(QDialog):
         
         self.setWindowTitle(LanguageManager.tr("settings_title"))
         self.setWindowIcon(ModernIconFactory.icon_settings())
-        self.resize(880, 680)
-        self.setMinimumSize(740, 520)
+        self.resize(1000, 750)
+        self.setMinimumSize(900, 660)
         self.setSizeGripEnabled(True)
         
         # Seçili temanın rengine göre stil
         self.current_theme = self.settings.value("app_theme", "gray")
-        self._apply_dialog_style()
         self._init_ui()
         self._load_saved_values()
+        self._apply_dialog_style()
 
     def _apply_dialog_style(self):
-        theme_colors = {
-            "light": {
-                "bg": "#f8fafc", "card": "#ffffff", "border": "#cbd5e1",
-                "accent": "#0284c7", "text": "#0f172a", "muted": "#64748b", "cancel": "#e2e8f0"
-            },
-            "gray": {
-                "bg": "#2b2d30", "card": "#35383c", "border": "#444850",
-                "accent": "#60a5fa", "text": "#f1f5f9", "muted": "#94a3b8", "cancel": "#444850"
-            },
-            "navy": {
-                "bg": "#0f172a", "card": "#1e293b", "border": "#334155",
-                "accent": "#38bdf8", "text": "#e2e8f0", "muted": "#94a3b8", "cancel": "#334155"
-            },
-            "emerald": {
-                "bg": "#091a14", "card": "#112a21", "border": "#1a3d30",
-                "accent": "#10b981", "text": "#ecfdf5", "muted": "#a7f3d0", "cancel": "#1a3d30"
-            },
-            "purple": {
-                "bg": "#150d22", "card": "#201435", "border": "#321f52",
-                "accent": "#a855f7", "text": "#faf5ff", "muted": "#d8b4fe", "cancel": "#321f52"
-            },
-            "crimson": {
-                "bg": "#1d0b10", "card": "#2d1118", "border": "#441924",
-                "accent": "#f43f5e", "text": "#fff1f2", "muted": "#fecdd3", "cancel": "#441924"
-            },
-            "nord": {
-                "bg": "#181e29", "card": "#222b3a", "border": "#313e54",
-                "accent": "#38bdf8", "text": "#f0f6fc", "muted": "#94a3b8", "cancel": "#313e54"
-            },
-            "dark": {
-                "bg": "#121212", "card": "#1c1c1c", "border": "#2a2a2a",
-                "accent": "#388bfd", "text": "#e0e0e0", "muted": "#888888", "cancel": "#2c2c2c"
-            },
-            "vice_city": {
-                "bg": "#160024", "card": "#240e3b", "border": "#4a1c72",
-                "accent": "#ff2a85", "text": "#ffffff", "muted": "#00f0ff", "cancel": "#381458"
-            }
-        }
-        c = theme_colors.get(self.current_theme, theme_colors["dark"])
-
-        self.setStyleSheet(f"""
-            QDialog {{
-                background-color: {c['bg']};
-                color: {c['text']};
-            }}
+        from src.ui.dialog_theme import apply_dialog_theme, get_theme_palette, get_current_theme
+        theme = get_current_theme(self.main_window or self)
+        pal = get_theme_palette(self.main_window or self)
+        extra_css = f"""
             QListWidget#SettingsSidebar {{
                 background-color: transparent;
                 border: none;
                 outline: none;
-                padding: 8px 0px;
+                padding: 6px 0px;
             }}
             QListWidget#SettingsSidebar::item {{
                 background-color: transparent;
                 border: 1px solid transparent;
-                margin: 2px 4px;
-                border-radius: 8px;
+                margin: 3px 4px;
+                border-radius: 9px;
                 padding: 10px 14px;
-                color: {c['muted']};
+                color: {pal['muted']};
                 font-size: 13px;
-                font-weight: 500;
+                font-weight: 600;
             }}
             QListWidget#SettingsSidebar::item:hover {{
-                background-color: rgba(255, 255, 255, 0.08);
-                border-color: rgba(255, 255, 255, 0.12);
-                color: #ffffff;
+                background-color: {pal['card']};
+                border-color: {pal['border']};
+                color: {pal['text']};
             }}
             QListWidget#SettingsSidebar::item:selected {{
-                background-color: {c['accent']};
-                border-color: {c['accent']};
-                color: #ffffff;
-                font-weight: bold;
-            }}
-            QListWidget#SettingsSidebar::item:selected:hover {{
-                background-color: {c['accent']};
-                border-color: {c['accent']};
+                background-color: {pal['accent']};
+                border-color: {pal['accent']};
                 color: #ffffff;
                 font-weight: bold;
             }}
             QStackedWidget {{
-                background-color: {c['card']};
-                border: 1px solid rgba(255, 255, 255, 0.08);
+                background-color: {pal['bg']};
+                border: 1px solid {pal['border']};
+                border-radius: 12px;
+            }}
+            QFrame#SettingsCard, QFrame.card, QFrame[class="card"] {{
+                background-color: {pal['card']};
+                border: 1px solid {pal['border']};
                 border-radius: 10px;
+                padding: 16px 18px;
+            }}
+            QFrame#SettingsCardSep {{
+                background-color: {pal['border']};
             }}
             QLabel {{
-                color: {c['text']};
+                color: {pal['text']};
             }}
-            QLineEdit, QComboBox, QKeySequenceEdit {{
-                background-color: {c['bg']};
-                color: {c['text']};
-                border: 1px solid rgba(255, 255, 255, 0.12);
+            QComboBox {{
+                background-color: {pal['card']};
+                color: {pal['text']};
+                border: 1px solid {pal['border']};
                 border-radius: 6px;
-                padding: 5px 10px;
+                padding: 6px 12px;
                 font-size: 13px;
-                min-height: 28px;
+                min-height: 30px;
             }}
-            QLineEdit:focus, QComboBox:focus, QKeySequenceEdit:focus {{
-                border-color: {c['accent']};
+            QComboBox:hover {{
+                border-color: {pal['accent']};
             }}
-            QListWidget#ToolbarList {{
-                background-color: {c['bg']};
-                border: 1px solid rgba(255, 255, 255, 0.1);
+            QLineEdit {{
+                background-color: {pal['card']};
+                color: {pal['text']};
+                border: 1px solid {pal['border']};
                 border-radius: 6px;
-                padding: 4px;
+                padding: 6px 12px;
+                font-size: 13px;
+                min-height: 30px;
             }}
-            QListWidget#ToolbarList::item {{
-                background-color: {c['card']};
-                border: 1px solid rgba(255, 255, 255, 0.08);
-                border-radius: 4px;
-                padding: 6px 10px;
-                margin: 2px;
-                font-size: 12px;
-                font-weight: 500;
-                color: {c['text']};
-            }}
-            QListWidget#ToolbarList::item:hover {{
-                background-color: {c['bg']};
-                border-color: {c['accent']};
-                color: #ffffff;
-            }}
-            QListWidget#ToolbarList::item:selected {{
-                background-color: {c['accent']};
-                border: 1px solid {c['accent']};
-                color: #ffffff;
-                font-weight: bold;
-            }}
-            QWidget#TransparentWidget {{
-                background-color: transparent;
-            }}
-            QPushButton {{
-                background-color: {c['card']};
-                color: {c['text']};
-                border: 1px solid rgba(255, 255, 255, 0.12);
-                border-radius: 6px;
-                padding: 6px 14px;
-                font-weight: 500;
-            }}
-            QPushButton:hover {{
-                background-color: rgba(255, 255, 255, 0.08);
-                border-color: {c['accent']};
-                color: #ffffff;
-            }}
-            QPushButton[class="primary"] {{
-                background-color: {c['accent']};
-                border-color: {c['accent']};
-                color: #ffffff;
-                font-weight: bold;
+            QLineEdit:focus {{
+                border: 1.5px solid {pal['accent']};
             }}
             QRadioButton {{
-                color: {c['text']};
+                color: {pal['text']};
                 font-size: 13px;
-                font-weight: bold;
+                font-weight: 500;
             }}
-            QRadioButton::indicator:checked {{
-                background-color: {c['accent']};
-                border: 2px solid {c['accent']};
-                border-radius: 6px;
-            }}
-            QListWidget {{
-                background-color: {c['bg']};
-                color: {c['text']};
-                border: 1px solid rgba(255, 255, 255, 0.1);
-                border-radius: 6px;
-            }}
-            QListWidget::item {{
-                background-color: {c['card']};
-                border: 1px solid rgba(255, 255, 255, 0.08);
-                border-radius: 4px;
-                padding: 4px;
-                margin: 2px;
-                color: {c['text']};
-            }}
-            QListWidget::item:hover {{
-                background-color: rgba(255, 255, 255, 0.08);
-                color: #ffffff;
-            }}
-            QListWidget::item:selected {{
-                background-color: {c['accent']};
-                color: #ffffff;
-                font-weight: bold;
-                border-color: {c['accent']};
-            }}
-            QComboBox QAbstractItemView {{
-                background-color: {c['card']};
-                color: {c['text']};
-                selection-background-color: {c['accent']};
-                selection-color: #ffffff;
-                border: 1px solid rgba(255, 255, 255, 0.12);
-                border-radius: 6px;
-                padding: 4px;
-                outline: none;
-            }}
-            QComboBox QAbstractItemView::item {{
-                min-height: 28px;
-                padding: 6px 10px;
-                border-radius: 4px;
-                color: {c['text']};
-            }}
-            QComboBox QAbstractItemView::item:hover {{
-                background-color: rgba(255, 255, 255, 0.08);
-                color: #ffffff;
-            }}
-            QComboBox QAbstractItemView::item:selected {{
-                background-color: {c['accent']};
-                color: #ffffff;
-            }}
-            QCheckBox, QRadioButton {{
-                color: {c['text']};
+            QCheckBox {{
+                color: {pal['text']};
                 font-size: 13px;
-                spacing: 8px;
-            }}
-            QFrame.card {{
-                background-color: {c['card']};
-                border: 1px solid rgba(255, 255, 255, 0.08);
-                border-radius: 8px;
-                padding: 12px;
             }}
             QPushButton#PrimaryBtn {{
-                background-color: {c['accent']};
+                background-color: {pal['accent']};
                 color: #ffffff;
                 font-weight: bold;
                 border: none;
                 border-radius: 6px;
-                padding: 8px 22px;
+                padding: 9px 24px;
+                font-size: 13px;
             }}
             QPushButton#PrimaryBtn:hover {{
-                background-color: {c['accent']};
-                color: #ffffff;
-            }}
-            QPushButton#CancelBtn {{
-                background-color: {c['cancel']};
-                color: {c['text']};
-                font-weight: 500;
-                border: 1px solid rgba(255, 255, 255, 0.1);
-                border-radius: 6px;
-                padding: 8px 18px;
-            }}
-            QPushButton#CancelBtn:hover {{
-                background-color: {c['border']};
-                color: #ffffff;
+                background-color: {pal['accent_hover']};
             }}
             QPushButton#SecondaryBtn {{
-                background-color: {c['bg']};
-                color: {c['text']};
-                border: 1px solid rgba(255, 255, 255, 0.12);
-                border-radius: 6px;
-                padding: 5px 12px;
-            }}
-            QPushButton#SecondaryBtn:hover {{
-                background-color: {c['card']};
-                border-color: {c['accent']};
-                color: #ffffff;
-            }}
-            QPushButton#DangerBtn {{
-                background-color: rgba(239, 68, 68, 0.12);
-                color: #fca5a5;
-                border: 1px solid rgba(239, 68, 68, 0.35);
+                background-color: {pal['card']};
+                color: {pal['text']};
+                border: 1px solid {pal['border']};
                 border-radius: 6px;
                 padding: 8px 18px;
                 font-weight: 600;
-                font-size: 13px;
+                font-size: 12px;
+            }}
+            QPushButton#SecondaryBtn:hover {{
+                background-color: {pal['border']};
+            }}
+            QPushButton#CancelBtn {{
+                background-color: transparent;
+                color: {pal['muted']};
+                border: 1px solid {pal['border']};
+                border-radius: 6px;
+                padding: 8px 18px;
+                font-weight: 600;
+                font-size: 12px;
+            }}
+            QPushButton#CancelBtn:hover {{
+                color: {pal['text']};
+                background-color: {pal['card']};
+            }}
+            QPushButton#DangerBtn {{
+                background-color: #ef4444;
+                color: #ffffff;
+                font-weight: bold;
+                border: none;
+                border-radius: 6px;
+                padding: 8px 20px;
+                font-size: 12px;
             }}
             QPushButton#DangerBtn:hover {{
-                background-color: rgba(239, 68, 68, 0.25);
-                border-color: #ef4444;
-                color: #ffffff;
-            }}
-            QPushButton#DangerBtn:pressed {{
                 background-color: #dc2626;
-                color: #ffffff;
             }}
-        """)
+        """
+        apply_dialog_theme(self, self.main_window or self, extra_css=extra_css)
+        for card in getattr(self, 'theme_cards', []):
+            card.update_card_style()
+        for card in getattr(self, 'lang_cards', []):
+            card.update_card_style()
+
+    def _create_setting_row(self, title_text: str, widget: QWidget, desc_text: str = None) -> QWidget:
+        """Ayarlar paneli için metin sol, kontrol sağ şeklinde hizalanmış geniş ve okunaklı satır üretir."""
+        row = QWidget()
+        row_layout = QHBoxLayout(row)
+        row_layout.setContentsMargins(0, 4, 0, 4)
+        row_layout.setSpacing(16)
+
+        v_lbl = QVBoxLayout()
+        v_lbl.setSpacing(3)
+        lbl_t = QLabel(title_text)
+        lbl_t.setStyleSheet("font-size: 13px; font-weight: 600;")
+        v_lbl.addWidget(lbl_t)
+        if desc_text:
+            lbl_d = QLabel(desc_text)
+            lbl_d.setStyleSheet("font-size: 11px; color: #94a3b8;")
+            lbl_d.setWordWrap(True)
+            v_lbl.addWidget(lbl_d)
+        row_layout.addLayout(v_lbl, 1)
+
+        widget.setMinimumWidth(210)
+        widget.setMaximumWidth(270)
+        row_layout.addWidget(widget, 0, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        return row
 
     def _init_ui(self):
         root_layout = QVBoxLayout(self)
-        root_layout.setContentsMargins(16, 16, 16, 16)
+        root_layout.setContentsMargins(18, 18, 18, 18)
         root_layout.setSpacing(14)
 
         main_split = QHBoxLayout()
@@ -872,32 +1451,33 @@ class AuraSettingsDialog(QDialog):
         # Sidebar (QListWidget)
         from PyQt6.QtWidgets import QListWidget, QStackedWidget, QListWidgetItem
         self.sidebar = QListWidget(self)
-        self.sidebar.setFixedWidth(210)
+        self.sidebar.setFixedWidth(225)
         self.sidebar.setObjectName("SettingsSidebar")
         self.sidebar.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.sidebar.setSpacing(4)
+        self.sidebar.setIconSize(QSize(18, 18))
         main_split.addWidget(self.sidebar)
 
         # Content Area (QStackedWidget)
         self.stacked_widget = QStackedWidget(self)
         main_split.addWidget(self.stacked_widget, 1)
 
-        # Pages
+        # Pages with vector icons
         pages = [
-            (LanguageManager.tr("settings_tab_general"), self._build_general_tab),
-            (LanguageManager.tr("settings_tab_theme"), self._build_theme_tab),
-            (LanguageManager.tr("settings_tab_shortcuts"), self._build_shortcuts_tab),
-            (LanguageManager.tr("settings_tab_author"), self._build_author_tab),
-            (LanguageManager.tr("settings_tab_lang"), self._build_lang_tab),
-            (LanguageManager.tr("settings_tab_toolbar"), self._build_toolbar_tab),
-            (LanguageManager.tr("cursor_settings_title"), self._build_cursor_tab),
-            (LanguageManager.tr("settings_tab_updates"), self._build_updates_tab)
+            (LanguageManager.tr("settings_tab_general"), ModernIconFactory.icon_settings(), self._build_general_tab),
+            (LanguageManager.tr("settings_tab_theme"), ModernIconFactory.icon_view_single(), self._build_theme_tab),
+            (LanguageManager.tr("settings_tab_shortcuts"), ModernIconFactory.icon_info(), self._build_shortcuts_tab),
+            (LanguageManager.tr("settings_tab_author"), ModernIconFactory.icon_edit_content(), self._build_author_tab),
+            (LanguageManager.tr("settings_tab_lang"), ModernIconFactory.icon_contents(), self._build_lang_tab),
+            (LanguageManager.tr("settings_tab_toolbar"), ModernIconFactory.icon_toolbox(), self._build_toolbar_tab),
+            (LanguageManager.tr("cursor_settings_title"), ModernIconFactory.icon_cursor(), self._build_cursor_tab),
+            (LanguageManager.tr("settings_tab_updates"), ModernIconFactory.icon_update(), self._build_updates_tab)
         ]
         
-        for name, build_func in pages:
-            item = QListWidgetItem(name)
+        for name, icon, build_func in pages:
+            item = QListWidgetItem(icon, f"  {name}")
             item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
-            item.setSizeHint(QSize(0, 44))
+            item.setSizeHint(QSize(0, 46))
             self.sidebar.addItem(item)
             
             page_widget = QWidget()
@@ -942,19 +1522,29 @@ class AuraSettingsDialog(QDialog):
         layout.addWidget(lbl_title)
 
         card = QFrame()
-        card.setProperty("class", "card")
+        card.setObjectName("SettingsCard")
         card_layout = QVBoxLayout(card)
+        card_layout.setContentsMargins(16, 14, 16, 14)
         card_layout.setSpacing(12)
 
-        card_layout.addWidget(QLabel(LanguageManager.tr("default_zoom_mode_lbl")))
+        # 1. Zoom Modu
         self.cmb_zoom_mode = QComboBox()
         self.cmb_zoom_mode.addItem(LanguageManager.tr("zoom_mode_last"), "last")
         self.cmb_zoom_mode.addItem(LanguageManager.tr("zoom_mode_100"), "100")
         self.cmb_zoom_mode.addItem(LanguageManager.tr("zoom_mode_fit"), "fit")
-        card_layout.addWidget(self.cmb_zoom_mode)
-        
-        card_layout.addSpacing(6)
-        card_layout.addWidget(QLabel(LanguageManager.tr("default_page_template_lbl")))
+        row_zoom = self._create_setting_row(
+            LanguageManager.tr("default_zoom_mode_lbl"),
+            self.cmb_zoom_mode,
+            "Belge açıldığında uygulanacak varsayılan görünüm ve yakınlaştırma ölçeği."
+        )
+        card_layout.addWidget(row_zoom)
+
+        sep1 = QFrame()
+        sep1.setFixedHeight(1)
+        sep1.setObjectName("SettingsCardSep")
+        card_layout.addWidget(sep1)
+
+        # 2. Sayfa Şablonu
         self.cmb_default_template = QComboBox()
         self.cmb_default_template.addItem(LanguageManager.tr("style_blank_title"), "blank")
         self.cmb_default_template.addItem(LanguageManager.tr("style_lined_title"), "lined")
@@ -964,32 +1554,47 @@ class AuraSettingsDialog(QDialog):
         self.cmb_default_template.addItem(LanguageManager.tr("style_music_title"), "music")
         self.cmb_default_template.addItem(LanguageManager.tr("style_dark_title"), "dark")
         self.cmb_default_template.addItem(LanguageManager.tr("style_cover_title"), "cover")
-        card_layout.addWidget(self.cmb_default_template)
+        row_template = self._create_setting_row(
+            LanguageManager.tr("default_page_template_lbl"),
+            self.cmb_default_template,
+            "Yeni not ve çizim sayfası oluştururken kullanılacak varsayılan kağıt stili."
+        )
+        card_layout.addWidget(row_template)
 
-        card_layout.addSpacing(6)
-        card_layout.addWidget(QLabel(LanguageManager.tr("settings_app_font_size_lbl")))
+        sep2 = QFrame()
+        sep2.setFixedHeight(1)
+        sep2.setObjectName("SettingsCardSep")
+        card_layout.addWidget(sep2)
+
+        # 3. Font Boyutu
         self.cmb_app_font_size = QComboBox()
         self.cmb_app_font_size.addItem(LanguageManager.tr("font_size_small", size=9), 9)
         self.cmb_app_font_size.addItem(LanguageManager.tr("font_size_standard", size=10), 10)
         self.cmb_app_font_size.addItem(LanguageManager.tr("font_size_medium", size=11), 11)
         self.cmb_app_font_size.addItem(LanguageManager.tr("font_size_large", size=12), 12)
         self.cmb_app_font_size.addItem(LanguageManager.tr("font_size_xlarge", size=14), 14)
-        card_layout.addWidget(self.cmb_app_font_size)
+        row_font = self._create_setting_row(
+            LanguageManager.tr("settings_app_font_size_lbl"),
+            self.cmb_app_font_size,
+            "Uygulama menüleri, panelleri ve butonlarındaki genel yazı boyutu."
+        )
+        card_layout.addWidget(row_font)
 
         layout.addWidget(card)
 
         # Fabrika Ayarlarına Sıfırlama Kartı
         card_reset = QFrame()
-        card_reset.setProperty("class", "card")
+        card_reset.setObjectName("SettingsCard")
         card_reset_layout = QVBoxLayout(card_reset)
-        card_reset_layout.setSpacing(8)
+        card_reset_layout.setContentsMargins(16, 14, 16, 14)
+        card_reset_layout.setSpacing(10)
 
         lbl_reset_title = QLabel(LanguageManager.tr("reset_all_section_title"))
-        lbl_reset_title.setStyleSheet("font-size: 14px; font-weight: bold; ")
+        lbl_reset_title.setStyleSheet("font-size: 14px; font-weight: bold;")
         card_reset_layout.addWidget(lbl_reset_title)
 
         lbl_reset_desc = QLabel(LanguageManager.tr("reset_all_section_desc"))
-        lbl_reset_desc.setStyleSheet(" font-size: 12px;")
+        lbl_reset_desc.setStyleSheet("font-size: 12px; color: #94a3b8;")
         lbl_reset_desc.setWordWrap(True)
         card_reset_layout.addWidget(lbl_reset_desc)
 
@@ -1095,54 +1700,122 @@ class AuraSettingsDialog(QDialog):
         layout.addWidget(lbl_title)
 
         lbl_desc = QLabel(LanguageManager.tr("theme_section_desc"))
-        lbl_desc.setStyleSheet(" font-size: 12px;")
+        lbl_desc.setStyleSheet("font-size: 12px; color: #94a3b8;")
         layout.addWidget(lbl_desc)
 
         card = QFrame()
-        card.setProperty("class", "card")
+        card.setObjectName("SettingsCard")
         card_layout = QVBoxLayout(card)
-        card_layout.setSpacing(10)
+        card_layout.setContentsMargins(12, 12, 12, 12)
+        card_layout.setSpacing(8)
 
         self.theme_group = QButtonGroup(self)
 
-        themes_info = [
-            ("light", "theme_light", "theme_light_desc", 0),
-            ("dark", "theme_dark", "theme_dark_desc", 1),
-            ("gray", "theme_gray", "theme_gray_desc", 2),
+        from src.ui.modern_views import get_custom_theme_colors
+        custom_cfg = get_custom_theme_colors()
+        custom_pills = [custom_cfg.get("surface", "#1e222b"), custom_cfg.get("bg", "#14171d"), custom_cfg.get("accent", "#38bdf8")]
 
-            ("emerald", "theme_emerald", "theme_emerald_desc", 4),
-            ("purple", "theme_purple", "theme_purple_desc", 5),
-            ("crimson", "theme_crimson", "theme_crimson_desc", 6),
-            ("nord", "theme_nord", "theme_nord_desc", 7),
-            ("vice_city", "theme_vice_city", "theme_vice_city_desc", 8),
+        themes_info = [
+            ("gray", "theme_gray", "theme_gray_desc", ["#2b2d30", "#35383c", "#60a5fa"], 0),
+            ("emerald", "theme_emerald", "theme_emerald_desc", ["#091a14", "#112a21", "#34d399"], 1),
+            ("purple", "theme_purple", "theme_purple_desc", ["#150d22", "#201435", "#c084fc"], 2),
+            ("crimson", "theme_crimson", "theme_crimson_desc", ["#1d0b10", "#2d1118", "#fb7185"], 3),
+            ("nord", "theme_nord", "theme_nord_desc", ["#181e29", "#222b3a", "#38bdf8"], 4),
+            ("vice_city", "theme_vice_city", "theme_vice_city_desc", ["#160024", "#240e3b", "#ff2a85"], 5),
+            ("apple", "theme_apple", "theme_apple_desc", ["#0e1014", "#1a1d24", "#38bdf8"], 6),
+            ("custom", "theme_custom", "theme_custom_desc", custom_pills, 7),
         ]
 
         self.theme_radios = {}
-        for code, title_key, desc_key, group_id in themes_info:
-            rb = QRadioButton(LanguageManager.tr(title_key))
-            lbl_desc_item = QLabel(f"    {LanguageManager.tr(desc_key)}")
-            lbl_desc_item.setStyleSheet(" font-size: 11px;")
+        self.theme_cards = []
+        for code, title_key, desc_key, colors, group_id in themes_info:
+            rb = QRadioButton()
             self.theme_group.addButton(rb, group_id)
             self.theme_radios[code] = rb
-            card_layout.addWidget(rb)
-            card_layout.addWidget(lbl_desc_item)
 
-        # Geriye dönük uyumluluk için referanslar
-        self.rb_light = self.theme_radios["light"]
-        self.rb_dark = self.theme_radios["dark"]
+            theme_card = ThemeOptionCard(
+                theme_code=code,
+                title=LanguageManager.tr(title_key),
+                desc=LanguageManager.tr(desc_key),
+                palette_colors=colors,
+                radio_btn=rb,
+                parent=card
+            )
+            if code == "custom":
+                self.theme_card_custom = theme_card
+            self.theme_cards.append(theme_card)
+            card_layout.addWidget(theme_card)
+
+        # Referanslar (Geriye dönük uyumluluk)
         self.rb_gray = self.theme_radios["gray"]
-
+        self.rb_light = self.rb_gray
+        self.rb_dark = self.rb_gray
         self.rb_emerald = self.theme_radios["emerald"]
         self.rb_purple = self.theme_radios["purple"]
         self.rb_crimson = self.theme_radios["crimson"]
         self.rb_nord = self.theme_radios["nord"]
         self.rb_vice_city = self.theme_radios["vice_city"]
+        self.rb_apple = self.theme_radios["apple"]
+        self.rb_custom = self.theme_radios["custom"]
 
         layout.addWidget(card)
+
+        # 2. Modern Tema ve Renk Stüdyosu (Özelleştirme Paneli)
+        self.theme_studio_card = ModernThemeStudioCard(parent=self)
+        self.theme_studio_card.colorsChanged.connect(self._on_studio_colors_changed)
+        self.theme_studio_card.btn_reset.clicked.connect(self._on_studio_reset_defaults)
+        self.theme_studio_card.btn_copy_active.clicked.connect(self._on_studio_copy_active_theme)
+        layout.addWidget(self.theme_studio_card)
+
+        # Özel tema seçildiğinde stüdyo paneline otomatik odaklan
+        self.theme_radios["custom"].toggled.connect(
+            lambda chk: scroll.ensureWidgetVisible(self.theme_studio_card) if chk else None
+        )
+
         layout.addStretch()
 
         scroll.setWidget(scroll_widget)
         layout_main.addWidget(scroll)
+
+    def _on_studio_colors_changed(self, colors: dict):
+        if "custom" in self.theme_radios:
+            self.theme_radios["custom"].setChecked(True)
+        if hasattr(self, 'theme_card_custom'):
+            surf = colors.get("surface", "#1e222b")
+            bg = colors.get("bg", "#14171d")
+            acc = colors.get("accent", "#38bdf8")
+            self.theme_card_custom.update_palette_pills([surf, bg, acc])
+
+    def _on_studio_reset_defaults(self):
+        default_custom = {
+            "accent": "#38bdf8",
+            "bg": "#14171d",
+            "surface": "#1e222b",
+            "text": "#f1f5f9",
+            "border": "#2e3442"
+        }
+        self.theme_studio_card.set_all_colors(default_custom)
+        if "custom" in self.theme_radios:
+            self.theme_radios["custom"].setChecked(True)
+
+    def _on_studio_copy_active_theme(self):
+        from src.ui.modern_views import get_modern_theme_colors
+        active_code = "gray"
+        for code, rb in self.theme_radios.items():
+            if rb.isChecked() and code != "custom":
+                active_code = code
+                break
+        pal = get_modern_theme_colors(active_code)
+        new_cols = {
+            "accent": pal.get("accent", "#38bdf8"),
+            "bg": pal.get("bg", "#14171d"),
+            "surface": pal.get("surface", "#1e222b"),
+            "text": pal.get("text", "#f1f5f9"),
+            "border": pal.get("border", "#2e3442")
+        }
+        self.theme_studio_card.set_all_colors(new_cols)
+        if "custom" in self.theme_radios:
+            self.theme_radios["custom"].setChecked(True)
 
     # ----------------------------------------------------
     # SEKME: KLAVYE KISAYOLLARI (YENİ)
@@ -1185,14 +1858,8 @@ class AuraSettingsDialog(QDialog):
         lbl_desc.setStyleSheet(" font-size: 12px;")
         layout.addWidget(lbl_desc)
 
-        lbl_hint = QLabel(LanguageManager.tr("shortcut_hint"))
-        lbl_hint.setWordWrap(True)
-        lbl_hint.setStyleSheet(
-            " font-size: 11px; padding: 8px 12px; "
-            "background: rgba(56, 189, 248, 0.08); border: 1px solid rgba(56, 189, 248, 0.25); "
-            "border-radius: 6px; color: #cbd5e1;"
-        )
-        layout.addWidget(lbl_hint)
+        card_hint = ModernInfoCard(text=LanguageManager.tr("shortcut_hint"), parent=self)
+        layout.addWidget(card_hint)
 
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
@@ -1201,10 +1868,13 @@ class AuraSettingsDialog(QDialog):
         scroll.setStyleSheet("QScrollArea { background: transparent; border: none; }")
 
         card = QFrame()
-        card.setProperty("class", "card")
+        card.setObjectName("SettingsCard")
         grid = QGridLayout(card)
-        grid.setContentsMargins(14, 14, 14, 14)
-        grid.setSpacing(10)
+        grid.setContentsMargins(16, 16, 16, 16)
+        grid.setHorizontalSpacing(24)
+        grid.setVerticalSpacing(12)
+        grid.setColumnStretch(0, 1)
+        grid.setColumnStretch(1, 0)
 
         self.shortcut_edits = {}
         shortcut_items = [
@@ -1268,41 +1938,55 @@ class AuraSettingsDialog(QDialog):
         layout.addWidget(lbl_title)
 
         lbl_desc = QLabel(LanguageManager.tr("author_section_desc"))
-        lbl_desc.setStyleSheet(" font-size: 12px;")
+        lbl_desc.setStyleSheet("font-size: 12px; color: #94a3b8;")
         layout.addWidget(lbl_desc)
 
         card = QFrame()
-        card.setProperty("class", "card")
+        card.setObjectName("SettingsCard")
         card_layout = QVBoxLayout(card)
-        card_layout.setSpacing(10)
+        card_layout.setContentsMargins(16, 16, 16, 16)
+        card_layout.setSpacing(14)
 
         def_user, def_comp = get_default_author_info()
 
-        card_layout.addWidget(QLabel(LanguageManager.tr("author_name_lbl")))
+        # Ad Soyad / Yazar Adı
+        lbl_name = QLabel(LanguageManager.tr("author_name_lbl"))
+        lbl_name.setStyleSheet("font-size: 13px; font-weight: 600;")
         self.txt_author_name = QLineEdit()
         self.txt_author_name.setPlaceholderText(def_user or LanguageManager.tr("author_name_placeholder"))
+        card_layout.addWidget(lbl_name)
         card_layout.addWidget(self.txt_author_name)
 
-        card_layout.addWidget(QLabel(LanguageManager.tr("author_title_lbl")))
+        # Unvan / Şirket
+        lbl_t = QLabel(LanguageManager.tr("author_title_lbl"))
+        lbl_t.setStyleSheet("font-size: 13px; font-weight: 600;")
         self.txt_author_title = QLineEdit()
         self.txt_author_title.setPlaceholderText(def_comp or LanguageManager.tr("author_title_placeholder"))
+        card_layout.addWidget(lbl_t)
         card_layout.addWidget(self.txt_author_title)
 
-        card_layout.addWidget(QLabel(LanguageManager.tr("author_email_lbl")))
+        # E-posta
+        lbl_e = QLabel(LanguageManager.tr("author_email_lbl"))
+        lbl_e.setStyleSheet("font-size: 13px; font-weight: 600;")
         self.txt_author_email = QLineEdit()
         self.txt_author_email.setPlaceholderText(LanguageManager.tr("author_email_placeholder"))
+        card_layout.addWidget(lbl_e)
         card_layout.addWidget(self.txt_author_email)
 
+        card_layout.addSpacing(6)
         self.chk_save_metadata = QCheckBox(LanguageManager.tr("author_save_metadata_chk"))
         card_layout.addWidget(self.chk_save_metadata)
 
         self.chk_use_notes = QCheckBox(LanguageManager.tr("author_use_notes_chk"))
         card_layout.addWidget(self.chk_use_notes)
 
+        card_layout.addSpacing(6)
         # Varsayılan Bilgisayar Bilgilerini Yükle Butonu
         reset_bar = QHBoxLayout()
-        self.btn_reset_author = QPushButton(LanguageManager.tr("btn_reset_author_info"))
+        self.btn_reset_author = QPushButton(" " + LanguageManager.tr("btn_reset_author_info"))
+        self.btn_reset_author.setIcon(ModernIconFactory.icon_undo())
         self.btn_reset_author.setObjectName("SecondaryBtn")
+        self.btn_reset_author.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_reset_author.clicked.connect(self._reset_author_to_default)
         reset_bar.addWidget(self.btn_reset_author)
         reset_bar.addStretch()
@@ -1330,22 +2014,39 @@ class AuraSettingsDialog(QDialog):
         layout.addWidget(lbl_title)
 
         lbl_desc = QLabel(LanguageManager.tr("lang_section_desc"))
-        lbl_desc.setStyleSheet(" font-size: 12px;")
+        lbl_desc.setStyleSheet("font-size: 12px; color: #94a3b8;")
         layout.addWidget(lbl_desc)
 
         card = QFrame()
-        card.setProperty("class", "card")
+        card.setObjectName("SettingsCard")
         card_layout = QVBoxLayout(card)
-        card_layout.setSpacing(12)
+        card_layout.setContentsMargins(12, 12, 12, 12)
+        card_layout.setSpacing(8)
 
         self.lang_group = QButtonGroup(self)
-        self.rb_lang_tr = QRadioButton("Türkçe (Turkish)")
-        self.lang_group.addButton(self.rb_lang_tr, 1)
-        card_layout.addWidget(self.rb_lang_tr)
+        self.lang_cards = []
 
-        self.rb_lang_en = QRadioButton("English (İngilizce)")
+        self.rb_lang_tr = QRadioButton()
+        self.lang_group.addButton(self.rb_lang_tr, 1)
+        card_tr = LangOptionCard(
+            title="Türkçe (Turkish)",
+            desc="Uygulama arayüzü ve menüleri Türkçe olarak kullanılır.",
+            radio_btn=self.rb_lang_tr,
+            parent=card
+        )
+        self.lang_cards.append(card_tr)
+        card_layout.addWidget(card_tr)
+
+        self.rb_lang_en = QRadioButton()
         self.lang_group.addButton(self.rb_lang_en, 2)
-        card_layout.addWidget(self.rb_lang_en)
+        card_en = LangOptionCard(
+            title="English (İngilizce)",
+            desc="Application interface and menus are displayed in English.",
+            radio_btn=self.rb_lang_en,
+            parent=card
+        )
+        self.lang_cards.append(card_en)
+        card_layout.addWidget(card_en)
 
         layout.addWidget(card)
         layout.addStretch()
@@ -1369,9 +2070,9 @@ class AuraSettingsDialog(QDialog):
         layout.addWidget(lbl_desc)
 
         card = QFrame()
-        card.setProperty("class", "card")
+        card.setObjectName("SettingsCard")
         card_layout = QHBoxLayout(card)
-        card_layout.setContentsMargins(12, 12, 12, 12)
+        card_layout.setContentsMargins(14, 14, 14, 14)
         card_layout.setSpacing(14)
 
         self.list_toolbar = QListWidget()
@@ -1462,9 +2163,9 @@ class AuraSettingsDialog(QDialog):
 
         # Kart 1: Hazır İmleç Stili (Presets)
         card_preset = QFrame()
-        card_preset.setProperty("class", "card")
+        card_preset.setObjectName("SettingsCard")
         p_layout = QHBoxLayout(card_preset)
-        p_layout.setContentsMargins(12, 10, 12, 10)
+        p_layout.setContentsMargins(14, 12, 14, 12)
         p_layout.setSpacing(12)
 
         p_lbl = QLabel(LanguageManager.tr("cursor_preset_lbl"))
@@ -1501,11 +2202,11 @@ class AuraSettingsDialog(QDialog):
 
         # Kart 2: Araç Başına İmleç Seçimi
         card_tools = QFrame()
-        card_tools.setProperty("class", "card")
+        card_tools.setObjectName("SettingsCard")
         grid = QGridLayout(card_tools)
-        grid.setContentsMargins(12, 12, 12, 12)
-        grid.setHorizontalSpacing(16)
-        grid.setVerticalSpacing(10)
+        grid.setContentsMargins(14, 14, 14, 14)
+        grid.setHorizontalSpacing(24)
+        grid.setVerticalSpacing(12)
 
         # 1. Kalem
         lbl_pen = QLabel(LanguageManager.tr("cursor_pen_lbl"))
@@ -1628,9 +2329,9 @@ class AuraSettingsDialog(QDialog):
 
         # Kart 3: Canlı İnteraktif Önizleme
         card_preview = QFrame()
-        card_preview.setProperty("class", "card")
+        card_preview.setObjectName("SettingsCard")
         cp_layout = QVBoxLayout(card_preview)
-        cp_layout.setContentsMargins(12, 10, 12, 10)
+        cp_layout.setContentsMargins(14, 12, 14, 12)
         cp_layout.setSpacing(8)
 
         cp_top = QHBoxLayout()
@@ -1676,9 +2377,9 @@ class AuraSettingsDialog(QDialog):
 
         # Kart 4: Seçenekler & Sıfırla
         card_opts = QFrame()
-        card_opts.setProperty("class", "card")
+        card_opts.setObjectName("SettingsCard")
         co_layout = QVBoxLayout(card_opts)
-        co_layout.setContentsMargins(12, 8, 12, 8)
+        co_layout.setContentsMargins(14, 12, 14, 12)
         co_layout.setSpacing(12)
 
         self.chk_cursor_color = QCheckBox(LanguageManager.tr("cursor_opt_show_color"))
@@ -1724,8 +2425,9 @@ class AuraSettingsDialog(QDialog):
 
         # Kart 1: Sürüm Bilgisi ve Manuel Denetim
         card_status = QFrame()
-        card_status.setProperty("class", "card")
+        card_status.setObjectName("SettingsCard")
         card_status_layout = QVBoxLayout(card_status)
+        card_status_layout.setContentsMargins(16, 14, 16, 14)
         card_status_layout.setSpacing(12)
 
         from src.core.updater import CURRENT_VERSION, UpdateChecker
@@ -1753,8 +2455,9 @@ class AuraSettingsDialog(QDialog):
 
         # Kart 2: Otomatik Güncelleme Seçenekleri
         card_opts = QFrame()
-        card_opts.setProperty("class", "card")
+        card_opts.setObjectName("SettingsCard")
         card_opts_layout = QVBoxLayout(card_opts)
+        card_opts_layout.setContentsMargins(16, 14, 16, 14)
         card_opts_layout.setSpacing(10)
 
         self.chk_auto_update = QCheckBox(LanguageManager.tr("updates_auto_check"))
@@ -1781,9 +2484,8 @@ class AuraSettingsDialog(QDialog):
         self.txt_github_token.setPlaceholderText("ghp_... (Opsiyonel)")
         card_opts_layout.addWidget(self.txt_github_token)
 
-        lbl_token_desc = QLabel(LanguageManager.tr("updates_token_tip"))
-        lbl_token_desc.setStyleSheet("font-size: 11px; color: #94a3b8;")
-        card_opts_layout.addWidget(lbl_token_desc)
+        card_token_hint = ModernInfoCard(text=LanguageManager.tr("updates_token_tip"), parent=self)
+        card_opts_layout.addWidget(card_token_hint)
 
         layout.addWidget(card_opts)
         layout.addStretch()
@@ -1896,7 +2598,14 @@ class AuraSettingsDialog(QDialog):
         if saved_theme in self.theme_radios:
             self.theme_radios[saved_theme].setChecked(True)
         else:
-            self.rb_dark.setChecked(True)
+            self.rb_gray.setChecked(True)
+
+        if hasattr(self, 'theme_studio_card') and hasattr(self, 'theme_card_custom'):
+            colors = self.theme_studio_card.get_colors()
+            surf = colors.get("surface", "#1e222b")
+            bg = colors.get("bg", "#14171d")
+            acc = colors.get("accent", "#38bdf8")
+            self.theme_card_custom.update_palette_pills([surf, bg, acc])
 
         # 2. Klavye & Fare Kısayolları
         for action, default_seq in DEFAULT_SHORTCUTS.items():
@@ -2013,6 +2722,9 @@ class AuraSettingsDialog(QDialog):
                 selected_theme = code
                 break
         
+        if selected_theme == "custom" and hasattr(self, 'theme_studio_card'):
+            self.theme_studio_card.save_to_settings()
+
         self.settings.setValue("app_theme", selected_theme)
         if hasattr(self.main_window, 'apply_theme'):
             self.main_window.apply_theme(selected_theme)

@@ -19,7 +19,7 @@ from PyQt6.QtGui import QPixmap, QImage, QColor, QPainter, QPen, QBrush
 
 import pymupdf as fitz
 from src.core.i18n import LanguageManager
-from src.ui.dialog_theme import get_dialog_theme_stylesheet
+from src.ui.dialog_theme import apply_dialog_theme, get_dialog_theme_stylesheet, ModernInfoCard
 from src.ui.icons import ModernIconFactory
 
 
@@ -105,64 +105,119 @@ class RedactPreviewLabel(QLabel):
 
 
 class PDFRedactionDialog(QDialog):
-    def __init__(self, main_window, parent=None):
-        super().__init__(parent or main_window)
+    def __init__(self, main_window=None, parent=None, *args, **kwargs):
+        parent_widget = parent if isinstance(parent, QWidget) else (main_window if isinstance(main_window, QWidget) else None)
+        super().__init__(parent_widget)
         self.main_window = main_window
         self.setWindowTitle(LanguageManager.tr("redact_title"))
         self.setWindowIcon(ModernIconFactory.icon_redact())
-        self.resize(1050, 720)
-        self.setMinimumSize(850, 560)
+        self.resize(1200, 800)
+        self.setMinimumSize(1020, 680)
         self.setSizeGripEnabled(True)
 
-        self.current_theme = getattr(self.main_window, 'current_theme', 'dark')
-
-        self.tab_doc = getattr(self.main_window, 'get_current_tab_doc', lambda: None)()
+        self.tab_doc = None
         self.doc = None
         self.file_path = ""
         self.current_page = 0
         self.detected_items = []  # [{page, text, rect, type, checked}]
 
+        if hasattr(self.main_window, 'get_current_tab_doc'):
+            self.tab_doc = self.main_window.get_current_tab_doc()
+        elif hasattr(self.main_window, 'doc'):
+            self.tab_doc = self.main_window
+
         if self.tab_doc and getattr(self.tab_doc, 'doc', None):
             self.doc = self.tab_doc.doc
             self.file_path = getattr(self.tab_doc, 'file_path', "")
             self.current_page = getattr(self.tab_doc, 'current_page_idx', 0)
+        elif hasattr(self.main_window, 'page_count'):
+            self.doc = self.main_window
 
-        self._apply_style()
         self._init_ui()
+        self._apply_style()
 
         if self.doc:
             self._render_current_page()
             self._auto_detect_sensitive_data()
 
     def _apply_style(self):
-        bg = "#1c1c1e"
-        card_bg = "#2c2c2e"
-        border = "#3a3a3c"
-        accent = "#ff3b30"
-        text = "#f5f5f7"
-
-        if self.current_theme == "gray":
-            bg = "#2b2d30"; card_bg = "#35383c"; border = "#444850"; accent = "#f87171"; text = "#f1f5f9"
-        elif self.current_theme == "navy":
-            bg = "#0f172a"; card_bg = "#1e293b"; border = "#334155"; accent = "#38bdf8"; text = "#e2e8f0"
-
-        self.setStyleSheet(f"""
-            QDialog {{ background-color: {bg}; color: {text}; }}
-            QTabWidget::pane {{ border: 1px solid {border}; background-color: {card_bg}; border-radius: 6px; }}
-            QTabBar::tab {{ background-color: {bg};  padding: 8px 18px; margin-right: 2px; border-top-left-radius: 6px; border-top-right-radius: 6px; font-weight: 500; }}
-            QTabBar::tab:selected {{ background-color: {card_bg};  border-bottom: 2.5px solid {accent}; font-weight: bold; }}
-            QLabel {{ color: {text}; }}
-            QFrame.card {{ background-color: {card_bg}; border: 1.2px solid {border}; border-radius: 8px; padding: 10px; }}
-            QPushButton {{ background-color: {card_bg}; color: {text}; border: 1px solid {border}; border-radius: 6px; padding: 7px 15px; font-weight: 500; }}
-            QPushButton:hover {{ background-color: {border}; }}
-            QPushButton#DangerBtn {{   font-weight: bold; border: none; }}
-            QPushButton#DangerBtn:hover {{  }}
-            QPushButton#PrimaryBtn {{   font-weight: bold; border: none; }}
-            QLineEdit, QComboBox, QSpinBox {{ background-color: {bg};  border: 1.2px solid {border}; border-radius: 5px; padding: 5px; }}
-            QTableWidget {{ background-color: {bg}; color: {text}; border: 1px solid {border}; gridline-color: {border}; border-radius: 6px; }}
-            QTableWidget::item:selected {{   }}
-            QHeaderView::section {{ background-color: {card_bg};  border: 1px solid {border}; padding: 4px; font-weight: bold; }}
-            QScrollArea {{ border: 1px solid {border};  border-radius: 6px; }}
+        from src.ui.dialog_theme import THEME_PALETTES, get_current_theme
+        theme = get_current_theme(self.main_window or self)
+        pal = THEME_PALETTES.get(theme, THEME_PALETTES["gray"])
+        apply_dialog_theme(self, self.main_window, extra_css=f"""
+            QTabWidget::pane {{
+                border: 1px solid {pal['border']};
+                background-color: {pal['card']};
+                border-radius: 8px;
+                top: -1px;
+            }}
+            QTabBar::tab {{
+                background-color: transparent;
+                color: {pal['muted']};
+                font-size: 13px;
+                font-weight: 600;
+                padding: 10px 24px;
+                margin-right: 6px;
+                border-top-left-radius: 8px;
+                border-top-right-radius: 8px;
+                border: 1px solid transparent;
+                border-bottom: 2px solid transparent;
+            }}
+            QTabBar::tab:hover {{
+                color: {pal['text']};
+                background-color: rgba(255, 255, 255, 0.05);
+            }}
+            QTabBar::tab:selected {{
+                color: {pal['accent']};
+                font-weight: 700;
+                background-color: {pal['card']};
+                border: 1px solid {pal['border']};
+                border-bottom: 2.5px solid {pal['accent']};
+            }}
+            QFrame.card {{
+                border-radius: 8px;
+                padding: 12px;
+            }}
+            QPushButton#DangerBtn {{
+                background-color: #ef4444;
+                color: #ffffff;
+                font-weight: bold;
+                border: none;
+                border-radius: 6px;
+                padding: 8px 16px;
+            }}
+            QPushButton#DangerBtn:hover {{
+                background-color: #dc2626;
+            }}
+            QPushButton#PrimaryBtn {{
+                background-color: {pal['accent']};
+                color: #ffffff;
+                font-weight: bold;
+                border: none;
+                border-radius: 6px;
+                padding: 8px 16px;
+            }}
+            QPushButton#PrimaryBtn:hover {{
+                background-color: {pal['accent_hover']};
+            }}
+            QTableWidget {{
+                border: 1px solid {pal['border']};
+                background-color: {pal['card']};
+                gridline-color: {pal['border']};
+                border-radius: 6px;
+            }}
+            QHeaderView::section {{
+                background-color: {pal['bg']};
+                color: {pal['text']};
+                border: 1px solid {pal['border']};
+                padding: 6px 8px;
+                font-weight: bold;
+                font-size: 12px;
+            }}
+            QScrollArea {{
+                border: 1px solid {pal['border']};
+                border-radius: 6px;
+            }}
         """)
 
     def _init_ui(self):
@@ -171,24 +226,12 @@ class PDFRedactionDialog(QDialog):
         root.setSpacing(10)
 
         # Üst Başlık & Açıklama
-        header_card = QFrame()
-        header_card.setProperty("class", "card")
-        h_layout = QHBoxLayout(header_card)
-        h_layout.setContentsMargins(8, 6, 8, 6)
-
-        info_icon = QLabel("🛡️")
-        info_icon.setStyleSheet("font-size: 24px;")
-        h_layout.addWidget(info_icon)
-
-        v_box = QVBoxLayout()
-        lbl_title = QLabel(f"<b>{LanguageManager.tr('redact_banner_title')}</b>")
-        lbl_title.setStyleSheet("font-size: 13px; ")
-        v_box.addWidget(lbl_title)
-        lbl_sub = QLabel(LanguageManager.tr("redact_banner_sub"))
-        lbl_sub.setStyleSheet("font-size: 11px; ")
-        v_box.addWidget(lbl_sub)
-        h_layout.addLayout(v_box, 1)
-
+        header_card = ModernInfoCard(
+            text=LanguageManager.tr("redact_banner_sub"),
+            title=LanguageManager.tr("redact_banner_title"),
+            icon_type="redact",
+            parent=self
+        )
         root.addWidget(header_card)
 
         # Ana Bölücü (Sol Ayarlar & Algılama, Sağ Canlı Önizleme)
@@ -228,7 +271,8 @@ class PDFRedactionDialog(QDialog):
 
         # Sayfa Gezintisi
         nav_box = QHBoxLayout()
-        btn_prev = QPushButton(f"◀ {LanguageManager.tr('prev_page')}")
+        btn_prev = QPushButton(LanguageManager.tr('prev_page'))
+        btn_prev.setIcon(ModernIconFactory.icon_chevron_left())
         btn_prev.clicked.connect(self._prev_page)
         nav_box.addWidget(btn_prev)
 
@@ -236,7 +280,8 @@ class PDFRedactionDialog(QDialog):
         self.lbl_page_info.setStyleSheet("font-weight: bold; ")
         nav_box.addWidget(self.lbl_page_info)
 
-        btn_next = QPushButton(f"{LanguageManager.tr('next_page')} ▶")
+        btn_next = QPushButton(LanguageManager.tr('next_page'))
+        btn_next.setIcon(ModernIconFactory.icon_chevron_right())
         btn_next.clicked.connect(self._next_page)
         nav_box.addWidget(btn_next)
 
@@ -421,8 +466,11 @@ class PDFRedactionDialog(QDialog):
         c_lay.addWidget(self.chk_clean_links)
 
         c_lay.addSpacing(8)
-        warning = QLabel(LanguageManager.tr("redact_clean_warning"))
-        warning.setStyleSheet(" font-size: 11px;")
+        warning = ModernInfoCard(
+            text=LanguageManager.tr("redact_clean_warning"),
+            is_warning=True,
+            parent=self
+        )
         c_lay.addWidget(warning)
 
         c_lay.addStretch()

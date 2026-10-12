@@ -105,6 +105,7 @@ class KeyboardShortcutsDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle(LanguageManager.tr("shortcuts_dialog_title") + " - AuraPDF")
         self.resize(620, 520)
+        self.setMinimumSize(560, 460)
         self.setModal(True)
 
         self._init_ui()
@@ -128,7 +129,8 @@ class KeyboardShortcutsDialog(QDialog):
         f_title.setBold(True)
         lbl_title.setFont(f_title)
         lbl_desc = QLabel(LanguageManager.tr("shortcuts_dialog_desc"), self)
-        lbl_desc.setStyleSheet("color: #94a3b8; font-size: 11px;")
+        lbl_desc.setWordWrap(True)
+        lbl_desc.setStyleSheet("font-size: 11px;")
         title_vbox.addWidget(lbl_title)
         title_vbox.addWidget(lbl_desc)
         header_layout.addLayout(title_vbox)
@@ -175,3 +177,6 @@ class KeyboardShortcutsDialog(QDialog):
         btn_close.clicked.connect(self.accept)
         btn_layout.addWidget(btn_close)
         main_layout.addLayout(btn_layout)
+
+
+ShortcutsDialog = KeyboardShortcutsDialog

@@ -7,7 +7,7 @@ from typing import Optional
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QLabel, 
                              QPushButton, QSlider, QFrame, QColorDialog, 
                              QFontComboBox, QComboBox, QCheckBox, QApplication, QInputDialog, QMessageBox,
-                             QStackedWidget, QScrollArea, QButtonGroup)
+                             QStackedWidget, QScrollArea, QButtonGroup, QLineEdit)
 from PyQt6.QtGui import (QColor, QFont, QPainter, QPen, QBrush, QLinearGradient, QRadialGradient, QPainterPath, QTextCursor, QFontMetricsF, QPixmap, QImage)
 from PyQt6.QtCore import Qt, QPoint, QPointF, QRect, QRectF, QTimer, QSettings, QEvent
 from src.core.i18n import LanguageManager
@@ -51,19 +51,43 @@ POPUP_THEME_SPECS = {
         "tab_bg": "#222b3a", "tab_hover": "#2f3b4f", "tab_border": "#313e54", "tab_text": "#94a3b8",
         "view_bg": "#11161e"
     },
-    "dark": {
-        "main_bg": "#121212", "main_text": "#e0e0e0", "tb_bg": "#1c1c1c", "tb_border": "#141414",
-        "btn_hover": "#2b2b2b", "accent": "#388bfd", "page_bg": "#2b2b2b", "page_border": "#404040",
-        "tab_bg": "#202020", "tab_hover": "#2a2a2a", "tab_border": "#282828", "tab_text": "#aaaaaa",
-        "view_bg": "#121212"
-    },
     "vice_city": {
         "main_bg": "#160024", "main_text": "#fdf2f8", "tb_bg": "#240e3b", "tb_border": "#3d1663",
         "btn_hover": "#381458", "accent": "#ff2a85", "page_bg": "#2c1047", "page_border": "#ff2a85",
         "tab_bg": "#1e0a32", "tab_hover": "#351357", "tab_border": "#3d1663", "tab_text": "#e2d1f0",
         "view_bg": "#0d0017"
+    },
+    "apple": {
+        "main_bg": "#0e1014", "main_text": "#f5f5f7", "tb_bg": "#1a1d24", "tb_border": "#2e3340",
+        "btn_hover": "#2e3340", "accent": "#38bdf8", "page_bg": "#1e222b", "page_border": "#3b4252",
+        "tab_bg": "#14171d", "tab_hover": "#222730", "tab_border": "#2e3340", "tab_text": "#cbd5e1",
+        "view_bg": "#08090b"
     }
 }
+POPUP_THEME_SPECS["light"] = POPUP_THEME_SPECS["gray"]
+POPUP_THEME_SPECS["dark"] = POPUP_THEME_SPECS["gray"]
+
+def get_popup_theme_spec(theme_name: str = "gray") -> dict:
+    """Temaya uygun popup stil özelliklerini döner; custom temada dinamik üretir."""
+    if theme_name in ("light", "dark", "navy"):
+        theme_name = "gray"
+    if theme_name == "custom":
+        try:
+            from src.ui.modern_views import get_modern_theme_colors
+            c = get_modern_theme_colors("custom")
+            spec = {
+                "main_bg": c["bg"], "main_text": c["text"], "tb_bg": c["surface"], "tb_border": c["border"],
+                "btn_hover": c["surface_hover"], "accent": c["accent"], "page_bg": c["card_bg"], "page_border": c["card_border"],
+                "tab_bg": c["tab_bg"], "tab_hover": c["surface_hover"], "tab_border": c["border"], "tab_text": c["tab_text"],
+                "view_bg": c["bg"]
+            }
+            POPUP_THEME_SPECS["custom"] = spec
+            return spec
+        except Exception:
+            pass
+    return POPUP_THEME_SPECS.get(theme_name, POPUP_THEME_SPECS["gray"])
+
+POPUP_THEME_SPECS["custom"] = get_popup_theme_spec("custom")
 
 # --- 0. POPUP TABAN SINIFI ---
 class BaseSettingsPopup(QWidget):
@@ -72,9 +96,7 @@ class BaseSettingsPopup(QWidget):
         self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, False)
         settings = QSettings("AuraPDF", "PDFViewer")
         current_th = settings.value("app_theme", "gray")
-        if current_th == "navy":
-            current_th = "gray"
-        spec = POPUP_THEME_SPECS.get(current_th, POPUP_THEME_SPECS["gray"])
+        spec = get_popup_theme_spec(current_th)
         self.apply_theme(current_th, spec)
 
     def show_below(self, button_widget):
@@ -4641,5 +4663,485 @@ class PDFTextSelectionHUD(QFrame):
         self.raise_()
 
 
+class ModernStampPalettePopup(BaseSettingsPopup):
+    """
+    Hızlı ve modern açılır damga paleti (Acrobat Pro & modern PDF okuyucu tarzı).
+    Ayrı modal diyalog penceresi açmadan, doğrudan palet içerisindeki sekmelerden
+    hem hazır damgaları hem de canlı önizlemeli özel damgaları oluşturmayı sağlar.
+    """
+    def __init__(self, parent=None, on_stamp_selected=None, on_open_custom_dialog=None):
+        self.on_stamp_selected = on_stamp_selected
+        self.on_open_custom_dialog = on_open_custom_dialog
+        self._preset_btns = []
+        self._custom_color = "#16a34a"
+        self._color_chip_btns = []
+        super().__init__(parent)
+        self.setObjectName("ModernStampPalettePopup")
+        self.setFixedWidth(340)
+        self._build_ui()
 
+    def _build_ui(self):
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(12, 12, 12, 12)
+        layout.setSpacing(10)
 
+        # 1. Başlık ve Sekme Değiştirici
+        h_head = QHBoxLayout()
+        h_head.setContentsMargins(0, 0, 0, 0)
+        h_head.setSpacing(8)
+
+        lbl_icon = QLabel()
+        lbl_icon.setPixmap(ModernIconFactory.icon_stamp("#38bdf8").pixmap(16, 16))
+        h_head.addWidget(lbl_icon)
+
+        self.lbl_head_title = QLabel(LanguageManager.tr("stamp_quick_palette_title"))
+        self.lbl_head_title.setObjectName("SectionHeader")
+        self.lbl_head_title.setStyleSheet("font-size: 13px; font-weight: 700;")
+        h_head.addWidget(self.lbl_head_title)
+        h_head.addStretch(1)
+
+        layout.addLayout(h_head)
+
+        # 2. Modern Segmented Tab Switcher (Hazır Damgalar / Özel Damga)
+        h_tabs = QHBoxLayout()
+        h_tabs.setSpacing(4)
+        h_tabs.setContentsMargins(0, 2, 0, 4)
+
+        self.btn_tab_preset = QPushButton(LanguageManager.tr("stamp_tab_preset"))
+        self.btn_tab_preset.setCheckable(True)
+        self.btn_tab_preset.setChecked(True)
+        self.btn_tab_preset.setFixedHeight(28)
+        self.btn_tab_preset.setCursor(Qt.CursorShape.PointingHandCursor)
+
+        self.btn_tab_custom = QPushButton(LanguageManager.tr("stamp_tab_custom"))
+        self.btn_tab_custom.setCheckable(True)
+        self.btn_tab_custom.setChecked(False)
+        self.btn_tab_custom.setFixedHeight(28)
+        self.btn_tab_custom.setCursor(Qt.CursorShape.PointingHandCursor)
+
+        self._tab_group = QButtonGroup(self)
+        self._tab_group.setExclusive(True)
+        self._tab_group.addButton(self.btn_tab_preset, 0)
+        self._tab_group.addButton(self.btn_tab_custom, 1)
+        self._tab_group.idClicked.connect(self._on_tab_switched)
+
+        self._style_tabs()
+        h_tabs.addWidget(self.btn_tab_preset)
+        h_tabs.addWidget(self.btn_tab_custom)
+        layout.addLayout(h_tabs)
+
+        # 3. Yığın Alanı (QStackedWidget)
+        self.stack = QStackedWidget(self)
+
+        # --- SAYFA 0: HAZIR DAMGALAR ---
+        page_preset = QWidget()
+        l_preset = QVBoxLayout(page_preset)
+        l_preset.setContentsMargins(0, 0, 0, 0)
+        l_preset.setSpacing(8)
+
+        self.lbl_std_sec = QLabel(LanguageManager.tr("stamp_cat_standard"))
+        self.lbl_std_sec.setObjectName("FieldLabel")
+        self.lbl_std_sec.setStyleSheet("font-size: 11px; font-weight: 600; opacity: 0.85;")
+        l_preset.addWidget(self.lbl_std_sec)
+
+        grid_stamps = QGridLayout()
+        grid_stamps.setHorizontalSpacing(8)
+        grid_stamps.setVerticalSpacing(8)
+
+        self.presets = [
+            ("stamp_approved", "#16a34a"),      # ONAYLANDI / APPROVED
+            ("stamp_confidential", "#dc2626"),  # GİZLİ / CONFIDENTIAL
+            ("stamp_draft", "#2563eb"),         # TASLAK / DRAFT
+            ("stamp_final", "#7c3aed"),         # NİHAİ / FINAL
+            ("stamp_void", "#b91c1c"),          # İPTAL EDİLDİ / VOID
+            ("stamp_completed", "#0d9488"),     # TAMAMLANDI / COMPLETED
+            ("stamp_sign_here", "#d97706"),     # BURAYI İMZALAYIN / SIGN HERE
+            ("stamp_urgent", "#ea580c"),        # ACİL / URGENT
+        ]
+
+        self._preset_btns.clear()
+        for idx, (key, col_hex) in enumerate(self.presets):
+            btn = QPushButton(LanguageManager.tr(key).upper())
+            btn.setObjectName("StampPresetBtn")
+            btn.setFixedHeight(32)
+            btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            btn.setStyleSheet(f"""
+                QPushButton#StampPresetBtn {{
+                    background-color: {col_hex}18;
+                    color: {col_hex};
+                    border: 1.5px solid {col_hex}80;
+                    border-radius: 6px;
+                    font-size: 10px;
+                    font-weight: 800;
+                    text-align: center;
+                    padding: 4px 6px;
+                }}
+                QPushButton#StampPresetBtn:hover {{
+                    background-color: {col_hex}35;
+                    border: 1.5px solid {col_hex};
+                    color: #ffffff;
+                }}
+            """)
+            btn.clicked.connect(lambda _, k=key, c=col_hex: self._on_preset_clicked(k, c, False))
+            self._preset_btns.append((btn, key, col_hex))
+            grid_stamps.addWidget(btn, idx // 2, idx % 2)
+
+        l_preset.addLayout(grid_stamps)
+
+        sep = QFrame()
+        sep.setObjectName("Divider")
+        sep.setFrameShape(QFrame.Shape.HLine)
+        sep.setStyleSheet("background-color: rgba(255, 255, 255, 0.1); max-height: 1px;")
+        l_preset.addWidget(sep)
+
+        self.lbl_dyn_sec = QLabel(LanguageManager.tr("stamp_cat_dynamic"))
+        self.lbl_dyn_sec.setObjectName("FieldLabel")
+        self.lbl_dyn_sec.setStyleSheet("font-size: 11px; font-weight: 600; opacity: 0.85;")
+        l_preset.addWidget(self.lbl_dyn_sec)
+
+        h_dyn = QHBoxLayout()
+        h_dyn.setSpacing(8)
+
+        self.btn_dyn_approved = QPushButton(f"{LanguageManager.tr('stamp_approved').upper()}")
+        self.btn_dyn_approved.setObjectName("StampDynamicBtn")
+        self.btn_dyn_approved.setIcon(ModernIconFactory.icon_stamp("#22c55e"))
+        self.btn_dyn_approved.setFixedHeight(30)
+        self.btn_dyn_approved.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_dyn_approved.setStyleSheet("""
+            QPushButton#StampDynamicBtn {
+                background-color: rgba(22, 163, 74, 0.12);
+                color: #22c55e;
+                border: 1px dashed #22c55e;
+                border-radius: 6px;
+                font-size: 10px;
+                font-weight: 700;
+                padding: 4px;
+                text-align: center;
+            }
+            QPushButton#StampDynamicBtn:hover {
+                background-color: rgba(22, 163, 74, 0.25);
+                color: #ffffff;
+            }
+        """)
+        self.btn_dyn_approved.clicked.connect(lambda: self._on_preset_clicked("stamp_approved", "#16a34a", True))
+        h_dyn.addWidget(self.btn_dyn_approved)
+
+        import datetime
+        today_str = datetime.datetime.now().strftime("%d.%m.%Y")
+        self.btn_date_today = QPushButton(f"{LanguageManager.tr('date_stamp')}: {today_str}")
+        self.btn_date_today.setObjectName("StampDateBtn")
+        self.btn_date_today.setIcon(ModernIconFactory.icon_page_number())
+        self.btn_date_today.setFixedHeight(30)
+        self.btn_date_today.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_date_today.setStyleSheet("""
+            QPushButton#StampDateBtn {
+                background-color: rgba(56, 189, 248, 0.12);
+                color: #38bdf8;
+                border: 1px dashed #38bdf8;
+                border-radius: 6px;
+                font-size: 10px;
+                font-weight: 700;
+                padding: 4px;
+                text-align: center;
+            }
+            QPushButton#StampDateBtn:hover {
+                background-color: rgba(56, 189, 248, 0.25);
+                color: #ffffff;
+            }
+        """)
+        self.btn_date_today.clicked.connect(self._on_date_stamp_clicked)
+        h_dyn.addWidget(self.btn_date_today)
+
+        l_preset.addLayout(h_dyn)
+        self.stack.addWidget(page_preset)
+
+        # --- SAYFA 1: ÖZEL DAMGA OLUŞTURUCU (PENCERESİZ İÇERİK) ---
+        page_custom = QWidget()
+        l_custom = QVBoxLayout(page_custom)
+        l_custom.setContentsMargins(0, 0, 0, 0)
+        l_custom.setSpacing(8)
+
+        lbl_custom_txt = QLabel(LanguageManager.tr("stamp_custom_text_label"))
+        lbl_custom_txt.setStyleSheet("font-size: 11px; font-weight: 600; opacity: 0.9;")
+        l_custom.addWidget(lbl_custom_txt)
+
+        self.txt_custom = QLineEdit()
+        self.txt_custom.setText(LanguageManager.tr("stamp_approved"))
+        self.txt_custom.setFixedHeight(30)
+        self.txt_custom.setStyleSheet("""
+            QLineEdit {
+                background-color: rgba(255, 255, 255, 0.06);
+                border: 1px solid rgba(255, 255, 255, 0.18);
+                border-radius: 5px;
+                padding: 0 8px;
+                font-size: 12px;
+                font-weight: 600;
+            }
+            QLineEdit:focus {
+                border: 1.5px solid #38bdf8;
+                background-color: rgba(255, 255, 255, 0.1);
+            }
+        """)
+        self.txt_custom.textChanged.connect(self._update_custom_preview)
+        l_custom.addWidget(self.txt_custom)
+
+        lbl_col = QLabel(LanguageManager.tr("stamp_custom_color_label"))
+        lbl_col.setStyleSheet("font-size: 11px; font-weight: 600; opacity: 0.9;")
+        l_custom.addWidget(lbl_col)
+
+        h_chips = QHBoxLayout()
+        h_chips.setSpacing(6)
+        color_choices = [
+            ("#16a34a", "Yeşil"),
+            ("#dc2626", "Kırmızı"),
+            ("#2563eb", "Mavi"),
+            ("#7c3aed", "Mor"),
+            ("#ea580c", "Turuncu"),
+            ("#0d9488", "Teal"),
+            ("#0f172a", "Lacivert / Koyu"),
+        ]
+        self._color_chip_btns.clear()
+        for col_hex, _ in color_choices:
+            btn_chip = QPushButton()
+            btn_chip.setFixedSize(24, 24)
+            btn_chip.setCursor(Qt.CursorShape.PointingHandCursor)
+            btn_chip.clicked.connect(lambda _, ch=col_hex: self._select_custom_color(ch))
+            self._color_chip_btns.append((btn_chip, col_hex))
+            h_chips.addWidget(btn_chip)
+        h_chips.addStretch(1)
+        l_custom.addLayout(h_chips)
+        self._refresh_color_chip_styles()
+
+        self.chk_custom_dynamic = QCheckBox(LanguageManager.tr("stamp_dynamic_toggle"))
+        self.chk_custom_dynamic.setStyleSheet("font-size: 11px;")
+        self.chk_custom_dynamic.toggled.connect(self._update_custom_preview)
+        l_custom.addWidget(self.chk_custom_dynamic)
+
+        lbl_prev = QLabel(LanguageManager.tr("stamp_custom_preview"))
+        lbl_prev.setStyleSheet("font-size: 11px; font-weight: 600; opacity: 0.9;")
+        l_custom.addWidget(lbl_prev)
+
+        # 1:1 Belge beyazı kağıt simülasyonu (Böylece seçilen renk belgede birebir aynı görünür)
+        self.preview_frame = QFrame()
+        self.preview_frame.setFixedHeight(82)
+        self.preview_frame.setStyleSheet("""
+            QFrame {
+                background-color: #ffffff;
+                border: 1px solid rgba(0, 0, 0, 0.16);
+                border-radius: 6px;
+            }
+        """)
+        l_pf = QVBoxLayout(self.preview_frame)
+        l_pf.setContentsMargins(4, 4, 4, 4)
+        l_pf.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        self.lbl_custom_preview = QLabel()
+        self.lbl_custom_preview.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        l_pf.addWidget(self.lbl_custom_preview)
+        l_custom.addWidget(self.preview_frame)
+
+        self.btn_apply_custom = QPushButton(LanguageManager.tr("stamp_apply_btn"))
+        self.btn_apply_custom.setObjectName("PrimaryBtn")
+        self.btn_apply_custom.setFixedHeight(32)
+        self.btn_apply_custom.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_apply_custom.setStyleSheet("""
+            QPushButton#PrimaryBtn {
+                background-color: #0284c7;
+                color: #ffffff;
+                border: none;
+                border-radius: 6px;
+                font-size: 11px;
+                font-weight: 700;
+                padding: 4px 10px;
+            }
+            QPushButton#PrimaryBtn:hover {
+                background-color: #0369a1;
+            }
+        """)
+        self.btn_apply_custom.clicked.connect(self._apply_custom_stamp)
+        l_custom.addWidget(self.btn_apply_custom)
+
+        self.stack.addWidget(page_custom)
+        layout.addWidget(self.stack)
+
+        self._update_custom_preview()
+
+    def _style_tabs(self):
+        active_style = """
+            background-color: rgba(56, 189, 248, 0.22);
+            color: #38bdf8;
+            border: 1px solid #38bdf8;
+            border-radius: 6px;
+            font-size: 11px;
+            font-weight: 700;
+            padding: 2px 10px;
+        """
+        inactive_style = """
+            background-color: rgba(255, 255, 255, 0.05);
+            color: rgba(255, 255, 255, 0.7);
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            border-radius: 6px;
+            font-size: 11px;
+            font-weight: 600;
+            padding: 2px 10px;
+        """
+        self.btn_tab_preset.setStyleSheet(active_style if self.btn_tab_preset.isChecked() else inactive_style)
+        self.btn_tab_custom.setStyleSheet(active_style if self.btn_tab_custom.isChecked() else inactive_style)
+
+    def _on_tab_switched(self, btn_id: int):
+        self.stack.setCurrentIndex(btn_id)
+        self._style_tabs()
+        if btn_id == 1:
+            self._update_custom_preview()
+
+    def switch_to_custom_tab(self):
+        self.btn_tab_custom.setChecked(True)
+        self._on_tab_switched(1)
+
+    def _select_custom_color(self, color_hex: str):
+        self._custom_color = color_hex
+        self._refresh_color_chip_styles()
+        self._update_custom_preview()
+
+    def _refresh_color_chip_styles(self):
+        for btn, ch in self._color_chip_btns:
+            is_sel = (ch.lower() == self._custom_color.lower())
+            border = "2px solid #ffffff" if is_sel else "1.5px solid rgba(0,0,0,0.3)"
+            btn.setStyleSheet(f"""
+                QPushButton {{
+                    background-color: {ch};
+                    border: {border};
+                    border-radius: 12px;
+                }}
+                QPushButton:hover {{
+                    border: 2px solid #38bdf8;
+                }}
+            """)
+
+    def _update_custom_preview(self):
+        text = self.txt_custom.text().strip() or LanguageManager.tr("stamp_approved")
+        is_dynamic = self.chk_custom_dynamic.isChecked()
+        author_name = "Kullanici"
+        if self.parent() and hasattr(self.parent(), 'settings'):
+            author_name = str(self.parent().settings.value("author_name", "Kullanici") or "Kullanici").strip()
+
+        scale = 1.0
+        w = int(220 * scale)
+        h = int(72 * scale)
+        pix = QPixmap(w, h)
+        pix.fill(Qt.GlobalColor.transparent)
+
+        p = QPainter(pix)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        p.setRenderHint(QPainter.RenderHint.TextAntialiasing, True)
+
+        col = QColor(self._custom_color)
+        p.translate(w / 2.0, h / 2.0)
+        p.rotate(-3.5)
+        p.translate(-w / 2.0, -h / 2.0)
+
+        # Arka plan yumuşak damga dolgusu (1:1 belge ile birebir aynı)
+        p.setBrush(QBrush(QColor(col.red(), col.green(), col.blue(), 20)))
+        p.setPen(QPen(col, 2.4 * scale, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
+        p.drawRoundedRect(QRectF(6 * scale, 6 * scale, (220 - 12) * scale, (72 - 12) * scale), 5 * scale, 5 * scale)
+
+        p.setBrush(Qt.BrushStyle.NoBrush)
+        p.setPen(QPen(col, 1.0 * scale, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
+        p.drawRoundedRect(QRectF(10 * scale, 10 * scale, (220 - 20) * scale, (72 - 20) * scale), 3 * scale, 3 * scale)
+
+        if not is_dynamic:
+            font = QFont("Arial Black", int(13 * scale), QFont.Weight.Black)
+            font.setLetterSpacing(QFont.SpacingType.AbsoluteSpacing, 1.2 * scale)
+            p.setFont(font)
+            p.setPen(col)
+            rect_text = QRectF(12 * scale, 12 * scale, (220 - 24) * scale, (72 - 24) * scale)
+            p.drawText(rect_text, Qt.AlignmentFlag.AlignCenter, text.upper())
+        else:
+            font_title = QFont("Arial Black", int(11 * scale), QFont.Weight.Black)
+            font_title.setLetterSpacing(QFont.SpacingType.AbsoluteSpacing, 1.0 * scale)
+            p.setFont(font_title)
+            p.setPen(col)
+            rect_title = QRectF(12 * scale, 10 * scale, (220 - 24) * scale, 28 * scale)
+            p.drawText(rect_title, Qt.AlignmentFlag.AlignCenter, text.upper())
+
+            p.setPen(QPen(col, 0.8 * scale, Qt.PenStyle.DashLine))
+            p.drawLine(QPointF(18 * scale, 40 * scale), QPointF((220 - 18) * scale, 40 * scale))
+
+            font_sub = QFont("Segoe UI", int(7.0 * scale), QFont.Weight.Bold)
+            p.setFont(font_sub)
+            p.setPen(col)
+            import datetime
+            now_str = datetime.datetime.now().strftime("%d.%m.%Y %H:%M")
+            info_str = f"{author_name}  •  {now_str}"
+            rect_sub = QRectF(12 * scale, 42 * scale, (220 - 24) * scale, 20 * scale)
+            p.drawText(rect_sub, Qt.AlignmentFlag.AlignCenter, info_str)
+
+        p.end()
+        self.lbl_custom_preview.setPixmap(pix)
+
+    def _apply_custom_stamp(self):
+        from src.ui.dialogs.stamp_dialog import render_stamp_png_bytes
+        text = self.txt_custom.text().strip() or LanguageManager.tr("stamp_approved")
+        is_dynamic = self.chk_custom_dynamic.isChecked()
+        author_name = "Kullanici"
+        if self.parent() and hasattr(self.parent(), 'settings'):
+            author_name = str(self.parent().settings.value("author_name", "Kullanici") or "Kullanici").strip()
+
+        data = render_stamp_png_bytes(
+            text=text,
+            color_hex=self._custom_color,
+            is_dynamic=is_dynamic,
+            author_name=author_name
+        )
+        self.hide()
+        if self.on_stamp_selected:
+            self.on_stamp_selected(data, text, 160.0, 60.0)
+
+    def _on_preset_clicked(self, text_key: str, color_hex: str, is_dynamic: bool):
+        from src.ui.dialogs.stamp_dialog import render_stamp_png_bytes
+        text = LanguageManager.tr(text_key)
+        author_name = "Kullanici"
+        if self.parent() and hasattr(self.parent(), 'settings'):
+            author_name = str(self.parent().settings.value("author_name", "Kullanici") or "Kullanici").strip()
+        data = render_stamp_png_bytes(
+            text=text,
+            color_hex=color_hex,
+            is_dynamic=is_dynamic,
+            author_name=author_name
+        )
+        self.hide()
+        if self.on_stamp_selected:
+            self.on_stamp_selected(data, text, 160.0, 60.0)
+
+    def _on_date_stamp_clicked(self):
+        from src.ui.dialogs.stamp_dialog import render_date_stamp_bytes
+        import datetime
+        now_str = datetime.datetime.now().strftime("%d.%m.%Y")
+        data = render_date_stamp_bytes(text=now_str, color_hex="#0284c7")
+        self.hide()
+        if self.on_stamp_selected:
+            self.on_stamp_selected(data, f"{LanguageManager.tr('date_stamp')} {now_str}", 130.0, 42.0)
+
+    def retranslate_ui(self):
+        if hasattr(self, 'lbl_head_title'):
+            self.lbl_head_title.setText(LanguageManager.tr("stamp_quick_palette_title"))
+        if hasattr(self, 'btn_tab_preset'):
+            self.btn_tab_preset.setText(LanguageManager.tr("stamp_tab_preset"))
+        if hasattr(self, 'btn_tab_custom'):
+            self.btn_tab_custom.setText(LanguageManager.tr("stamp_tab_custom"))
+        if hasattr(self, 'lbl_std_sec'):
+            self.lbl_std_sec.setText(LanguageManager.tr("stamp_cat_standard"))
+        if hasattr(self, 'lbl_dyn_sec'):
+            self.lbl_dyn_sec.setText(LanguageManager.tr("stamp_cat_dynamic"))
+        if hasattr(self, 'btn_dyn_approved'):
+            self.btn_dyn_approved.setText(f"{LanguageManager.tr('stamp_approved').upper()}")
+        if hasattr(self, 'btn_date_today'):
+            import datetime
+            today_str = datetime.datetime.now().strftime("%d.%m.%Y")
+            self.btn_date_today.setText(f"{LanguageManager.tr('date_stamp')}: {today_str}")
+        if hasattr(self, 'chk_custom_dynamic'):
+            self.chk_custom_dynamic.setText(LanguageManager.tr("stamp_dynamic_toggle"))
+        if hasattr(self, 'btn_apply_custom'):
+            self.btn_apply_custom.setText(LanguageManager.tr("stamp_apply_btn"))
+        for btn, key, _ in self._preset_btns:
+            btn.setText(LanguageManager.tr(key).upper())

@@ -105,13 +105,14 @@ class ModernIconFactory:
 
 
     @staticmethod
-    def icon_toolbox():
+    def icon_toolbox(color: str = None):
         pix, p = ModernIconFactory._base()
-        p.setPen(QPen(QColor("#e0e0e0"), 1.4, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
+        col = QColor(color or "#e0e0e0")
+        p.setPen(QPen(col, 1.4, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
         p.drawRoundedRect(3, 9, 20, 13, 3, 3)
         p.drawLine(3, 14, 23, 14)
         p.drawArc(8, 4, 10, 8, 0, 180 * 16)
-        p.setBrush(QBrush(QColor("#388bfd")))
+        p.setBrush(QBrush(QColor(color or "#388bfd")))
         p.setPen(Qt.PenStyle.NoPen)
         p.drawRoundedRect(QRectF(7, 12.5, 3, 3.5), 1, 1)
         p.drawRoundedRect(QRectF(16, 12.5, 3, 3.5), 1, 1)
@@ -273,11 +274,194 @@ class ModernIconFactory:
         return QIcon(pix)
 
     @staticmethod
-    def icon_eraser():
+    def icon_eraser(color: str = None) -> QIcon:
+        """Gerçekçi silgi ikonu (Eğik gövdeli, kılıflı, silgi ucu ve silme izli)"""
         pix, p = ModernIconFactory._base()
-        p.setPen(QPen(QColor("#e0e0e0"), 1.8, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
-        p.drawPolygon(QPolygonF([QPointF(12, 4), QPointF(20, 12), QPointF(10, 22), QPointF(2, 14)]))
-        p.drawLine(QPointF(6, 18), QPointF(16, 8)); p.drawLine(QPointF(9, 22), QPointF(18, 22))
+        col = QColor(color or "#ef4444")
+
+        # 1. Taban silgi ucu (sol alt, yumuşak pembe/saydam gölge)
+        rubber_path = QPainterPath()
+        rubber_path.moveTo(3.2, 14.8)
+        rubber_path.lineTo(8.2, 19.8)
+        rubber_path.lineTo(13.2, 14.8)
+        rubber_path.lineTo(8.2, 9.8)
+        rubber_path.closeSubpath()
+
+        p.setPen(QPen(col, 1.4, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
+        p.setBrush(QBrush(QColor(col.red(), col.green(), col.blue(), 75)))
+        p.drawPath(rubber_path)
+
+        # 2. Silgi kılıfı/ambalajı (sağ üst, yuvarlatılmış arka uç)
+        sleeve_path = QPainterPath()
+        sleeve_path.moveTo(8.2, 9.8)
+        sleeve_path.lineTo(13.2, 14.8)
+        sleeve_path.lineTo(19.2, 8.8)
+        sleeve_path.quadTo(20.4, 7.6, 19.2, 6.4)
+        sleeve_path.lineTo(16.0, 3.2)
+        sleeve_path.quadTo(14.8, 2.0, 13.6, 3.2)
+        sleeve_path.lineTo(8.2, 9.8)
+        sleeve_path.closeSubpath()
+
+        p.setPen(QPen(col, 1.4, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
+        p.setBrush(QBrush(col))
+        p.drawPath(sleeve_path)
+
+        # 3. Kılıf kenar şeridi / kuşak çizgisi
+        p.setPen(QPen(QColor(255, 255, 255, 220), 1.5, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+        p.drawLine(QPointF(9.5, 8.5), QPointF(14.5, 13.5))
+
+        # 4. Alt yüzey silme hareket çizgileri / toz izi
+        p.setPen(QPen(col, 1.6, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+        p.drawLine(QPointF(2.0, 21.0), QPointF(11.0, 21.0))
+        p.drawLine(QPointF(14.0, 21.0), QPointF(18.5, 21.0))
+
+        p.end()
+        return QIcon(pix)
+
+    @staticmethod
+    def icon_skip_back(color: str = None) -> QIcon:
+        """Medyada Geri Atlama (<<) İkonu - Dolgulu Çift Üçgen"""
+        pix, p = ModernIconFactory._base()
+        col = QColor(color or "#38bdf8")
+        p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(QBrush(col))
+        p1 = QPainterPath()
+        p1.moveTo(11.5, 6.0)
+        p1.lineTo(4.5, 12.0)
+        p1.lineTo(11.5, 18.0)
+        p1.closeSubpath()
+        p.drawPath(p1)
+
+        p2 = QPainterPath()
+        p2.moveTo(19.0, 6.0)
+        p2.lineTo(12.0, 12.0)
+        p2.lineTo(19.0, 18.0)
+        p2.closeSubpath()
+        p.drawPath(p2)
+        p.end()
+        return QIcon(pix)
+
+    @staticmethod
+    def icon_skip_forward(color: str = None) -> QIcon:
+        """Medyada İleri Atlama (>>) İkonu - Dolgulu Çift Üçgen"""
+        pix, p = ModernIconFactory._base()
+        col = QColor(color or "#38bdf8")
+        p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(QBrush(col))
+        p1 = QPainterPath()
+        p1.moveTo(5.0, 6.0)
+        p1.lineTo(12.0, 12.0)
+        p1.lineTo(5.0, 18.0)
+        p1.closeSubpath()
+        p.drawPath(p1)
+
+        p2 = QPainterPath()
+        p2.moveTo(12.5, 6.0)
+        p2.lineTo(19.5, 12.0)
+        p2.lineTo(12.5, 18.0)
+        p2.closeSubpath()
+        p.drawPath(p2)
+        p.end()
+        return QIcon(pix)
+
+    @staticmethod
+    def icon_media_prev(color: str = None) -> QIcon:
+        """Medyada Önceki Parça / Cümle (|◀) İkonu - Kesinlikle 'K' şeklinde değil, profesyonel medya ikonu"""
+        pix, p = ModernIconFactory._base()
+        col = QColor(color or "#f1f5f9")
+        p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(QBrush(col))
+        # Sol dikey çubuk (bar)
+        p.drawRoundedRect(QRectF(4.5, 6.0, 2.5, 12.0), 1.0, 1.0)
+        # Sola bakan dolgulu üçgen
+        path = QPainterPath()
+        path.moveTo(18.5, 6.0)
+        path.lineTo(9.0, 12.0)
+        path.lineTo(18.5, 18.0)
+        path.closeSubpath()
+        p.drawPath(path)
+        p.end()
+        return QIcon(pix)
+
+    @staticmethod
+    def icon_media_next(color: str = None) -> QIcon:
+        """Medyada Sonraki Parça / Cümle (▶|) İkonu - Dolgulu medya ikonu"""
+        pix, p = ModernIconFactory._base()
+        col = QColor(color or "#f1f5f9")
+        p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(QBrush(col))
+        # Sağa bakan dolgulu üçgen
+        path = QPainterPath()
+        path.moveTo(5.5, 6.0)
+        path.lineTo(15.0, 12.0)
+        path.lineTo(5.5, 18.0)
+        path.closeSubpath()
+        p.drawPath(path)
+        # Sağ dikey çubuk (bar)
+        p.drawRoundedRect(QRectF(17.0, 6.0, 2.5, 12.0), 1.0, 1.0)
+        p.end()
+        return QIcon(pix)
+
+    @staticmethod
+    def icon_speed(color: str = None) -> QIcon:
+        """Okuma Hızı / Hız Göstergesi İkonu"""
+        pix, p = ModernIconFactory._base()
+        col = QColor(color or "#38bdf8")
+        p.setPen(QPen(col, 1.6, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+        p.setBrush(Qt.BrushStyle.NoBrush)
+        p.drawArc(QRectF(3.5, 4.0, 17.0, 17.0), 30 * 16, 200 * 16)
+        # Gösterge ibresi
+        p.drawLine(QPointF(12.0, 14.5), QPointF(16.5, 9.0))
+        p.setBrush(QBrush(col))
+        p.drawEllipse(QPointF(12.0, 14.5), 2.0, 2.0)
+        p.end()
+        return QIcon(pix)
+
+    @staticmethod
+    def icon_paste(color: str = None) -> QIcon:
+        """Panodan Yapıştır İkonu"""
+        pix, p = ModernIconFactory._base()
+        col = QColor(color or "#38bdf8")
+        p.setPen(QPen(col, 1.5, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
+        p.setBrush(Qt.BrushStyle.NoBrush)
+        p.drawRoundedRect(QRectF(4.0, 5.0, 14.0, 16.0), 2.0, 2.0)
+        # Klips
+        p.setBrush(QBrush(col))
+        p.drawRoundedRect(QRectF(8.0, 2.5, 6.0, 3.5), 1.0, 1.0)
+        p.setBrush(Qt.BrushStyle.NoBrush)
+        # İç çizgiler
+        p.drawLine(QPointF(7.0, 10.0), QPointF(15.0, 10.0))
+        p.drawLine(QPointF(7.0, 14.0), QPointF(15.0, 14.0))
+        p.drawLine(QPointF(7.0, 18.0), QPointF(12.0, 18.0))
+        p.end()
+        return QIcon(pix)
+
+    @staticmethod
+    def icon_export_audio(color: str = None) -> QIcon:
+        """Ses Dosyasını Kaydet / Dışa Aktar İkonu"""
+        pix, p = ModernIconFactory._base()
+        col = QColor(color or "#10b981")
+        p.setPen(QPen(col, 1.5, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
+        p.setBrush(Qt.BrushStyle.NoBrush)
+        # Hoparlör / Ses simgesi
+        speaker = QPainterPath()
+        speaker.moveTo(3.5, 9.0)
+        speaker.lineTo(6.5, 9.0)
+        speaker.lineTo(10.5, 5.5)
+        speaker.lineTo(10.5, 18.5)
+        speaker.lineTo(6.5, 15.0)
+        speaker.lineTo(3.5, 15.0)
+        speaker.closeSubpath()
+        p.drawPath(speaker)
+        # İndirme oku
+        p.drawLine(QPointF(17.0, 6.0), QPointF(17.0, 17.0))
+        p.drawLine(QPointF(14.0, 14.0), QPointF(17.0, 17.0))
+        p.drawLine(QPointF(20.0, 14.0), QPointF(17.0, 17.0))
+        p.drawLine(QPointF(13.0, 20.0), QPointF(21.0, 20.0))
         p.end()
         return QIcon(pix)
 
@@ -304,20 +488,61 @@ class ModernIconFactory:
         return QIcon(pix)
 
     @staticmethod
-    def icon_rotate():
+    def icon_rotate(color=None):
+        """Sağa Döndür (Sayfa Silüeti ve Saat Yönünde Dönüş Oku - CW 90°)"""
         pix, p = ModernIconFactory._base()
-        p.setPen(QPen(QColor("#e0e0e0"), 1.8))
-        p.drawArc(4, 4, 18, 18, 45 * 16, 270 * 16)
-        p.setBrush(QColor("#e0e0e0"))
+        col = QColor(color) if color else QColor("#e0e0e0")
+        # 1. Dikey sayfa silüeti (ortalanmış, yuvarlatılmış köşeli belge)
+        p.setPen(QPen(col, 1.5, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
+        p.setBrush(Qt.BrushStyle.NoBrush)
+        p.drawRoundedRect(QRectF(7.5, 9.0, 11.0, 13.5), 1.5, 1.5)
+        # Sayfa içi ipucu satırları
+        p.setPen(QPen(QColor(col.red(), col.green(), col.blue(), 150), 1.2, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+        p.drawLine(QPointF(10.5, 13.5), QPointF(15.5, 13.5))
+        p.drawLine(QPointF(10.5, 17.0), QPointF(14.5, 17.0))
+        # 2. Sağa dönen kavisli rotasyon yayı
+        p.setPen(QPen(col, 1.8, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+        arc_path = QPainterPath()
+        arc_path.moveTo(7.5, 9.5)
+        arc_path.cubicTo(7.5, 3.5, 16.5, 3.0, 21.0, 7.0)
+        p.drawPath(arc_path)
+        # 3. Sağa/aşağı dönüş yönlü ok ucu
         p.setPen(Qt.PenStyle.NoPen)
-        p.drawPolygon(QPolygonF([QPointF(15, 2), QPointF(22, 6), QPointF(16, 9)]))
+        p.setBrush(col)
+        p.drawPolygon(QPolygonF([QPointF(23.0, 5.0), QPointF(18.5, 5.0), QPointF(21.0, 9.5)]))
+        p.end()
+        return QIcon(pix)
+
+    @staticmethod
+    def icon_rotate_ccw(color=None):
+        """Sola Döndür (Sayfa Silüeti ve Saat Yönünün Tersinde Dönüş Oku - CCW 90°)"""
+        pix, p = ModernIconFactory._base()
+        col = QColor(color) if color else QColor("#e0e0e0")
+        # 1. Dikey sayfa silüeti (ortalanmış, yuvarlatılmış köşeli belge)
+        p.setPen(QPen(col, 1.5, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
+        p.setBrush(Qt.BrushStyle.NoBrush)
+        p.drawRoundedRect(QRectF(7.5, 9.0, 11.0, 13.5), 1.5, 1.5)
+        # Sayfa içi ipucu satırları
+        p.setPen(QPen(QColor(col.red(), col.green(), col.blue(), 150), 1.2, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+        p.drawLine(QPointF(10.5, 13.5), QPointF(15.5, 13.5))
+        p.drawLine(QPointF(10.5, 17.0), QPointF(14.5, 17.0))
+        # 2. Sola dönen kavisli rotasyon yayı
+        p.setPen(QPen(col, 1.8, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+        arc_path = QPainterPath()
+        arc_path.moveTo(18.5, 9.5)
+        arc_path.cubicTo(18.5, 3.5, 9.5, 3.0, 5.0, 7.0)
+        p.drawPath(arc_path)
+        # 3. Sola/aşağı dönüş yönlü ok ucu
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(col)
+        p.drawPolygon(QPolygonF([QPointF(3.0, 5.0), QPointF(7.5, 5.0), QPointF(5.0, 9.5)]))
         p.end()
         return QIcon(pix)
 
     @staticmethod
     def icon_print(color: str = None) -> QIcon:
         pix, p = ModernIconFactory._base()
-        col = QColor(color or "#a855f7")
+        col = QColor(color or "#ffffff")
         p.setPen(QPen(col, 1.8, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
         p.setBrush(Qt.BrushStyle.NoBrush)
         p.drawRoundedRect(QRectF(8.0, 4.5, 10.0, 5.0), 1.5, 1.5)
@@ -662,10 +887,11 @@ class ModernIconFactory:
         return QIcon(pix)
 
     @staticmethod
-    def icon_view_single():
+    def icon_view_single(color: str = None):
         pix, p = ModernIconFactory._base()
-        p.setPen(QPen(QColor("#38bdf8"), 1.5))
-        p.setBrush(QBrush(QColor(56, 189, 248, 30)))
+        c_acc = QColor(color or "#38bdf8")
+        p.setPen(QPen(c_acc, 1.5))
+        p.setBrush(QBrush(QColor(c_acc.red(), c_acc.green(), c_acc.blue(), 30)))
         p.drawRoundedRect(QRectF(7, 3, 12, 20), 2, 2)
         p.setPen(QPen(QColor("#94a3b8"), 1.0))
         p.drawLine(10, 8, 16, 8)
@@ -675,10 +901,11 @@ class ModernIconFactory:
         return QIcon(pix)
 
     @staticmethod
-    def icon_view_double():
+    def icon_view_double(color: str = None):
         pix, p = ModernIconFactory._base()
-        p.setPen(QPen(QColor("#38bdf8"), 1.2))
-        p.setBrush(QBrush(QColor(56, 189, 248, 30)))
+        c_acc = QColor(color or "#38bdf8")
+        p.setPen(QPen(c_acc, 1.2))
+        p.setBrush(QBrush(QColor(c_acc.red(), c_acc.green(), c_acc.blue(), 30)))
         p.drawRoundedRect(QRectF(2, 4, 10, 18), 1.5, 1.5)
         p.drawRoundedRect(QRectF(14, 4, 10, 18), 1.5, 1.5)
         p.setPen(QPen(QColor("#94a3b8"), 0.9))
@@ -729,9 +956,10 @@ class ModernIconFactory:
         return QIcon(pix)
 
     @staticmethod
-    def icon_settings():
+    def icon_settings(color: str = None):
         pix, p = ModernIconFactory._base()
-        p.setPen(QPen(QColor("#e0e0e0"), 1.6, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
+        col = QColor(color or "#e0e0e0")
+        p.setPen(QPen(col, 1.6, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
         p.setBrush(Qt.BrushStyle.NoBrush)
         p.drawEllipse(QPointF(13, 13), 3.0, 3.0)
         for i in range(8):
@@ -756,9 +984,10 @@ class ModernIconFactory:
         return QIcon(pix)
 
     @staticmethod
-    def icon_fullscreen():
+    def icon_fullscreen(color: str = None):
         pix, p = ModernIconFactory._base()
-        p.setPen(QPen(QColor("#a8b2c1"), 1.8, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
+        col = QColor(color or "#a8b2c1")
+        p.setPen(QPen(col, 1.8, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
         p.setBrush(Qt.BrushStyle.NoBrush)
         # Top Left
         p.drawLine(QPointF(6, 11), QPointF(6, 6))
@@ -1060,6 +1289,31 @@ class ModernIconFactory:
         p.setPen(QPen(col, 2.0, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
         p.drawLine(QPointF(7.0, 13.0), QPointF(19.0, 13.0))
         p.drawLine(QPointF(13.0, 7.0), QPointF(13.0, 19.0))
+        p.end()
+        return QIcon(pix)
+
+    @staticmethod
+    def icon_zoom_in(color: str = None) -> QIcon:
+        pix, p = ModernIconFactory._base()
+        col = QColor(color or "#ffffff")
+        p.setPen(QPen(col, 1.8, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+        p.drawEllipse(QRectF(4.0, 4.0, 11.5, 11.5))
+        p.drawLine(QPointF(12.5, 12.5), QPointF(20.0, 20.0))
+        # Plus inside
+        p.drawLine(QPointF(9.75, 7.0), QPointF(9.75, 12.5))
+        p.drawLine(QPointF(7.0, 9.75), QPointF(12.5, 9.75))
+        p.end()
+        return QIcon(pix)
+
+    @staticmethod
+    def icon_zoom_out(color: str = None) -> QIcon:
+        pix, p = ModernIconFactory._base()
+        col = QColor(color or "#ffffff")
+        p.setPen(QPen(col, 1.8, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+        p.drawEllipse(QRectF(4.0, 4.0, 11.5, 11.5))
+        p.drawLine(QPointF(12.5, 12.5), QPointF(20.0, 20.0))
+        # Minus inside
+        p.drawLine(QPointF(7.0, 9.75), QPointF(12.5, 9.75))
         p.end()
         return QIcon(pix)
 
@@ -1547,6 +1801,26 @@ class ModernIconFactory:
         return QIcon(pix)
 
     @staticmethod
+    def icon_fit_width(color: str = None) -> QIcon:
+        pix, p = ModernIconFactory._base()
+        col = QColor(color or "#f1f5f9")
+        p.setPen(QPen(col, 1.5, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
+        p.setBrush(Qt.BrushStyle.NoBrush)
+        # Left and right vertical margin lines
+        p.drawLine(4, 5, 4, 21)
+        p.drawLine(22, 5, 22, 21)
+        # Horizontal expanding bidirectional arrow
+        p.drawLine(6, 13, 20, 13)
+        # Left arrowhead
+        p.drawLine(6, 13, 9, 10)
+        p.drawLine(6, 13, 9, 16)
+        # Right arrowhead
+        p.drawLine(20, 13, 17, 10)
+        p.drawLine(20, 13, 17, 16)
+        p.end()
+        return QIcon(pix)
+
+    @staticmethod
     def icon_speech(color: str = None) -> QIcon:
         pix, p = ModernIconFactory._base()
         col = QColor(color or "#38bdf8")
@@ -1570,13 +1844,33 @@ class ModernIconFactory:
         return QIcon(pix)
 
     @staticmethod
+    def icon_headphones(color: str = None) -> QIcon:
+        pix, p = ModernIconFactory._base()
+        col = QColor(color or "#38bdf8")
+        p.setPen(QPen(col, 1.8, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
+        p.setBrush(Qt.BrushStyle.NoBrush)
+        # Headband arc
+        p.drawArc(QRectF(5.0, 4.0, 16.0, 15.0), 0 * 16, 180 * 16)
+        # Left ear cup
+        p.setBrush(QBrush(col))
+        p.drawRoundedRect(QRectF(3.5, 11.5, 4.5, 8.5), 2.2, 2.2)
+        # Right ear cup
+        p.drawRoundedRect(QRectF(18.0, 11.5, 4.5, 8.5), 2.2, 2.2)
+        p.end()
+        return QIcon(pix)
+
+    @staticmethod
     def icon_play(color: str = None) -> QIcon:
         pix, p = ModernIconFactory._base()
         col = QColor(color or "#38bdf8")
-        p.setPen(QPen(col, 1.5, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
+        p.setPen(QPen(col, 1.2, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
         p.setBrush(QBrush(col))
-        tri = QPolygonF([QPointF(8, 6), QPointF(19, 13), QPointF(8, 20)])
-        p.drawPolygon(tri)
+        path = QPainterPath()
+        path.moveTo(8.5, 6.0)
+        path.lineTo(19.0, 13.0)
+        path.lineTo(8.5, 20.0)
+        path.closeSubpath()
+        p.drawPath(path)
         p.end()
         return QIcon(pix)
 
@@ -1584,9 +1878,37 @@ class ModernIconFactory:
     def icon_pause(color: str = None) -> QIcon:
         pix, p = ModernIconFactory._base()
         col = QColor(color or "#38bdf8")
-        p.setPen(QPen(col, 2.5, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
-        p.drawLine(9, 7, 9, 19)
-        p.drawLine(17, 7, 17, 19)
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(QBrush(col))
+        p.drawRoundedRect(QRectF(7.5, 6.0, 3.5, 14.0), 1.6, 1.6)
+        p.drawRoundedRect(QRectF(15.0, 6.0, 3.5, 14.0), 1.6, 1.6)
+        p.end()
+        return QIcon(pix)
+
+    @staticmethod
+    def icon_stop(color: str = None) -> QIcon:
+        """Medyada Durdur İkonu - Dolgulu Kare"""
+        pix, p = ModernIconFactory._base()
+        col = QColor(color or "#ef4444")
+        p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(QBrush(col))
+        p.drawRoundedRect(QRectF(5.5, 5.5, 13.0, 13.0), 2.0, 2.0)
+        p.end()
+        return QIcon(pix)
+
+    @staticmethod
+    def icon_info(color: str = None) -> QIcon:
+        pix, p = ModernIconFactory._base()
+        col = QColor(color or "#94a3b8")
+        p.setPen(QPen(col, 1.6, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
+        p.setBrush(Qt.BrushStyle.NoBrush)
+        p.drawEllipse(QRectF(4.0, 4.0, 18.0, 18.0))
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(QBrush(col))
+        p.drawEllipse(QRectF(11.9, 7.5, 2.2, 2.2))
+        p.setPen(QPen(col, 1.8, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+        p.drawLine(QPointF(13.0, 11.5), QPointF(13.0, 16.5))
         p.end()
         return QIcon(pix)
 
@@ -1609,6 +1931,30 @@ class ModernIconFactory:
         p.setBrush(Qt.BrushStyle.NoBrush)
         p.drawLine(10, 6, 17, 13)
         p.drawLine(17, 13, 10, 20)
+        p.end()
+        return QIcon(pix)
+
+    @staticmethod
+    def icon_first_page(color: str = None) -> QIcon:
+        pix, p = ModernIconFactory._base()
+        col = QColor(color or "#f1f5f9")
+        p.setPen(QPen(col, 1.8, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
+        p.setBrush(Qt.BrushStyle.NoBrush)
+        p.drawLine(6, 6, 6, 20)
+        p.drawLine(17, 6, 10, 13)
+        p.drawLine(10, 13, 17, 20)
+        p.end()
+        return QIcon(pix)
+
+    @staticmethod
+    def icon_last_page(color: str = None) -> QIcon:
+        pix, p = ModernIconFactory._base()
+        col = QColor(color or "#f1f5f9")
+        p.setPen(QPen(col, 1.8, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
+        p.setBrush(Qt.BrushStyle.NoBrush)
+        p.drawLine(19, 6, 19, 20)
+        p.drawLine(8, 6, 15, 13)
+        p.drawLine(15, 13, 8, 20)
         p.end()
         return QIcon(pix)
 
@@ -1801,6 +2147,28 @@ class ModernIconFactory:
         p.setPen(QPen(clr, 1.8, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
         path = QPainterPath()
         path.moveTo(6, 10); path.lineTo(13, 17); path.lineTo(20, 10)
+        p.drawPath(path)
+        p.end()
+        return QIcon(pix)
+
+    @staticmethod
+    def icon_chevron_left(color=None):
+        pix, p = ModernIconFactory._base()
+        clr = QColor(color) if color else QColor("#e0e0e0")
+        p.setPen(QPen(clr, 1.8, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
+        path = QPainterPath()
+        path.moveTo(15, 6); path.lineTo(9, 13); path.lineTo(15, 20)
+        p.drawPath(path)
+        p.end()
+        return QIcon(pix)
+
+    @staticmethod
+    def icon_chevron_right(color=None):
+        pix, p = ModernIconFactory._base()
+        clr = QColor(color) if color else QColor("#e0e0e0")
+        p.setPen(QPen(clr, 1.8, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
+        path = QPainterPath()
+        path.moveTo(11, 6); path.lineTo(17, 13); path.lineTo(11, 20)
         p.drawPath(path)
         p.end()
         return QIcon(pix)
@@ -2087,6 +2455,22 @@ class ModernIconFactory:
         return QIcon(pix)
 
     @staticmethod
+    def icon_warning(color: str = None) -> QIcon:
+        pix, p = ModernIconFactory._base()
+        col = QColor(color or "#f59e0b")
+        p.setPen(QPen(col, 1.8, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
+        triangle = QPainterPath()
+        triangle.moveTo(13, 4)
+        triangle.lineTo(22, 21)
+        triangle.lineTo(4, 21)
+        triangle.closeSubpath()
+        p.drawPath(triangle)
+        p.drawLine(QPointF(13, 10), QPointF(13, 15))
+        p.drawPoint(QPointF(13, 18))
+        p.end()
+        return QIcon(pix)
+
+    @staticmethod
     def icon_cloud_share(color: str = None) -> QIcon:
         pix, p = ModernIconFactory._base()
         col = QColor(color or "#64748b")
@@ -2212,15 +2596,45 @@ class ModernIconFactory:
     @staticmethod
     def icon_accessibility(color: str = None) -> QIcon:
         pix, p = ModernIconFactory._base()
-        col = QColor(color or "#a855f7")
+        col = QColor(color or "#10b981")
         p.setPen(QPen(col, 1.7, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
+        p.drawEllipse(QRectF(4, 4, 18, 18))
+        p.setBrush(QBrush(col))
+        p.drawEllipse(QRectF(11.5, 7, 3, 3))
         p.setBrush(Qt.BrushStyle.NoBrush)
-        p.drawLine(QPointF(4.5, 7.5), QPointF(21.5, 7.5))
-        p.drawEllipse(QRectF(14.0, 5.5, 4.0, 4.0))
-        p.drawLine(QPointF(4.5, 13.0), QPointF(21.5, 13.0))
-        p.drawEllipse(QRectF(8.0, 11.0, 4.0, 4.0))
-        p.drawLine(QPointF(4.5, 18.5), QPointF(21.5, 18.5))
-        p.drawEllipse(QRectF(14.0, 16.5, 4.0, 4.0))
+        p.drawLine(QPointF(7, 12), QPointF(19, 12))
+        p.drawLine(QPointF(13, 12), QPointF(13, 16))
+        p.drawLine(QPointF(13, 16), QPointF(10, 20))
+        p.drawLine(QPointF(13, 16), QPointF(16, 20))
+        p.end()
+        return QIcon(pix)
+
+    @staticmethod
+    def icon_star(filled: bool = False, color: str = None) -> QIcon:
+        pix, p = ModernIconFactory._base()
+        col = QColor(color or ("#f59e0b" if filled else "#94a3b8"))
+        p.setPen(QPen(col, 1.5, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
+        if filled:
+            p.setBrush(QBrush(col))
+        else:
+            p.setBrush(Qt.BrushStyle.NoBrush)
+
+        path = QPainterPath()
+        cx, cy = 12.0, 12.0
+        r_outer = 7.8
+        r_inner = 3.6
+        points = []
+        for i in range(10):
+            r = r_outer if i % 2 == 0 else r_inner
+            angle = -math.pi / 2 + i * (math.pi / 5)
+            x = cx + r * math.cos(angle)
+            y = cy + r * math.sin(angle)
+            points.append(QPointF(x, y))
+        path.moveTo(points[0])
+        for pt in points[1:]:
+            path.lineTo(pt)
+        path.closeSubpath()
+        p.drawPath(path)
         p.end()
         return QIcon(pix)
 
@@ -2384,6 +2798,8 @@ class ModernIconFactory:
         p.end()
         return QIcon(pix)
 
+    icon_open = icon_folder_open
+
     @staticmethod
     def icon_image_gallery(color: str = None) -> QIcon:
         pix, p = ModernIconFactory._base()
@@ -2525,6 +2941,131 @@ class ModernIconFactory:
         p.drawLine(QPointF(10, 19), QPointF(16, 19))
         p.end()
         return QIcon(pix)
+
+    @staticmethod
+    def icon_move_left(color: str = None) -> QIcon:
+        pix, p = ModernIconFactory._base()
+        col = QColor(color or "#388bfd")
+        p.setPen(QPen(col, 1.8, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
+        p.drawLine(QPointF(19, 13), QPointF(7, 13))
+        p.drawLine(QPointF(12, 8), QPointF(7, 13))
+        p.drawLine(QPointF(12, 18), QPointF(7, 13))
+        p.end()
+        return QIcon(pix)
+
+    @staticmethod
+    def icon_move_right(color: str = None) -> QIcon:
+        pix, p = ModernIconFactory._base()
+        col = QColor(color or "#388bfd")
+        p.setPen(QPen(col, 1.8, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
+        p.drawLine(QPointF(7, 13), QPointF(19, 13))
+        p.drawLine(QPointF(14, 8), QPointF(19, 13))
+        p.drawLine(QPointF(14, 18), QPointF(19, 13))
+        p.end()
+        return QIcon(pix)
+
+    @staticmethod
+    def icon_insert_pdf(color: str = None) -> QIcon:
+        pix, p = ModernIconFactory._base()
+        col = QColor(color or "#10b981")
+        p.setPen(QPen(col, 1.6, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
+        p.drawRoundedRect(QRectF(4, 3, 13, 18), 2, 2)
+        p.setPen(QPen(QColor(color or "#10b981"), 2.0, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+        p.drawLine(QPointF(18, 16), QPointF(24, 16))
+        p.drawLine(QPointF(21, 13), QPointF(21, 19))
+        p.end()
+        return QIcon(pix)
+
+    @staticmethod
+    def icon_duplicate(color: str = None) -> QIcon:
+        pix, p = ModernIconFactory._base()
+        col = QColor(color or "#8b5cf6")
+        p.setPen(QPen(col, 1.6, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
+        p.drawRoundedRect(QRectF(8, 3, 14, 16), 2, 2)
+        p.setBrush(QBrush(QColor(0, 0, 0, 40)))
+        p.drawRoundedRect(QRectF(4, 7, 14, 16), 2, 2)
+        p.end()
+        return QIcon(pix)
+
+    @staticmethod
+    def icon_page_label(color: str = None) -> QIcon:
+        pix, p = ModernIconFactory._base()
+        col = QColor(color or "#f59e0b")
+        p.setPen(QPen(col, 1.6, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
+        path = QPainterPath()
+        path.moveTo(5, 7)
+        path.lineTo(14, 7)
+        path.lineTo(21, 14)
+        path.lineTo(14, 21)
+        path.lineTo(5, 21)
+        path.closeSubpath()
+        p.drawPath(path)
+        p.setBrush(QBrush(col))
+        p.drawEllipse(QRectF(8, 12, 3, 3))
+        p.end()
+        return QIcon(pix)
+
+    @staticmethod
+    def icon_crop(color: str = None) -> QIcon:
+        pix, p = ModernIconFactory._base()
+        col = QColor(color or "#06b6d4")
+        p.setPen(QPen(col, 2.0, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
+        # Sol-Üst L köşe
+        p.drawLine(QPointF(6, 3), QPointF(6, 18))
+        p.drawLine(QPointF(6, 7), QPointF(21, 7))
+        # Sağ-Alt L köşe
+        p.drawLine(QPointF(18, 7), QPointF(18, 22))
+        p.drawLine(QPointF(3, 17), QPointF(18, 17))
+        p.end()
+        return QIcon(pix)
+
+    @staticmethod
+    def icon_auto_crop(color: str = None) -> QIcon:
+        pix, p = ModernIconFactory._base()
+        col = QColor(color or "#06b6d4")
+        p.setPen(QPen(col, 1.6, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
+        # Kırpma çerçevesi
+        p.drawRoundedRect(QRectF(4, 5, 14, 14), 2, 2)
+        # Sağ üst köşede sihirli ışıltı / yıldız
+        sparkle = QColor(color or "#38bdf8")
+        p.setPen(QPen(sparkle, 1.8, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+        p.drawLine(QPointF(18, 4), QPointF(22, 4))
+        p.drawLine(QPointF(20, 2), QPointF(20, 6))
+        p.end()
+        return QIcon(pix)
+
+    @staticmethod
+    def icon_refresh(color: str = None) -> QIcon:
+        pix, p = ModernIconFactory._base()
+        col = QColor(color or "#94a3b8")
+        p.setPen(QPen(col, 1.8, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
+        p.setBrush(Qt.BrushStyle.NoBrush)
+        path = QPainterPath()
+        path.arcMoveTo(QRectF(5, 5, 14, 14), 45)
+        path.arcTo(QRectF(5, 5, 14, 14), 45, 275)
+        p.drawPath(path)
+        arrow = QPainterPath()
+        arrow.moveTo(17, 7)
+        arrow.lineTo(19, 11)
+        arrow.lineTo(15, 11)
+        arrow.closeSubpath()
+        p.setBrush(QBrush(col))
+        p.drawPath(arrow)
+        p.end()
+        return QIcon(pix)
+
+    @staticmethod
+    def icon_grip(color: str = None) -> QIcon:
+        pix, p = ModernIconFactory._base()
+        col = QColor(color or "#94a3b8")
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(QBrush(col))
+        for x in (9.0, 15.0):
+            for y in (6.5, 12.0, 17.5):
+                p.drawEllipse(QPointF(x, y), 1.6, 1.6)
+        p.end()
+        return QIcon(pix)
+
 
 
 

@@ -8,19 +8,24 @@ listeyen ve kurulum dosyasını doğrudan indirip kurabilen modern diyalog.
 import os
 from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel, 
                              QPushButton, QTextBrowser, QProgressBar, QFrame,
-                             QMessageBox, QApplication)
+                             QMessageBox, QApplication, QWidget)
 from PyQt6.QtCore import Qt, QUrl, QSettings
 from PyQt6.QtGui import QDesktopServices, QFont
 
 from src.core.i18n import LanguageManager
 from src.core.updater import UpdateInfo, UpdateDownloader, launch_installer
 from src.ui.icons import ModernIconFactory
+from src.ui.dialog_theme import apply_dialog_theme
 
 
 class UpdateDialog(QDialog):
-    def __init__(self, update_info: UpdateInfo, parent=None):
+    def __init__(self, update_info=None, parent=None):
+        if isinstance(update_info, QWidget) and parent is None:
+            parent = update_info
+            update_info = None
         super().__init__(parent)
-        self.update_info = update_info
+        self.parent_widget = parent
+        self.update_info = update_info if isinstance(update_info, UpdateInfo) else UpdateInfo()
         self.downloader = None
         self.downloaded_path = None
 
@@ -29,84 +34,33 @@ class UpdateDialog(QDialog):
         self.resize(560, 480)
         self.setMinimumSize(480, 400)
 
-        self._apply_dialog_style()
         self._init_ui()
+        self._apply_dialog_style()
 
     def _apply_dialog_style(self):
-        settings = QSettings("AuraPDF", "PDFViewer")
-        theme = settings.value("app_theme", "gray")
-
-        colors = {
-            "gray": {"bg": "#2b2d30", "card": "#35383c", "accent": "#60a5fa", "text": "#f1f5f9", "muted": "#94a3b8", "border": "#444850"},
-            "navy": {"bg": "#0f172a", "card": "#1e293b", "accent": "#38bdf8", "text": "#e2e8f0", "muted": "#94a3b8", "border": "#334155"},
-            "emerald": {"bg": "#091a14", "card": "#112a21", "accent": "#10b981", "text": "#ecfdf5", "muted": "#a7f3d0", "border": "#1a3d30"},
-            "purple": {"bg": "#150d22", "card": "#201435", "accent": "#a855f7", "text": "#faf5ff", "muted": "#d8b4fe", "border": "#321f52"},
-            "crimson": {"bg": "#1d0b10", "card": "#2d1118", "accent": "#f43f5e", "text": "#fff1f2", "muted": "#fecdd3", "border": "#441924"},
-            "nord": {"bg": "#181e29", "card": "#222b3a", "accent": "#38bdf8", "text": "#f0f6fc", "muted": "#94a3b8", "border": "#313e54"},
-            "dark": {"bg": "#121212", "card": "#1c1c1c", "accent": "#388bfd", "text": "#e0e0e0", "muted": "#888888", "border": "#2a2a2a"},
-            "vice_city": {"bg": "#160024", "card": "#240e3b", "accent": "#ff2a85", "text": "#ffffff", "muted": "#00f0ff", "border": "#4a1c72"}
-        }
-        c = colors.get(theme, colors["gray"])
-
-        self.setStyleSheet(f"""
-            QDialog {{
-                background-color: {c['bg']};
-                color: {c['text']};
-            }}
-            QFrame.card {{
-                background-color: {c['card']};
-                border: 1px solid {c['border']};
+        apply_dialog_theme(self, self.parent_widget, extra_css="""
+            QFrame.card {
                 border-radius: 8px;
                 padding: 12px;
-            }}
-            QLabel {{
-                color: {c['text']};
-            }}
-            QTextBrowser {{
-                background-color: {c['bg']};
-                border: 1px solid {c['border']};
+            }
+            QTextBrowser {
                 border-radius: 6px;
-                color: {c['text']};
                 padding: 8px;
                 font-size: 13px;
-            }}
-            QProgressBar {{
-                background-color: {c['bg']};
-                border: 1px solid {c['border']};
+            }
+            QProgressBar {
                 border-radius: 6px;
                 text-align: center;
                 color: #ffffff;
                 font-weight: bold;
                 height: 22px;
-            }}
-            QProgressBar::chunk {{
-                background-color: {c['accent']};
+            }
+            QProgressBar::chunk {
                 border-radius: 5px;
-            }}
-            QPushButton {{
-                background-color: {c['card']};
-                color: {c['text']};
-                border: 1px solid {c['border']};
-                border-radius: 6px;
-                padding: 8px 16px;
-                font-weight: 500;
-                font-size: 13px;
-            }}
-            QPushButton:hover {{
-                background-color: rgba(255, 255, 255, 0.08);
-                border-color: {c['accent']};
-                color: #ffffff;
-            }}
-            QPushButton#PrimaryBtn {{
-                background-color: {c['accent']};
-                border-color: {c['accent']};
-                color: #ffffff;
+            }
+            QPushButton#PrimaryBtn {
                 font-weight: bold;
-            }}
-            QPushButton#PrimaryBtn:hover {{
-                background-color: {c['accent']};
-                filter: brightness(1.1);
-            }}
+            }
         """)
 
     def _init_ui(self):
@@ -130,11 +84,12 @@ class UpdateDialog(QDialog):
 
         if self.update_info.has_update:
             lbl_title = QLabel(LanguageManager.tr("updates_available_title"))
-            lbl_title.setStyleSheet("font-size: 16px; font-weight: bold; color: #38bdf8;")
+            lbl_title.setStyleSheet("font-size: 16px; font-weight: bold;")
             lbl_sub = QLabel(LanguageManager.tr("updates_available_desc",
                                                 version=f"v{self.update_info.latest_version}",
                                                 current_version=f"v{self.update_info.current_version}"))
-            lbl_sub.setStyleSheet("font-size: 12px; color: #94a3b8;")
+            lbl_sub.setWordWrap(True)
+            lbl_sub.setStyleSheet("font-size: 12px;")
         elif self.update_info.error_message:
             lbl_title = QLabel(LanguageManager.tr("updates_error_title"))
             lbl_title.setStyleSheet("font-size: 15px; font-weight: bold; color: #f87171;")
@@ -145,7 +100,8 @@ class UpdateDialog(QDialog):
             lbl_title = QLabel(LanguageManager.tr("updates_uptodate_title"))
             lbl_title.setStyleSheet("font-size: 16px; font-weight: bold; color: #4ade80;")
             lbl_sub = QLabel(LanguageManager.tr("updates_uptodate_desc", version=self.update_info.current_version))
-            lbl_sub.setStyleSheet("font-size: 12px; color: #94a3b8;")
+            lbl_sub.setWordWrap(True)
+            lbl_sub.setStyleSheet("font-size: 12px;")
 
         title_box.addWidget(lbl_title)
         title_box.addWidget(lbl_sub)

@@ -19,7 +19,7 @@ from PyQt6.QtGui import QFont
 
 from src.core.i18n import LanguageManager
 from src.core.pdf_compressor import PDFCompressor
-from src.ui.dialog_theme import apply_dialog_theme
+from src.ui.dialog_theme import apply_dialog_theme, ModernInfoCard
 from src.ui.icons import ModernIconFactory
 
 
@@ -90,7 +90,8 @@ class PDFCompressDialog(QDialog):
         f_title.setBold(True)
         lbl_title.setFont(f_title)
         lbl_desc = QLabel(LanguageManager.tr("compress_dialog_desc"), self)
-        lbl_desc.setStyleSheet("color: #94a3b8; font-size: 11px;")
+        lbl_desc.setWordWrap(True)
+        lbl_desc.setProperty("class", "muted")
         title_vbox.addWidget(lbl_title)
         title_vbox.addWidget(lbl_desc)
         header_layout.addLayout(title_vbox)
@@ -118,7 +119,8 @@ class PDFCompressDialog(QDialog):
         grid_file.addWidget(btn_browse_in, 1, 1)
 
         self.lbl_orig_size = QLabel(self._format_orig_size(), self)
-        self.lbl_orig_size.setStyleSheet("color: #38bdf8; font-size: 11px; font-weight: 500;")
+        self.lbl_orig_size.setProperty("class", "accent")
+        self.lbl_orig_size.setStyleSheet("font-size: 11px; font-weight: 500;")
         grid_file.addWidget(self.lbl_orig_size, 2, 0, 1, 2)
 
         main_layout.addWidget(grp_file)
@@ -198,14 +200,8 @@ class PDFCompressDialog(QDialog):
         main_layout.addWidget(self.lbl_status)
 
         # Sonuç Kartı
-        self.card_result = QFrame(self)
-        self.card_result.setStyleSheet("background-color: rgba(56, 189, 248, 0.12); border: 1px solid #38bdf8; border-radius: 6px; padding: 10px;")
+        self.card_result = ModernInfoCard("", parent=self)
         self.card_result.setVisible(False)
-        v_res = QVBoxLayout(self.card_result)
-        v_res.setContentsMargins(8, 8, 8, 8)
-        self.lbl_result_text = QLabel(self.card_result)
-        self.lbl_result_text.setStyleSheet("font-weight: 600; color: #f0fdf4;")
-        v_res.addWidget(self.lbl_result_text)
         main_layout.addWidget(self.card_result)
 
         self.chk_open_after = QCheckBox(LanguageManager.tr("compress_chk_open"), self)
@@ -349,7 +345,7 @@ class PDFCompressDialog(QDialog):
             f"Orijinal Boyut: {orig_str} -> Yeni Boyut: {comp_str}\n"
             f"Tasarruf: %{pct} ({self._format_bytes(res['saved_bytes'])} küçültüldü)"
         )
-        self.lbl_result_text.setText(msg)
+        self.card_result.set_text(msg)
         self.card_result.setVisible(True)
 
         QMessageBox.information(self, LanguageManager.tr("success"), msg)

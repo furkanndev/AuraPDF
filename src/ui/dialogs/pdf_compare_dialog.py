@@ -21,8 +21,9 @@ from PyQt6.QtGui import QPixmap, QImage, QColor, QFont
 
 import pymupdf as fitz
 from src.core.i18n import LanguageManager
-from src.ui.dialog_theme import get_dialog_theme_stylesheet
+from src.ui.dialog_theme import get_dialog_theme_stylesheet, apply_dialog_theme
 from src.ui.icons import ModernIconFactory
+from src.ui.modern_stepper import ModernSpinBox
 
 
 class PDFCompareDialog(QDialog):
@@ -50,48 +51,49 @@ class PDFCompareDialog(QDialog):
             self.doc1_path = tab_doc.file_path
             self.current_page = getattr(tab_doc, 'current_page_idx', 0)
 
-        self._apply_style()
         self._init_ui()
+        self._apply_style()
+        apply_dialog_theme(self, self.main_window)
 
         if self.doc1_path:
             self._load_doc(1, self.doc1_path)
 
     def _apply_style(self):
-        bg = "#1c1c1e"
-        card_bg = "#2c2c2e"
-        border = "#3a3a3c"
-        accent = "#0a84ff"
-        text = "#f5f5f7"
+        from src.ui.dialog_theme import THEME_PALETTES, get_current_theme
+        theme = get_current_theme(self.main_window or self)
+        pal = THEME_PALETTES.get(theme, THEME_PALETTES["gray"])
 
-        if self.current_theme == "gray":
-            bg = "#2b2d30"; card_bg = "#35383c"; border = "#444850"; accent = "#60a5fa"; text = "#f1f5f9"
-        elif self.current_theme == "navy":
-            bg = "#0f172a"; card_bg = "#1e293b"; border = "#334155"; accent = "#38bdf8"; text = "#e2e8f0"
-        elif self.current_theme == "emerald":
-            bg = "#091a14"; card_bg = "#112a21"; border = "#1a3d30"; accent = "#10b981"; text = "#ecfdf5"
-        elif self.current_theme == "purple":
-            bg = "#150d22"; card_bg = "#201435"; border = "#321f52"; accent = "#a855f7"; text = "#faf5ff"
-        elif self.current_theme == "crimson":
-            bg = "#1d0b10"; card_bg = "#2d1118"; border = "#441924"; accent = "#f43f5e"; text = "#fff1f2"
-        elif self.current_theme == "nord":
-            bg = "#181e29"; card_bg = "#222b3a"; border = "#313e54"; accent = "#38bdf8"; text = "#f0f6fc"
+        bg = pal["bg"]
+        card_bg = pal["card"]
+        border = pal["border"]
+        accent = pal["accent"]
+        accent_hover = pal["accent_hover"]
+        text = pal["text"]
+        muted = pal["muted"]
 
         self.setStyleSheet(f"""
             QDialog {{ background-color: {bg}; color: {text}; }}
-            QTabWidget::pane {{ border: 1px solid {border}; background-color: {card_bg}; border-radius: 6px; }}
-            QTabBar::tab {{ background-color: {bg};  padding: 8px 18px; margin-right: 2px; border-top-left-radius: 6px; border-top-right-radius: 6px; font-weight: 500; }}
-            QTabBar::tab:selected {{ background-color: {card_bg};  border-bottom: 2.5px solid {accent}; font-weight: bold; }}
+            QTabWidget::pane {{ border: 1px solid {border}; background-color: {card_bg}; border-radius: 8px; top: -1px; }}
+            QTabBar::tab {{ background-color: transparent; color: {muted}; font-size: 13px; font-weight: 600; padding: 10px 22px; margin-right: 6px; border-top-left-radius: 8px; border-top-right-radius: 8px; border: 1px solid transparent; border-bottom: 2px solid transparent; }}
+            QTabBar::tab:hover {{ color: {text}; background-color: rgba(255, 255, 255, 0.05); }}
+            QTabBar::tab:selected {{ background-color: {card_bg}; color: {accent}; border: 1px solid {border}; border-bottom: 2.5px solid {accent}; font-weight: bold; }}
             QLabel {{ color: {text}; }}
             QFrame.card {{ background-color: {card_bg}; border: 1.2px solid {border}; border-radius: 8px; padding: 8px; }}
-            QPushButton {{ background-color: {card_bg}; color: {text}; border: 1px solid {border}; border-radius: 6px; padding: 6px 14px; font-weight: 500; }}
-            QPushButton:hover {{ background-color: {border}; }}
-            QPushButton#PrimaryBtn {{ background-color: {accent};  font-weight: bold; border: none; }}
-            QPushButton#PrimaryBtn:hover {{ opacity: 0.9; }}
-            QSpinBox {{ background-color: {card_bg};  border: 1.2px solid {border}; border-radius: 5px; padding: 3px 6px; }}
-            QScrollArea {{ border: 1px solid {border};  border-radius: 6px; }}
-            QTableWidget {{ background-color: {bg}; color: {text}; border: 1px solid {border}; gridline-color: {border}; border-radius: 6px; }}
-            QTableWidget::item:selected {{ background-color: {accent};  }}
-            QHeaderView::section {{ background-color: {card_bg};  border: 1px solid {border}; padding: 4px; font-weight: bold; }}
+            QPushButton {{ background-color: {card_bg}; color: {text}; border: 1px solid {border}; border-radius: 6px; padding: 6px 14px; font-weight: 600; font-size: 12px; }}
+            QPushButton:hover {{ background-color: {border}; color: {text}; }}
+            QPushButton:pressed {{ background-color: {card_bg}; }}
+            QPushButton#PrimaryBtn {{ background-color: {accent}; color: #ffffff; font-weight: bold; border: none; padding: 7px 16px; border-radius: 6px; }}
+            QPushButton#PrimaryBtn:hover {{ background-color: {accent_hover}; }}
+            QPushButton#ZoomBtn {{ background-color: {card_bg}; border: 1px solid {border}; border-radius: 6px; padding: 4px; }}
+            QPushButton#ZoomBtn:hover {{ background-color: {border}; }}
+            QSpinBox {{ background-color: {card_bg}; color: {text}; border: 1.2px solid {border}; border-radius: 5px; padding: 3px 6px; }}
+            QScrollArea {{ border: 1px solid {border}; background-color: {card_bg}; border-radius: 6px; }}
+            QTableWidget {{ background-color: {card_bg}; color: {text}; border: 1px solid {border}; gridline-color: {border}; border-radius: 6px; }}
+            QTableWidget::item:selected {{ background-color: {accent}; color: #ffffff; }}
+            QHeaderView::section {{ background-color: {bg}; color: {text}; border: 1px solid {border}; padding: 6px; font-weight: bold; }}
+            QSlider::groove:horizontal {{ height: 6px; background: {border}; border-radius: 3px; }}
+            QSlider::sub-page:horizontal {{ background: {accent}; border-radius: 3px; }}
+            QSlider::handle:horizontal {{ background: {text}; border: 1px solid {border}; width: 14px; margin-top: -4px; margin-bottom: -4px; border-radius: 7px; }}
         """)
 
     def _init_ui(self):
@@ -112,6 +114,7 @@ class PDFCompareDialog(QDialog):
         fb_layout.addWidget(self.lbl_doc1, 1)
 
         btn_browse1 = QPushButton(LanguageManager.tr("split_btn_browse"))
+        btn_browse1.setIcon(ModernIconFactory.icon_folder_open())
         btn_browse1.clicked.connect(lambda: self._browse_doc(1))
         fb_layout.addWidget(btn_browse1)
 
@@ -127,6 +130,7 @@ class PDFCompareDialog(QDialog):
         fb_layout.addWidget(self.lbl_doc2, 1)
 
         btn_browse2 = QPushButton(LanguageManager.tr("split_btn_browse"))
+        btn_browse2.setIcon(ModernIconFactory.icon_folder_open())
         btn_browse2.clicked.connect(lambda: self._browse_doc(2))
         fb_layout.addWidget(btn_browse2)
 
@@ -134,44 +138,55 @@ class PDFCompareDialog(QDialog):
 
         # 2. Gezinti ve Kontrol Çubuğu
         nav_bar = QHBoxLayout()
-        self.btn_prev = QPushButton(f"◀ {LanguageManager.tr('prev_page')}")
+        self.btn_prev = QPushButton(LanguageManager.tr("prev_page"))
+        self.btn_prev.setIcon(ModernIconFactory.icon_move_left())
         self.btn_prev.clicked.connect(self._prev_page)
         nav_bar.addWidget(self.btn_prev)
 
-        nav_bar.addWidget(QLabel(LanguageManager.tr("page_prefix_label")))
-        self.spn_page = QSpinBox()
-        self.spn_page.setMinimum(1)
-        self.spn_page.setMaximum(1)
+        tb_prefix = QLabel(LanguageManager.tr("page_prefix_label"))
+        nav_bar.addWidget(tb_prefix)
+        self.spn_page = ModernSpinBox(min_val=1, max_val=1, default_val=1, parent=self)
+        self.spn_page.setFixedWidth(78)
         self.spn_page.valueChanged.connect(self._on_page_spin_changed)
         nav_bar.addWidget(self.spn_page)
 
         self.lbl_total_pages = QLabel("/ 0")
         nav_bar.addWidget(self.lbl_total_pages)
 
-        self.btn_next = QPushButton(f"{LanguageManager.tr('next_page')} ▶")
+        self.btn_next = QPushButton(LanguageManager.tr("next_page"))
+        self.btn_next.setIcon(ModernIconFactory.icon_move_right())
+        self.btn_next.setLayoutDirection(Qt.LayoutDirection.RightToLeft)
         self.btn_next.clicked.connect(self._next_page)
         nav_bar.addWidget(self.btn_next)
 
-        nav_bar.addSpacing(20)
+        nav_bar.addSpacing(16)
 
-        # Yakınlaştırma
-        nav_bar.addWidget(QLabel("Zoom:"))
-        btn_zoom_out = QPushButton("−")
-        btn_zoom_out.setFixedWidth(30)
-        btn_zoom_out.clicked.connect(lambda: self._change_zoom(-0.2))
+        # Yakınlaştırma (Zoom)
+        nav_bar.addWidget(QLabel(LanguageManager.tr("zoom_title")))
+        btn_zoom_out = QPushButton()
+        btn_zoom_out.setObjectName("ZoomBtn")
+        btn_zoom_out.setIcon(ModernIconFactory.icon_zoom_out())
+        btn_zoom_out.setToolTip(LanguageManager.tr("zoom_out"))
+        btn_zoom_out.setFixedSize(36, 32)
+        btn_zoom_out.clicked.connect(lambda: self._change_zoom(-1))
         nav_bar.addWidget(btn_zoom_out)
 
         self.lbl_zoom = QLabel("%100")
-        self.lbl_zoom.setFixedWidth(45)
+        self.lbl_zoom.setFixedWidth(52)
         self.lbl_zoom.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.lbl_zoom.setStyleSheet("font-weight: bold; font-size: 12px;")
         nav_bar.addWidget(self.lbl_zoom)
 
-        btn_zoom_in = QPushButton("+")
-        btn_zoom_in.setFixedWidth(30)
-        btn_zoom_in.clicked.connect(lambda: self._change_zoom(0.2))
+        btn_zoom_in = QPushButton()
+        btn_zoom_in.setObjectName("ZoomBtn")
+        btn_zoom_in.setIcon(ModernIconFactory.icon_zoom_in())
+        btn_zoom_in.setToolTip(LanguageManager.tr("zoom_in"))
+        btn_zoom_in.setFixedSize(36, 32)
+        btn_zoom_in.clicked.connect(lambda: self._change_zoom(1))
         nav_bar.addWidget(btn_zoom_in)
 
         btn_zoom_reset = QPushButton(LanguageManager.tr("compare_fit_btn"))
+        btn_zoom_reset.setIcon(ModernIconFactory.icon_fit_page())
         btn_zoom_reset.clicked.connect(self._reset_zoom)
         nav_bar.addWidget(btn_zoom_reset)
 
@@ -210,6 +225,7 @@ class PDFCompareDialog(QDialog):
         # 4. Alt Kapat / Rapor Butonları
         bottom_bar = QHBoxLayout()
         self.btn_export_report = QPushButton(LanguageManager.tr("compare_btn_export_report"))
+        self.btn_export_report.setIcon(ModernIconFactory.icon_export_pdf())
         self.btn_export_report.clicked.connect(self._export_report)
         bottom_bar.addWidget(self.btn_export_report)
 
@@ -241,6 +257,7 @@ class PDFCompareDialog(QDialog):
         self.scroll1 = QScrollArea()
         self.scroll1.setWidgetResizable(True)
         self.lbl_view1 = QLabel(LanguageManager.tr("compare_doc1_not_loaded"))
+        self.lbl_view1.setWordWrap(True)
         self.lbl_view1.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.scroll1.setWidget(self.lbl_view1)
         left_layout.addWidget(self.scroll1)
@@ -258,6 +275,7 @@ class PDFCompareDialog(QDialog):
         self.scroll2 = QScrollArea()
         self.scroll2.setWidgetResizable(True)
         self.lbl_view2 = QLabel(LanguageManager.tr("compare_doc2_not_loaded"))
+        self.lbl_view2.setWordWrap(True)
         self.lbl_view2.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.scroll2.setWidget(self.lbl_view2)
         right_layout.addWidget(self.scroll2)
@@ -266,10 +284,10 @@ class PDFCompareDialog(QDialog):
         splitter.setSizes([500, 500])
 
         # Senkronize kaydırma (Scroll sync)
-        self.scroll1.verticalScrollBar().valueChanged.connect(self.scroll2.verticalScrollBar().setValue)
-        self.scroll2.verticalScrollBar().valueChanged.connect(self.scroll1.verticalScrollBar().setValue)
-        self.scroll1.horizontalScrollBar().valueChanged.connect(self.scroll2.horizontalScrollBar().setValue)
-        self.scroll2.horizontalScrollBar().valueChanged.connect(self.scroll1.horizontalScrollBar().setValue)
+        self.scroll1.verticalScrollBar().valueChanged.connect(self._sync_scroll_v1_to_v2)
+        self.scroll2.verticalScrollBar().valueChanged.connect(self._sync_scroll_v2_to_v1)
+        self.scroll1.horizontalScrollBar().valueChanged.connect(self._sync_scroll_h1_to_h2)
+        self.scroll2.horizontalScrollBar().valueChanged.connect(self._sync_scroll_h2_to_h1)
 
         layout.addWidget(splitter)
 
@@ -292,6 +310,7 @@ class PDFCompareDialog(QDialog):
         ctrl_bar.addStretch()
 
         legend = QLabel(LanguageManager.tr("compare_legend"))
+        legend.setWordWrap(True)
         legend.setStyleSheet(" font-size: 11px;")
         ctrl_bar.addWidget(legend)
 
@@ -300,6 +319,7 @@ class PDFCompareDialog(QDialog):
         self.scroll_overlay = QScrollArea()
         self.scroll_overlay.setWidgetResizable(True)
         self.lbl_view_overlay = QLabel(LanguageManager.tr("compare_overlay_hint"))
+        self.lbl_view_overlay.setWordWrap(True)
         self.lbl_view_overlay.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.scroll_overlay.setWidget(self.lbl_view_overlay)
         layout.addWidget(self.scroll_overlay)
@@ -313,6 +333,7 @@ class PDFCompareDialog(QDialog):
 
         info_bar = QHBoxLayout()
         self.lbl_text_diff_stat = QLabel(LanguageManager.tr("compare_text_diff_hint"))
+        self.lbl_text_diff_stat.setWordWrap(True)
         self.lbl_text_diff_stat.setStyleSheet("")
         info_bar.addWidget(self.lbl_text_diff_stat)
         info_bar.addStretch()
@@ -333,6 +354,7 @@ class PDFCompareDialog(QDialog):
 
         top_bar = QHBoxLayout()
         self.btn_scan_all = QPushButton(LanguageManager.tr("compare_btn_scan_all_emoji"))
+        self.btn_scan_all.setIcon(ModernIconFactory.icon_search("#ffffff"))
         self.btn_scan_all.setObjectName("PrimaryBtn")
         self.btn_scan_all.clicked.connect(self._scan_all_pages)
         top_bar.addWidget(self.btn_scan_all)
@@ -410,17 +432,65 @@ class PDFCompareDialog(QDialog):
         self.current_page = val - 1
         self._render_current_page()
 
-    def _change_zoom(self, delta):
-        new_zoom = max(0.4, min(3.0, self.zoom_scale + delta))
-        if abs(new_zoom - self.zoom_scale) > 0.01:
-            self.zoom_scale = new_zoom
-            self.lbl_zoom.setText(f"%{int(self.zoom_scale * 100)}")
-            self._render_current_page()
+    ZOOM_STEPS = [0.35, 0.50, 0.67, 0.75, 0.90, 1.00, 1.15, 1.25, 1.50, 1.75, 2.00, 2.50, 3.00]
+
+    def _change_zoom(self, step_dir: int):
+        closest_idx = 0
+        min_diff = 999.0
+        for i, z in enumerate(self.ZOOM_STEPS):
+            diff = abs(z - self.zoom_scale)
+            if diff < min_diff:
+                min_diff = diff
+                closest_idx = i
+
+        new_idx = max(0, min(len(self.ZOOM_STEPS) - 1, closest_idx + step_dir))
+        self.zoom_scale = self.ZOOM_STEPS[new_idx]
+        self.lbl_zoom.setText(f"%{int(round(self.zoom_scale * 100))}")
+        self._render_current_page()
 
     def _reset_zoom(self):
-        self.zoom_scale = 1.0
-        self.lbl_zoom.setText("%100")
+        viewport_w = self.scroll1.viewport().width() if hasattr(self, 'scroll1') and self.scroll1.viewport() else 500
+        page_w = 595.0
+        if self.doc1 and 0 <= self.current_page < len(self.doc1):
+            page_w = self.doc1[self.current_page].rect.width
+        elif self.doc2 and 0 <= self.current_page < len(self.doc2):
+            page_w = self.doc2[self.current_page].rect.width
+
+        if page_w > 0 and viewport_w > 50:
+            calc_fit = max(0.35, min(2.5, (viewport_w - 30) / float(page_w)))
+            self.zoom_scale = round(calc_fit, 2)
+        else:
+            self.zoom_scale = 1.0
+        self.lbl_zoom.setText(f"%{int(round(self.zoom_scale * 100))}")
         self._render_current_page()
+
+    def _sync_scroll_v1_to_v2(self, val):
+        if getattr(self, '_is_syncing_scroll', False):
+            return
+        self._is_syncing_scroll = True
+        self.scroll2.verticalScrollBar().setValue(val)
+        self._is_syncing_scroll = False
+
+    def _sync_scroll_v2_to_v1(self, val):
+        if getattr(self, '_is_syncing_scroll', False):
+            return
+        self._is_syncing_scroll = True
+        self.scroll1.verticalScrollBar().setValue(val)
+        self._is_syncing_scroll = False
+
+    def _sync_scroll_h1_to_h2(self, val):
+        if getattr(self, '_is_syncing_scroll', False):
+            return
+        self._is_syncing_scroll = True
+        self.scroll2.horizontalScrollBar().setValue(val)
+        self._is_syncing_scroll = False
+
+    def _sync_scroll_h2_to_h1(self, val):
+        if getattr(self, '_is_syncing_scroll', False):
+            return
+        self._is_syncing_scroll = True
+        self.scroll1.horizontalScrollBar().setValue(val)
+        self._is_syncing_scroll = False
 
     # -------------------------------------------------------------------
     # RENDER İŞLEMLERİ

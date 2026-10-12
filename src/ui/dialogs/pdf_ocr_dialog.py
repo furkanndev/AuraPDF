@@ -21,7 +21,7 @@ from PyQt6.QtGui import QFont
 
 import pymupdf as fitz
 from src.core.i18n import LanguageManager
-from src.ui.dialog_theme import get_dialog_theme_stylesheet
+from src.ui.dialog_theme import apply_dialog_theme, get_dialog_theme_stylesheet, ModernInfoCard
 from src.ui.icons import ModernIconFactory
 
 
@@ -163,33 +163,27 @@ class PDFScanOCRDialog(QDialog):
             self.file_path = getattr(self.tab_doc, 'file_path', "")
             self.current_page = getattr(self.tab_doc, 'current_page_idx', 0)
 
-        self._apply_style()
         self._init_ui()
+        self._apply_style()
 
     def _apply_style(self):
-        bg = "#1c1c1e"
-        card_bg = "#2c2c2e"
-        border = "#3a3a3c"
-        accent = "#0a84ff"
-        text = "#f5f5f7"
-
-        if self.current_theme == "gray":
-            bg = "#2b2d30"; card_bg = "#35383c"; border = "#444850"; accent = "#38bdf8"; text = "#f1f5f9"
-        elif self.current_theme == "navy":
-            bg = "#0f172a"; card_bg = "#1e293b"; border = "#334155"; accent = "#38bdf8"; text = "#e2e8f0"
-
-        self.setStyleSheet(f"""
-            QDialog {{ background-color: {bg}; color: {text}; }}
-            QLabel {{ color: {text}; }}
-            QFrame.card {{ background-color: {card_bg}; border: 1.2px solid {border}; border-radius: 8px; padding: 10px; }}
-            QPushButton {{ background-color: {card_bg}; color: {text}; border: 1px solid {border}; border-radius: 6px; padding: 7px 15px; font-weight: 500; }}
-            QPushButton:hover {{ background-color: {border}; }}
-            QPushButton#PrimaryBtn {{ background-color: {accent};  font-weight: bold; border: none; }}
-            QPushButton#PrimaryBtn:hover {{ opacity: 0.9; }}
-            QLineEdit {{ background-color: {bg};  border: 1.2px solid {border}; border-radius: 5px; padding: 5px; }}
-            QProgressBar {{ border: 1px solid {border}; border-radius: 5px; text-align: center;  background-color: {bg}; }}
-            QProgressBar::chunk {{ background-color: {accent}; border-radius: 4px; }}
-            QTextEdit {{   border: 1.2px solid {border}; border-radius: 6px; padding: 8px; }}
+        apply_dialog_theme(self, self.main_window, extra_css="""
+            QFrame.card {
+                border-radius: 8px;
+                padding: 10px;
+            }
+            QPushButton#PrimaryBtn {
+                font-weight: bold;
+                border: none;
+            }
+            QProgressBar {
+                border-radius: 5px;
+                text-align: center;
+            }
+            QTextEdit {
+                border-radius: 6px;
+                padding: 8px;
+            }
         """)
 
     def _init_ui(self):
@@ -198,24 +192,12 @@ class PDFScanOCRDialog(QDialog):
         root.setSpacing(10)
 
         # Üst Bilgi Kartı
-        header = QFrame()
-        header.setProperty("class", "card")
-        h_layout = QHBoxLayout(header)
-        h_layout.setContentsMargins(8, 6, 8, 6)
-
-        icon_lbl = QLabel("🔍")
-        icon_lbl.setStyleSheet("font-size: 24px;")
-        h_layout.addWidget(icon_lbl)
-
-        v_box = QVBoxLayout()
-        title = QLabel(f"<b>{LanguageManager.tr('ocr_dialog_header_title')}</b>")
-        title.setStyleSheet("font-size: 13px; ")
-        v_box.addWidget(title)
-        desc = QLabel(LanguageManager.tr("ocr_desc"))
-        desc.setStyleSheet("font-size: 11px; ")
-        v_box.addWidget(desc)
-        h_layout.addLayout(v_box, 1)
-
+        header = ModernInfoCard(
+            text=LanguageManager.tr("ocr_desc"),
+            title=LanguageManager.tr("ocr_dialog_header_title"),
+            icon_type="ocr",
+            parent=self
+        )
         root.addWidget(header)
 
         # Bölücü (Sol Ayarlar, Sağ Canlı Metin Önizlemesi)
@@ -339,7 +321,7 @@ class PDFScanOCRDialog(QDialog):
 
     def _start_ocr_process(self):
         if not self.doc or len(self.doc) == 0:
-            QMessageBox.warning(self, "Uyarı", "Açık bir PDF belgesi bulunamadı.")
+            QMessageBox.warning(self, LanguageManager.tr("warning"), LanguageManager.tr("ocr_no_doc"))
             return
 
         # Sayfa aralığını hesapla
@@ -413,7 +395,7 @@ class PDFScanOCRDialog(QDialog):
     def _cancel_ocr_process(self):
         if self.worker and self.worker.isRunning():
             self.worker.cancel()
-            self.lbl_status.setText("İşlem iptal ediliyor...")
+            self.lbl_status.setText(LanguageManager.tr("ocr_cancelling"))
 
     def _on_progress(self, current, total, text):
         self.progress_bar.setValue(current)
@@ -421,9 +403,9 @@ class PDFScanOCRDialog(QDialog):
 
     def _on_page_done(self, p_idx, text, boxes):
         if text.strip():
-            self.txt_preview.append(f"=== SAYFA {p_idx + 1} ({len(boxes)} metin bloku) ===\n{text}\n")
+            self.txt_preview.append(LanguageManager.tr("ocr_page_box_header", page=p_idx + 1, count=len(boxes), text=text))
         else:
-            self.txt_preview.append(f"=== SAYFA {p_idx + 1} === [Metin algılanamadı]\n")
+            self.txt_preview.append(LanguageManager.tr("ocr_page_no_text", page=p_idx + 1))
 
     def _on_finished(self, success, message):
         self.btn_start.setEnabled(True)
@@ -431,9 +413,12 @@ class PDFScanOCRDialog(QDialog):
         self.progress_bar.setVisible(False)
 
         if success:
-            self.lbl_status.setText("OCR işlemi başarıyla tamamlandı.")
-            QMessageBox.information(self, "Başarılı", message)
+            self.lbl_status.setText(LanguageManager.tr("ocr_completed"))
+            QMessageBox.information(self, LanguageManager.tr("success"), message)
             self.accept()
         else:
-            self.lbl_status.setText("İşlem tamamlanamadı.")
-            QMessageBox.warning(self, "Bilgi", message)
+            self.lbl_status.setText(LanguageManager.tr("ocr_failed"))
+            QMessageBox.warning(self, LanguageManager.tr("info"), message)
+
+
+PDFOCRDialog = PDFScanOCRDialog

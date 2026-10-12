@@ -321,5 +321,5 @@ class AuraDocumentPropertiesDialog(QDialog):
         except Exception as e:
             QMessageBox.critical(self, LanguageManager.tr("error"), f"{LanguageManager.tr('error')}: {e}")
 
-# AuraPDF Marka İsimlendirmesi ile Geriye Dönük Uyumluluk Takma Adı (Alias)
 ModernDocumentPropertiesDialog = AuraDocumentPropertiesDialog
+DocumentPropertiesDialog = AuraDocumentPropertiesDialog

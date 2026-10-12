@@ -17,7 +17,7 @@ import pymupdf as fitz
 HAS_PPTX = True
 HAS_OPENPYXL = True
 
-from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel, 
+from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel, QFrame,
                              QPushButton, QListWidget, QListWidgetItem, 
                              QLineEdit, QProgressBar, QMessageBox, QFileDialog, 
                              QComboBox, QCheckBox, QGroupBox, QRadioButton, QSpinBox, 
@@ -27,9 +27,9 @@ from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel,
 from PyQt6.QtGui import (QDragEnterEvent, QDropEvent, QImage, QPixmap, QIcon, QColor, QPainter, QPen, QBrush, QFont, QFontMetrics, QShortcut, QKeySequence, QTransform)
 from PyQt6.QtCore import (Qt, QThread, pyqtSignal, QSize, QByteArray, QBuffer, QIODevice, QRectF, QPointF, QTimer)
 from src.core.i18n import LanguageManager
-from src.ui.dialog_theme import get_dialog_theme_stylesheet
+from src.ui.dialog_theme import apply_modern_dialog_style, ModernInfoCard
+from src.ui.modern_stepper import ModernSpinBox, ModernDoubleSpinBox
 from src.ui.icons import ModernIconFactory
-from src.ui.dialog_theme import apply_modern_dialog_style
 
 
 def get_spinbox_stylesheet() -> str:
@@ -398,9 +398,7 @@ class PDFSplitDialog(QDialog):
 
         h_n = QHBoxLayout()
         self.rb_n = QRadioButton(LanguageManager.tr("split_opt_n"))
-        self.spin_n = QSpinBox()
-        self.spin_n.setRange(1, 9999)
-        self.spin_n.setValue(1)
+        self.spin_n = ModernSpinBox(min_val=1, max_val=9999, default_val=1, parent=self)
         self.spin_n.setFixedWidth(115)
         self.spin_n.setEnabled(False)
         self.rb_n.toggled.connect(self.spin_n.setEnabled)
@@ -1720,19 +1718,13 @@ class PDFOrganizePagesDialog(QDialog):
 
         h_pos_row2 = QHBoxLayout()
         h_pos_row2.addWidget(QLabel(LanguageManager.tr("page_number_margin_x")))
-        self.spn_margin_x = QSpinBox()
-        self.spn_margin_x.setRange(5, 200)
-        self.spn_margin_x.setValue(36)
-        self.spn_margin_x.setSuffix(" pt")
+        self.spn_margin_x = ModernSpinBox(min_val=5, max_val=200, default_val=36, suffix=" pt", parent=self)
         self.spn_margin_x.setFixedWidth(115)
         h_pos_row2.addWidget(self.spn_margin_x)
 
         h_pos_row2.addSpacing(8)
         h_pos_row2.addWidget(QLabel(LanguageManager.tr("page_number_margin_y")))
-        self.spn_margin_y = QSpinBox()
-        self.spn_margin_y.setRange(5, 200)
-        self.spn_margin_y.setValue(36)
-        self.spn_margin_y.setSuffix(" pt")
+        self.spn_margin_y = ModernSpinBox(min_val=5, max_val=200, default_val=36, suffix=" pt", parent=self)
         self.spn_margin_y.setFixedWidth(115)
         h_pos_row2.addWidget(self.spn_margin_y)
         h_pos_row2.addStretch()
@@ -1768,9 +1760,7 @@ class PDFOrganizePagesDialog(QDialog):
         h_std.setContentsMargins(0, 4, 0, 0)
         h_std.setSpacing(10)
         h_std.addWidget(QLabel(LanguageManager.tr("page_number_start_from")))
-        self.spn_start_num = QSpinBox()
-        self.spn_start_num.setRange(1, 9999)
-        self.spn_start_num.setValue(1)
+        self.spn_start_num = ModernSpinBox(min_val=1, max_val=9999, default_val=1, parent=self)
         self.spn_start_num.setFixedWidth(90)
         h_std.addWidget(self.spn_start_num)
 
@@ -1802,10 +1792,8 @@ class PDFOrganizePagesDialog(QDialog):
         h_th_row1 = QHBoxLayout()
         h_th_row1.setSpacing(8)
         h_th_row1.addWidget(QLabel(LanguageManager.tr("page_number_thesis_front_range")))
-        self.spn_thesis_front_end = QSpinBox()
-        self.spn_thesis_front_end.setRange(1, 9999)
-        self.spn_thesis_front_end.setValue(3)
-        self.spn_thesis_front_end.setFixedWidth(70)
+        self.spn_thesis_front_end = ModernSpinBox(min_val=1, max_val=9999, default_val=3, parent=self)
+        self.spn_thesis_front_end.setFixedWidth(78)
         h_th_row1.addWidget(self.spn_thesis_front_end)
 
         self.cmb_thesis_front_type = QComboBox()
@@ -1819,10 +1807,8 @@ class PDFOrganizePagesDialog(QDialog):
 
         h_th_row1.addSpacing(6)
         h_th_row1.addWidget(QLabel(LanguageManager.tr("page_number_thesis_front_start")))
-        self.spn_thesis_front_start = QSpinBox()
-        self.spn_thesis_front_start.setRange(1, 100)
-        self.spn_thesis_front_start.setValue(1)
-        self.spn_thesis_front_start.setFixedWidth(60)
+        self.spn_thesis_front_start = ModernSpinBox(min_val=1, max_val=100, default_val=1, parent=self)
+        self.spn_thesis_front_start.setFixedWidth(72)
         h_th_row1.addWidget(self.spn_thesis_front_start)
         h_th_row1.addStretch()
         v_th.addLayout(h_th_row1)
@@ -1843,10 +1829,8 @@ class PDFOrganizePagesDialog(QDialog):
         h_th_row2.addWidget(self.cmb_thesis_body_type)
 
         h_th_row2.addWidget(QLabel(LanguageManager.tr("page_number_thesis_body_start")))
-        self.spn_thesis_body_start_num = QSpinBox()
-        self.spn_thesis_body_start_num.setRange(1, 9999)
-        self.spn_thesis_body_start_num.setValue(1)
-        self.spn_thesis_body_start_num.setFixedWidth(70)
+        self.spn_thesis_body_start_num = ModernSpinBox(min_val=1, max_val=9999, default_val=1, parent=self)
+        self.spn_thesis_body_start_num.setFixedWidth(78)
         h_th_row2.addWidget(self.spn_thesis_body_start_num)
         h_th_row2.addStretch()
         v_th.addLayout(h_th_row2)
@@ -1873,10 +1857,7 @@ class PDFOrganizePagesDialog(QDialog):
 
         h_font_row1_1 = QHBoxLayout()
         h_font_row1_1.addWidget(QLabel(LanguageManager.tr("page_number_font_size")))
-        self.spn_font_size = QSpinBox()
-        self.spn_font_size.setRange(6, 72)
-        self.spn_font_size.setValue(10)
-        self.spn_font_size.setSuffix(" pt")
+        self.spn_font_size = ModernSpinBox(min_val=6, max_val=72, default_val=10, suffix=" pt", parent=self)
         self.spn_font_size.setFixedWidth(115)
         h_font_row1_1.addWidget(self.spn_font_size)
 
@@ -1982,8 +1963,9 @@ class PDFOrganizePagesDialog(QDialog):
         self.lbl_preview_info.setStyleSheet(" font-size: 11px;")
         v_prev.addWidget(self.lbl_preview_info)
 
-        frame_box = QWidget()
-        frame_box.setStyleSheet("border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 6px; background-color: rgba(0, 0, 0, 0.2);")
+        frame_box = QFrame()
+        frame_box.setObjectName("PreviewFrame")
+        frame_box.setProperty("class", "preview-card")
         v_box = QVBoxLayout(frame_box)
         v_box.setContentsMargins(6, 6, 6, 6)
         v_box.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -2001,7 +1983,8 @@ class PDFOrganizePagesDialog(QDialog):
         h_nav.setSpacing(6)
         self.btn_prev_page = QPushButton(LanguageManager.tr("preview_prev"))
         self.btn_prev_page.setProperty("class", "NavBtn")
-        self.btn_prev_page.setFixedWidth(74)
+        self.btn_prev_page.setIcon(ModernIconFactory.icon_chevron_left())
+        self.btn_prev_page.setMinimumWidth(84)
         self.btn_prev_page.clicked.connect(self._preview_prev_page)
 
         self.spn_preview_page = QSpinBox()
@@ -2033,7 +2016,8 @@ class PDFOrganizePagesDialog(QDialog):
 
         self.btn_next_page = QPushButton(LanguageManager.tr("preview_next"))
         self.btn_next_page.setProperty("class", "NavBtn")
-        self.btn_next_page.setFixedWidth(74)
+        self.btn_next_page.setIcon(ModernIconFactory.icon_chevron_right())
+        self.btn_next_page.setMinimumWidth(84)
         self.btn_next_page.clicked.connect(self._preview_next_page)
 
         h_nav.addWidget(self.btn_prev_page)
@@ -2246,6 +2230,7 @@ class PDFOrganizePagesDialog(QDialog):
                 icon = QIcon()
 
             item = QListWidgetItem(icon, LanguageManager.tr("reorder_item_text", new_idx=idx + 1, orig_idx=idx + 1))
+            item.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsDragEnabled | Qt.ItemFlag.ItemIsDropEnabled)
             item.setData(Qt.ItemDataRole.UserRole, idx)
             item.setData(Qt.ItemDataRole.UserRole + 1, rot)
             self.list_widget.addItem(item)
@@ -4080,7 +4065,7 @@ class PDFEncryptDialog(QDialog):
         h_rec_key = QHBoxLayout()
         self.txt_recovery_key = QLineEdit()
         self.txt_recovery_key.setPlaceholderText(LanguageManager.tr("encrypt_key_placeholder"))
-        self.txt_recovery_key.setStyleSheet("font-family: Consolas, monospace; font-size: 13px; font-weight: bold; background-color: rgba(255, 255, 255, 0.06); color: #f1f5f9; border: 1px solid rgba(255, 255, 255, 0.15); border-radius: 4px; padding: 6px;")
+        self.txt_recovery_key.setStyleSheet("font-family: Consolas, monospace; font-size: 13px; font-weight: bold; padding: 6px;")
         self._generate_recovery_key()
         self.btn_regen_key = QPushButton(LanguageManager.tr("encrypt_regen_key"))
         self.btn_regen_key.setToolTip(LanguageManager.tr("regen_key_tip"))
@@ -5354,10 +5339,9 @@ class PDFWatermarkDialog(QDialog):
         left_v.setContentsMargins(0, 0, 0, 0)
         left_v.setSpacing(8)
 
-        self.lbl_editing_badge = QLabel("\u2139\ufe0f " + LanguageManager.tr("watermark_editing_badge"))
-        self.lbl_editing_badge.setStyleSheet(
-            "background-color: rgba(56, 189, 248, 0.15); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.35); "
-            "border-radius: 5px; padding: 6px 12px; font-weight: bold; font-size: 12px;"
+        self.lbl_editing_badge = ModernInfoCard(
+            text=LanguageManager.tr("watermark_editing_badge"),
+            parent=self
         )
         self.lbl_editing_badge.setVisible(False)
         left_v.addWidget(self.lbl_editing_badge)
@@ -5447,11 +5431,8 @@ class PDFWatermarkDialog(QDialog):
         h_color_size.addWidget(self.btn_color)
         h_color_size.addSpacing(12)
         h_color_size.addWidget(QLabel(LanguageManager.tr("watermark_font_size")))
-        self.spn_fontsize = QSpinBox()
-        self.spn_fontsize.setRange(12, 200)
-        self.spn_fontsize.setValue(54)
-        self.spn_fontsize.setSuffix(" pt")
-        self.spn_fontsize.setFixedWidth(85)
+        self.spn_fontsize = ModernSpinBox(min_val=12, max_val=200, default_val=54, suffix=" pt", parent=self)
+        self.spn_fontsize.setFixedWidth(92)
         self.spn_fontsize.valueChanged.connect(self.update_preview)
         h_color_size.addWidget(self.spn_fontsize)
         h_color_size.addSpacing(8)
@@ -5480,11 +5461,8 @@ class PDFWatermarkDialog(QDialog):
         self.cmb_rotation.addItem(LanguageManager.tr("watermark_rot_custom"),  "custom")
         self.cmb_rotation.currentIndexChanged.connect(self._on_rotation_changed)
         h_rot.addWidget(self.cmb_rotation, stretch=1)
-        self.spn_custom_angle = QSpinBox()
-        self.spn_custom_angle.setRange(-180, 180)
-        self.spn_custom_angle.setValue(45)
-        self.spn_custom_angle.setSuffix("\u00b0")
-        self.spn_custom_angle.setFixedWidth(90)
+        self.spn_custom_angle = ModernSpinBox(min_val=-180, max_val=180, default_val=45, suffix="\u00b0", parent=self)
+        self.spn_custom_angle.setFixedWidth(92)
         self.spn_custom_angle.setVisible(False)
         self.spn_custom_angle.valueChanged.connect(self.update_preview)
         self.sld_custom_angle = QSlider(Qt.Orientation.Horizontal)
@@ -5596,11 +5574,8 @@ class PDFWatermarkDialog(QDialog):
         self.sld_img_scale = QSlider(Qt.Orientation.Horizontal)
         self.sld_img_scale.setRange(5, 300)
         self.sld_img_scale.setValue(50)
-        self.spn_img_scale = QSpinBox()
-        self.spn_img_scale.setRange(5, 300)
-        self.spn_img_scale.setValue(50)
-        self.spn_img_scale.setSuffix(" %")
-        self.spn_img_scale.setFixedWidth(80)
+        self.spn_img_scale = ModernSpinBox(min_val=5, max_val=300, default_val=50, suffix=" %", parent=self)
+        self.spn_img_scale.setFixedWidth(92)
         self.sld_img_scale.valueChanged.connect(self._on_slider_scale_changed)
         self.spn_img_scale.valueChanged.connect(self._on_spin_scale_changed)
         h_scale.addWidget(self.lbl_img_scale)
@@ -5623,20 +5598,14 @@ class PDFWatermarkDialog(QDialog):
         v_is.addLayout(g_sp)
         h_dims = QHBoxLayout()
         h_dims.addWidget(QLabel(LanguageManager.tr("watermark_img_w")))
-        self.spn_img_w = QSpinBox()
-        self.spn_img_w.setRange(10, 3000)
-        self.spn_img_w.setValue(298)
-        self.spn_img_w.setSuffix(" pt")
-        self.spn_img_w.setFixedWidth(100)
+        self.spn_img_w = ModernSpinBox(min_val=10, max_val=3000, default_val=298, suffix=" pt", parent=self)
+        self.spn_img_w.setFixedWidth(105)
         self.spn_img_w.valueChanged.connect(self._on_dim_w_changed)
         h_dims.addWidget(self.spn_img_w)
         h_dims.addSpacing(10)
         h_dims.addWidget(QLabel(LanguageManager.tr("watermark_img_h")))
-        self.spn_img_h = QSpinBox()
-        self.spn_img_h.setRange(10, 3000)
-        self.spn_img_h.setValue(200)
-        self.spn_img_h.setSuffix(" pt")
-        self.spn_img_h.setFixedWidth(100)
+        self.spn_img_h = ModernSpinBox(min_val=10, max_val=3000, default_val=200, suffix=" pt", parent=self)
+        self.spn_img_h.setFixedWidth(105)
         self.spn_img_h.valueChanged.connect(self._on_dim_h_changed)
         h_dims.addWidget(self.spn_img_h)
         h_dims.addSpacing(10)
@@ -5660,11 +5629,8 @@ class PDFWatermarkDialog(QDialog):
         self.sld_img_rotation = QSlider(Qt.Orientation.Horizontal)
         self.sld_img_rotation.setRange(-180, 180)
         self.sld_img_rotation.setValue(0)
-        self.spn_img_rotation = QSpinBox()
-        self.spn_img_rotation.setRange(-180, 180)
-        self.spn_img_rotation.setValue(0)
-        self.spn_img_rotation.setSuffix("\u00b0")
-        self.spn_img_rotation.setFixedWidth(80)
+        self.spn_img_rotation = ModernSpinBox(min_val=-180, max_val=180, default_val=0, suffix="\u00b0", parent=self)
+        self.spn_img_rotation.setFixedWidth(92)
         self.sld_img_rotation.valueChanged.connect(self._on_slider_img_rot_changed)
         self.spn_img_rotation.valueChanged.connect(self._on_spin_img_rot_changed)
         h_irot.addWidget(self.lbl_img_rotation)
@@ -5778,8 +5744,9 @@ class PDFWatermarkDialog(QDialog):
         self.lbl_preview_info = QLabel(LanguageManager.tr("preview_page_1"))
         self.lbl_preview_info.setStyleSheet("font-size:11px;")
         v_prev.addWidget(self.lbl_preview_info)
-        frame_box = QWidget()
-        frame_box.setStyleSheet("border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 6px; background-color: rgba(0, 0, 0, 0.2);")
+        frame_box = QFrame()
+        frame_box.setObjectName("PreviewFrame")
+        frame_box.setProperty("class", "preview-card")
         v_box = QVBoxLayout(frame_box)
         v_box.setContentsMargins(6, 6, 6, 6)
         v_box.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -5796,7 +5763,8 @@ class PDFWatermarkDialog(QDialog):
         h_nav.setSpacing(6)
         self.btn_prev_page = QPushButton(LanguageManager.tr("preview_prev"))
         self.btn_prev_page.setProperty("class", "NavBtn")
-        self.btn_prev_page.setFixedWidth(72)
+        self.btn_prev_page.setIcon(ModernIconFactory.icon_chevron_left())
+        self.btn_prev_page.setMinimumWidth(84)
         self.btn_prev_page.clicked.connect(self._preview_prev_page)
         self.spn_preview_page = QSpinBox()
         self.spn_preview_page.setObjectName("PreviewPageSpin")
@@ -5815,7 +5783,8 @@ class PDFWatermarkDialog(QDialog):
         self.lbl_total_preview_pages.setStyleSheet("font-size:11px;font-weight:500;")
         self.btn_next_page = QPushButton(LanguageManager.tr("preview_next"))
         self.btn_next_page.setProperty("class", "NavBtn")
-        self.btn_next_page.setFixedWidth(72)
+        self.btn_next_page.setIcon(ModernIconFactory.icon_chevron_right())
+        self.btn_next_page.setMinimumWidth(84)
         self.btn_next_page.clicked.connect(self._preview_next_page)
         h_nav.addWidget(self.btn_prev_page)
         h_nav.addWidget(self.spn_preview_page)
@@ -7211,8 +7180,9 @@ class PDFBackgroundDialog(QDialog):
         self.lbl_preview_info.setStyleSheet(" font-size: 11px;")
         v_prev.addWidget(self.lbl_preview_info)
 
-        frame_box = QWidget()
-        frame_box.setStyleSheet("border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 6px; background-color: rgba(0, 0, 0, 0.2);")
+        frame_box = QFrame()
+        frame_box.setObjectName("PreviewFrame")
+        frame_box.setProperty("class", "preview-card")
         v_box = QVBoxLayout(frame_box)
         v_box.setContentsMargins(8, 8, 8, 8)
         v_box.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -7232,7 +7202,8 @@ class PDFBackgroundDialog(QDialog):
         h_nav.setSpacing(6)
         self.btn_prev_page = QPushButton(LanguageManager.tr("preview_prev"))
         self.btn_prev_page.setProperty("class", "NavBtn")
-        self.btn_prev_page.setFixedWidth(78)
+        self.btn_prev_page.setIcon(ModernIconFactory.icon_chevron_left())
+        self.btn_prev_page.setMinimumWidth(84)
         self.btn_prev_page.clicked.connect(self._preview_prev_page)
 
         self.spn_preview_page = QSpinBox()
@@ -7264,7 +7235,8 @@ class PDFBackgroundDialog(QDialog):
 
         self.btn_next_page = QPushButton(LanguageManager.tr("preview_next"))
         self.btn_next_page.setProperty("class", "NavBtn")
-        self.btn_next_page.setFixedWidth(78)
+        self.btn_next_page.setIcon(ModernIconFactory.icon_chevron_right())
+        self.btn_next_page.setMinimumWidth(84)
         self.btn_next_page.clicked.connect(self._preview_next_page)
 
         h_nav.addWidget(self.btn_prev_page)
@@ -7827,9 +7799,12 @@ class PDFBackgroundDialog(QDialog):
 
 
 class PDFPasswordDialog(QDialog):
-    def __init__(self, parent, file_path: str, hint: Optional[str] = None):
+    def __init__(self, parent=None, file_path: str = "", hint: Optional[str] = None):
+        if isinstance(parent, str) and not file_path:
+            file_path = parent
+            parent = None
         super().__init__(parent)
-        self.file_path = file_path
+        self.file_path = file_path or ""
         self.hint = hint
         self.password = ""
         self.recovered_file = None
@@ -7846,7 +7821,7 @@ class PDFPasswordDialog(QDialog):
         layout.setSpacing(14)
 
         # Başlık ve dosya bilgisi
-        fname = os.path.basename(file_path) if file_path else ""
+        fname = os.path.basename(self.file_path) if self.file_path else ""
         lbl_prompt = QLabel(LanguageManager.tr("password_required_prompt", filename=fname))
         lbl_prompt.setWordWrap(True)
         lbl_prompt.setStyleSheet("font-size: 13px; font-weight: 500;")
@@ -7854,15 +7829,16 @@ class PDFPasswordDialog(QDialog):
 
         # Şifre İpucu (varsa)
         if self.hint:
-            lbl_hint = QLabel(LanguageManager.tr("password_hint_display", hint=self.hint))
-            lbl_hint.setWordWrap(True)
-            lbl_hint.setStyleSheet("background-color: rgba(255, 255, 255, 0.05); color: #cbd5e1; border: 1px solid rgba(255, 255, 255, 0.12); font-size: 13px; padding: 8px 12px; border-radius: 6px; font-weight: 500;")
-            layout.addWidget(lbl_hint)
+            card_hint = ModernInfoCard(
+                text=LanguageManager.tr("password_hint_display", hint=self.hint),
+                parent=self
+            )
+            layout.addWidget(card_hint)
 
         # Parola Giriş Alanı
         self.txt_pw = QLineEdit()
         self.txt_pw.setEchoMode(QLineEdit.EchoMode.Password)
-        self.txt_pw.setPlaceholderText("Parola veya Kurtarma Anahtarı...")
+        self.txt_pw.setPlaceholderText(LanguageManager.tr("password_placeholder"))
         self.txt_pw.returnPressed.connect(self._on_unlock)
         layout.addWidget(self.txt_pw)
 

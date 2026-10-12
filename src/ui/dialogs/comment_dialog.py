@@ -224,3 +224,7 @@ class AuraCommentInputDialog(QDialog):
         text = self.txt_comment.toPlainText().strip()
         author = self.txt_author.text().strip() or "Kullanıcı"
         return text, author, self.selected_color
+
+
+CommentDialog = AuraCommentInputDialog
+ModernCommentInputDialog = AuraCommentInputDialog

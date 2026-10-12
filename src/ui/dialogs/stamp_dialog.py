@@ -231,8 +231,8 @@ class ModernStampDialog(QDialog):
         self.preview_card.setFixedHeight(110)
         self.preview_card.setStyleSheet("""
             QFrame {
-                background-color: rgba(255, 255, 255, 0.04);
-                border: 1px solid rgba(255, 255, 255, 0.1);
+                background-color: #ffffff;
+                border: 1px solid rgba(0, 0, 0, 0.15);
                 border-radius: 8px;
             }
         """)
@@ -313,12 +313,13 @@ class ModernStampDialog(QDialog):
         p.rotate(-3.5)
         p.translate(-w / 2.0, -h / 2.0)
 
-        # Dış Kalın Çerçeve
+        # Dış Kalın Çerçeve ve Eşleşen Yumuşak Damga Dolgusu
+        p.setBrush(QBrush(QColor(col.red(), col.green(), col.blue(), 20)))
         p.setPen(QPen(col, 3.0 * scale, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
-        p.setBrush(Qt.BrushStyle.NoBrush)
         p.drawRoundedRect(QRectF(8 * scale, 8 * scale, (260 - 16) * scale, (90 - 16) * scale), 6 * scale, 6 * scale)
 
         # İç İnce Çerçeve
+        p.setBrush(Qt.BrushStyle.NoBrush)
         p.setPen(QPen(col, 1.2 * scale, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
         p.drawRoundedRect(QRectF(13 * scale, 13 * scale, (260 - 26) * scale, (90 - 26) * scale), 4 * scale, 4 * scale)
 
@@ -361,13 +362,101 @@ class ModernStampDialog(QDialog):
 
     def _apply_and_accept(self):
         # Yüksek çözünürlüklü çıktı (Retina / 2x DPI)
-        hi_pix = self._render_stamp_pixmap(scale=2.0)
-        buf = QBuffer()
-        buf.open(QIODevice.OpenModeFlag.WriteOnly)
-        hi_pix.save(buf, "PNG")
-        self.stamp_bytes = bytes(buf.data())
+        self.stamp_bytes = render_stamp_png_bytes(
+            text=self.selected_text,
+            color_hex=self.selected_color,
+            is_dynamic=self.is_dynamic,
+            author_name=self.author_name
+        )
         self.stamp_name = self.selected_text
         self.accept()
+
+
+def render_stamp_png_bytes(text: str, color_hex: str, is_dynamic: bool = False, author_name: str = "Kullanici") -> bytes:
+    """Belirtilen metin, renk ve dinamik parametrelerle 2x Retina kalitesinde PNG damga baytları üretir."""
+    scale = 2.0
+    w = int(260 * scale)
+    h = int(90 * scale)
+    pix = QPixmap(w, h)
+    pix.fill(Qt.GlobalColor.transparent)
+
+    p = QPainter(pix)
+    p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+    p.setRenderHint(QPainter.RenderHint.TextAntialiasing, True)
+
+    col = QColor(color_hex)
+    p.translate(w / 2.0, h / 2.0)
+    p.rotate(-3.5)
+    p.translate(-w / 2.0, -h / 2.0)
+
+    # Dış Çerçeve ve Eşleşen Yumuşak Damga Dolgusu
+    p.setBrush(QBrush(QColor(col.red(), col.green(), col.blue(), 20)))
+    p.setPen(QPen(col, 3.0 * scale, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
+    p.drawRoundedRect(QRectF(8 * scale, 8 * scale, (260 - 16) * scale, (90 - 16) * scale), 6 * scale, 6 * scale)
+
+    # İç Çerçeve
+    p.setBrush(Qt.BrushStyle.NoBrush)
+    p.setPen(QPen(col, 1.2 * scale, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
+    p.drawRoundedRect(QRectF(13 * scale, 13 * scale, (260 - 26) * scale, (90 - 26) * scale), 4 * scale, 4 * scale)
+
+    if not is_dynamic:
+        font = QFont("Arial Black", int(17 * scale), QFont.Weight.Black)
+        font.setLetterSpacing(QFont.SpacingType.AbsoluteSpacing, 1.5 * scale)
+        p.setFont(font)
+        p.setPen(col)
+        rect_text = QRectF(15 * scale, 15 * scale, (260 - 30) * scale, (90 - 30) * scale)
+        p.drawText(rect_text, Qt.AlignmentFlag.AlignCenter, text.upper())
+    else:
+        font_title = QFont("Arial Black", int(15 * scale), QFont.Weight.Black)
+        font_title.setLetterSpacing(QFont.SpacingType.AbsoluteSpacing, 1.2 * scale)
+        p.setFont(font_title)
+        p.setPen(col)
+        rect_title = QRectF(15 * scale, 14 * scale, (260 - 30) * scale, 34 * scale)
+        p.drawText(rect_title, Qt.AlignmentFlag.AlignCenter, text.upper())
+
+        p.setPen(QPen(col, 1.0 * scale, Qt.PenStyle.DashLine))
+        p.drawLine(QPointF(24 * scale, 50 * scale), QPointF((260 - 24) * scale, 50 * scale))
+
+        font_sub = QFont("Segoe UI", int(8.5 * scale), QFont.Weight.Bold)
+        p.setFont(font_sub)
+        p.setPen(col)
+        now_str = datetime.datetime.now().strftime("%d.%m.%Y %H:%M")
+        info_str = f"{author_name}  •  {now_str}"
+        rect_sub = QRectF(15 * scale, 52 * scale, (260 - 30) * scale, 24 * scale)
+        p.drawText(rect_sub, Qt.AlignmentFlag.AlignCenter, info_str)
+
+    p.end()
+    buf = QBuffer()
+    buf.open(QIODevice.OpenModeFlag.WriteOnly)
+    pix.save(buf, "PNG")
+    return bytes(buf.data())
+
+
+def render_date_stamp_bytes(text: Optional[str] = None, color_hex: str = "#0f172a") -> bytes:
+    """Biçimlendirilmiş bugünün tarih damgasını PNG baytları olarak üretir."""
+    if not text:
+        text = datetime.datetime.now().strftime("%d.%m.%Y")
+    scale = 2.0
+    font = QFont("Segoe UI", int(15 * scale), QFont.Weight.Medium)
+    from PyQt6.QtGui import QFontMetrics
+    fm = QFontMetrics(font)
+    text_w = fm.horizontalAdvance(text) + int(16 * scale)
+    text_h = fm.height() + int(10 * scale)
+
+    pix = QPixmap(max(int(60 * scale), text_w), max(int(24 * scale), text_h))
+    pix.fill(Qt.GlobalColor.transparent)
+    p = QPainter(pix)
+    p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+    p.setRenderHint(QPainter.RenderHint.TextAntialiasing, True)
+    p.setPen(QColor(color_hex))
+    p.setFont(font)
+    p.drawText(QRectF(0, 0, pix.width(), pix.height()), Qt.AlignmentFlag.AlignCenter, text)
+    p.end()
+
+    buf = QBuffer()
+    buf.open(QIODevice.OpenModeFlag.WriteOnly)
+    pix.save(buf, "PNG")
+    return bytes(buf.data())
 
 
 class DateStampDialog(QDialog):

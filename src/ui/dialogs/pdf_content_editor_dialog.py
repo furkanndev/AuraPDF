@@ -22,8 +22,9 @@ from PyQt6.QtGui import QIcon, QPixmap, QImage, QFont, QPainter, QPen, QBrush, Q
 
 import pymupdf as fitz
 from src.core.i18n import LanguageManager
-from src.ui.dialog_theme import get_dialog_theme_stylesheet
+from src.ui.dialog_theme import get_dialog_theme_stylesheet, apply_dialog_theme
 from src.ui.icons import ModernIconFactory
+from src.ui.modern_stepper import ModernSpinBox
 
 
 class VisualBlockCanvas(QLabel):
@@ -108,8 +109,9 @@ class PDFContentEditorDialog(QDialog):
         self.setSizeGripEnabled(True)
 
         self.current_theme = getattr(self.main_window, 'current_theme', 'dark')
-        self._apply_dialog_style()
         self._init_ui()
+        self._apply_dialog_style()
+        apply_dialog_theme(self, self.main_window)
         self.load_data()
 
     def _apply_dialog_style(self):
@@ -162,10 +164,8 @@ class PDFContentEditorDialog(QDialog):
         tb_lay.addWidget(self.btn_prev_page)
 
         tb_lay.addWidget(QLabel(LanguageManager.tr("page_prefix_label")))
-        self.spn_page = QSpinBox()
-        self.spn_page.setMinimum(1)
-        self.spn_page.setMaximum(len(self.tab_doc.doc) if (self.tab_doc and self.tab_doc.doc) else 1)
-        self.spn_page.setValue(self.current_page_idx + 1)
+        self.spn_page = ModernSpinBox(min_val=1, max_val=len(self.tab_doc.doc) if (self.tab_doc and self.tab_doc.doc) else 1, default_val=self.current_page_idx + 1, parent=self)
+        self.spn_page.setFixedWidth(78)
         self.spn_page.valueChanged.connect(self._on_page_spin_changed)
         tb_lay.addWidget(self.spn_page)
 
@@ -179,6 +179,7 @@ class PDFContentEditorDialog(QDialog):
         tb_lay.addStretch()
 
         help_lbl = QLabel(LanguageManager.tr("content_editor_hint"))
+        help_lbl.setWordWrap(True)
         help_lbl.setStyleSheet(" font-size: 11px;")
         tb_lay.addWidget(help_lbl)
 
@@ -225,7 +226,9 @@ class PDFContentEditorDialog(QDialog):
         canvas_box = QWidget()
         cb_lay = QVBoxLayout(canvas_box)
         cb_lay.setContentsMargins(0, 0, 0, 0)
-        cb_lay.addWidget(QLabel(f"<b>{LanguageManager.tr('content_blocks_title')}</b>"))
+        lbl_block_title = QLabel(f"<b>{LanguageManager.tr('content_blocks_title')}</b>")
+        lbl_block_title.setWordWrap(True)
+        cb_lay.addWidget(lbl_block_title)
 
         self.scroll_canvas = QScrollArea()
         self.scroll_canvas.setWidgetResizable(True)
@@ -266,9 +269,8 @@ class PDFContentEditorDialog(QDialog):
         # Font & Boyut Ayarları
         font_bar = QHBoxLayout()
         font_bar.addWidget(QLabel(LanguageManager.tr("size_label")))
-        self.spn_font_size = QSpinBox()
-        self.spn_font_size.setRange(6, 48)
-        self.spn_font_size.setValue(11)
+        self.spn_font_size = ModernSpinBox(min_val=6, max_val=48, default_val=11, suffix=" pt", parent=self)
+        self.spn_font_size.setFixedWidth(84)
         font_bar.addWidget(self.spn_font_size)
 
         font_bar.addWidget(QLabel(LanguageManager.tr("color_prefix_label")))
@@ -595,8 +597,12 @@ class PDFContentEditorDialog(QDialog):
 
         try:
             # 1. Eski metin alanını kalıcı olarak temizle (redact)
-            page.add_redact_annot(rect, fill=(1, 1, 1))
-            page.apply_redactions()
+            page.add_redact_annot(rect)
+            page.apply_redactions(
+                images=fitz.PDF_REDACT_IMAGE_NONE,
+                graphics=fitz.PDF_REDACT_LINE_ART_NONE,
+                text=fitz.PDF_REDACT_TEXT_REMOVE
+            )
 
             # 2. Yeni metni alana yaz (Unicode & Türkçe karakter uyumlu)
             fs = float(self.spn_font_size.value())
@@ -605,11 +611,6 @@ class PDFContentEditorDialog(QDialog):
 
             # Metnin sığmasını garanti altına almak için akıllı boyut/kutu belirleme
             fit_rect, fit_fs = self._find_fitting_box(page, rect, new_text, target_fs=fs, fontfile=fontfile)
-
-            # Eğer kutu genişlediyse o alanı da temizle
-            if fit_rect.y1 > rect.y1 or fit_rect.x1 > rect.x1:
-                page.add_redact_annot(fit_rect, fill=(1, 1, 1))
-                page.apply_redactions()
 
             res = page.insert_textbox(
                 fit_rect, new_text,
@@ -651,8 +652,12 @@ class PDFContentEditorDialog(QDialog):
         page = self.tab_doc.doc[self.current_page_idx]
 
         try:
-            page.add_redact_annot(d["rect"], fill=(1, 1, 1))
-            page.apply_redactions()
+            page.add_redact_annot(d["rect"])
+            page.apply_redactions(
+                images=fitz.PDF_REDACT_IMAGE_NONE,
+                graphics=fitz.PDF_REDACT_LINE_ART_NONE,
+                text=fitz.PDF_REDACT_TEXT_REMOVE
+            )
             self._commit_and_reload("Metin başarıyla silindi.")
         except Exception as e:
             QMessageBox.critical(self, "Hata", f"Metin silinemedi:\n{e}")

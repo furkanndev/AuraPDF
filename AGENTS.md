@@ -81,3 +81,13 @@ Commit mesajları açık, anlaşılır ve Conventional Commits standardına uygu
 ## 7. Çalışma Ortamı ve Dağıtım
 * **Python Yürütücüsü:** `C:\Users\MRF4 ROG\AppData\Local\Microsoft\WindowsApps\python3.13.exe` (`python3.13`)
 * **Paketleme / Dağıtım:** `build_setup.py` çalıştırılarak aktif branch'e göre (`aurapdf-basic-windows` dalında `Kurulum\Basic\AuraPDF_Basic v<sürüm>.exe`, `aurapdf_pro_windows` dalında `Kurulum\Pro\AuraPDF_Pro v<sürüm>.exe`) kurulum paketi oluşturulur.
+
+---
+
+## 8. Kalite, Detay ve Telif Hakkı Standartları (Altın Kural)
+* **En Güncel, Sorunsuz ve Detaylı Çözümler:**
+  * Kullanıcının verdiği her talimatta geçici veya yüzeysel yamalar yerine; mimariyi, kullanıcı deneyimini (UX), kenar durumlarını (edge cases) ve işletim sistemi standartlarını bütünüyle kapsayan en detaylı ve en kusursuz çözüm üretilmelidir.
+* **Telif Hakkı Güvencesi ve Özgünlük:**
+  * İhtiyaç duyulduğunda en güncel teknik dokümantasyon, Qt standartları ve açık kaynak desenleri incelenebilir; ancak projeye eklenen tüm kod, algoritma ve tasarımlar kesinlikle telif hakkı ihlali içermeyen, bağımsız ve AuraPDF mimarisine özgü temiz çözümler olmalıdır.
+* **Bütüncül Deneyim ve Eksiksiz Tamamlama:**
+  * Fare etkileşimleri (boş alana tıklama ile seçimi temizleme, kutu ile çoklu seçim, sürükle-bırak yerleşim göstergeleri, interaktif tutamaçlar ve imleç değişimleri), klavye kısayolları, asenkron iş parçacıkları ve tema uyumu tam bir bütünlük içinde eksiksiz çalışmalıdır.
