@@ -16,28 +16,18 @@ from datetime import datetime
 from typing import Optional, Tuple
 from PyQt6.QtCore import QThread, pyqtSignal, QSettings
 
-CURRENT_VERSION = "1.0.0"
+CURRENT_VERSION = "Basic v1.0.1"
 GITHUB_REPO = "furkanndev/AuraPDF"
 
 
 def parse_version(v_str: str) -> Tuple[int, ...]:
-    """Sürüm metnini (örn: 'v2.1.0' -> (2, 1, 0)) sayı demetine çevirir."""
+    """Sürüm metnini (örn: 'v2.1.0', 'Basic v1.0.1' -> (1, 0, 1)) sayı demetine çevirir."""
     if not v_str:
         return (0, 0, 0)
-    # Baştaki 'v' veya 'V' harflerini ve boşlukları temizle
-    clean_str = re.sub(r'^[vV]', '', str(v_str).strip())
-    # Sayısal olmayan ekleri (örn: -beta) ayır
-    parts = clean_str.split('-')[0].split('.')
-    nums = []
-    for p in parts:
-        digits = re.findall(r'\d+', p)
-        if digits:
-            nums.append(int(digits[0]))
-        else:
-            nums.append(0)
-    while len(nums) < 3:
-        nums.append(0)
-    return tuple(nums)
+    digits = [int(x) for x in re.findall(r'\d+', str(v_str))]
+    while len(digits) < 3:
+        digits.append(0)
+    return tuple(digits[:3])
 
 
 class UpdateInfo:

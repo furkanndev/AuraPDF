@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Version-v1.0.0-6366f1?style=flat-square&logo=git" alt="Version" />
+  <img src="https://img.shields.io/badge/Version-Basic%20v1.0.1-6366f1?style=flat-square&logo=git" alt="Version" />
   <img src="https://img.shields.io/badge/Python-3.10%2B-blue?style=flat-square&logo=python" alt="Python Version" />
   <img src="https://img.shields.io/badge/GUI-PyQt6-green?style=flat-square&logo=qt" alt="PyQt6" />
   <img src="https://img.shields.io/badge/Engine-PyMuPDF-orange?style=flat-square" alt="PyMuPDF" />
@@ -20,11 +20,11 @@
 
 ---
 
-## 🚀 v1.0.0 ile Gelen Yenilikler
+## 🚀 Basic v1.0.1 ile Gelen Yenilikler
 
 ### 🎯 Doğal Metin Seçimi ve Zengin İşlemler
 - **Metin Seçimi & Kopyalama:** Sayfadaki metinleri fare ile doğal bir şekilde seçin, `Ctrl+C` ile panoya kopyalayın.
-- **Yüzen Hızlı İşlem Çubuğu (Text Selection HUD):** Metin seçildiğinde beliren modern butonlarla anında kopyalama, Google'da arama, Google Çeviri ve sesli dinleme.
+- **Yüzen Hızlı İşlem Çubuğu (Text Selection HUD):** Metin seçildiğinde beliren modern butonlarla anında kopyalama, Google'da arama ve Google Çeviri.
 - **PDF Standart İşaretlemeleri:** Seçilen metne doğrudan PDF standardında **Vurgulama (Highlight)**, **Altı Çizili (Underline)** veya **Üstü Çizili (Strikeout)** işaretleri ekleyin.
 
 ### 🌐 Tıklanabilir Bağlantılar ve Gezinim Geçmişi
