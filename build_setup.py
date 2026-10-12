@@ -58,11 +58,11 @@ def get_setup_target_info() -> tuple[str, str, str]:
 
     if "pro" in branch or "pro" in raw_ver.lower():
         sub_folder = "Pro"
-        output_filename = f"Pro {formatted_ver}"
+        output_filename = f"AuraPDF_Pro {formatted_ver}"
         version_str = f"Pro {formatted_ver}"
     else:
         sub_folder = "Basic"
-        output_filename = f"Basic {formatted_ver}"
+        output_filename = f"AuraPDF_Basic {formatted_ver}"
         version_str = f"Basic {formatted_ver}"
 
     return sub_folder, output_filename, version_str
