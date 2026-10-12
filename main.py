@@ -10,7 +10,7 @@ import sys
 import os
 
 # src paketinin ve çalışma dizininin Python path'inde bulunmasını sağla
-CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
+CURRENT_DIR = getattr(sys, '_MEIPASS', os.path.dirname(os.path.abspath(__file__)))
 if CURRENT_DIR not in sys.path:
     sys.path.insert(0, CURRENT_DIR)
 
