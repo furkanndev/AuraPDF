@@ -3,7 +3,15 @@
 
 #define MyAppName "AuraPDF"
 #define MyAppFullName "AuraPDF"
+#ifndef MyAppVersion
 #define MyAppVersion "Basic v1.0.1"
+#endif
+#ifndef OutputFileName
+#define OutputFileName "Basic v1.0.1"
+#endif
+#ifndef OutputDir
+#define OutputDir "Kurulum\Basic"
+#endif
 #define MyAppPublisher "AuraPDF"
 #define MyAppExeName "AuraPDF.exe"
 #define MyAppIcon "app_icon.ico"
@@ -13,7 +21,7 @@
 AppId={{D9837B55-4601-44B9-A6BE-C67B54DAFE7C}
 AppName={#MyAppName}
 AppVersion={#MyAppVersion}
-AppVerName={#MyAppName}
+AppVerName={#MyAppName} {#MyAppVersion}
 UninstallDisplayName={#MyAppName}
 AppPublisher={#MyAppPublisher}
 DefaultDirName={commonpf}\{#MyAppName}
@@ -22,8 +30,8 @@ DisableDirPage=no
 UsePreviousAppDir=no
 AlwaysShowDirOnReadyPage=yes
 AllowNoIcons=yes
-OutputDir=Kurulum
-OutputBaseFilename=AuraPDF_Setup
+OutputDir={#OutputDir}
+OutputBaseFilename={#OutputFileName}
 SetupIconFile={#MyAppIcon}
 UninstallDisplayIcon={app}\app_icon.ico
 Compression=lzma2/ultra64
