@@ -737,13 +737,7 @@ class AuraPDFViewer(QMainWindow):
         self.btn_text.setCheckable(True)
         self.btn_text.clicked.connect(lambda: self.handle_tool_click('text', self.btn_text, self.text_popup))
         self._add_toolbar_widget(self.btn_text, "btn_text")
-
-        self.btn_direct_edit = DraggableToolButton()
-        self.btn_direct_edit.setIcon(ModernIconFactory.icon_edit_content())
-        self.btn_direct_edit.setToolTip(LanguageManager.tr("direct_edit_tool_tip"))
-        self.btn_direct_edit.setCheckable(True)
-        self.btn_direct_edit.clicked.connect(lambda: self.handle_tool_click('direct_edit', self.btn_direct_edit, None))
-        self._add_toolbar_widget(self.btn_direct_edit, "btn_direct_edit")
+        self.btn_direct_edit = None
 
         self.btn_insert = DraggableToolButton()
         self.btn_insert.setIcon(ModernIconFactory.icon_insert())
@@ -1395,7 +1389,7 @@ class AuraPDFViewer(QMainWindow):
         self.btn_hl.setToolTip(LanguageManager.tr("highlighter_tool_tip"))
         self.btn_pen.setToolTip(LanguageManager.tr("pen_tool_tip"))
         self.btn_text.setToolTip(LanguageManager.tr("text_tool_tip"))
-        if hasattr(self, 'btn_direct_edit'):
+        if getattr(self, 'btn_direct_edit', None):
             self.btn_direct_edit.setToolTip(LanguageManager.tr("direct_edit_tool_tip"))
         self.btn_eraser.setToolTip(LanguageManager.tr("eraser_tool_tip"))
         self.btn_pointer.setToolTip(LanguageManager.tr("pointer_tool_tip"))

@@ -10,17 +10,17 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Version-Basic%20v1.0.1-6366f1?style=flat-square&logo=git" alt="Version" />
+  <img src="https://img.shields.io/badge/Version-Basic%20v1.1-6366f1?style=flat-square&logo=git" alt="Version" />
   <img src="https://img.shields.io/badge/Python-3.10%2B-blue?style=flat-square&logo=python" alt="Python Version" />
   <img src="https://img.shields.io/badge/GUI-PyQt6-green?style=flat-square&logo=qt" alt="PyQt6" />
   <img src="https://img.shields.io/badge/Engine-PyMuPDF-orange?style=flat-square" alt="PyMuPDF" />
   <img src="https://img.shields.io/badge/Platform-Windows-0078D6?style=flat-square&logo=windows" alt="Platform" />
-  <img src="https://img.shields.io/badge/License-MIT-purple?style=flat-square" alt="License" />
+  <img src="https://img.shields.io/badge/License-MIT-purple?style=flat-square&logo=license" alt="License" />
 </p>
 
 ---
 
-## 🚀 Basic v1.0.1 ile Gelen Yenilikler
+## 🚀 Basic v1.1 ile Gelen Yenilikler
 
 ### 🎯 Doğal Metin Seçimi ve Zengin İşlemler
 - **Metin Seçimi & Kopyalama:** Sayfadaki metinleri fare ile doğal bir şekilde seçin, `Ctrl+C` ile panoya kopyalayın.
@@ -136,7 +136,7 @@ AuraPDF'i tek tıkla kurulabilir bir Windows kurulum dosyasına (`Setup.exe`) d�
    ```bash
    python build_setup.py
    ```
-3. Derleme tamamlandığında kurulum dosyası aktif branch'e göre `Kurulum/Basic/Basic v<sürüm>.exe` (örn. `Kurulum/Basic/Basic v1.0.1.exe`) veya `Kurulum/Pro/Pro v<sürüm>.exe` altında hazır olacaktır.
+3. Derleme tamamlandığında kurulum dosyası aktif branch'e göre `Kurulum/Basic/Basic v<sürüm>.exe` (örn. `Kurulum/Basic/Basic v1.1.exe`) veya `Kurulum/Pro/Pro v<sürüm>.exe` altında hazır olacaktır.
 
 ---
 

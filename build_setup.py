@@ -2,7 +2,6 @@ import os
 import sys
 import subprocess
 import shutil
-import re
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 if BASE_DIR not in sys.path:
@@ -45,15 +44,16 @@ def get_setup_target_info() -> tuple[str, str, str]:
     """
     Aktif git branch'e ve CURRENT_VERSION'a göre hedef alt klasor (Basic / Pro),
     Inno Setup cikti dosya adi (OutputFileName) ve surumunu belirler.
-    - Basic branch'inda ise: Kurulum/Basic/Basic v<surum>.exe
-    - Pro branch'inda ise: Kurulum/Pro/Pro v<surum>.exe
+    - Basic branch'inda ise: Kurulum/Basic/Basic v1.1.exe
+    - Pro branch'inda ise: Kurulum/Pro/Pro v1.1.exe
     """
+    import re
     branch = get_current_git_branch().lower()
     raw_ver = str(CURRENT_VERSION).strip()
 
-    # Surum numarasini yakala (orn: '1.0.1', '1.1')
+    # Surum numarasini yakala (orn: '1.1', '1.0.1')
     digits = re.findall(r'\d+(?:\.\d+)*', raw_ver)
-    ver_num = digits[0] if digits else "1.0.1"
+    ver_num = digits[0] if digits else "1.1"
     formatted_ver = f"v{ver_num}" if not ver_num.startswith("v") else ver_num
 
     if "pro" in branch or "pro" in raw_ver.lower():
@@ -71,11 +71,9 @@ def build(skip_pyinstaller: bool = False):
     branch_name = get_current_git_branch()
     sub_folder, output_filename, version_str = get_setup_target_info()
     target_kurulum_dir = os.path.join(KURULUM_DIR, sub_folder)
-
     print(f"Aktif Git Dali: {branch_name or 'Bilinmiyor'}")
     print(f"Hedef Kurulum Klasoru: {target_kurulum_dir}")
     print(f"Hedef Kurulum Paketi: {output_filename}.exe")
-
     exe_path = os.path.join(DIST_DIR, "AuraPDF", "AuraPDF.exe")
     if not skip_pyinstaller or not os.path.isfile(exe_path):
         print("=" * 60)
@@ -171,7 +169,7 @@ def build(skip_pyinstaller: bool = False):
     setup_filename = f"{output_filename}.exe"
     setup_src = os.path.join(target_kurulum_dir, setup_filename)
     if not os.path.isfile(setup_src):
-        # Alternatif kontrol: dogrudan Kurulum ana dizininde olabilir mi?
+        # Alternatif kontrol: doğrudan Kurulum ana dizininde olabilir mi?
         alt_root_setup = os.path.join(KURULUM_DIR, setup_filename)
         if os.path.isfile(alt_root_setup):
             shutil.move(alt_root_setup, setup_src)
