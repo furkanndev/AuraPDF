@@ -3,7 +3,7 @@
 
 #define MyAppName "AuraPDF"
 #define MyAppFullName "AuraPDF"
-#define MyAppVersion "3.0.0"
+#define MyAppVersion "Pro v2.1.0"
 #define MyAppPublisher "AuraPDF"
 #define MyAppExeName "AuraPDF.exe"
 #define MyAppIcon "app_icon.ico"
