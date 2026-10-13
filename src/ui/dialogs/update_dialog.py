@@ -85,9 +85,15 @@ class UpdateDialog(QDialog):
         if self.update_info.has_update:
             lbl_title = QLabel(LanguageManager.tr("updates_available_title"))
             lbl_title.setStyleSheet("font-size: 16px; font-weight: bold;")
+            cur_v = str(self.update_info.current_version or "")
+            if not cur_v.lower().startswith(('v', 'pro', 'basic')):
+                cur_v = f"v{cur_v}"
+            lat_v = str(self.update_info.latest_version or "")
+            if not lat_v.lower().startswith(('v', 'pro', 'basic')):
+                lat_v = f"v{lat_v}"
             lbl_sub = QLabel(LanguageManager.tr("updates_available_desc",
-                                                version=f"v{self.update_info.latest_version}",
-                                                current_version=f"v{self.update_info.current_version}"))
+                                                version=lat_v,
+                                                current_version=cur_v))
             lbl_sub.setWordWrap(True)
             lbl_sub.setStyleSheet("font-size: 12px;")
         elif self.update_info.error_message:
@@ -99,7 +105,10 @@ class UpdateDialog(QDialog):
         else:
             lbl_title = QLabel(LanguageManager.tr("updates_uptodate_title"))
             lbl_title.setStyleSheet("font-size: 16px; font-weight: bold; color: #4ade80;")
-            lbl_sub = QLabel(LanguageManager.tr("updates_uptodate_desc", version=self.update_info.current_version))
+            cur_v = str(self.update_info.current_version or "")
+            if not cur_v.lower().startswith(('v', 'pro', 'basic')):
+                cur_v = f"v{cur_v}"
+            lbl_sub = QLabel(LanguageManager.tr("updates_uptodate_desc", version=cur_v))
             lbl_sub.setWordWrap(True)
             lbl_sub.setStyleSheet("font-size: 12px;")
 

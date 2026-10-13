@@ -51,9 +51,9 @@ def get_setup_target_info() -> tuple[str, str, str]:
     branch = get_current_git_branch().lower()
     raw_ver = str(CURRENT_VERSION).strip()
 
-    # Surum numarasini yakala (orn: '2.1.0', '1.0.1')
+    # Surum numarasini yakala (orn: '2.2', '1.1')
     digits = re.findall(r'\d+(?:\.\d+)*', raw_ver)
-    ver_num = digits[0] if digits else "2.1.0"
+    ver_num = digits[0] if digits else "2.2"
     formatted_ver = f"v{ver_num}" if not ver_num.startswith("v") else ver_num
 
     if "basic" in branch or "basic" in raw_ver.lower():
