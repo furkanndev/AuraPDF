@@ -136,7 +136,7 @@ AuraPDF'i tek tıkla kurulabilir bir Windows kurulum dosyasına (`Setup.exe`) d�
    ```bash
    python build_setup.py
    ```
-3. Derleme tamamlandığında kurulum dosyası `Kurulum/AuraPDF_Setup.exe` altında hazır olacaktır.
+3. Derleme tamamlandığında kurulum dosyası aktif branch'e göre `Kurulum/Pro/AuraPDF_Pro v<sürüm>.exe` (örn. `Kurulum/Pro/AuraPDF_Pro v2.1.0.exe`) veya `Kurulum/Basic/AuraPDF_Basic v<sürüm>.exe` altında hazır olacaktır.
 
 ---
 

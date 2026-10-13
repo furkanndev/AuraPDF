@@ -80,4 +80,4 @@ Commit mesajları açık, anlaşılır ve Conventional Commits standardına uygu
 
 ## 7. Çalışma Ortamı ve Dağıtım
 * **Python Yürütücüsü:** `C:\Users\MRF4 ROG\AppData\Local\Microsoft\WindowsApps\python3.13.exe` (`python3.13`)
-* **Paketleme / Dağıtım:** `build_setup.py` çalıştırılarak `Kurulum\AuraPDF_Setup.exe` oluşturulur.
+* **Paketleme / Dağıtım:** `build_setup.py` çalıştırılarak aktif branch'e göre (`aurapdf-basic-windows` dalında `Kurulum\Basic\AuraPDF_Basic v<sürüm>.exe`, `aurapdf_pro_windows` dalında `Kurulum\Pro\AuraPDF_Pro v<sürüm>.exe`) kurulum paketi oluşturulur.
