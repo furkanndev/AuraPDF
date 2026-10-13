@@ -1,168 +1,203 @@
-# AuraPDF 📄✨
+# AuraPDF
 
 <p align="center">
   <img src="assets/app_icon_128.png" alt="AuraPDF Logo" width="128" height="128" />
 </p>
 
 <p align="center">
-  <strong>Modern, Hızlı ve Güçlü PDF Görüntüleyici & Düzenleyici</strong><br>
-  <em>Python, PyQt6 ve PyMuPDF ile geliştirilmiş yeni nesil zengin özellikli masaüstü PDF platformu.</em>
+  <strong>Modern, Hızlı ve Güvenilir Masaüstü PDF Platformu</strong><br>
+  Python 3, PyQt6 ve PyMuPDF motoru üzerine inşa edilmiş, hafif ve zengin özellikli PDF okuyucu ve düzenleyici.
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Version-Basic%20v1.1-6366f1?style=flat-square&logo=git" alt="Version" />
-  <img src="https://img.shields.io/badge/Python-3.10%2B-blue?style=flat-square&logo=python" alt="Python Version" />
-  <img src="https://img.shields.io/badge/GUI-PyQt6-green?style=flat-square&logo=qt" alt="PyQt6" />
-  <img src="https://img.shields.io/badge/Engine-PyMuPDF-orange?style=flat-square" alt="PyMuPDF" />
-  <img src="https://img.shields.io/badge/Platform-Windows-0078D6?style=flat-square&logo=windows" alt="Platform" />
-  <img src="https://img.shields.io/badge/License-MIT-purple?style=flat-square&logo=license" alt="License" />
+  <img src="https://img.shields.io/badge/Sürüm-Basic%20v1.1-3b82f6?style=flat-square" alt="Version" />
+  <img src="https://img.shields.io/badge/Python-3.10%2B-blue?style=flat-square" alt="Python Version" />
+  <img src="https://img.shields.io/badge/Arayüz-PyQt6-green?style=flat-square" alt="PyQt6" />
+  <img src="https://img.shields.io/badge/PDF_Motoru-PyMuPDF-orange?style=flat-square" alt="PyMuPDF" />
+  <img src="https://img.shields.io/badge/Platform-Windows_10%20%2F%2011-0078D6?style=flat-square" alt="Platform" />
+  <img src="https://img.shields.io/badge/Lisans-MIT-purple?style=flat-square" alt="License" />
 </p>
 
 ---
 
-## 🚀 Basic v1.1 ile Gelen Yenilikler
+## Genel Bakış
 
-### 🎯 Doğal Metin Seçimi ve Zengin İşlemler
-- **Metin Seçimi & Kopyalama:** Sayfadaki metinleri fare ile doğal bir şekilde seçin, `Ctrl+C` ile panoya kopyalayın.
-- **Yüzen Hızlı İşlem Çubuğu (Text Selection HUD):** Metin seçildiğinde beliren modern butonlarla anında kopyalama, Google'da arama ve Google Çeviri.
-- **PDF Standart İşaretlemeleri:** Seçilen metne doğrudan PDF standardında **Vurgulama (Highlight)**, **Altı Çizili (Underline)** veya **Üstü Çizili (Strikeout)** işaretleri ekleyin.
+AuraPDF, bireysel ve profesyonel kullanıcıların günlük PDF iş akışlarını modern bir arayüz, yüksek performans ve sistem kaynaklarını yormayan hafif mimariyle çözmek üzere tasarlanmış masaüstü uygulamasıdır.
 
-### 🌐 Tıklanabilir Bağlantılar ve Gezinim Geçmişi
-- **Etkileşimli Köprüler (Hyperlinks):** PDF içindeki web bağlantılarına tek tıkla tarayıcınızda gidin, iç referans bağlantılarıyla ilgili sayfalara atlayın.
-- **Görünüm Geçmişi (Nav Back / Forward):** `Alt+Sol Ok` ve `Alt+Sağ Ok` ile web tarayıcısı gibi önceki ve sonraki sayfa/yakınlaştırma konumlarınıza dönün.
-- **Sayfayı Sığdır:** `Ctrl+0` ile sayfayı tam ekran yüksekliğine sığdırın, `Ctrl+2` ile genişliğe sığdırın.
-
-### 🌓 Okuma Renk Modları
-- **Gündüz Modu (Normal):** Orijinal belge renkleri.
-- **Gece / Karanlık Modu (Dark):** Gece okumaları için yüksek performanslı C-seviyesi renk ters çevirme.
-- **Kitap Tonu (Sepia):** Uzun süreli okumalarda göz yorgunluğunu önleyen sıcak kâğıt tonu.
-
-### 📝 Etkileşimli PDF Form Doldurma (AcroForms)
-- PDF formlarındaki metin kutularını (`Text Fields`), onay kutularını (`Checkboxes`) ve açılır listeleri (`Dropdown / Comboboxes`) doğrudan sayfa üzerinden tıklayarak doldurun ve kaydedin.
-
-### 💬 Yorumlar ve İşaretlemeler Yan Paneli
-- Belgedeki tüm açıklamaları, metin vurgularını ve notları listeleyen 4. sekme ("Yorumlar").
-- Tür ve sayfa bazında filtreleme, tıklandığında anında ilgili işaretlemeye odaklanma.
-
-### 🔊 Sesli Okuma (Text-to-Speech)
-- PyQt6'nın yerleşik ses motoru sayesinde belgelerinizi veya seçtiğiniz paragrafları doğal sesle dinleyin (`Ctrl+Shift+U`).
-
-### ℹ️ Belge Özellikleri ve Güvenlik (`Ctrl+D`)
-- Başlık, yazar, konu ve anahtar kelimeleri görüntüleyin ve düzenleyin.
-- Sayfa boyutları (A4, Letter vb., mm / inç / pt), PDF sürümü, şifreleme ve izin durumunu inceleyin.
-
-### 🔄 Oturum Yönetimi ve Dış Dosya İzleyici
-- **Oturum Geri Yükleme:** Uygulamayı başlattığınızda önceki oturumdaki açık sekmeler ve sayfa konumları otomatik yüklenir.
-- **Son Kapatılan Sekmeyi Aç:** `Ctrl+Shift+T` ile kazara kapattığınız sekmeleri geri açın.
-- **Son Açılan Dosyalar Menüsü:** Dosya menüsünden son çalışılan belgelere hızlı erişim.
-- **Dış Dosya Değişiklik Algılama:** Açık bir PDF dışarıdan güncellendiğinde otomatik olarak algılanır ve yenileme onayı sunulur.
+PyMuPDF'in C tabanlı yüksek hızlı render kabiliyetini PyQt6'nın modern grafik bileşenleriyle birleştiren AuraPDF; çok sekmeli belge inceleme, doğrudan sayfa üzeri metin düzenleme, etkileşimli form doldurma, gelişmiş açıklama/çizim araçları ve kapsamlı bir PDF araç kutusu sunar.
 
 ---
 
-## 🌟 Temel Özellikler
+## Sürümler ve Branch Mimarisi
 
-### 📑 Belge Yönetimi ve Görüntüleme
-- **Sekmeli Arayüz (Tabbed Interface):** Birden fazla PDF belgesini tek pencerede kolayca açın ve yönetin.
-- **Akıcı Gezinme:** Sayfa küçük resimleri (Thumbnails dock), yakınlaştırma, döndürme ve tam ekran okuma modları.
-- **Çoklu Dil Desteği:** Türkçe ve İngilizce tam yerelleştirme.
-- **Modern Temalar:** Gray, Nord, Emerald, Purple, Crimson, Vice City gibi özel hazırlanmış temalar.
+AuraPDF iki temel sürüm kolu üzerinden geliştirilmektedir:
 
-### ✏️ Not Alma & Çizim Araçları
-- **Serbest Çizim & Vurgulayıcı:** Ayarlanabilir fırça boyutu, opaklık ve zengin renk paleti.
-- **Geometrik Şekiller:** Düz çizgi, dikdörtgen, elips, ok ve çokgen çizim araçları.
-- **Metin Ekleme:** Belge üzerine serbest veya biçimlendirilmiş metin kutuları yerleştirme.
-- **Damga, Çıkartma & Medya:** Özel damgalar, emojiler, çıkartmalar ve animasyonlu GIF desteği.
-
-### 🛠️ Gelişmiş PDF Araç Kutusu (Toolbox)
-- **Sayfa Düzenleme & Birleştirme:**
-  - PDF Birleştirme (Merge) ve Sayfa Ayırma (Split)
-  - Sayfa Silme, Döndürme, Yeniden Sıralama ve Boş Sayfa Ekleme
-  - Sayfa Numaralandırma (Konum, format ve stil seçenekleriyle)
-- **Format Dönüştürme:**
-  - PDF ➔ Word (`.docx`)
-  - PDF ➔ PowerPoint (`.pptx`)
-  - PDF ➔ Excel (`.xlsx`)
-  - PDF ➔ E-Kitap (`.epub`, `.mobi`)
-- **Güvenlik & Gizlilik:**
-  - PDF Şifreleme ve Parola Koruma
-  - Hassas Bilgileri Kalıcı Sansürleme / Karartma (Redaction)
-  - Dijital / Görsel İmza Ekleme
-- **OCR & İçerik:**
-  - Dahili Hızlı Metin Tanıma (RapidOCR / ONNX)
-  - PDF Belgelerini Karşılaştırma (Diff / Compare)
-  - Filigran (Watermark) ve Özel Arka Plan Ekleme
+* **Basic Sürümü (`aurapdf-basic-windows`):**
+  * Hızlı, bağımsız, günlük ve ofis kullanımına yönelik tüm temel işlevleri barındıran kararlı sürüm.
+  * PDF okuma, doğrudan metin düzenleme, serbest not alma/çizim, etkileşimli form doldurma (AcroForms), sayfa yönetimi (birleştirme, bölme, döndürme), PDF sıkıştırma ve yerel OCR işlevlerini içerir.
+* **Pro Sürümü (`pro-windows`):**
+  * Kurumsal ve ileri düzey yeteneklere odaklanan genişletilmiş profesyonel sürüm.
 
 ---
 
-## 💻 Kurulum ve Çalıştırma
+## Temel Özellikler
 
-### Gereksinimler
-- Python 3.10 veya üzeri
-- Windows 10 / 11
+### 1. Görüntüleme ve Okuma Deneyimi
+* **Çok Sekmeli Çalışma:** Birden fazla PDF belgesini tek bir pencerede bağımsız sekmeler halinde açabilme ve yönetebilme.
+* **Akıcı Sayfa Gezinimi:** Sürekli kaydırma, tek sayfa görünümü, sayfa küçük resimleri (Thumbnails paneli) ve hızlı atlama.
+* **Akıllı Yakınlaştırma ve Sığdırma:** Sayfa genişliğine sığdırma (`Ctrl+2`), sayfa yüksekliğine sığdırma (`Ctrl+0`) ve serbest ölçekleme.
+* **Renk ve Okuma Modları:**
+  * Standart (Gündüz) modu.
+  * Düşük ışık ve gece okumaları için yüksek performanslı karanlık (Dark) modu.
+  * Göz yorgunluğunu azaltan sıcak kağıt tonu (Sepia) modu.
+* **Görünüm Geçmişi:** Web tarayıcısı mantığıyla çalışan ileri/geri konum geçmişi (`Alt+Sol Ok`, `Alt+Sağ Ok`).
+* **Etkileşimli Köprüler:** Belge içi sayfa referanslarına ve harici web bağlantılarına doğrudan tıklayarak erişim.
 
-### Adım Adım Kurulum
+### 2. Metin İşlemleri ve Düzenleme
+* **Doğal Metin Seçimi:** Belgedeki metinleri fare ile hassas şekilde seçebilme ve panoya kopyalama (`Ctrl+C`).
+* **Yüzen Hızlı İşlem Çubuğu (HUD):** Metin seçildiği anda beliren araç çubuğu ile tek tıkla kopyalama, Google'da arama veya Google Çeviri'ye yönlendirme.
+* **PDF Standart İşaretlemeleri:** Seçili metne doğrudan PDF standardına uygun Vurgulama (Highlight), Altı Çizili (Underline) ve Üstü Çizili (Strikeout) açıklamaları ekleme.
+* **Doğrudan Sayfa Üzeri Metin Düzenleme:** Mevcut PDF içeriğindeki metin bloklarını doğrudan sayfa üzerinde seçip anında içeriğini, fontunu ve biçimini düzenleyebilme.
 
-1. **Depoyu klonlayın:**
+### 3. Çizim, Not Alma ve Açıklamalar
+* **Serbest Çizim ve Vurgulayıcı:** Fırça kalınlığı, opaklık ve zengin renk paleti ile not alma.
+* **Vektörel Şekiller:** Düz çizgi, ok, dikdörtgen, elips ve serbest çizim bileşenleri.
+* **Metin Kutuları:** Sayfanın istenen bölgesine yerleştirilebilir, boyutlandırılabilir ve biçimlendirilebilir metin kutuları.
+* **Açıklama ve Yorumlar Paneli:** Belgedeki tüm not ve vurgulamaları tek bir panelde sayfa/tür bazında filtreleyip doğrudan ilgili konuma odaklanma.
+
+### 4. Etkileşimli Form Doldurma (AcroForms)
+* PDF formlarında yer alan metin alanlarını (Text Fields), onay kutularını (Checkboxes) ve açılır seçim listelerini (Dropdowns) doğrudan doldurabilme, verileri kaydedebilme ve temizleyebilme.
+
+### 5. PDF Araç Kutusu (Toolbox)
+* **Sayfa Yönetimi:**
+  * PDF Birleştirme (Merge) ve Sayfa Ayırma (Split).
+  * Sayfa silme, döndürme, yeniden sıralama ve boş sayfa ekleme.
+  * Özelleştirilebilir sayfa numaralandırma (konum, font, başlangıç numarası).
+* **PDF Sıkıştırma (Compressor):**
+  * Arka planda çalışan, görsel ve font optimizasyonu sağlayan sıkıştırma motoru.
+  * Hazır profiller: Yüksek Sıkıştırma (Extreme), Dengeli (Recommended), Düşük Kayıplı (High Quality).
+* **Format Dönüştürme:**
+  * PDF belgesini Word (`.docx`), Excel (`.xlsx`), PowerPoint (`.pptx`) ve E-Kitap (`.epub`) formatlarına dönüştürme.
+* **Güvenlik ve Gizlilik:**
+  * Parola koruması ve şifreleme.
+  * Hassas alanları kalıcı olarak karartma (Redaction).
+* **Optik Karakter Tanıma (OCR):**
+  * Dahili RapidOCR / ONNX motoru ile taranmış belgelerden metin ayıklama.
+* **Filigran ve Arka Plan:**
+  * Belgelere metin/görsel filigran ekleme, arka plan değiştirme veya temizleme.
+
+### 6. Görsel Bütünlük ve Tema Sistemi
+* Modern Windows 11 ve macOS estetiğine uygun, yüksek DPI duyarlı arayüz tasarımı.
+* 8 dahili renk teması: `Dark`, `Gray`, `Nord`, `Emerald`, `Purple`, `Crimson`, `Vice City`, `Apple`.
+* Tutarlı vektörel simgeler (`QPainterPath` tabanlı `AuraIconFactory`).
+
+### 7. Çoklu Dil Desteği (i18n)
+* Türkçe ve İngilizce tam yerelleştirme.
+* Çalışma anında anlık dil değişimi desteği.
+
+### 8. Oturum ve Güncelleme Yönetimi
+* **Oturum Kurtarma:** Uygulama yeniden başlatıldığında açık sekmelerin ve aktif sayfa konumlarının korunması.
+* **Kapatılan Sekmeyi Geri Açma:** `Ctrl+Shift+T` desteği.
+* **Dış Dosya İzleme:** Belge açıkken dosya üzerinde dışarıdan yapılan değişiklikleri algılama ve kullanıcıya yenileme teklif etme.
+* **Yazılım Güncellemeleri:** GitHub Releases entegrasyonu üzerinden otomatik/manuel sürüm kontrolü ve doğrudan indirme diyalogu.
+
+---
+
+## Kurulum ve Çalıştırma
+
+### Sistem Gereksinimleri
+* **İşletim Sistemi:** Windows 10 veya Windows 11 (64-bit)
+* **Python Sürümü:** Python 3.10 veya üzeri
+
+### Geliştirici Ortamı Kurulumu
+
+1. Depoyu yerel ortamınıza klonlayın:
    ```bash
    git clone https://github.com/furkanndev/AuraPDF.git
    cd AuraPDF
    ```
 
-2. **Sanal ortam oluşturun ve aktif edin (Önerilen):**
+2. Sanal ortam (venv) oluşturun ve etkinleştirin:
    ```bash
    python -m venv venv
-   # Windows PowerShell:
    .\venv\Scripts\Activate.ps1
    ```
 
-3. **Gerekli paketleri yükleyin:**
+3. Gerekli bağımlılıkları yükleyin:
    ```bash
    pip install -r requirements.txt
    ```
 
-4. **Uygulamayı başlatın:**
+4. Uygulamayı başlatın:
    ```bash
    python main.py
    ```
 
 ---
 
-## 📦 Dağıtım & Kurulum Paketi (Installer) Oluşturma
+## Kurulum Paketi (Installer) Üretimi
 
-AuraPDF'i tek tıkla kurulabilir bir Windows kurulum dosyasına (`Setup.exe`) dönüştürmek için:
+AuraPDF, Inno Setup 6 ve PyInstaller aracılığıyla tek tıkla kurulabilir profesyonel Windows kurulum dosyası (`.exe`) haline getirilebilir.
 
-1. [Inno Setup 6](https://jrsoftware.org/isinfo.php)'nın sisteminizde kurulu olduğundan emin olun.
-2. Proje kök dizinindeki derleme script'ini çalıştırın:
+1. Sisteminizde [Inno Setup 6](https://jrsoftware.org/isinfo.php) kurulu olmalıdır.
+2. Proje kök dizinindeki derleme betiğini çalıştırın:
    ```bash
    python build_setup.py
    ```
-3. Derleme tamamlandığında kurulum dosyası aktif branch'e göre `Kurulum/Basic/AuraPDF_Basic v<sürüm>.exe` (örn. `Kurulum/Basic/AuraPDF_Basic v1.1.exe`) veya `Kurulum/Pro/AuraPDF_Pro v<sürüm>.exe` altında hazır olacaktır.
+3. Derleme tamamlandığında paket aktif dala göre aşağıdaki konuma ve masaüstüne kaydedilir:
+   * **Basic Sürümü:** `Kurulum/Basic/AuraPDF_Basic v<sürüm>.exe` (Örn: `Kurulum/Basic/AuraPDF_Basic v1.1.exe`)
+   * **Pro Sürümü:** `Kurulum/Pro/AuraPDF_Pro v<sürüm>.exe`
+
+*(Not: PyInstaller derlemesini atlayıp sadece Inno Setup senaryosunu test etmek için `python build_setup.py --iss-only` parametresi kullanılabilir.)*
 
 ---
 
-## 📁 Proje Mimarisi
+## Klavye Kısayolları
+
+| Kısayol | İşlev |
+| :--- | :--- |
+| `Ctrl + O` | PDF Belgesi Aç |
+| `Ctrl + S` | Belgeyi Kaydet |
+| `Ctrl + Shift + S` | Farklı Kaydet |
+| `Ctrl + W` | Aktif Sekmeyi Kapat |
+| `Ctrl + Shift + T` | Son Kapatılan Sekmeyi Aç |
+| `Ctrl + F` | Belge İçinde Metin Ara |
+| `Ctrl + D` | Belge Özellikleri ve Güvenlik |
+| `Ctrl + +` / `Ctrl + -` | Yakınlaştır / Uzaklaştır |
+| `Ctrl + 0` | Sayfayı Yüksekliğe Sığdır |
+| `Ctrl + 2` | Sayfayı Genişliğe Sığdır |
+| `Alt + Sol Ok` | Önceki Görünüm Konumuna Git |
+| `Alt + Sağ Ok` | Sonraki Görünüm Konumuna Git |
+| `F11` | Tam Ekran Modu |
+| `F1` | Kısayollar ve Yardım Rehberi |
+
+---
+
+## Proje Dizin Yapısı
 
 ```
 AuraPDF/
-├── assets/                 # Logo, ikon ve medya bileşenleri
+├── assets/                 # Logo, vektörel varlıklar ve medya bileşenleri
 ├── src/
-│   ├── core/              # Çekirdek yardımcılar (i18n, kısayollar, köprü algılama)
-│   ├── document/          # Sekme ve belge yönetimi (tab_document, media_items)
-│   ├── ui/                # Kullanıcı arayüzü bileşenleri
-│   │   ├── dialogs/       # Araç kutusu, ayarlar ve dönüşüm pencereleri
-│   │   ├── widgets.py     # Özelleştirilmiş widget'lar ve araç çubukları
-│   │   ├── popups.py      # Araç ayar açılır pencereleri
-│   │   └── icons.py       # Vektörel ve dinamik ikon üretim fabrikası
-│   └── viewer.py          # Ana uygulama penceresi ve görüntüleyici mantığı
-├── build_setup.py         # PyInstaller ve Inno Setup derleme scripti
-├── installer.iss          # Inno Setup kurulum betiği
-├── main.py                # Giriş noktası (Application Entrypoint)
-├── requirements.txt       # Python bağımlılıkları
-└── README.md
+│   ├── core/              # Çekirdek yardımcılar (i18n, güncelleyici, kısayol yöneticisi)
+│   ├── document/          # Belge, sayfa render ve sekme mimarisi (tab_document)
+│   └── ui/                # Grafik arayüz bileşenleri
+│       ├── dialogs/       # Araç kutusu, ayarlar, sıkıştırma ve güncelleme pencereleri
+│       ├── popups/        # Araç ayarları ve yüzen menüler
+│       ├── icons.py       # Vektörel QPainterPath ikon fabrikası
+│       ├── widgets.py     # Özelleştirilmiş araç çubukları ve kontroller
+│       └── direct_text_editor.py # Doğrudan sayfa içi metin düzenleyici
+├── Kurulum/               # Derlenen kurulum paketleri (Basic/ ve Pro/)
+├── build_setup.py         # PyInstaller ve Inno Setup derleme otomasyonu
+├── installer.iss          # Inno Setup kurulum senaryosu
+├── main.py                # Uygulama ana giriş noktası
+├── requirements.txt       # Python paket bağımlılıkları
+├── AGENTS.md              # Geliştirme ilkeleri ve mimari kurallar rehberi
+└── README.md              # Proje dokümantasyonu
 ```
 
 ---
 
-## 📄 Lisans
+## Lisans
 
-Bu proje MIT lisansı ile lisanslanmıştır. Detaylar için `LICENSE` dosyasına göz atabilirsiniz.
+Bu proje MIT Lisansı altında sunulmaktadır. Ayrıntılar için `LICENSE` dosyasına başvurabilirsiniz.
