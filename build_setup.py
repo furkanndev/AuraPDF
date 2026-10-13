@@ -153,6 +153,7 @@ def build(skip_pyinstaller: bool = False):
         f"/DMyAppVersion={version_str}",
         f"/DOutputFileName={output_filename}",
         f"/DOutputDir={target_kurulum_dir}",
+        f"/DMyAppIcon={ICON_PATH}",
         ISS_SCRIPT
     ]
     print("Komut:", " ".join(iscc_cmd))
@@ -184,6 +185,11 @@ def build(skip_pyinstaller: bool = False):
         if os.path.isdir(DESKTOP_DIR):
             shutil.copyfile(setup_src, target_desktop)
             print(f"Masaustune de kopyalandi: {target_desktop}")
+            try:
+                import ctypes
+                ctypes.windll.shell32.SHChangeNotify(0x08000000, 0, None, None)
+            except Exception:
+                pass
     except Exception as e:
         print("Desktop kopyalama uyarisi:", e)
 

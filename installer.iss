@@ -14,7 +14,9 @@
 #endif
 #define MyAppPublisher "AuraPDF"
 #define MyAppExeName "AuraPDF.exe"
+#ifndef MyAppIcon
 #define MyAppIcon "app_icon.ico"
+#endif
 #define MyDistDir "dist\AuraPDF"
 
 [Setup]
