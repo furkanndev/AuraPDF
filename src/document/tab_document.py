@@ -1973,6 +1973,19 @@ class PDFTabDocument(QWidget):
                     except Exception:
                         pass
 
+        # Hedef doküman self.doc ise, get_pixmap arka planında statik kopya çizilmesini önlemek
+        # ve çizimlerin sahnede iki defa görünmesini engellemek için açıklamaları gizle
+        if target_doc is self.doc:
+            MANAGED_TYPES = (fitz.PDF_ANNOT_INK, fitz.PDF_ANNOT_LINE, fitz.PDF_ANNOT_POLY_LINE, fitz.PDF_ANNOT_HIGHLIGHT, fitz.PDF_ANNOT_FREE_TEXT, fitz.PDF_ANNOT_POLYGON)
+            for p in self.doc:
+                try:
+                    for a in list(p.annots()):
+                        if a.type[0] in MANAGED_TYPES and not (a.flags & fitz.PDF_ANNOT_IS_HIDDEN):
+                            a.set_flags(a.flags | fitz.PDF_ANNOT_IS_HIDDEN)
+                            a.update()
+                except Exception:
+                    pass
+
     # --- Sahne Yönetimi ve Silme İşlemleri ---
     def clear_selection_highlights(self):
         for it in self.selection_highlight_items:
@@ -2125,6 +2138,21 @@ class PDFTabDocument(QWidget):
             if d.get("item_ref"):
                 self.scene.removeItem(d["item_ref"])
         self.drawings.clear()
+        self.clear_selection()
+        self.push_undo_action({"type": "erase", "deleted_items": deleted})
+        self.notify_drawings_changed()
+
+    def clear_page_drawings(self, page_idx: int):
+        """Yalnızca belirtilen indeksteki sayfaya ait tüm çizim ve öğeleri temizler."""
+        if not self.drawings:
+            return
+        deleted = [d for d in self.drawings if d.get("page", 0) == page_idx]
+        if not deleted:
+            return
+        for d in deleted:
+            if d.get("item_ref") and d["item_ref"].scene() == self.scene:
+                self.scene.removeItem(d["item_ref"])
+        self.drawings = [d for d in self.drawings if d.get("page", 0) != page_idx]
         self.clear_selection()
         self.push_undo_action({"type": "erase", "deleted_items": deleted})
         self.notify_drawings_changed()
@@ -2718,8 +2746,14 @@ class PDFTabDocument(QWidget):
             except Exception:
                 pass
 
+        if hasattr(self.main_window, 'organize_workspace') and self.main_window.organize_workspace:
+            try:
+                self.main_window.organize_workspace.load_document(force=True)
+            except Exception:
+                pass
+
     def duplicate_page(self, page_idx: int) -> bool:
-        """Belirtilen sayfayı kopyalar ve ardına ekler."""
+        """Belirtilen sayfayı kopyalar ve ardına ekler (tüm çizimler ve ek açıklamalar dahil)."""
         if self.doc is None or not (0 <= page_idx < len(self.doc)):
             return False
         try:
@@ -2733,12 +2767,30 @@ class PDFTabDocument(QWidget):
             self.doc.insert_pdf(temp_doc, start_at=insert_idx)
             temp_doc.close()
 
-            for d in self.drawings:
-                if d.get("page", 0) >= insert_idx:
-                    d["page"] += 1
+            # Sayfa üzerindeki tüm çizimleri ve ek açıklamaları yeni sayfaya birebir kopyala
+            duplicated_drawings = []
+            if hasattr(self, 'drawings') and self.drawings:
+                for d in self.drawings:
+                    p = d.get("page", 0)
+                    if p > page_idx:
+                        d["page"] = p + 1
+                    elif p == page_idx:
+                        new_d = dict(d)
+                        new_d["page"] = insert_idx
+                        new_d["id"] = uuid.uuid4().hex[:12]
+                        new_d["item_ref"] = None
+                        if "points" in new_d and isinstance(new_d["points"], list):
+                            new_d["points"] = [pt for pt in new_d["points"]]
+                        if "arrow_head" in new_d and isinstance(new_d["arrow_head"], list):
+                            new_d["arrow_head"] = [pt for pt in new_d["arrow_head"]]
+                        if "color" in new_d and isinstance(new_d["color"], QColor):
+                            new_d["color"] = QColor(new_d["color"])
+                        duplicated_drawings.append(new_d)
 
-            self.render_pages_init()
-            self.rerender_visible_pages()
+                self.drawings.extend(duplicated_drawings)
+
+            self.set_modified(True)
+            self.render_all_pages()
             self.go_to_page(insert_idx)
 
             if hasattr(self.main_window, 'lbl_total') and self.main_window.lbl_total:
@@ -2749,18 +2801,19 @@ class PDFTabDocument(QWidget):
             self.notify_thumbnails_updated(insert_idx)
 
             self.push_undo_action({
-                "type": "reorder_pages",
+                "type": "insert_blank_page",
                 "old_bytes": old_bytes,
                 "old_drawings": old_drawings,
                 "old_page": old_page,
                 "new_bytes": self.doc.tobytes(),
                 "new_drawings": [dict(d) for d in self.drawings],
                 "new_page": insert_idx,
-                "new_order": list(range(len(self.doc)))
+                "insert_idx": insert_idx
             })
-            self.set_modified(True)
             return True
-        except Exception:
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
             return False
 
     def insert_pdf_at(self, pdf_path: str, after_page: Optional[int] = None) -> int:
@@ -3189,6 +3242,16 @@ class PDFTabDocument(QWidget):
     # --- Render & Zoom ---
     def render_pages_init(self):
         if self.doc is None: return
+        # In-memory dokümanda ek açıklamaların get_pixmap ile çift çizilmesini önle
+        MANAGED_TYPES = (fitz.PDF_ANNOT_INK, fitz.PDF_ANNOT_LINE, fitz.PDF_ANNOT_POLY_LINE, fitz.PDF_ANNOT_HIGHLIGHT, fitz.PDF_ANNOT_FREE_TEXT, fitz.PDF_ANNOT_POLYGON)
+        for p in self.doc:
+            try:
+                for a in list(p.annots()):
+                    if a.type[0] in MANAGED_TYPES and not (a.flags & fitz.PDF_ANNOT_IS_HIDDEN):
+                        a.set_flags(a.flags | fitz.PDF_ANNOT_IS_HIDDEN)
+                        a.update()
+            except Exception:
+                pass
         self.laser_pointer_item = None
         self.direct_edit_hover_item = None
         self.direct_edit_editor = None
@@ -3874,8 +3937,14 @@ class PDFTabDocument(QWidget):
         p_info = self.page_positions.get(page_idx)
         if not p_info: return
         page_left = p_info.get('left', 0.0)
-        clamped_x = max(page_left, min(scene_pos.x(), page_left + p_info['width'] - 60))
-        clamped_y = max(p_info['top'], min(scene_pos.y(), p_info['bottom'] - 30))
+        page_width = p_info['width']
+        page_right = page_left + page_width
+
+        # Sayfa sınırları içinde kalması için güvenli marjinler ve minimum genişlik
+        margin = 15.0
+        min_w = 120.0
+        clamped_x = max(page_left + margin, min(scene_pos.x(), page_right - min_w - margin))
+        clamped_y = max(p_info['top'] + margin, min(scene_pos.y(), p_info['bottom'] - 40.0 - margin))
         popup = self.main_window.text_popup
         item = EditableInlineTextItem(
             self, page_idx, QPointF(clamped_x, clamped_y),
@@ -3895,41 +3964,62 @@ class PDFTabDocument(QWidget):
         # Manuel atanmış bağlantı kontrolü (Kullanıcı metne veya kelimeye özel bir URL bağlamışsa)
         is_manual = getattr(item, 'manual_link', False) or (bool(getattr(item, 'link_url', '')) and getattr(item, 'link_url', '') != content)
         
+        doc_has_anchor = False
+        if hasattr(item, 'get_fragments'):
+            for blk in item.get_fragments():
+                for f in blk:
+                    if f.get("href"):
+                        doc_has_anchor = True
+                        break
+                if doc_has_anchor:
+                    break
+
         if is_manual and getattr(item, 'link_url', ''):
             item.manual_link = True
             link_text = getattr(item, 'link_text', '')
             link_range = getattr(item, 'link_range', None)
             if link_text and link_text in content:
-                item.format_link_substring(link_text, item.link_url, char_range=link_range)
+                if not doc_has_anchor:
+                    item.format_link_substring(link_text, item.link_url, char_range=link_range)
             elif getattr(item, 'link_url', ''):
                 if link_text and link_text not in content:
                     item.clear_link_formatting()
-                else:
+                elif not doc_has_anchor:
                     item.format_entire_text_as_link(item.link_url)
         else:
             # Otomatik URL / E-Posta / Telefon / T.C. Kimlik Algılama
-            from src.core.hyperlink_detector import detect_hyperlink
-            detected = detect_hyperlink(content)
-            if detected:
-                item.link_url = detected["url"]
-                item.link_type = detected["type"]
-                item.link_raw = detected["raw"]
-                item.setToolTip(detected["tooltip"])
-                if item.link_url:
-                    item.format_entire_text_as_link(item.link_url)
-                elif not getattr(item, 'underline', False):
-                    item.underline = True
-                    item._apply_font()
-            elif item.link_url or getattr(item, 'manual_link', False) or getattr(item, 'link_text', ''):
-                item.clear_link_formatting()
+            if not getattr(item, '_suppress_auto_link', False):
+                from src.core.hyperlink_detector import detect_hyperlink
+                detected = detect_hyperlink(content)
+                if detected:
+                    if not doc_has_anchor:
+                        item.link_url = detected["url"]
+                        item.link_type = detected["type"]
+                        item.link_raw = detected["raw"]
+                        item.setToolTip(detected["tooltip"])
+                        if item.link_url:
+                            item.format_entire_text_as_link(item.link_url)
+                        elif not getattr(item, 'underline', False):
+                            item.underline = True
+                            item._apply_font()
+                elif item.link_url or getattr(item, 'manual_link', False) or getattr(item, 'link_text', ''):
+                    item.clear_link_formatting()
                 
-        p_info = self.page_positions[item.page_idx]
+        p_info = self.page_positions.get(item.page_idx)
+        if not p_info:
+            return
         page_top = p_info['top']
         page_left = p_info.get('left', 0.0)
-        rel_x, rel_y = (item.pos().x() - page_left) / self.base_render_dpi, (item.pos().y() - page_top) / self.base_render_dpi
+        rel_x = max(0.0, (item.pos().x() - page_left) / self.base_render_dpi)
+        rel_y = max(0.0, (item.pos().y() - page_top) / self.base_render_dpi)
         br = item.boundingRect()
-        w_pt = max(40.0, br.width() / self.base_render_dpi)
-        h_pt = max(20.0, br.height() / self.base_render_dpi)
+
+        # Sayfa sınırlarını aşmaması için PDF nokta ölçülerini sınırla
+        p_rect = self.doc[item.page_idx].rect if (self.doc and 0 <= item.page_idx < len(self.doc)) else None
+        max_w_pt = max(30.0, (p_rect.width - rel_x - 4.0)) if p_rect else 500.0
+        max_h_pt = max(20.0, (p_rect.height - rel_y - 4.0)) if p_rect else 400.0
+        w_pt = min(max(20.0, br.width() / self.base_render_dpi), max_w_pt)
+        h_pt = min(max(15.0, br.height() / self.base_render_dpi), max_h_pt)
 
         existing = [d for d in self.drawings if d.get("item_ref") == item]
         new_html = item.toHtml() if hasattr(item, 'toHtml') else ""
@@ -3937,7 +4027,15 @@ class PDFTabDocument(QWidget):
 
         if existing:
             record = existing[0]
-            changed = (
+            pos_changed = (
+                abs(record.get("x", 0.0) - rel_x) > 0.01 or
+                abs(record.get("y", 0.0) - rel_y) > 0.01
+            )
+            dim_changed = (
+                abs(record.get("w", 0.0) - w_pt) > 0.01 or
+                abs(record.get("h", 0.0) - h_pt) > 0.01
+            )
+            content_changed = (
                 record.get("text") != content or 
                 record.get("html") != new_html or
                 record.get("fragments") != frags or
@@ -3950,10 +4048,12 @@ class PDFTabDocument(QWidget):
                 record.get("font_size") != item.font_size or
                 record.get("color") != item.text_color
             )
-            if changed:
+            if pos_changed or dim_changed or content_changed:
                 old_val = record.get("text", "")
                 old_html = record.get("html", "")
                 old_frags = record.get("fragments", None)
+                old_x = record.get("x", rel_x)
+                old_y = record.get("y", rel_y)
                 record["text"] = content
                 record["html"] = new_html
                 record["fragments"] = frags
@@ -3977,8 +4077,11 @@ class PDFTabDocument(QWidget):
                     "type": "edit_text", "record": record,
                     "old_text": old_val, "new_text": content,
                     "old_html": old_html, "new_html": new_html,
-                    "old_fragments": old_frags, "new_fragments": frags
+                    "old_fragments": old_frags, "new_fragments": frags,
+                    "old_x": old_x, "new_x": rel_x,
+                    "old_y": old_y, "new_y": rel_y
                 })
+                self.set_modified(True)
         else:
             item_data = {
                 "type": "text", "page": item.page_idx, "text": content,
@@ -5212,6 +5315,8 @@ class PDFTabDocument(QWidget):
                 pass
             self._stamp_ghost_item = None
         self.pending_stamp = None
+        if hasattr(self, 'main_window') and hasattr(self.main_window, 'modern_left_sidebar') and hasattr(self.main_window.modern_left_sidebar, 'fill_sign_drawer'):
+            self.main_window.modern_left_sidebar.fill_sign_drawer.clear_active_state()
         if hasattr(self, 'main_window') and hasattr(self.main_window, 'update_viewport_cursor'):
             self.main_window.update_viewport_cursor()
         else:
@@ -5523,45 +5628,6 @@ class PDFTabDocument(QWidget):
             page.set_rotation((page.rotation + 90) % 360)
         self.set_modified(True)
         self.render_all_pages()
-
-    def duplicate_page(self, page_idx: int) -> bool:
-        """Belirtilen indeksteki sayfayı kopyalar ve hemen ardına ekler."""
-        if self.doc is None or not (0 <= page_idx < len(self.doc)):
-            return False
-        try:
-            old_bytes = self.doc.tobytes() if len(self.doc) > 0 else b""
-            old_drawings = [dict(d) for d in self.drawings]
-            old_page = self.current_page_idx
-
-            temp = fitz.open("pdf", old_bytes)
-            self.doc.insert_pdf(temp, from_page=page_idx, to_page=page_idx, start_at=page_idx + 1)
-            temp.close()
-
-            # Yeni sayfadan sonrakilerin çizim indekslerini 1 kaydır
-            if hasattr(self, 'drawings') and self.drawings:
-                for d in self.drawings:
-                    if d.get("page", 0) > page_idx:
-                        d["page"] += 1
-
-            self.set_modified(True)
-            self.render_all_pages()
-            self.go_to_page(page_idx + 1)
-
-            self.push_undo_action({
-                "type": "insert_blank_page",
-                "old_bytes": old_bytes,
-                "old_drawings": old_drawings,
-                "old_page": old_page,
-                "new_bytes": self.doc.tobytes(),
-                "new_drawings": [dict(d) for d in self.drawings],
-                "new_page": page_idx + 1,
-                "insert_idx": page_idx + 1
-            })
-            return True
-        except Exception as e:
-            import traceback
-            traceback.print_exc()
-            return False
 
     def erase_at(self, pos, prev_pos=None):
         radius = max(3.0, self.main_window.eraser_popup.thickness / 2.0)
@@ -6175,12 +6241,22 @@ class PDFTabDocument(QWidget):
                     # Önce tıklanabilir bağlantı var mı kontrol et
                     if self._handle_link_click(pos):
                         return True
-                    # Çizim veya medya nesnesi tıklandıysa standart seçime bırak
+                    # Çizim, metin kutusu veya medya nesnesi tıklandıysa standart seçime/etkileşime bırak
                     items = self.scene.items(pos)
                     from src.document.media_items import (PDFTableItem, PDFResizableImageItem, PDFAudioItem, PDFVideoItem)
-                    if any(isinstance(it, (BookmarkRibbonItem, PDFTableItem, PDFResizableImageItem, PDFAudioItem, PDFVideoItem)) for it in items):
+                    from src.ui.widgets import TextMoveHandleItem
+                    is_interactive_target = any(
+                        isinstance(it, (EditableInlineTextItem, BookmarkRibbonItem, PDFTableItem, PDFResizableImageItem, PDFAudioItem, PDFVideoItem, TextMoveHandleItem))
+                        or hasattr(it, 'parent_text_item')
+                        or isinstance(getattr(it, 'parentItem', lambda: None)(), EditableInlineTextItem)
+                        for it in items
+                    )
+                    if is_interactive_target:
                         self.clear_text_selection()
                         return super().eventFilter(source, event)
+                    is_on_handle = bool(self.active_text_item and hasattr(self.active_text_item, 'move_handle') and self.active_text_item.move_handle in items)
+                    if self.active_text_item and self.active_text_item not in items and not is_on_handle:
+                        self.active_text_item.clearFocus()
                     # Metin seçimini başlat
                     self._start_text_selection(pos)
                     return True
@@ -6282,9 +6358,11 @@ class PDFTabDocument(QWidget):
                 return True
             if event.button() == Qt.MouseButton.LeftButton:
                 pos = self.view.mapToScene(event.pos())
-                if any(isinstance(it, BookmarkRibbonItem) for it in self.scene.items(pos)):
+                from src.ui.widgets import TextMoveHandleItem
+                hit_items = self.scene.items(pos)
+                if any(isinstance(it, (BookmarkRibbonItem, TextMoveHandleItem)) or hasattr(it, 'parent_text_item') for it in hit_items):
                     return super().eventFilter(source, event)
-                return self._handle_mouse_press(event, tool)
+                return self._handle_mouse_press(event, tool, source=source)
             elif event.button() == Qt.MouseButton.RightButton:
                 pos = self.view.mapToScene(event.pos())
                 for it in self.scene.items(pos):
@@ -6297,6 +6375,8 @@ class PDFTabDocument(QWidget):
                     return True
         elif event.type() == event.Type.MouseMove:
             if event.buttons() & Qt.MouseButton.LeftButton:
+                if self.scene.mouseGrabberItem() is not None:
+                    return super().eventFilter(source, event)
                 if self.current_path_item is not None:
                     return self._handle_mouse_move(event, tool)
                 pos = self.view.mapToScene(event.pos())
@@ -6306,6 +6386,8 @@ class PDFTabDocument(QWidget):
             else:
                 self._handle_mouse_hover(event, tool)
         elif event.type() == event.Type.MouseButtonRelease and event.button() == Qt.MouseButton.LeftButton:
+            if self.scene.mouseGrabberItem() is not None:
+                return super().eventFilter(source, event)
             if self.current_path_item is not None:
                 return self._handle_mouse_release(event, tool)
             pos = self.view.mapToScene(event.pos())
@@ -7218,7 +7300,7 @@ class PDFTabDocument(QWidget):
     def show_highlighter_quick_menu(self, global_pos: QPoint):
         self.show_tool_quick_menu(global_pos, 'highlighter')
 
-    def _handle_mouse_press(self, event, tool):
+    def _handle_mouse_press(self, event, tool, source=None):
         pos = self.view.mapToScene(event.pos())
 
         # Yorum ikonu tıklandıysa yorum sürüklemeyi başlat
@@ -7325,10 +7407,14 @@ class PDFTabDocument(QWidget):
             return True
 
         if tool in ('select', 'text'):
-            text_items = [it for it in self.scene.items(pos) if isinstance(it, EditableInlineTextItem)]
+            from src.ui.widgets import TextMoveHandleItem
+            hit_items = self.scene.items(pos)
+            if any(isinstance(it, TextMoveHandleItem) or hasattr(it, 'parent_text_item') for it in hit_items):
+                return False
+            text_items = [it for it in hit_items if isinstance(it, EditableInlineTextItem)]
             if text_items:
                 text_items[0].enable_editing()
-                return True
+                return False
 
         # Sayfa dışına tıklandıysa çizim veya metin başlatma!
         if page_idx is None:
@@ -7336,6 +7422,8 @@ class PDFTabDocument(QWidget):
             self.current_path = None
             self.current_path_item = None
             self.stroke_start_pos = None
+            if self.active_text_item:
+                self.active_text_item.clearFocus()
             if tool == 'eraser':
                 self.eraser_last_pos = pos
                 if getattr(self.main_window.eraser_popup, 'eraser_mode', 'stroke') == 'area':
@@ -7666,6 +7754,21 @@ class PDFTabDocument(QWidget):
                             target_p_info = self.page_positions.get(target_page, orig_p_info)
                             target_page_left = target_p_info.get('left', 0.0)
                             target_page_top = target_p_info['top']
+                            target_page_right = target_page_left + target_p_info.get('width', 600.0)
+                            target_page_bottom = target_p_info.get('bottom', target_page_top + 800.0)
+
+                            it = d.get("item_ref")
+                            it_w = it.boundingRect().width() if it else 50.0
+                            it_h = it.boundingRect().height() if it else 30.0
+
+                            m = 10.0
+                            item_scene_x = max(target_page_left + m, min(item_scene_x, target_page_right - it_w - m))
+                            item_scene_y = max(target_page_top + m, min(item_scene_y, target_page_bottom - it_h - m))
+                            if it:
+                                it.setPos(item_scene_x, item_scene_y)
+                                if isinstance(it, EditableInlineTextItem):
+                                    it.page_idx = target_page
+                                    it._update_text_width_constraint()
 
                             d["page"] = target_page
                             d["x"] = (item_scene_x - target_page_left) / self.base_render_dpi

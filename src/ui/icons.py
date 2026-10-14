@@ -207,6 +207,42 @@ class ModernIconFactory:
         p.end()
         return QIcon(pix)
 
+    @staticmethod
+    def icon_drag_handle(color=None, active=False):
+        """
+        Metin kutuları, araç çubukları ve hareketli pencereler için
+        ultra modern 4 yönlü pusula + dokunsal tutamaç vektörel ikonu.
+        """
+        pix, p = ModernIconFactory._base()
+        c = QColor(color) if color else QColor("#38bdf8" if active else "#e2e8f0")
+        p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+
+        cx, cy = 13.0, 13.0
+
+        # Merkez bağlantı noktası
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(QBrush(c))
+        p.drawEllipse(QPointF(cx, cy), 1.4, 1.4)
+
+        # 4 yönlü pusula okları
+        pen = QPen(c, 1.6, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin)
+        p.setPen(pen)
+        p.drawLine(QPointF(cx, cy - 6.5), QPointF(cx, cy + 6.5))
+        p.drawLine(QPointF(cx - 6.5, cy), QPointF(cx + 6.5, cy))
+
+        # Ok kanatları (chevrons)
+        p.drawLine(QPointF(cx, cy - 6.5), QPointF(cx - 2.5, cy - 4.0))
+        p.drawLine(QPointF(cx, cy - 6.5), QPointF(cx + 2.5, cy - 4.0))
+        p.drawLine(QPointF(cx, cy + 6.5), QPointF(cx - 2.5, cy + 4.0))
+        p.drawLine(QPointF(cx, cy + 6.5), QPointF(cx + 2.5, cy + 4.0))
+        p.drawLine(QPointF(cx - 6.5, cy), QPointF(cx - 4.0, cy - 2.5))
+        p.drawLine(QPointF(cx - 6.5, cy), QPointF(cx - 4.0, cy + 2.5))
+        p.drawLine(QPointF(cx + 6.5, cy), QPointF(cx + 4.0, cy - 2.5))
+        p.drawLine(QPointF(cx + 6.5, cy), QPointF(cx + 4.0, cy + 2.5))
+
+        p.end()
+        return QIcon(pix)
+
     @classmethod
     def icon_link(cls, color="#e2e8f0") -> QIcon:
         pix, p = cls._base()

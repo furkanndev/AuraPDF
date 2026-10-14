@@ -718,6 +718,7 @@ class LanguageManager:
             "custom_color_tooltip": "Özel Renk: {hex_val}\nSol tık: Seç/Değiştir | Sağ tık: Değiştir",
             "color_picker_tooltip": "Renk Seçici",
             "clear_all_drawings": "Tüm Çizimleri Temizle",
+            "clear_page_drawings": "Bu Sayfadaki Çizimleri Kaldır",
             "sample_text": "Örnek Metin AaBb12",
             "text_sec_font": "YAZI TİPİ",
             "text_sec_style": "BİÇİM",
@@ -1185,6 +1186,7 @@ class LanguageManager:
 
             # Yeni Özellikler (Pointer, Temizle, Ekle)
             "confirm_clear_drawings": "Geçerli belgedeki tüm çizim ve eklenen öğeleri temizlemek istediğinizden emin misiniz?",
+            "confirm_clear_page_drawings": "Bu sayfadaki tüm çizim ve eklenen öğeleri kaldırmak istediğinizden emin misiniz?",
             "pointer_tool_tip": "Lazer İşaretçi (Sunum Aracı)",
             "insert_tool_tip": "Öğe Ekle (Tablo, Yapışkan Not, PDF)",
             "insert_btn": " ⌵",
@@ -1467,6 +1469,8 @@ class LanguageManager:
             "comment_view_title": "Yapışkan Not Detayı",
             "delete_current_page_btn": "Geçerli Sayfayı Sil",
             "delete_page_prompt": "Sayfa {page} / {total} kalıcı olarak silinsin mi?",
+            "extract_current_page_btn": "Geçerli Sayfayı Çıkar",
+            "extract_page_prompt": "Sayfa {page} / {total} dışa aktarma seçeneğini belirleyin:",
             "organize_pages_btn": "Sayfaları Organize Et...",
             "stamp_dialog_title": "Damga Ekle",
             "stamp_cat_standard": "Standart İş Damgaları",
@@ -2554,6 +2558,7 @@ class LanguageManager:
             "custom_color_tooltip": "Custom Color: {hex_val}\nLeft click: Select/Change | Right click: Change",
             "color_picker_tooltip": "Color Picker Dialog",
             "clear_all_drawings": "Clear All Drawings",
+            "clear_page_drawings": "Clear This Page Drawings",
             "sample_text": "Sample Text AaBb12",
             "text_sec_font": "FONT",
             "text_sec_style": "STYLE",
@@ -3021,6 +3026,7 @@ class LanguageManager:
 
             # New Features (Pointer, Clear, Insert)
             "confirm_clear_drawings": "Are you sure you want to clear all drawings and added items in the current document?",
+            "confirm_clear_page_drawings": "Are you sure you want to remove all drawings and added items on this page?",
             "pointer_tool_tip": "Laser Pointer (Presentation Tool)",
             "insert_tool_tip": "Insert Item (Table, Sticky Note, PDF)",
             "insert_btn": " ⌵",
@@ -3303,6 +3309,8 @@ class LanguageManager:
             "comment_view_title": "Sticky Note Details",
             "delete_current_page_btn": "Delete Current Page",
             "delete_page_prompt": "Permanently delete page {page} of {total}?",
+            "extract_current_page_btn": "Extract Current Page",
+            "extract_page_prompt": "Select export option for page {page} of {total}:",
             "organize_pages_btn": "Organize Pages...",
             "stamp_dialog_title": "Add Stamp",
             "stamp_cat_standard": "Standard Business Stamps",

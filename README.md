@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Sürüm-Pro%20v2.2-6366f1?style=flat-square" alt="Version" />
+  <img src="https://img.shields.io/badge/Sürüm-Pro%20v2.2.1-6366f1?style=flat-square" alt="Version" />
   <img src="https://img.shields.io/badge/Python-3.10%2B-blue?style=flat-square" alt="Python Version" />
   <img src="https://img.shields.io/badge/Arayüz-PyQt6-green?style=flat-square" alt="PyQt6" />
   <img src="https://img.shields.io/badge/PDF_Motoru-PyMuPDF-orange?style=flat-square" alt="PyMuPDF" />
@@ -142,7 +142,7 @@ AuraPDF Pro, Inno Setup 6 ve PyInstaller aracılığıyla tek tıkla kurulabilir
    python build_setup.py
    ```
 3. Derleme tamamlandığında kurulum paketi aşağıdaki dizinde ve masaüstünde hazır olacaktır:
-   * **Pro Sürümü:** `Kurulum/Pro/AuraPDF_Pro v<sürüm>.exe` (Örn: `Kurulum/Pro/AuraPDF_Pro v2.2.exe`)
+   * **Pro Sürümü:** `Kurulum/Pro/AuraPDF_Pro v<sürüm>.exe` (Örn: `Kurulum/Pro/AuraPDF_Pro v2.2.1.exe`)
    * **Basic Sürümü:** `Kurulum/Basic/AuraPDF_Basic v<sürüm>.exe`
 
 *(Not: Sadece kurulum senaryosunu test etmek için `python build_setup.py --iss-only` parametresi kullanılabilir.)*

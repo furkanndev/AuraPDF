@@ -2,7 +2,7 @@ from typing import List, Dict, Optional, Any
 import os
 import tempfile
 import pymupdf as fitz
-from PyQt6.QtWidgets import (QToolButton, QToolBar, QGraphicsTextItem, 
+from PyQt6.QtWidgets import (QToolButton, QToolBar, QGraphicsTextItem, QGraphicsItem,
                              QDockWidget, QTabWidget, QListWidget, QListWidgetItem, 
                              QWidget, QVBoxLayout, QLabel, QApplication, QAbstractItemView,
                              QFrame, QHBoxLayout, QVBoxLayout, QBoxLayout, QLineEdit, QMenu, QTreeWidget,
@@ -11,7 +11,7 @@ from PyQt6.QtWidgets import (QToolButton, QToolBar, QGraphicsTextItem,
                              QStyleOptionViewItem)
 from PyQt6.QtGui import (QDrag, QColor, QFocusEvent, QPainter, QPixmap, QIcon, QFont, QImage,
                          QDesktopServices, QTextCursor, QTextCharFormat, QTextFormat, QCursor, QBrush, QAction,
-                         QPainterPath, QPen, QLinearGradient, QIntValidator)
+                         QPainterPath, QPen, QLinearGradient, QIntValidator, QTextOption)
 from PyQt6.QtCore import (Qt, QMimeData, QPoint, QPointF, QSize, pyqtSignal, QEvent, QRect, QRectF, QTimer, QUrl,
                           QEasingCurve, QPropertyAnimation, QSettings)
 from src.core.i18n import LanguageManager
@@ -272,7 +272,231 @@ class ModernLinkInputDialog(QDialog):
         }
 
 
-# --- 2. DÜZENLENEBİLİR METİN KUTUSU ---
+# --- 2. METİN KUTUSU TAŞIMA TUTAMACI (MOVE HANDLE) ---
+class TextMoveHandleItem(QGraphicsItem):
+    """
+    Metin kutusunun (EditableInlineTextItem) üst orta kenarında yer alan,
+    kullanıcının kutuyu fare ile belge üzerinde kolayca sürükleyip taşımasını
+    sağlayan modern, zarif ve pürüzsüz taşıma tutamacı.
+    """
+    def __init__(self, parent_text_item):
+        super().__init__(parent_text_item)
+        self.parent_text_item = parent_text_item
+        self.setAcceptHoverEvents(True)
+        self.setZValue(150)
+        self.setCursor(Qt.CursorShape.SizeAllCursor)
+        self.setToolTip(LanguageManager.tr("direct_edit_move_hint"))
+        self._is_dragging = False
+        self._drag_start_scene = QPointF()
+        self._item_start_pos = QPointF()
+        self._is_hovered = False
+        self.hide()
+
+    def boundingRect(self) -> QRectF:
+        # 42x20 boyutunda, yatayda ortalanmış şık kapsül
+        return QRectF(-21.0, -22.0, 42.0, 20.0)
+
+    def shape(self) -> QPainterPath:
+        # Metin kutusu üst kenarı ile tutamaç arasında boşluk kalmaması ve
+        # farenin rahatça hedeflenebilmesi için genişletilmiş aktif tıklama alanı
+        path = QPainterPath()
+        path.addRoundedRect(QRectF(-24.0, -25.0, 48.0, 28.0), 10.0, 10.0)
+        return path
+
+    def paint(self, painter, option, widget=None):
+        painter.save()
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+
+        is_active = self._is_hovered or self._is_dragging
+        capsule_rect = QRectF(-20.0, -21.0, 40.0, 19.0)
+
+        # Aktif temadan tema rengini al (Emerald, Purple, Dark vb.)
+        accent_hex = "#38bdf8"
+        try:
+            tab_doc = getattr(self.parent_text_item, 'tab_doc', None)
+            main_win = getattr(tab_doc, 'main_window', None)
+            theme_name = getattr(main_win, 'current_theme', 'dark')
+            from src.ui.modern_views import get_modern_theme_colors
+            c = get_modern_theme_colors(theme_name)
+            accent_hex = c.get('accent', '#38bdf8')
+        except Exception:
+            pass
+
+        accent_col = QColor(accent_hex) if QColor.isValidColor(accent_hex) else QColor("#38bdf8")
+
+        # 1. Yumuşak Zemin Gölgesi (Ambient Drop Shadow)
+        shadow_rect = capsule_rect.adjusted(0.0, 1.5, 0.0, 1.5)
+        painter.setPen(Qt.PenStyle.NoPen)
+        shadow_alpha = 90 if is_active else 50
+        painter.setBrush(QBrush(QColor(0, 0, 0, shadow_alpha)))
+        painter.drawRoundedRect(shadow_rect, 9.5, 9.5)
+
+        # 2. Buzlu Cam Kapsül Gövdesi (Frosted Acrylic Gradient Fill)
+        grad = QLinearGradient(0.0, -21.0, 0.0, -2.0)
+        if self._is_dragging:
+            grad.setColorAt(0.0, QColor(accent_col.red(), accent_col.green(), accent_col.blue(), 75))
+            grad.setColorAt(1.0, QColor(15, 23, 42, 250))
+            border_col = accent_col
+            border_w = 1.4
+        elif self._is_hovered:
+            grad.setColorAt(0.0, QColor(30, 41, 59, 250))
+            grad.setColorAt(1.0, QColor(15, 23, 42, 250))
+            border_col = QColor(accent_col.red(), accent_col.green(), accent_col.blue(), 230)
+            border_w = 1.3
+        else:
+            grad.setColorAt(0.0, QColor(30, 41, 59, 220))
+            grad.setColorAt(1.0, QColor(15, 23, 42, 220))
+            border_col = QColor(255, 255, 255, 75)
+            border_w = 1.0
+
+        painter.setBrush(QBrush(grad))
+        painter.setPen(QPen(border_col, border_w))
+        painter.drawRoundedRect(capsule_rect, 9.5, 9.5)
+
+        # 3. Üst İç Parlama Çizgisi (Specular Glass Highlight)
+        highlight_rect = capsule_rect.adjusted(1.5, 1.0, -1.5, -9.0)
+        painter.setPen(QPen(QColor(255, 255, 255, 45 if not is_active else 70), 1.0))
+        painter.drawArc(highlight_rect, 0, 180 * 16)
+
+        # 4. Ultra Modern 4 Yönlü Taşıma Pusulası ve Dokunsal Tutamaç İkonu
+        cx = capsule_rect.center().x()
+        cy = capsule_rect.center().y()
+
+        if self._is_dragging:
+            icon_col = accent_col
+        elif self._is_hovered:
+            icon_col = QColor(accent_col.red(), accent_col.green(), accent_col.blue(), 245)
+        else:
+            icon_col = QColor(226, 232, 240, 220)
+
+        # Merkez Çapa Noktası (Anchor Node)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QBrush(icon_col))
+        painter.drawEllipse(QPointF(cx, cy), 1.3, 1.3)
+
+        # 4 Yönlü Akıcı Oklar (North, South, East, West)
+        arrow_pen = QPen(icon_col, 1.35, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin)
+        painter.setPen(arrow_pen)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+
+        # Ana kollar
+        painter.drawLine(QPointF(cx, cy - 5.5), QPointF(cx, cy + 5.5))
+        painter.drawLine(QPointF(cx - 5.5, cy), QPointF(cx + 5.5, cy))
+
+        # Üst Ok Kanatları
+        painter.drawLine(QPointF(cx, cy - 5.5), QPointF(cx - 2.2, cy - 3.3))
+        painter.drawLine(QPointF(cx, cy - 5.5), QPointF(cx + 2.2, cy - 3.3))
+
+        # Alt Ok Kanatları
+        painter.drawLine(QPointF(cx, cy + 5.5), QPointF(cx - 2.2, cy + 3.3))
+        painter.drawLine(QPointF(cx, cy + 5.5), QPointF(cx + 2.2, cy + 3.3))
+
+        # Sol Ok Kanatları
+        painter.drawLine(QPointF(cx - 5.5, cy), QPointF(cx - 3.3, cy - 2.2))
+        painter.drawLine(QPointF(cx - 5.5, cy), QPointF(cx - 3.3, cy + 2.2))
+
+        # Sağ Ok Kanatları
+        painter.drawLine(QPointF(cx + 5.5, cy), QPointF(cx + 3.3, cy - 2.2))
+        painter.drawLine(QPointF(cx + 5.5, cy), QPointF(cx + 3.3, cy + 2.2))
+
+        # 5. İki Yandaki Dokunsal Tutamaç Noktaları (Grip Dots)
+        grip_alpha = 180 if is_active else 85
+        grip_col = QColor(icon_col.red(), icon_col.green(), icon_col.blue(), grip_alpha)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QBrush(grip_col))
+        for x_off in (-11.5, 11.5):
+            for y_off in (-2.4, 2.4):
+                painter.drawEllipse(QPointF(cx + x_off, cy + y_off), 1.0, 1.0)
+
+        painter.restore()
+
+    def hoverEnterEvent(self, event):
+        self._is_hovered = True
+        self.update()
+        super().hoverEnterEvent(event)
+
+    def hoverLeaveEvent(self, event):
+        self._is_hovered = False
+        self.update()
+        if not self._is_dragging:
+            parent = self.parent_text_item
+            if parent and not (parent.textInteractionFlags() & Qt.TextInteractionFlag.TextEditorInteraction):
+                if not parent.isUnderMouse():
+                    self.hide()
+        super().hoverLeaveEvent(event)
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._is_dragging = True
+            self._drag_start_scene = event.scenePos()
+            self._item_start_pos = self.parent_text_item.pos()
+            self.setCursor(Qt.CursorShape.ClosedHandCursor)
+            try:
+                self.grabMouse()
+            except Exception:
+                pass
+            if self.parent_text_item:
+                self.parent_text_item.setFocus()
+            self.update()
+            event.accept()
+            return
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event):
+        if self._is_dragging:
+            delta = event.scenePos() - self._drag_start_scene
+            new_pos = self._item_start_pos + delta
+
+            tab_doc = getattr(self.parent_text_item, 'tab_doc', None)
+            if tab_doc and hasattr(tab_doc, 'page_positions'):
+                p_info = tab_doc.page_positions.get(self.parent_text_item.page_idx)
+                if p_info:
+                    margin = 8.0
+                    page_left = p_info.get('left', 0.0)
+                    page_right = page_left + p_info.get('width', 600.0)
+                    page_top = p_info.get('top', 0.0)
+                    page_bottom = p_info.get('bottom', page_top + p_info.get('height', 800.0))
+
+                    br = self.parent_text_item.boundingRect()
+                    w = br.width()
+                    h = br.height()
+
+                    max_x = max(page_left + margin, page_right - w - margin)
+                    max_y = max(page_top + margin, page_bottom - h - margin)
+                    clamped_x = max(page_left + margin, min(new_pos.x(), max_x))
+                    clamped_y = max(page_top + margin, min(new_pos.y(), max_y))
+                    new_pos = QPointF(clamped_x, clamped_y)
+
+            self.parent_text_item.setPos(new_pos)
+
+            hud = getattr(tab_doc, 'text_floating_hud', None)
+            if hud and hud.isVisible():
+                hud.reposition_above_selection()
+
+            event.accept()
+            return
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton and self._is_dragging:
+            self._is_dragging = False
+            try:
+                self.ungrabMouse()
+            except Exception:
+                pass
+            self.setCursor(Qt.CursorShape.SizeAllCursor)
+            self.update()
+            tab_doc = getattr(self.parent_text_item, 'tab_doc', None)
+            if tab_doc:
+                tab_doc.commit_inline_text(self.parent_text_item)
+                if hasattr(tab_doc, 'view') and tab_doc.view:
+                    tab_doc.view.viewport().update()
+            event.accept()
+            return
+        super().mouseReleaseEvent(event)
+
+
+# --- 3. DÜZENLENEBİLİR METİN KUTUSU ---
 class EditableInlineTextItem(QGraphicsTextItem):
     def __init__(self, tab_doc, page_idx, pos, font_family="Arial", font_size=14, color=QColor(230, 230, 230), text="",
                  bold=False, italic=False, underline=False):
@@ -281,7 +505,7 @@ class EditableInlineTextItem(QGraphicsTextItem):
         self.page_idx = page_idx
         self.font_family = font_family
         self.font_size = font_size if (isinstance(font_size, (int, float)) and font_size > 0) else 14
-        self.text_color = color
+        self.text_color = color if isinstance(color, QColor) else QColor(color)
         self.bold = bold
         self.italic = italic
         self.underline = underline
@@ -292,16 +516,102 @@ class EditableInlineTextItem(QGraphicsTextItem):
         self.link_range = None
         self.manual_link = False
         self._last_selection_range = None
+        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemSendsGeometryChanges, True)
         self.setPos(pos)
-        self.setDefaultTextColor(color)
+        self.setDefaultTextColor(self.text_color)
+        opt = self.document().defaultTextOption()
+        opt.setWrapMode(QTextOption.WrapMode.WrapAtWordBoundaryOrAnywhere)
+        self.document().setDefaultTextOption(opt)
         self._apply_font()
+        self.document().contentsChanged.connect(self._update_text_width_constraint)
+        self._update_text_width_constraint()
         self.setZValue(10)
         self.setAcceptHoverEvents(True)
+        self.move_handle = TextMoveHandleItem(self)
+        self.update_move_handle_position()
         if not text:
             self.enable_editing()
         else:
             self.setTextInteractionFlags(Qt.TextInteractionFlag.NoTextInteraction)
             self._detect_and_apply_link(text)
+
+    def itemChange(self, change, value):
+        if change == QGraphicsItem.GraphicsItemChange.ItemPositionChange and self.scene():
+            if hasattr(self.tab_doc, 'page_positions') and self.tab_doc.page_positions:
+                p_info = self.tab_doc.page_positions.get(self.page_idx)
+                if p_info:
+                    margin = 10.0
+                    page_left = p_info.get('left', 0.0)
+                    page_right = page_left + p_info.get('width', 600.0)
+                    page_top = p_info.get('top', 0.0)
+                    page_bottom = p_info.get('bottom', page_top + p_info.get('height', 800.0))
+
+                    clamped_x = max(page_left + margin, min(value.x(), page_right - 30.0 - margin))
+                    clamped_y = max(page_top + margin, min(value.y(), page_bottom - 20.0 - margin))
+                    return QPointF(clamped_x, clamped_y)
+        return super().itemChange(change, value)
+
+    def update_move_handle_position(self):
+        """Taşıma tutamacını metin kutusunun üst kenarının tam ortasına hizalar."""
+        if hasattr(self, 'move_handle') and self.move_handle:
+            w = self.boundingRect().width()
+            self.move_handle.setPos(w / 2.0, 0.0)
+
+    def _update_text_width_constraint(self):
+        """Metin kutusunun boyutunu içeriğe göre dinamik ayarla; sayfa sınırlarında (sağda) otomatik sarma uygula."""
+        try:
+            doc = self.document()
+            if not doc:
+                return
+
+            margin = 12.0
+            max_avail_w = 600.0
+            if hasattr(self.tab_doc, 'page_positions') and self.tab_doc.page_positions:
+                p_info = self.tab_doc.page_positions.get(self.page_idx)
+                if p_info:
+                    page_left = p_info.get('left', 0.0)
+                    page_width = p_info.get('width', 600.0)
+                    page_right = page_left + page_width
+                    cur_x = self.pos().x()
+                    min_box_w = 40.0
+                    max_avail_w = max(min_box_w, page_right - cur_x - margin)
+
+            # Doğal (unwrapped) metin genişliğini ölç
+            if self.textWidth() == -1.0:
+                natural_w = doc.idealWidth()
+            else:
+                clone = doc.clone()
+                clone.setTextWidth(-1.0)
+                natural_w = clone.idealWidth()
+
+            # Doğal genişlik sayfada kalan alanı aşarsa satır sar
+            if natural_w + 4.0 > max_avail_w:
+                if self.textWidth() != max_avail_w:
+                    self.prepareGeometryChange()
+                    self.setTextWidth(max_avail_w)
+            else:
+                if self.textWidth() != -1.0:
+                    self.prepareGeometryChange()
+                    self.setTextWidth(-1.0)
+
+            self.update_move_handle_position()
+        except Exception:
+            pass
+
+    def paint(self, painter, option, widget=None):
+        super().paint(painter, option, widget)
+        # Düzenleme modundayken kullanıcının metin kutusunu rahatça görebilmesi için ince kesikli sınır çiz
+        if bool(self.textInteractionFlags() & Qt.TextInteractionFlag.TextEditorInteraction):
+            painter.save()
+            pen = QPen(QColor(56, 189, 248, 160), 1.0, Qt.PenStyle.DashLine)
+            painter.setPen(pen)
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            r = self.boundingRect().adjusted(0.5, 0.5, -0.5, -0.5)
+            if r.width() < 24.0:
+                r.setWidth(24.0)
+            painter.drawRect(r)
+            painter.restore()
+
 
     def _apply_font(self):
         fs = self.font_size if (isinstance(self.font_size, (int, float)) and self.font_size > 0) else 14
@@ -337,12 +647,16 @@ class EditableInlineTextItem(QGraphicsTextItem):
             fmt.setFontUnderline(bool(underline))
         if font_size is not None and font_size > 0:
             fmt.setFontPointSize(float(font_size))
+        c_obj = None
         if color is not None:
             c = QColor(color) if isinstance(color, str) else color
             if isinstance(c, QColor) and c.isValid():
+                c_obj = c
                 fmt.setForeground(QBrush(c))
         if font_family is not None and font_family:
             fmt.setFontFamily(str(font_family))
+
+        all_selected = (cur.hasSelection() and cur.selectionStart() == 0 and cur.selectionEnd() == len(self.toPlainText()))
 
         if cur.hasSelection():
             cur.mergeCharFormat(fmt)
@@ -354,8 +668,22 @@ class EditableInlineTextItem(QGraphicsTextItem):
             cur_all.mergeCharFormat(fmt)
             self.setCurrentCharFormat(fmt)
 
+        if not cur.hasSelection() or all_selected:
+            if font_size is not None and font_size > 0:
+                self.font_size = float(font_size)
+            if c_obj is not None and c_obj.isValid():
+                self.text_color = c_obj
+            if bold is not None:
+                self.bold = bool(bold)
+            if italic is not None:
+                self.italic = bool(italic)
+            if underline is not None:
+                self.underline = bool(underline)
+            if font_family is not None and font_family:
+                self.font_family = str(font_family)
+
         self.prepareGeometryChange()
-        self.document().adjustSize()
+        self._update_text_width_constraint()
         self.setFocus()
         self.update()
         if hasattr(self.tab_doc, 'view') and self.tab_doc.view:
@@ -366,6 +694,11 @@ class EditableInlineTextItem(QGraphicsTextItem):
         if hud and hud.isVisible():
             hud.update_ui_from_selection()
             hud.reposition_above_selection()
+        if hasattr(self.tab_doc, 'main_window') and hasattr(self.tab_doc.main_window, 'text_popup'):
+            popup = self.tab_doc.main_window.text_popup
+            if popup and popup.isVisible():
+                popup.sync_with_item_selection(self)
+        self.update_move_handle_position()
 
     def get_selection_format(self) -> dict:
         cur = self.textCursor()
@@ -375,26 +708,85 @@ class EditableInlineTextItem(QGraphicsTextItem):
                 cur.setPosition(st)
                 cur.setPosition(en, QTextCursor.MoveMode.KeepAnchor)
 
-        fmt = cur.charFormat()
-        fs = fmt.fontPointSize()
-        if fs <= 0:
-            fs = self.font().pointSize() if self.font().pointSize() > 0 else self.font_size
-        col = fmt.foreground().color()
-        if not col.isValid() or col.alpha() == 0:
-            col = self.text_color
-        weight_val = fmt.fontWeight()
-        if weight_val <= 0:
-            is_bold = self.bold
+        full_text = self.toPlainText()
+        doc_len = len(full_text)
+
+        if cur.hasSelection():
+            st = cur.selectionStart()
+            en = cur.selectionEnd()
+            sel_text = full_text[st:en]
+            non_space_indices = [st + i for i, ch in enumerate(sel_text) if not ch.isspace()]
+            if not non_space_indices:
+                non_space_indices = list(range(st, en))
         else:
-            is_bold = (weight_val >= QFont.Weight.Bold.value) if isinstance(weight_val, int) else (weight_val >= QFont.Weight.Bold)
-        fam = fmt.font().family() if hasattr(fmt, 'font') else ""
+            pos = cur.position()
+            non_space_indices = [max(0, pos - 1)] if pos > 0 else ([0] if doc_len > 0 else [])
+
+        if not non_space_indices:
+            return {
+                "bold": bool(self.bold),
+                "italic": bool(self.italic),
+                "underline": bool(self.underline),
+                "font_size": float(self.font_size),
+                "color": self.text_color,
+                "font_family": self.font_family,
+                "href": getattr(self, "link_url", ""),
+                "is_link": bool(getattr(self, "link_url", ""))
+            }
+
+        bolds = []
+        italics = []
+        underlines = []
+        font_sizes = []
+        colors = []
+        families = []
+        hrefs = []
+
+        doc = self.document()
+        for p in non_space_indices:
+            chk = QTextCursor(doc)
+            chk.setPosition(p)
+            chk.setPosition(min(p + 1, doc_len), QTextCursor.MoveMode.KeepAnchor)
+            fmt = chk.charFormat()
+            w = fmt.fontWeight()
+            if w <= 0:
+                is_b = self.bold
+            else:
+                is_b = (w >= QFont.Weight.Bold.value) if isinstance(w, int) else (w >= QFont.Weight.Bold)
+            bolds.append(bool(is_b))
+            italics.append(bool(fmt.fontItalic()))
+            underlines.append(bool(fmt.fontUnderline()))
+            fs = fmt.fontPointSize()
+            if fs <= 0:
+                fs = self.font().pointSize() if self.font().pointSize() > 0 else self.font_size
+            font_sizes.append(float(fs))
+            c = fmt.foreground().color()
+            if not c.isValid() or c.alpha() == 0:
+                c = self.text_color
+            colors.append(c)
+            fam = fmt.font().family() if hasattr(fmt, 'font') else ""
+            families.append(fam or self.font_family)
+            if fmt.isAnchor() and fmt.anchorHref():
+                hrefs.append(fmt.anchorHref())
+
+        sel_bold = all(bolds) if bolds else bool(self.bold)
+        sel_italic = all(italics) if italics else bool(self.italic)
+        sel_underline = all(underlines) if underlines else bool(self.underline)
+        sel_size = font_sizes[0] if font_sizes else float(self.font_size)
+        sel_color = colors[0] if colors else self.text_color
+        sel_family = families[0] if families else self.font_family
+        sel_href = hrefs[0] if hrefs else ""
+        sel_is_link = bool(hrefs) or (not cur.hasSelection() and bool(getattr(self, "link_url", "")))
+
         return {
-            "bold": bool(is_bold),
-            "italic": fmt.fontItalic() if fmt.hasProperty(QTextFormat.Property.FontItalic) else self.italic,
-            "underline": fmt.fontUnderline() if fmt.hasProperty(QTextFormat.Property.FontUnderline) else self.underline,
-            "font_size": fs,
-            "color": col,
-            "font_family": fam or self.font_family
+            "bold": sel_bold,
+            "italic": sel_italic,
+            "underline": sel_underline,
+            "font_size": sel_size,
+            "color": sel_color,
+            "font_family": sel_family,
+            "href": sel_href,
+            "is_link": sel_is_link
         }
 
     def get_fragments(self) -> list:
@@ -471,6 +863,10 @@ class EditableInlineTextItem(QGraphicsTextItem):
             if st < en:
                 self._last_selection_range = (st, en)
                 self.show_floating_hud()
+                if hasattr(self.tab_doc, 'main_window') and hasattr(self.tab_doc.main_window, 'text_popup'):
+                    popup = self.tab_doc.main_window.text_popup
+                    if popup and popup.isVisible():
+                        popup.sync_with_item_selection(self)
                 return
         self.hide_floating_hud()
 
@@ -509,12 +905,13 @@ class EditableInlineTextItem(QGraphicsTextItem):
         Diğer kelimeler orijinal renginde ve biçiminde kalır.
         """
         if not url:
-            self.clear_link_formatting()
+            self.clear_link_formatting(char_range=char_range)
             return
 
         if not url.startswith(('http://', 'https://', 'mailto:', 'tel:')):
             url = 'https://' + url
 
+        self._suppress_auto_link = False
         self.link_url = url
         self.link_type = "url"
         self.manual_link = True
@@ -527,14 +924,6 @@ class EditableInlineTextItem(QGraphicsTextItem):
         base_font.setBold(self.bold)
         base_font.setItalic(self.italic)
         base_font.setUnderline(self.underline)
-
-        # Sadece önceki bağlantı çıpalarını (anchor) kaldır, harf renklerini ve boyutlarını koru
-        cur_clear = QTextCursor(doc)
-        cur_clear.select(QTextCursor.SelectionType.Document)
-        fmt_no_anchor = QTextCharFormat()
-        fmt_no_anchor.setAnchor(False)
-        fmt_no_anchor.setAnchorHref("")
-        cur_clear.mergeCharFormat(fmt_no_anchor)
 
         link_fmt = QTextCharFormat()
         link_fmt.setAnchor(True)
@@ -604,30 +993,119 @@ class EditableInlineTextItem(QGraphicsTextItem):
             self.link_raw = url
             self.setToolTip(f"Bağlantı: {url}\n(Tıklayarak siteye gidin)")
 
+        self.prepareGeometryChange()
+        self.update()
+        if hasattr(self.tab_doc, 'view') and self.tab_doc.view:
+            self.tab_doc.view.viewport().update()
+
+        self.tab_doc.commit_inline_text(self)
+        hud = getattr(self.tab_doc, 'text_floating_hud', None)
+        if hud and hud.isVisible():
+            hud.update_ui_from_selection()
+            hud.reposition_above_selection()
+        if hasattr(self.tab_doc, 'main_window') and hasattr(self.tab_doc.main_window, 'text_popup'):
+            popup = self.tab_doc.main_window.text_popup
+            if popup and popup.isVisible():
+                popup.sync_with_item_selection(self)
+
     def format_entire_text_as_link(self, url: str):
         self.format_link_substring("", url, char_range=None)
 
-    def clear_link_formatting(self):
-        had_link = bool(self.link_url or self.manual_link or self.link_text or self.link_range)
-        self.link_url = ""
-        self.link_type = None
-        self.link_raw = ""
-        self.link_text = ""
-        self.link_range = None
-        self.manual_link = False
-        self.setToolTip("")
-
-        if not had_link:
-            return
-
-        # Sadece bağlantı çıpasını kaldır; kullanıcının özel harf renklerini/kalınlıklarını ASLA sıfırlama
+    def clear_link_formatting(self, char_range: tuple = None):
         doc = self.document()
-        cur = QTextCursor(doc)
-        cur.select(QTextCursor.SelectionType.Document)
-        fmt_no_anchor = QTextCharFormat()
-        fmt_no_anchor.setAnchor(False)
-        fmt_no_anchor.setAnchorHref("")
-        cur.mergeCharFormat(fmt_no_anchor)
+        full_text = doc.toPlainText()
+        doc_len = len(full_text)
+
+        target_range = char_range
+        cur = self.textCursor()
+        if target_range is None and cur.hasSelection():
+            target_range = (cur.selectionStart(), cur.selectionEnd())
+        elif target_range is None and getattr(self, "link_range", None):
+            target_range = self.link_range
+
+        # Eğer imleç veya seçim bir bağlantının içindeyse bağlantının tamamına genişlet
+        if target_range and 0 <= target_range[0] <= target_range[1] <= doc_len:
+            st, en = target_range
+            if st < doc_len:
+                c_test = QTextCursor(doc)
+                c_test.setPosition(st)
+                c_test.setPosition(min(st + 1, doc_len), QTextCursor.MoveMode.KeepAnchor)
+                if c_test.charFormat().isAnchor():
+                    target_href = c_test.charFormat().anchorHref()
+                    while st > 0:
+                        c_prev = QTextCursor(doc)
+                        c_prev.setPosition(st - 1)
+                        c_prev.setPosition(st, QTextCursor.MoveMode.KeepAnchor)
+                        if c_prev.charFormat().isAnchor() and (not target_href or c_prev.charFormat().anchorHref() == target_href):
+                            st -= 1
+                        else:
+                            break
+                    while en < doc_len:
+                        c_next = QTextCursor(doc)
+                        c_next.setPosition(en)
+                        c_next.setPosition(en + 1, QTextCursor.MoveMode.KeepAnchor)
+                        if c_next.charFormat().isAnchor() and (not target_href or c_next.charFormat().anchorHref() == target_href):
+                            en += 1
+                        else:
+                            break
+                    target_range = (st, en)
+
+        fmt_clear = QTextCharFormat()
+        fmt_clear.setAnchor(False)
+        fmt_clear.setAnchorHref("")
+        fmt_clear.setFontUnderline(bool(self.underline))
+        fmt_clear.setForeground(QBrush(self.text_color))
+
+        if target_range and 0 <= target_range[0] < target_range[1] <= doc_len:
+            st, en = target_range
+            c_clear = QTextCursor(doc)
+            c_clear.setPosition(st)
+            c_clear.setPosition(en, QTextCursor.MoveMode.KeepAnchor)
+            c_clear.mergeCharFormat(fmt_clear)
+        else:
+            c_clear = QTextCursor(doc)
+            c_clear.select(QTextCursor.SelectionType.Document)
+            c_clear.mergeCharFormat(fmt_clear)
+
+        # Belgede başka bağlantı kalıp kalmadığını denetle
+        remaining_links = False
+        block = doc.begin()
+        while block.isValid():
+            it = block.begin()
+            while not it.atEnd():
+                f = it.fragment()
+                if f.isValid() and f.charFormat().isAnchor():
+                    remaining_links = True
+                    break
+                it += 1
+            if remaining_links:
+                break
+            block = block.next()
+
+        if not remaining_links:
+            self.link_url = ""
+            self.link_type = None
+            self.link_raw = ""
+            self.link_text = ""
+            self.link_range = None
+            self.manual_link = False
+            self.setToolTip("")
+
+        self._suppress_auto_link = True
+        self.prepareGeometryChange()
+        self.update()
+        if hasattr(self.tab_doc, 'view') and self.tab_doc.view:
+            self.tab_doc.view.viewport().update()
+
+        self.tab_doc.commit_inline_text(self)
+        hud = getattr(self.tab_doc, 'text_floating_hud', None)
+        if hud and hud.isVisible():
+            hud.update_ui_from_selection()
+            hud.reposition_above_selection()
+        if hasattr(self.tab_doc, 'main_window') and hasattr(self.tab_doc.main_window, 'text_popup'):
+            popup = self.tab_doc.main_window.text_popup
+            if popup and popup.isVisible():
+                popup.sync_with_item_selection(self)
 
     def open_link_dialog(self, prefill_word="", char_range=None):
         cur = self.textCursor()
@@ -652,9 +1130,10 @@ class EditableInlineTextItem(QGraphicsTextItem):
             if not selected_text:
                 selected_text = getattr(self, "link_text", "")
 
+        fmt_sel = self.get_selection_format()
         initial_word = selected_text or getattr(self, "link_text", "")
-        initial_url = getattr(self, "link_url", "") or "https://"
-        has_existing = bool(getattr(self, "link_url", "")) or getattr(self, "manual_link", False)
+        initial_url = fmt_sel.get("href", "") or getattr(self, "link_url", "") or "https://"
+        has_existing = bool(fmt_sel.get("is_link", False)) or bool(getattr(self, "link_url", "")) or getattr(self, "manual_link", False)
 
         parent_widget = self.scene().views()[0] if self.scene() and self.scene().views() else self.tab_doc.main_window
         dlg = ModernLinkInputDialog(
@@ -666,7 +1145,7 @@ class EditableInlineTextItem(QGraphicsTextItem):
         if dlg.exec():
             data = dlg.get_data()
             if data['remove']:
-                self.clear_link_formatting()
+                self.clear_link_formatting(char_range=target_range)
                 self.tab_doc.commit_inline_text(self)
             else:
                 target_url = data['url']
@@ -683,8 +1162,15 @@ class EditableInlineTextItem(QGraphicsTextItem):
         self.tab_doc.active_text_item = self
         self.tab_doc.last_text_item = self
         self.setCursor(Qt.CursorShape.IBeamCursor)
+        if hasattr(self, 'move_handle') and self.move_handle:
+            self.move_handle.show()
+            self.update_move_handle_position()
 
     def hoverEnterEvent(self, event):
+        if hasattr(self, 'move_handle') and self.move_handle:
+            self.move_handle.show()
+            self.update_move_handle_position()
+
         if self.textInteractionFlags() & Qt.TextInteractionFlag.TextEditorInteraction:
             self.setCursor(Qt.CursorShape.IBeamCursor)
         else:
@@ -721,17 +1207,35 @@ class EditableInlineTextItem(QGraphicsTextItem):
 
     def hoverLeaveEvent(self, event):
         self.setCursor(Qt.CursorShape.ArrowCursor)
+        if hasattr(self, 'move_handle') and self.move_handle:
+            if getattr(self.move_handle, '_is_dragging', False) or getattr(self.move_handle, '_is_hovered', False) or self.move_handle.isUnderMouse():
+                super().hoverLeaveEvent(event)
+                return
+            if not (self.textInteractionFlags() & Qt.TextInteractionFlag.TextEditorInteraction):
+                self.move_handle.hide()
         super().hoverLeaveEvent(event)
 
     def mouseDoubleClickEvent(self, event):
         self.enable_editing()
+        cur = self.textCursor()
         layout = self.document().documentLayout()
         char_idx = layout.hitTest(event.pos(), Qt.HitTestAccuracy.ExactHit)
+
+        if cur.hasSelection():
+            # Kullanıcı metin seçiliyken çift tıkladığında seçimi temizle ve imleci konuma al
+            cur.clearSelection()
+            if char_idx >= 0:
+                cur.setPosition(char_idx)
+            self.setTextCursor(cur)
+            self._check_selection_and_update_hud()
+            event.accept()
+            return
+
         if char_idx >= 0:
-            cur = self.textCursor()
             cur.setPosition(char_idx)
             cur.select(QTextCursor.SelectionType.WordUnderCursor)
             self.setTextCursor(cur)
+        self._check_selection_and_update_hud()
         event.accept()
 
     def mousePressEvent(self, event):
@@ -739,6 +1243,8 @@ class EditableInlineTextItem(QGraphicsTextItem):
 
         # 1. Eğer düzenleme modundaysa: Normal tıklamalar imleç konumlandırma ve seçim içindir!
         if is_editing:
+            self._press_pos = event.pos()
+            self._had_selection_on_press = self.textCursor().hasSelection()
             if event.button() == Qt.MouseButton.LeftButton and (event.modifiers() & Qt.KeyboardModifier.ControlModifier):
                 anc = self.document().documentLayout().anchorAt(event.pos())
                 if anc:
@@ -800,19 +1306,34 @@ class EditableInlineTextItem(QGraphicsTextItem):
             # Tıklanan yer bağlantı değilse ve araç select veya text ise düzenleme moduna geç
             if self.tab_doc.main_window.current_tool in ('select', 'text'):
                 self.enable_editing()
+                self._press_pos = event.pos()
+                self._had_selection_on_press = self.textCursor().hasSelection()
                 layout = self.document().documentLayout()
                 char_idx = layout.hitTest(event.pos(), Qt.HitTestAccuracy.ExactHit)
                 if char_idx >= 0:
                     cur = self.textCursor()
                     cur.setPosition(char_idx)
                     self.setTextCursor(cur)
-                event.accept()
+                super().mousePressEvent(event)
                 return
+
 
         super().mousePressEvent(event)
 
     def mouseReleaseEvent(self, event):
         super().mouseReleaseEvent(event)
+        if getattr(self, '_had_selection_on_press', False):
+            press_pos = getattr(self, '_press_pos', None)
+            if press_pos is not None and (event.pos() - press_pos).manhattanLength() < 4:
+                cur = self.textCursor()
+                if cur.hasSelection():
+                    layout = self.document().documentLayout()
+                    char_idx = layout.hitTest(event.pos(), Qt.HitTestAccuracy.ExactHit)
+                    if char_idx >= 0:
+                        cur.clearSelection()
+                        cur.setPosition(char_idx)
+                        self.setTextCursor(cur)
+            self._had_selection_on_press = False
         self._check_selection_and_update_hud()
 
     def keyPressEvent(self, event):
@@ -867,7 +1388,20 @@ class EditableInlineTextItem(QGraphicsTextItem):
         self.tab_doc.last_text_item = self
 
     def focusOutEvent(self, event):
+        # 0. Taşıma tutamacı sürükleniyorsa, fare tutamaç üzerindeyse veya tutamaç altındaysa düzenleme modundan çıkma
+        if hasattr(self, 'move_handle') and self.move_handle:
+            if getattr(self.move_handle, '_is_dragging', False) or getattr(self.move_handle, '_is_hovered', False) or self.move_handle.isUnderMouse():
+                return
+            if self.scene() and hasattr(self.tab_doc, 'view') and self.tab_doc.view:
+                try:
+                    c_scene = self.tab_doc.view.mapToScene(self.tab_doc.view.viewport().mapFromGlobal(QCursor.pos()))
+                    if self.move_handle.sceneBoundingRect().contains(c_scene):
+                        return
+                except Exception:
+                    pass
+
         super().focusOutEvent(event)
+
         # Kayan hızlı biçimlendirme çubuğuna veya ayar popup'larına tıklanmışsa düzenleme modundan çıkma
         hud = getattr(self.tab_doc, 'text_floating_hud', None)
         focus_w = QApplication.focusWidget()
@@ -880,11 +1414,15 @@ class EditableInlineTextItem(QGraphicsTextItem):
                 if hud.geometry().contains(vp.mapFromGlobal(mouse_pos)):
                     return
 
-        # 2. Fare araç çubuğu metin ayar penceresi üzerindeyse çıkma
+        # 2. Fare araç çubuğu metin ayar penceresi veya araç butonu üzerindeyse çıkma
         text_popup = getattr(getattr(self.tab_doc, 'main_window', None), 'text_popup', None)
         if text_popup and text_popup.isVisible():
             if text_popup.rect().contains(text_popup.mapFromGlobal(mouse_pos)):
                 return
+        main_win = getattr(self.tab_doc, 'main_window', None)
+        btn_text = getattr(main_win, 'btn_text', None)
+        if btn_text and btn_text.isVisible() and btn_text.rect().contains(btn_text.mapFromGlobal(mouse_pos)):
+            return
 
         # 3. Aktif bir popup (ör. renk seçici QMenu) veya modal pencere (QColorDialog) açıksa çıkma
         active_popup = QApplication.activePopupWidget()
@@ -901,6 +1439,8 @@ class EditableInlineTextItem(QGraphicsTextItem):
                 return
             if text_popup and (curr == text_popup or text_popup.isAncestorOf(curr)):
                 return
+            if btn_text and (curr == btn_text or btn_text.isAncestorOf(curr)):
+                return
             if isinstance(curr, (QColorDialog, QMenu)):
                 return
             curr = curr.parent()
@@ -909,13 +1449,25 @@ class EditableInlineTextItem(QGraphicsTextItem):
         if not content:
             if hud:
                 hud.hide()
+            if hasattr(self, 'move_handle') and self.move_handle:
+                self.move_handle.hide()
             self.tab_doc.scene.removeItem(self)
             self.tab_doc.drawings = [d for d in self.tab_doc.drawings if d.get("item_ref") != self]
             self.tab_doc.active_text_item = None
         else:
+            # Odak kaybolmadan önce seçimi kaydet ve temizle; aksi hâlde seçim vurgusu
+            # (mavi blok) NoTextInteraction modunda görünür kalır.
+            cur = self.textCursor()
+            if cur.hasSelection():
+                self._last_selection_range = (cur.selectionStart(), cur.selectionEnd())
+                cur.clearSelection()
+                cur.movePosition(QTextCursor.MoveOperation.Start)
+                self.setTextCursor(cur)
             self.setTextInteractionFlags(Qt.TextInteractionFlag.NoTextInteraction)
             if hud:
                 hud.hide()
+            if hasattr(self, 'move_handle') and self.move_handle:
+                self.move_handle.hide()
             self.tab_doc.commit_inline_text(self)
 
     def contextMenuEvent(self, event):

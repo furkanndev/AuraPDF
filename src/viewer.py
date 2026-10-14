@@ -1896,14 +1896,19 @@ class AuraPDFViewer(QMainWindow):
             tab_doc = self.get_current_tab_doc()
             if tab_doc:
                 self.update_zoom_display(int(tab_doc.zoom_level * 100))
+            if hasattr(self, 'modern_left_sidebar') and hasattr(self.modern_left_sidebar, 'edit_drawer'):
+                if self.modern_left_sidebar.edit_drawer.active_edit_id == "organize":
+                    self.modern_left_sidebar.edit_drawer.clear_active_state()
         else:
             self.switch_to_home_view()
 
     def switch_to_organize_view(self):
         if self.tab_widget.count() > 0:
             self.central_stack.setCurrentWidget(self.organize_workspace)
-            self.organize_workspace.load_document()
+            self.organize_workspace.load_document(force=True)
             self.modern_left_sidebar.set_active_tool("organize_pages")
+            if hasattr(self, 'modern_left_sidebar') and hasattr(self.modern_left_sidebar, 'edit_drawer'):
+                self.modern_left_sidebar.edit_drawer.set_active_tool("organize")
             if hasattr(self, 'floating_capsule'):
                 self.floating_capsule.hide()
             if hasattr(self, 'modern_header_bar') and hasattr(self.modern_header_bar, 'pinned_tools_capsule'):
@@ -2029,81 +2034,122 @@ class AuraPDFViewer(QMainWindow):
             self.open_encrypt_dialog()
 
     def _on_export_drawer_action(self, action_id: str):
-        if action_id == "word":
-            self.open_word_dialog()
-        elif action_id == "xlsx":
-            self.open_excel_dialog()
-        elif action_id == "pptx":
-            self.open_pptx_dialog()
-        elif action_id == "png":
-            self._export_current_page_as_image()
-        elif action_id == "all_images":
-            self._export_all_images_action()
-        elif action_id == "html":
-            self._export_as_html_action()
-        elif action_id == "rtf":
-            self._export_as_rtf_action()
-        elif action_id == "txt":
-            self._export_as_txt_action()
-        elif action_id == "eps":
-            self.open_word_dialog()
+        try:
+            if action_id == "word":
+                self.open_word_dialog()
+            elif action_id == "xlsx":
+                self.open_excel_dialog()
+            elif action_id == "pptx":
+                self.open_pptx_dialog()
+            elif action_id == "png":
+                self._export_current_page_as_image()
+            elif action_id == "all_images":
+                self._export_all_images_action()
+            elif action_id == "html":
+                self._export_as_html_action()
+            elif action_id == "rtf":
+                self._export_as_rtf_action()
+            elif action_id == "txt":
+                self._export_as_txt_action()
+            elif action_id == "eps":
+                self.open_word_dialog()
+        finally:
+            if hasattr(self, 'modern_left_sidebar') and hasattr(self.modern_left_sidebar, 'export_drawer'):
+                self.modern_left_sidebar.export_drawer.clear_active_state()
 
     def _on_edit_drawer_action(self, action_id: str):
-        if action_id == "rotate":
-            if self.tab_widget.count() > 0:
-                self.rotate_current_page()
+        try:
+            if action_id == "rotate":
+                if self.tab_widget.count() > 0:
+                    if hasattr(self, 'central_stack') and hasattr(self, 'organize_workspace') and self.central_stack.currentWidget() == self.organize_workspace:
+                        self.organize_workspace.rotate_selected_cw()
+                    else:
+                        self.rotate_current_page()
+                else:
+                    self.open_pdf()
+            elif action_id == "delete":
+                if self.tab_widget.count() > 0:
+                    if hasattr(self, 'central_stack') and hasattr(self, 'organize_workspace') and self.central_stack.currentWidget() == self.organize_workspace:
+                        self.organize_workspace.delete_selected_pages()
+                    else:
+                        self.delete_pages_action()
+                else:
+                    self.open_pdf()
+            elif action_id == "organize":
+                if self.tab_widget.count() > 0:
+                    if hasattr(self, 'central_stack') and hasattr(self, 'organize_workspace') and self.central_stack.currentWidget() == self.organize_workspace:
+                        self.switch_to_document_view()
+                    else:
+                        self.switch_to_organize_view()
+                else:
+                    self.open_pdf()
+            elif action_id == "extract":
+                if self.tab_widget.count() > 0:
+                    if hasattr(self, 'central_stack') and hasattr(self, 'organize_workspace') and self.central_stack.currentWidget() == self.organize_workspace:
+                        self.organize_workspace.extract_pages_action()
+                    else:
+                        self.extract_pages_action()
+                else:
+                    self.open_pdf()
+            elif action_id == "insert":
+                if hasattr(self, 'central_stack') and hasattr(self, 'organize_workspace') and self.central_stack.currentWidget() == self.organize_workspace:
+                    self.organize_workspace.insert_page_action()
+                else:
+                    self.show_new_page_dialog(default_placement="after_current")
+            elif action_id in ("gif", "add_gif"):
+                self.show_insert_emoji_dialog()
+            elif action_id == "edit_text_images":
+                if self.tab_widget.count() > 0:
+                    self.switch_to_document_view()
+                    self.open_pdf_content_editor()
+                else:
+                    self.open_pdf()
+            elif action_id == "text":
+                if self.tab_widget.count() > 0:
+                    self.switch_to_document_view()
+                    self.set_tool_state('text')
+                else:
+                    self.open_pdf()
+            elif action_id == "image":
+                self.show_insert_image_dialog()
+            elif action_id in ("header_footer", "bates"):
+                self.open_page_number_dialog()
+            elif action_id == "watermark":
+                self.open_watermark_dialog()
+            elif action_id == "background":
+                self.open_background_dialog()
+            elif action_id == "link":
+                self.show_toolbox_menu()
+            elif action_id == "attach":
+                if self.tab_widget.count() == 0 or not self.get_current_tab_doc():
+                    self.open_pdf()
+                    return
+                if hasattr(self, 'modern_utility_rail'):
+                    self.modern_utility_rail.show()
+                    self.modern_utility_rail.set_active_rail_item("attachments")
+                if hasattr(self, 'modern_right_sidebar'):
+                    self.modern_right_sidebar.show()
+                    self.modern_right_sidebar.set_panel("attachments")
+                    self.modern_right_sidebar._add_attachment_action()
+        finally:
+            is_in_organize = hasattr(self, 'central_stack') and hasattr(self, 'organize_workspace') and self.central_stack.currentWidget() == self.organize_workspace
+            if is_in_organize:
+                if hasattr(self, 'modern_left_sidebar') and hasattr(self.modern_left_sidebar, 'edit_drawer'):
+                    self.modern_left_sidebar.edit_drawer.set_active_tool("organize")
+            elif action_id in ("text", "edit_text_images"):
+                if self.tab_widget.count() == 0:
+                    if hasattr(self, 'modern_left_sidebar') and hasattr(self.modern_left_sidebar, 'edit_drawer'):
+                        self.modern_left_sidebar.edit_drawer.clear_active_state()
             else:
-                self.open_pdf()
-        elif action_id == "delete":
-            if self.tab_widget.count() > 0:
-                self.delete_pages_action()
-            else:
-                self.open_pdf()
-        elif action_id in ("extract", "organize"):
-            if self.tab_widget.count() > 0:
-                self.switch_to_organize_view()
-            else:
-                self.open_pdf()
-        elif action_id == "insert":
-            self.show_new_page_dialog(default_placement="after_current")
-        elif action_id in ("gif", "add_gif"):
-            self.show_insert_emoji_dialog()
-        elif action_id == "edit_text_images":
-            if self.tab_widget.count() > 0:
-                self.switch_to_document_view()
-                self.open_pdf_content_editor()
-            else:
-                self.open_pdf()
-        elif action_id == "text":
-            if self.tab_widget.count() > 0:
-                self.switch_to_document_view()
-                self.set_tool_state('text')
-            else:
-                self.open_pdf()
-        elif action_id == "image":
-            self.show_insert_image_dialog()
-        elif action_id in ("header_footer", "bates"):
-            self.open_page_number_dialog()
-        elif action_id == "watermark":
-            self.open_watermark_dialog()
-        elif action_id == "background":
-            self.open_background_dialog()
-        elif action_id == "link":
-            self.show_toolbox_menu()
-        elif action_id == "attach":
-            if self.tab_widget.count() == 0 or not self.get_current_tab_doc():
-                self.open_pdf()
-                return
-            if hasattr(self, 'modern_utility_rail'):
-                self.modern_utility_rail.show()
-                self.modern_utility_rail.set_active_rail_item("attachments")
-            if hasattr(self, 'modern_right_sidebar'):
-                self.modern_right_sidebar.show()
-                self.modern_right_sidebar.set_panel("attachments")
-                self.modern_right_sidebar._add_attachment_action()
+                if hasattr(self, 'modern_left_sidebar') and hasattr(self.modern_left_sidebar, 'edit_drawer'):
+                    self.modern_left_sidebar.edit_drawer.clear_active_state()
 
     def delete_pages_action(self):
         """PDF Düzenle çekmecesinden sayfaları güvenli silme diyaloğu."""
+        if hasattr(self, 'central_stack') and hasattr(self, 'organize_workspace') and self.central_stack.currentWidget() == self.organize_workspace:
+            self.organize_workspace.delete_selected_pages()
+            return
+
         tab_doc = self.get_current_tab_doc()
         if not tab_doc or not tab_doc.doc:
             QMessageBox.information(self, LanguageManager.tr("app_title"), LanguageManager.tr("no_active_tab"))
@@ -2129,6 +2175,49 @@ class AuraPDFViewer(QMainWindow):
         if clicked == btn_curr:
             tab_doc.delete_page(curr_page - 1)
             self._on_organize_doc_modified()
+        elif clicked == btn_org:
+            self.switch_to_organize_view()
+
+    def extract_pages_action(self):
+        """PDF Düzenle çekmecesinden sayfaları dışa aktarma (PDF olarak çıkarma) eylemi."""
+        if hasattr(self, 'central_stack') and hasattr(self, 'organize_workspace') and self.central_stack.currentWidget() == self.organize_workspace:
+            self.organize_workspace.extract_pages_action()
+            return
+
+        tab_doc = self.get_current_tab_doc()
+        if not tab_doc or not tab_doc.doc:
+            QMessageBox.information(self, LanguageManager.tr("app_title"), LanguageManager.tr("no_active_tab"))
+            return
+
+        total = len(tab_doc.doc)
+        curr_page = tab_doc.current_page_idx + 1
+
+        msg_box = QMessageBox(self)
+        from src.ui.dialog_theme import apply_dialog_theme
+        apply_dialog_theme(msg_box, self)
+        msg_box.setWindowTitle(LanguageManager.tr("drawer_edit_extract"))
+        msg_box.setText(LanguageManager.tr("extract_page_prompt", page=curr_page, total=total))
+
+        btn_curr = msg_box.addButton(LanguageManager.tr("extract_current_page_btn"), QMessageBox.ButtonRole.ActionRole)
+        btn_org = msg_box.addButton(LanguageManager.tr("organize_pages_btn"), QMessageBox.ButtonRole.ActionRole)
+        btn_cancel = msg_box.addButton(LanguageManager.tr("cancel"), QMessageBox.ButtonRole.RejectRole)
+
+        msg_box.exec()
+        clicked = msg_box.clickedButton()
+        if clicked == btn_curr:
+            path, _ = QFileDialog.getSaveFileName(
+                self, LanguageManager.tr("organize_extract_pages"),
+                f"page_{curr_page}.pdf", "PDF (*.pdf)"
+            )
+            if path:
+                try:
+                    new_doc = fitz.open()
+                    new_doc.insert_pdf(tab_doc.doc, from_page=curr_page - 1, to_page=curr_page - 1)
+                    new_doc.save(path)
+                    new_doc.close()
+                    QMessageBox.information(self, LanguageManager.tr("app_title"), LanguageManager.tr("organize_extract_success", path=path))
+                except Exception as e:
+                    QMessageBox.critical(self, LanguageManager.tr("app_title"), f"{LanguageManager.tr('error')}: {e}")
         elif clicked == btn_org:
             self.switch_to_organize_view()
 
@@ -2298,70 +2387,75 @@ class AuraPDFViewer(QMainWindow):
         self._on_all_tools_panel_action(cid)
 
     def _on_all_tools_panel_action(self, tool_id: str):
-        if tool_id == "organize_pages":
-            self.switch_to_organize_view()
-        elif tool_id == "edit_pdf":
-            self.switch_to_document_view()
-            self.open_pdf_content_editor()
-        elif tool_id == "combine_files":
-            self.open_merge_dialog()
-        elif tool_id == "compress_pdf":
-            self.open_compress_dialog()
-        elif tool_id == "scan_ocr":
-            self.open_pdf_ocr_dialog()
-        elif tool_id == "protect_pdf":
-            self.open_encrypt_dialog()
-        elif tool_id == "redact_pdf":
-            self.open_pdf_redaction_dialog()
-        elif tool_id in ("fill_sign", "esign"):
-            self.modern_left_sidebar.show()
-            self.modern_left_sidebar.set_page("esign")
-            self.modern_header_bar.set_mode("esign")
-        elif tool_id == "prepare_form":
-            self.switch_to_document_view()
-            self.modern_left_sidebar.show()
-            self.modern_left_sidebar.set_page("prepare_form")
-            if hasattr(self.modern_left_sidebar, 'prepare_form_drawer'):
-                self.modern_left_sidebar.prepare_form_drawer.refresh_fields_list()
-        elif tool_id == "export_pdf":
-            self.open_word_dialog()
-        elif tool_id == "create_pdf":
-            self.show_new_page_dialog(force_new_doc=True)
-        elif tool_id == "add_comments":
-            self.switch_to_document_view()
-            if hasattr(self, 'modern_left_sidebar'):
-                self.modern_left_sidebar.hide()
-            self.set_tool_state('comment')
-            if hasattr(self, 'modern_right_sidebar'):
-                self.modern_right_sidebar.show()
-                self.modern_right_sidebar.set_panel("comments")
-            if hasattr(self, 'modern_utility_rail'):
-                self.modern_utility_rail.set_active_rail_item("comments")
-        elif tool_id == "add_stamp":
-            self.open_stamp_dialog()
-        elif tool_id == "add_gif":
-            self.show_insert_emoji_dialog()
-        elif tool_id == "view_more":
-            self.show_toolbox_menu()
-        elif tool_id == "print_production":
-            self.print_pdf()
-        elif tool_id == "measure_objects":
-            self.switch_to_document_view()
-            self.set_tool_state('ruler')
-        elif tool_id == "compare_files":
-            self.open_pdf_compare_dialog()
-        elif tool_id == "prepare_accessibility":
-            self.open_document_properties_dialog()
-        elif tool_id == "search_index":
-            self.toggle_search_bar()
-        elif tool_id == "print":
-            self.print_pdf()
-        elif tool_id == "save":
-            self.save_pdf()
-        elif tool_id == "settings":
-            self.open_settings_dialog()
-        elif tool_id == "shortcuts":
-            self.open_shortcuts_dialog()
+        try:
+            if tool_id == "organize_pages":
+                self.switch_to_organize_view()
+            elif tool_id == "edit_pdf":
+                self.switch_to_document_view()
+                self.open_pdf_content_editor()
+            elif tool_id == "combine_files":
+                self.open_merge_dialog()
+            elif tool_id == "compress_pdf":
+                self.open_compress_dialog()
+            elif tool_id == "scan_ocr":
+                self.open_pdf_ocr_dialog()
+            elif tool_id == "protect_pdf":
+                self.open_encrypt_dialog()
+            elif tool_id == "redact_pdf":
+                self.open_pdf_redaction_dialog()
+            elif tool_id in ("fill_sign", "esign"):
+                self.modern_left_sidebar.show()
+                self.modern_left_sidebar.set_page("esign")
+                self.modern_header_bar.set_mode("esign")
+            elif tool_id == "prepare_form":
+                self.switch_to_document_view()
+                self.modern_left_sidebar.show()
+                self.modern_left_sidebar.set_page("prepare_form")
+                if hasattr(self.modern_left_sidebar, 'prepare_form_drawer'):
+                    self.modern_left_sidebar.prepare_form_drawer.refresh_fields_list()
+            elif tool_id == "export_pdf":
+                self.open_word_dialog()
+            elif tool_id == "create_pdf":
+                self.show_new_page_dialog(force_new_doc=True)
+            elif tool_id == "add_comments":
+                self.switch_to_document_view()
+                if hasattr(self, 'modern_left_sidebar'):
+                    self.modern_left_sidebar.hide()
+                self.set_tool_state('comment')
+                if hasattr(self, 'modern_right_sidebar'):
+                    self.modern_right_sidebar.show()
+                    self.modern_right_sidebar.set_panel("comments")
+                if hasattr(self, 'modern_utility_rail'):
+                    self.modern_utility_rail.set_active_rail_item("comments")
+            elif tool_id == "add_stamp":
+                self.open_stamp_dialog()
+            elif tool_id == "add_gif":
+                self.show_insert_emoji_dialog()
+            elif tool_id == "view_more":
+                self.show_toolbox_menu()
+            elif tool_id == "print_production":
+                self.print_pdf()
+            elif tool_id == "measure_objects":
+                self.switch_to_document_view()
+                self.set_tool_state('ruler')
+            elif tool_id == "compare_files":
+                self.open_pdf_compare_dialog()
+            elif tool_id == "prepare_accessibility":
+                self.open_document_properties_dialog()
+            elif tool_id == "search_index":
+                self.toggle_search_bar()
+            elif tool_id == "print":
+                self.print_pdf()
+            elif tool_id == "save":
+                self.save_pdf()
+            elif tool_id == "settings":
+                self.open_settings_dialog()
+            elif tool_id == "shortcuts":
+                self.open_shortcuts_dialog()
+        finally:
+            if tool_id != "organize_pages":
+                if hasattr(self, 'modern_left_sidebar') and hasattr(self.modern_left_sidebar, 'all_tools_panel'):
+                    self.modern_left_sidebar.all_tools_panel.clear_active_state()
 
 
     def _on_read_drawer_action(self, action_id: str):
@@ -2430,30 +2524,38 @@ class AuraPDFViewer(QMainWindow):
         self.show_insert_emoji_dialog()
 
     def _on_fill_sign_tool_triggered(self, tool_id: str):
-        if tool_id == "add_text":
-            if self.tab_widget.count() > 0:
-                self.switch_to_document_view()
-                self.set_tool_state('text')
-            else:
-                self.open_pdf()
-        elif tool_id in ("checkmark", "cross", "dot", "line", "date"):
-            if self.tab_widget.count() > 0:
-                self.switch_to_document_view()
-                self.insert_symbol_stamp(tool_id)
-            else:
-                self.open_pdf()
-        elif tool_id == "signature":
-            if self.tab_widget.count() > 0:
-                self.switch_to_document_view()
-                self.open_signature_dialog()
-            else:
-                self.open_pdf()
-        elif tool_id == "initials":
-            if self.tab_widget.count() > 0:
-                self.switch_to_document_view()
-                self.open_initials_dialog()
-            else:
-                self.open_pdf()
+        try:
+            if tool_id == "add_text":
+                if self.tab_widget.count() > 0:
+                    self.switch_to_document_view()
+                    self.set_tool_state('text')
+                else:
+                    self.open_pdf()
+            elif tool_id in ("checkmark", "cross", "dot", "line", "date"):
+                if self.tab_widget.count() > 0:
+                    self.switch_to_document_view()
+                    self.insert_symbol_stamp(tool_id)
+                else:
+                    self.open_pdf()
+            elif tool_id == "signature":
+                if self.tab_widget.count() > 0:
+                    self.switch_to_document_view()
+                    self.open_signature_dialog()
+                else:
+                    self.open_pdf()
+            elif tool_id == "initials":
+                if self.tab_widget.count() > 0:
+                    self.switch_to_document_view()
+                    self.open_initials_dialog()
+                else:
+                    self.open_pdf()
+        finally:
+            if self.tab_widget.count() == 0:
+                if hasattr(self, 'modern_left_sidebar') and hasattr(self.modern_left_sidebar, 'fill_sign_drawer'):
+                    self.modern_left_sidebar.fill_sign_drawer.clear_active_state()
+            elif tool_id in ("signature", "initials"):
+                if hasattr(self, 'modern_left_sidebar') and hasattr(self.modern_left_sidebar, 'fill_sign_drawer'):
+                    self.modern_left_sidebar.fill_sign_drawer.clear_active_state()
 
     def _on_prepare_form_action(self, action_id: str):
         tab_doc = self.get_current_tab_doc()
@@ -2706,6 +2808,8 @@ class AuraPDFViewer(QMainWindow):
     def _close_organize_workspace(self):
         if hasattr(self, 'organize_workspace'):
             self.organize_workspace.cancel_rendering()
+        if hasattr(self, 'modern_left_sidebar') and hasattr(self.modern_left_sidebar, 'edit_drawer'):
+            self.modern_left_sidebar.edit_drawer.clear_active_state()
         self.switch_to_document_view()
 
     def _on_organize_open_page(self, page_index: int):
@@ -2714,6 +2818,8 @@ class AuraPDFViewer(QMainWindow):
         tab_doc = self.get_current_tab_doc()
         if tab_doc:
             tab_doc.go_to_page(page_index)
+        if hasattr(self, 'modern_left_sidebar') and hasattr(self.modern_left_sidebar, 'edit_drawer'):
+            self.modern_left_sidebar.edit_drawer.clear_active_state()
         self.switch_to_document_view()
 
     def _on_organize_doc_modified(self):
@@ -2737,6 +2843,8 @@ class AuraPDFViewer(QMainWindow):
                     self.modern_right_sidebar.load_thumbnails()
                 if hasattr(self, 'thumbnails_dock') and self.thumbnails_dock and self.thumbnails_dock.isVisible():
                     tab_doc.notify_thumbnails_updated(curr)
+                if hasattr(self, 'organize_workspace') and self.organize_workspace:
+                    self.organize_workspace.load_document(force=True)
             except Exception as e:
                 import traceback
                 traceback.print_exc()
@@ -2807,7 +2915,10 @@ class AuraPDFViewer(QMainWindow):
 
     def _close_left_sidebar(self):
         if hasattr(self, 'modern_left_sidebar') and self.modern_left_sidebar:
+            self.modern_left_sidebar.clear_all_active_states()
             self.modern_left_sidebar.hide()
+        if hasattr(self, 'modern_header_bar') and self.modern_header_bar:
+            self.modern_header_bar.set_mode(None, notify=False)
         self._center_active_document()
 
     def _on_bookmark_clicked(self, page_index: int):
@@ -3966,13 +4077,13 @@ class AuraPDFViewer(QMainWindow):
             curr_idx = getattr(tab_doc, 'current_page_idx', 0)
             tab_doc.rotate_page(curr_idx, angle)
             if hasattr(self, 'organize_workspace') and hasattr(self, 'central_stack') and self.central_stack.currentWidget() == self.organize_workspace:
-                self.organize_workspace.load_document()
+                self.organize_workspace.load_document(force=True)
 
     def rotate_all_pages(self):
         if doc := self.get_current_tab_doc():
             doc.rotate_all_pages()
             if hasattr(self, 'organize_workspace') and self.organize_workspace.isVisible():
-                self.organize_workspace.load_document()
+                self.organize_workspace.load_document(force=True)
 
     def set_page_view_mode(self, mode: str):
         if tab_doc := self.get_current_tab_doc():
@@ -4148,6 +4259,24 @@ class AuraPDFViewer(QMainWindow):
         if reply == QMessageBox.StandardButton.Yes:
             tab_doc.clear_all_drawings()
 
+    def clear_page_drawings(self):
+        tab_doc = self.get_current_tab_doc()
+        if not tab_doc or not getattr(tab_doc, 'drawings', None):
+            return
+        curr_page = getattr(tab_doc, 'current_page_idx', 0)
+        has_drawings_on_page = any(d.get("page", 0) == curr_page for d in tab_doc.drawings)
+        if not has_drawings_on_page:
+            return
+        reply = QMessageBox.question(
+            self,
+            LanguageManager.tr("clear_page_drawings"),
+            LanguageManager.tr("confirm_clear_page_drawings"),
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No
+        )
+        if reply == QMessageBox.StandardButton.Yes:
+            tab_doc.clear_page_drawings(curr_page)
+
     def set_ruler_snap(self, enabled: bool):
         if hasattr(self, 'hl_popup'):
             self.hl_popup.snap_straight = enabled
@@ -4270,6 +4399,15 @@ class AuraPDFViewer(QMainWindow):
 
             if getattr(tab_doc, 'direct_edit_banner', None):
                 tab_doc.direct_edit_banner.update_active_tool(tool_name)
+
+        if hasattr(self, 'modern_left_sidebar') and self.modern_left_sidebar:
+            if hasattr(self.modern_left_sidebar, 'fill_sign_drawer') and self.modern_left_sidebar.fill_sign_drawer.active_tool_id == 'add_text' and tool_name != 'text':
+                self.modern_left_sidebar.fill_sign_drawer.clear_active_state()
+            if hasattr(self.modern_left_sidebar, 'edit_drawer') and self.modern_left_sidebar.edit_drawer.active_edit_id:
+                if self.modern_left_sidebar.edit_drawer.active_edit_id == 'text' and tool_name != 'text':
+                    self.modern_left_sidebar.edit_drawer.clear_active_state()
+                elif self.modern_left_sidebar.edit_drawer.active_edit_id == 'edit_text_images' and tool_name != 'direct_edit':
+                    self.modern_left_sidebar.edit_drawer.clear_active_state()
 
         self.update_viewport_cursor()
 

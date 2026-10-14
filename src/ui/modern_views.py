@@ -1488,11 +1488,12 @@ class ModernHeaderBar(QWidget):
         if hasattr(self, 'btn_rotate'):
             self.btn_rotate.setToolTip(LanguageManager.tr("tb_item_rotate"))
 
-    def set_mode(self, mode_id: str):
+    def set_mode(self, mode_id: Optional[str], notify: bool = True):
         self.current_mode = mode_id
         for m, btn in self.mode_buttons.items():
-            btn.setChecked(m == mode_id)
-        self.modeChanged.emit(mode_id)
+            btn.setChecked(bool(mode_id and m == mode_id))
+        if notify and mode_id:
+            self.modeChanged.emit(mode_id)
 
     def update_page_info(self, current: int, total: int):
         self.total_pages = total
@@ -1655,9 +1656,11 @@ class ModernToolItemWidget(QFrame):
         super().__init__(parent)
         self.setObjectName("ModernToolItemWidget")
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        self.setAttribute(Qt.WidgetAttribute.WA_Hover, True)
         self.tool_id = tool_id
         self.accent_color = accent_color
         self.is_active = False
+        self.theme_name = "light"
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setFixedHeight(40)
 
@@ -1667,33 +1670,39 @@ class ModernToolItemWidget(QFrame):
 
         # 1. Sol Dikey İnce Aktif Gösterge Kapsülü (Fluent/macOS Style)
         self.indicator_pill = QFrame(self)
-        self.indicator_pill.setFixedSize(3, 18)
-        self.indicator_pill.setStyleSheet("background-color: transparent; border-radius: 1.5px;")
+        self.indicator_pill.setObjectName("DrawerIndicatorPill")
+        self.indicator_pill.setFixedSize(3, 20)
+        self.indicator_pill.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
         h.addWidget(self.indicator_pill)
 
         # 2. İkon Yuvası (Micro Badge Plate)
         self.icon_box = QFrame(self)
+        self.icon_box.setObjectName("DrawerIconBox")
         self.icon_box.setFixedSize(28, 28)
+        self.icon_box.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
         h_icon = QHBoxLayout(self.icon_box)
         h_icon.setContentsMargins(0, 0, 0, 0)
         h_icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         self.lbl_icon = QLabel(self.icon_box)
+        self.lbl_icon.setObjectName("DrawerIconLabel")
         self.lbl_icon.setPixmap(icon.pixmap(20, 20))
         self.lbl_icon.setFixedSize(20, 20)
-        self.lbl_icon.setStyleSheet("background: transparent; border: none;")
+        self.lbl_icon.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
         h_icon.addWidget(self.lbl_icon)
         h.addWidget(self.icon_box)
 
         # 3. Metin
         self.lbl_text = QLabel(label_text, self)
-        self.lbl_text.setStyleSheet("background: transparent; border: none;")
+        self.lbl_text.setObjectName("DrawerItemText")
+        self.lbl_text.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
         h.addWidget(self.lbl_text, stretch=1)
 
         # 4. Sağ Aktif Gösterge Rozeti (Zarif nokta)
         self.lbl_active_indicator = QLabel(self)
+        self.lbl_active_indicator.setObjectName("DrawerActiveDot")
         self.lbl_active_indicator.setFixedSize(6, 6)
-        self.lbl_active_indicator.setStyleSheet("background-color: transparent; border-radius: 3px;")
+        self.lbl_active_indicator.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
         h.addWidget(self.lbl_active_indicator)
 
     def set_text(self, text: str):
@@ -1709,51 +1718,18 @@ class ModernToolItemWidget(QFrame):
         self._apply_style(theme_name)
 
     def _apply_style(self, theme_name: str = "light"):
+        self.theme_name = theme_name
         c = get_modern_theme_colors(theme_name)
-        accent = c.get('accent', '#38bdf8')
-        ac = QColor(accent) if QColor.isValidColor(accent) else QColor("#38bdf8")
-
-        tint_start = f"rgba({ac.red()}, {ac.green()}, {ac.blue()}, 0.18)"
-        tint_end = f"rgba({ac.red()}, {ac.green()}, {ac.blue()}, 0.04)"
-        border_col = f"rgba({ac.red()}, {ac.green()}, {ac.blue()}, 0.32)"
-        icon_bg = f"rgba({ac.red()}, {ac.green()}, {ac.blue()}, 0.16)"
-        icon_border = f"rgba({ac.red()}, {ac.green()}, {ac.blue()}, 0.28)"
-
+        item_accent = self.accent_color if (self.accent_color and QColor.isValidColor(self.accent_color)) else c.get('accent', '#38bdf8')
+        ac = QColor(item_accent)
         is_dark = QColor(c.get('surface', '#1c1c1c')).lightness() < 128
-        active_text_color = "#ffffff" if is_dark else c['text']
 
-        if self.is_active:
-            self.indicator_pill.setStyleSheet(f"""
-                background-color: {accent};
-                border-radius: 1.5px;
-            """)
-            self.icon_box.setStyleSheet(f"""
-                background-color: {icon_bg};
-                border: 1px solid {icon_border};
-                border-radius: 7px;
-            """)
-            self.lbl_active_indicator.setStyleSheet(f"""
-                background-color: {accent};
-                border-radius: 3px;
-            """)
-            self.lbl_text.setStyleSheet(f"""
-                color: {active_text_color};
-                font-size: 13px;
-                font-weight: 700;
-                background: transparent;
-                border: none;
-            """)
-            self.setStyleSheet(f"""
-                QFrame#ModernToolItemWidget {{
-                    background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 {tint_start}, stop:1 {tint_end});
-                    border: 1px solid {border_col};
-                    border-radius: 8px;
-                }}
-            """)
-        else:
-            self.indicator_pill.setStyleSheet("background-color: transparent;")
+        if not getattr(self, 'is_active', False):
+            # Seçilmemiş sade liste görünümü: Image 2 gibi sade, kenarlıksız, kutusuz
+            self.indicator_pill.setStyleSheet("background-color: transparent; border: none;")
             self.icon_box.setStyleSheet("background-color: transparent; border: none;")
-            self.lbl_active_indicator.setStyleSheet("background-color: transparent;")
+            self.lbl_icon.setStyleSheet("background: transparent; border: none;")
+            self.lbl_active_indicator.setStyleSheet("background-color: transparent; border: none;")
             self.lbl_text.setStyleSheet(f"""
                 color: {c['text']};
                 font-size: 13px;
@@ -1769,7 +1745,48 @@ class ModernToolItemWidget(QFrame):
                 }}
                 QFrame#ModernToolItemWidget:hover {{
                     background-color: {c['surface_hover']};
-                    border: 1px solid rgba(255, 255, 255, 0.05);
+                    border: 1px solid transparent;
+                }}
+            """)
+        else:
+            # SADECE SEÇİNCE VURGULU OLSUN
+            tint_start = f"rgba({ac.red()}, {ac.green()}, {ac.blue()}, 0.22)"
+            tint_end = f"rgba({ac.red()}, {ac.green()}, {ac.blue()}, 0.08)"
+            border_col = f"rgba({ac.red()}, {ac.green()}, {ac.blue()}, 0.65)"
+            icon_bg = f"rgba({ac.red()}, {ac.green()}, {ac.blue()}, 0.20)"
+            icon_border = f"rgba({ac.red()}, {ac.green()}, {ac.blue()}, 0.40)"
+            active_text = "#ffffff" if is_dark else (item_accent if ac.lightness() < 100 else "#0f172a")
+
+            self.indicator_pill.setStyleSheet(f"""
+                background-color: {item_accent};
+                border-radius: 1.5px;
+            """)
+            self.icon_box.setStyleSheet(f"""
+                background-color: {icon_bg};
+                border: 1px solid {icon_border};
+                border-radius: 7px;
+            """)
+            self.lbl_icon.setStyleSheet("background: transparent; border: none;")
+            self.lbl_active_indicator.setStyleSheet(f"""
+                background-color: {item_accent};
+                border-radius: 3px;
+            """)
+            self.lbl_text.setStyleSheet(f"""
+                color: {active_text};
+                font-size: 13px;
+                font-weight: 700;
+                background: transparent;
+                border: none;
+            """)
+            self.setStyleSheet(f"""
+                QFrame#ModernToolItemWidget {{
+                    background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 {tint_start}, stop:1 {tint_end});
+                    border: 1.5px solid {border_col};
+                    border-radius: 8px;
+                }}
+                QFrame#ModernToolItemWidget:hover {{
+                    background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 rgba({ac.red()}, {ac.green()}, {ac.blue()}, 0.28), stop:1 rgba({ac.red()}, {ac.green()}, {ac.blue()}, 0.12));
+                    border: 1.5px solid {item_accent};
                 }}
             """)
 
@@ -1900,7 +1917,7 @@ class ModernAllToolsPanel(QWidget):
         self.main_window = parent.main_window if hasattr(parent, "main_window") else None
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self.theme_name = "light"
-        self.active_tool_id: Optional[str] = "organize_pages"
+        self.active_tool_id: Optional[str] = None
         self.is_expanded = False
         self.setFixedWidth(248)
 
@@ -1998,7 +2015,7 @@ class ModernAllToolsPanel(QWidget):
         main_layout.addWidget(scroll)
 
         self.apply_theme(self.theme_name)
-        self.set_active_tool("organize_pages")
+        self.set_active_tool(None)
 
     def retranslate_ui(self):
         self.lbl_head.setText(LanguageManager.tr("nav_all_tools"))
@@ -2019,13 +2036,19 @@ class ModernAllToolsPanel(QWidget):
         )
 
     def _on_item_clicked(self, tool_id: str):
+        if getattr(self, 'active_tool_id', None) == tool_id:
+            self.clear_active_state()
+            return
         self.set_active_tool(tool_id)
         self.toolTriggered.emit(tool_id)
 
     def set_active_tool(self, tool_id: Optional[str]):
         self.active_tool_id = tool_id
         for tid, item in self.items.items():
-            item.set_active(tid == tool_id, self.theme_name)
+            item.set_active(bool(tool_id and tid == tool_id), self.theme_name)
+
+    def clear_active_state(self):
+        self.set_active_tool(None)
 
     def apply_theme(self, theme_name: str = "light"):
         self.theme_name = theme_name
@@ -2113,18 +2136,22 @@ class ModernDrawerItemWidget(QFrame):
     """
     clicked = pyqtSignal(str)
 
-    def __init__(self, item_id: str, title: str, icon: QIcon, badge_text: str = "", is_ready: bool = True, parent=None):
+    def __init__(self, item_id: str, title: str, icon: Any, badge_text: str = "", is_ready: bool = True, accent_color: Optional[str] = None, parent=None):
         super().__init__(parent)
         self.setObjectName("ModernDrawerItemWidget")
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self.item_id = item_id
         self.title = title
-        self.icon = icon
+        actual_icon = icon() if callable(icon) else icon
+        self.icon = actual_icon
         self.is_ready = is_ready
+        self.accent_color = accent_color
         self.is_active = False
         self.theme_name = "light"
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setFixedHeight(40)
+
+        self.setAttribute(Qt.WidgetAttribute.WA_Hover, True)
 
         h = QHBoxLayout(self)
         h.setContentsMargins(6, 0, 10, 0)
@@ -2132,28 +2159,32 @@ class ModernDrawerItemWidget(QFrame):
 
         # 1. Sol Dikey İnce Aktif Gösterge Kapsülü (Fluent/macOS Style)
         self.indicator_pill = QFrame(self)
+        self.indicator_pill.setObjectName("DrawerIndicatorPill")
         self.indicator_pill.setFixedSize(3, 18)
-        self.indicator_pill.setStyleSheet("background-color: transparent; border-radius: 1.5px;")
+        self.indicator_pill.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
         h.addWidget(self.indicator_pill)
 
         # 2. İkon Yuvası (Micro Badge Plate)
         self.icon_box = QFrame(self)
+        self.icon_box.setObjectName("DrawerIconBox")
         self.icon_box.setFixedSize(28, 28)
+        self.icon_box.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
         h_icon = QHBoxLayout(self.icon_box)
         h_icon.setContentsMargins(0, 0, 0, 0)
         h_icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         self.lbl_icon = QLabel(self.icon_box)
-        self.lbl_icon.setPixmap(icon.pixmap(20, 20))
+        self.lbl_icon.setObjectName("DrawerIconLabel")
+        self.lbl_icon.setPixmap(actual_icon.pixmap(20, 20))
         self.lbl_icon.setFixedSize(20, 20)
-        self.lbl_icon.setStyleSheet("background: transparent; border: none;")
+        self.lbl_icon.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
         h_icon.addWidget(self.lbl_icon)
         h.addWidget(self.icon_box)
 
         # 3. Metin
         self.lbl_text = QLabel(title, self)
         self.lbl_text.setObjectName("DrawerItemText")
-        self.lbl_text.setStyleSheet("background: transparent; border: none;")
+        self.lbl_text.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
         h.addWidget(self.lbl_text, stretch=1)
 
         # 4. İsteğe Bağlı Badge
@@ -2161,12 +2192,14 @@ class ModernDrawerItemWidget(QFrame):
         if badge_text:
             self.lbl_badge = QLabel(badge_text, self)
             self.lbl_badge.setObjectName("DrawerItemBadge")
+            self.lbl_badge.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
             h.addWidget(self.lbl_badge)
 
         # 5. Sağ Aktif Gösterge Rozeti (Zarif nokta)
         self.lbl_active_indicator = QLabel(self)
+        self.lbl_active_indicator.setObjectName("DrawerActiveDot")
         self.lbl_active_indicator.setFixedSize(6, 6)
-        self.lbl_active_indicator.setStyleSheet("background-color: transparent; border-radius: 3px;")
+        self.lbl_active_indicator.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
         h.addWidget(self.lbl_active_indicator)
 
     def set_title(self, title: str):
@@ -2179,6 +2212,7 @@ class ModernDrawerItemWidget(QFrame):
         elif text:
             self.lbl_badge = QLabel(text, self)
             self.lbl_badge.setObjectName("DrawerItemBadge")
+            self.lbl_badge.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
             idx = self.layout().indexOf(self.lbl_active_indicator)
             if idx >= 0:
                 self.layout().insertWidget(idx, self.lbl_badge)
@@ -2186,9 +2220,10 @@ class ModernDrawerItemWidget(QFrame):
                 self.layout().addWidget(self.lbl_badge)
             self._apply_style(self.theme_name)
 
-    def set_icon(self, icon: QIcon):
-        self.icon = icon
-        self.lbl_icon.setPixmap(icon.pixmap(20, 20))
+    def set_icon(self, icon: Any):
+        actual_icon = icon() if callable(icon) else icon
+        self.icon = actual_icon
+        self.lbl_icon.setPixmap(actual_icon.pixmap(20, 20))
 
     def set_active(self, active: bool, theme_name: Optional[str] = None):
         self.is_active = active
@@ -2202,20 +2237,12 @@ class ModernDrawerItemWidget(QFrame):
     def _apply_style(self, theme_name: str = "light"):
         self.theme_name = theme_name
         c = get_modern_theme_colors(theme_name)
-        accent = c.get('accent', '#38bdf8')
-        ac = QColor(accent) if QColor.isValidColor(accent) else QColor("#38bdf8")
-
-        tint_start = f"rgba({ac.red()}, {ac.green()}, {ac.blue()}, 0.18)"
-        tint_end = f"rgba({ac.red()}, {ac.green()}, {ac.blue()}, 0.04)"
-        border_col = f"rgba({ac.red()}, {ac.green()}, {ac.blue()}, 0.32)"
-        icon_bg = f"rgba({ac.red()}, {ac.green()}, {ac.blue()}, 0.16)"
-        icon_border = f"rgba({ac.red()}, {ac.green()}, {ac.blue()}, 0.28)"
-
+        item_accent = self.accent_color if (getattr(self, 'accent_color', None) and QColor.isValidColor(self.accent_color)) else c.get('accent', '#38bdf8')
+        ac = QColor(item_accent)
         is_dark = QColor(c.get('surface', '#1c1c1c')).lightness() < 128
-        active_text_color = "#ffffff" if is_dark else c['text']
 
         badge_css = """
-            QLabel#DrawerItemBadge {
+            QFrame#ModernDrawerItemWidget QLabel#DrawerItemBadge {
                 background-color: rgba(34, 197, 94, 0.15);
                 color: #4ade80;
                 border: 1px solid rgba(34, 197, 94, 0.35);
@@ -2224,41 +2251,14 @@ class ModernDrawerItemWidget(QFrame):
                 font-size: 11px;
                 font-weight: 600;
             }
-        """ if self.lbl_badge else ""
+        """ if getattr(self, 'lbl_badge', None) else ""
 
-        if getattr(self, 'is_active', False):
-            self.indicator_pill.setStyleSheet(f"""
-                background-color: {accent};
-                border-radius: 1.5px;
-            """)
-            self.icon_box.setStyleSheet(f"""
-                background-color: {icon_bg};
-                border: 1px solid {icon_border};
-                border-radius: 7px;
-            """)
-            self.lbl_active_indicator.setStyleSheet(f"""
-                background-color: {accent};
-                border-radius: 3px;
-            """)
-            self.lbl_text.setStyleSheet(f"""
-                color: {active_text_color};
-                font-size: 13px;
-                font-weight: 700;
-                background: transparent;
-                border: none;
-            """)
-            self.setStyleSheet(f"""
-                QFrame#ModernDrawerItemWidget {{
-                    background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 {tint_start}, stop:1 {tint_end});
-                    border: 1px solid {border_col};
-                    border-radius: 8px;
-                }}
-                {badge_css}
-            """)
-        else:
-            self.indicator_pill.setStyleSheet("background-color: transparent;")
+        if not getattr(self, 'is_active', False):
+            # Seçilmemiş sade liste görünümü: Image 2 gibi sade, kenarlıksız, kutusuz
+            self.indicator_pill.setStyleSheet("background-color: transparent; border: none;")
             self.icon_box.setStyleSheet("background-color: transparent; border: none;")
-            self.lbl_active_indicator.setStyleSheet("background-color: transparent;")
+            self.lbl_icon.setStyleSheet("background: transparent; border: none;")
+            self.lbl_active_indicator.setStyleSheet("background-color: transparent; border: none;")
             self.lbl_text.setStyleSheet(f"""
                 color: {c['text']};
                 font-size: 13px;
@@ -2274,7 +2274,49 @@ class ModernDrawerItemWidget(QFrame):
                 }}
                 QFrame#ModernDrawerItemWidget:hover {{
                     background-color: {c['surface_hover']};
-                    border: 1px solid rgba(255, 255, 255, 0.05);
+                    border: 1px solid transparent;
+                }}
+                {badge_css}
+            """)
+        else:
+            # SADECE SEÇİNCE VURGULU OLSUN
+            tint_start = f"rgba({ac.red()}, {ac.green()}, {ac.blue()}, 0.22)"
+            tint_end = f"rgba({ac.red()}, {ac.green()}, {ac.blue()}, 0.08)"
+            border_col = f"rgba({ac.red()}, {ac.green()}, {ac.blue()}, 0.65)"
+            icon_bg = f"rgba({ac.red()}, {ac.green()}, {ac.blue()}, 0.20)"
+            icon_border = f"rgba({ac.red()}, {ac.green()}, {ac.blue()}, 0.40)"
+            active_text = "#ffffff" if is_dark else (item_accent if ac.lightness() < 100 else "#0f172a")
+
+            self.indicator_pill.setStyleSheet(f"""
+                background-color: {item_accent};
+                border-radius: 1.5px;
+            """)
+            self.icon_box.setStyleSheet(f"""
+                background-color: {icon_bg};
+                border: 1px solid {icon_border};
+                border-radius: 7px;
+            """)
+            self.lbl_icon.setStyleSheet("background: transparent; border: none;")
+            self.lbl_active_indicator.setStyleSheet(f"""
+                background-color: {item_accent};
+                border-radius: 3px;
+            """)
+            self.lbl_text.setStyleSheet(f"""
+                color: {active_text};
+                font-size: 13px;
+                font-weight: 700;
+                background: transparent;
+                border: none;
+            """)
+            self.setStyleSheet(f"""
+                QFrame#ModernDrawerItemWidget {{
+                    background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 {tint_start}, stop:1 {tint_end});
+                    border: 1.5px solid {border_col};
+                    border-radius: 8px;
+                }}
+                QFrame#ModernDrawerItemWidget:hover {{
+                    background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 rgba({ac.red()}, {ac.green()}, {ac.blue()}, 0.28), stop:1 rgba({ac.red()}, {ac.green()}, {ac.blue()}, 0.12));
+                    border: 1.5px solid {item_accent};
                 }}
                 {badge_css}
             """)
@@ -2296,7 +2338,7 @@ class ModernExportDrawer(QWidget):
         self.main_window = parent.main_window if hasattr(parent, "main_window") else None
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self.theme_name = "light"
-        self.active_export_id: Optional[str] = "word"
+        self.active_export_id: Optional[str] = None
         self.setFixedWidth(248)
 
         main_layout = QVBoxLayout(self)
@@ -2352,19 +2394,19 @@ class ModernExportDrawer(QWidget):
 
         self.items: List[ModernDrawerItemWidget] = []
         self.specs = [
-            ("word", "drawer_export_word", ModernIconFactory.icon_word("#0284c7"), "", True),
-            ("xlsx", "drawer_export_xlsx", ModernIconFactory.icon_excel("#10b981"), "", True),
-            ("pptx", "drawer_export_pptx", ModernIconFactory.icon_pptx("#ea580c"), "", True),
-            ("png", "drawer_export_png", ModernIconFactory.icon_image("#0284c7"), "", True),
-            ("all_images", "drawer_export_all_images", ModernIconFactory.icon_image_gallery("#0284c7"), "", True),
-            ("html", "drawer_export_html", ModernIconFactory.icon_html("#0284c7"), "", True),
-            ("rtf", "drawer_export_rtf", ModernIconFactory.icon_txt("#10b981"), "", True),
-            ("txt", "drawer_export_txt", ModernIconFactory.icon_txt("#0284c7"), "", True),
-            ("eps", "drawer_export_eps", ModernIconFactory.icon_eps("#8b5cf6"), "", True),
+            ("word", "drawer_export_word", ModernIconFactory.icon_word("#0284c7"), "", True, "#0284c7"),
+            ("xlsx", "drawer_export_xlsx", ModernIconFactory.icon_excel("#10b981"), "", True, "#10b981"),
+            ("pptx", "drawer_export_pptx", ModernIconFactory.icon_pptx("#ea580c"), "", True, "#ea580c"),
+            ("png", "drawer_export_png", ModernIconFactory.icon_image("#0ea5e9"), "", True, "#0ea5e9"),
+            ("all_images", "drawer_export_all_images", ModernIconFactory.icon_image_gallery("#38bdf8"), "", True, "#38bdf8"),
+            ("html", "drawer_export_html", ModernIconFactory.icon_html("#f97316"), "", True, "#f97316"),
+            ("rtf", "drawer_export_rtf", ModernIconFactory.icon_txt("#14b8a6"), "", True, "#14b8a6"),
+            ("txt", "drawer_export_txt", ModernIconFactory.icon_txt("#64748b"), "", True, "#64748b"),
+            ("eps", "drawer_export_eps", ModernIconFactory.icon_eps("#8b5cf6"), "", True, "#8b5cf6"),
         ]
 
-        for cid, key, icon, badge, is_ready in self.specs:
-            it = ModernDrawerItemWidget(cid, LanguageManager.tr(key), icon, badge, is_ready, parent=container)
+        for cid, key, icon, badge, is_ready, col in self.specs:
+            it = ModernDrawerItemWidget(cid, LanguageManager.tr(key), icon, badge, is_ready, accent_color=col, parent=container)
             it.clicked.connect(self._on_item_clicked)
             v_items.addWidget(it)
             self.items.append(it)
@@ -2375,28 +2417,36 @@ class ModernExportDrawer(QWidget):
 
         self.apply_theme(self.theme_name)
 
-    def _on_item_clicked(self, cid: str):
+    def set_active_tool(self, cid: Optional[str]):
         self.active_export_id = cid
         self._update_item_active_states()
+
+    def _on_item_clicked(self, cid: str):
+        self.set_active_tool(cid)
         self.exportTriggered.emit(cid)
+
+    def clear_active_state(self):
+        self.active_export_id = None
+        self._update_item_active_states()
 
     def _update_item_active_states(self):
         for it in self.items:
-            it.set_active(it.item_id == self.active_export_id, self.theme_name)
+            it.set_active(bool(self.active_export_id and it.item_id == self.active_export_id), self.theme_name)
 
     def retranslate_ui(self):
         self.lbl_head.setText(LanguageManager.tr("drawer_export_title"))
         self.lbl_cat.setText(LanguageManager.tr("drawer_export_to"))
         if hasattr(self, 'notice_box'):
             self.notice_box.retranslate_ui()
-        for it, (_, key, _, _, _) in zip(self.items, self.specs):
-            it.set_title(LanguageManager.tr(key))
+        for it, spec in zip(self.items, self.specs):
+            it.set_title(LanguageManager.tr(spec[1]))
 
     def apply_theme(self, theme_name: str = "light"):
         self.theme_name = theme_name
         c = get_modern_theme_colors(theme_name)
         if hasattr(self, 'notice_box'):
             self.notice_box.apply_theme(theme_name)
+        self._update_item_active_states()
         self.setStyleSheet(f"""
             ModernExportDrawer {{
                 background-color: {c['surface']};
@@ -2475,7 +2525,7 @@ class ModernEditDrawer(QWidget):
         self.main_window = parent.main_window if hasattr(parent, "main_window") else None
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self.theme_name = "light"
-        self.active_edit_id: Optional[str] = "edit_text_images"
+        self.active_edit_id: Optional[str] = None
         self.setFixedWidth(248)
 
         main_layout = QVBoxLayout(self)
@@ -2532,14 +2582,14 @@ class ModernEditDrawer(QWidget):
         v_items.addWidget(self.lbl_g1)
 
         self.specs_modify = [
-            ("rotate", "drawer_edit_rotate", ModernIconFactory.icon_rotate("#ec4899"), "", True),
-            ("insert", "drawer_edit_insert", ModernIconFactory.icon_insert("#ec4899"), "", True),
-            ("delete", "drawer_edit_delete", ModernIconFactory.icon_trash("#ec4899"), "", True),
-            ("extract", "drawer_edit_extract", ModernIconFactory.icon_extract("#ec4899"), "", True),
-            ("organize", "tool_organize_pages", ModernIconFactory.icon_organize("#ec4899"), "", True),
+            ("rotate", "drawer_edit_rotate", ModernIconFactory.icon_rotate("#0ea5e9"), "", True, "#0ea5e9"),
+            ("insert", "drawer_edit_insert", ModernIconFactory.icon_insert("#22c55e"), "", True, "#22c55e"),
+            ("delete", "drawer_edit_delete", ModernIconFactory.icon_trash("#ef4444"), "", True, "#ef4444"),
+            ("extract", "drawer_edit_extract", ModernIconFactory.icon_extract("#f59e0b"), "", True, "#f59e0b"),
+            ("organize", "tool_organize_pages", ModernIconFactory.icon_organize("#10b981"), "", True, "#10b981"),
         ]
-        for cid, key, icon, badge, is_ready in self.specs_modify:
-            it = ModernDrawerItemWidget(cid, LanguageManager.tr(key), icon, badge, is_ready, parent=container)
+        for cid, key, icon, badge, is_ready, col in self.specs_modify:
+            it = ModernDrawerItemWidget(cid, LanguageManager.tr(key), icon, badge, is_ready, accent_color=col, parent=container)
             it.clicked.connect(self._on_item_clicked)
             v_items.addWidget(it)
             self.items.append(it)
@@ -2550,19 +2600,19 @@ class ModernEditDrawer(QWidget):
         v_items.addWidget(self.lbl_g2)
 
         self.specs_add = [
-            ("edit_text_images", "drawer_edit_text_images", ModernIconFactory.icon_edit_content("#ec4899"), "", True),
-            ("text", "drawer_edit_text", ModernIconFactory.icon_text_tool("#ec4899"), "", True),
-            ("image", "drawer_edit_image", ModernIconFactory.icon_image("#ec4899"), "", True),
-            ("add_gif", "drawer_edit_gif", ModernIconFactory.icon_gif("#ec4899"), "", True),
-            ("header_footer", "drawer_edit_header_footer", ModernIconFactory.icon_header_footer("#ec4899"), "", True),
-            ("watermark", "drawer_edit_watermark", ModernIconFactory.icon_watermark("#ec4899"), "", True),
-            ("link", "drawer_edit_link", ModernIconFactory.icon_link("#ec4899"), "", True),
-            ("bates", "drawer_edit_bates", ModernIconFactory.icon_bates("#ec4899"), "", True),
-            ("background", "drawer_edit_background", ModernIconFactory.icon_background("#ec4899"), "", True),
-            ("attach", "drawer_edit_attach", ModernIconFactory.icon_attachment("#ec4899"), "", True),
+            ("edit_text_images", "drawer_edit_text_images", ModernIconFactory.icon_edit_content("#ec4899"), "", True, "#ec4899"),
+            ("text", "drawer_edit_text", ModernIconFactory.icon_text_tool("#8b5cf6"), "", True, "#8b5cf6"),
+            ("image", "drawer_edit_image", ModernIconFactory.icon_image("#38bdf8"), "", True, "#38bdf8"),
+            ("add_gif", "drawer_edit_gif", ModernIconFactory.icon_gif("#f59e0b"), "", True, "#f59e0b"),
+            ("header_footer", "drawer_edit_header_footer", ModernIconFactory.icon_header_footer("#06b6d4"), "", True, "#06b6d4"),
+            ("watermark", "drawer_edit_watermark", ModernIconFactory.icon_watermark("#0284c7"), "", True, "#0284c7"),
+            ("link", "drawer_edit_link", ModernIconFactory.icon_link("#6366f1"), "", True, "#6366f1"),
+            ("bates", "drawer_edit_bates", ModernIconFactory.icon_bates("#a855f7"), "", True, "#a855f7"),
+            ("background", "drawer_edit_background", ModernIconFactory.icon_background("#d946ef"), "", True, "#d946ef"),
+            ("attach", "drawer_edit_attach", ModernIconFactory.icon_attachment("#ea580c"), "", True, "#ea580c"),
         ]
-        for cid, key, icon, badge, is_ready in self.specs_add:
-            it = ModernDrawerItemWidget(cid, LanguageManager.tr(key), icon, badge, is_ready, parent=container)
+        for cid, key, icon, badge, is_ready, col in self.specs_add:
+            it = ModernDrawerItemWidget(cid, LanguageManager.tr(key), icon, badge, is_ready, accent_color=col, parent=container)
             it.clicked.connect(self._on_item_clicked)
             v_items.addWidget(it)
             self.items.append(it)
@@ -2573,14 +2623,21 @@ class ModernEditDrawer(QWidget):
 
         self.apply_theme(self.theme_name)
 
-    def _on_item_clicked(self, cid: str):
+    def set_active_tool(self, cid: Optional[str]):
         self.active_edit_id = cid
         self._update_item_active_states()
+
+    def _on_item_clicked(self, cid: str):
+        self.set_active_tool(cid)
         self.editTriggered.emit(cid)
+
+    def clear_active_state(self):
+        self.active_edit_id = None
+        self._update_item_active_states()
 
     def _update_item_active_states(self):
         for it in self.items:
-            it.set_active(it.item_id == self.active_edit_id, self.theme_name)
+            it.set_active(bool(self.active_edit_id and it.item_id == self.active_edit_id), self.theme_name)
 
     def retranslate_ui(self):
         self.lbl_head.setText(LanguageManager.tr("drawer_edit_title"))
@@ -2589,14 +2646,15 @@ class ModernEditDrawer(QWidget):
         self.lbl_g1.setText(LanguageManager.tr("drawer_group_modify_page"))
         self.lbl_g2.setText(LanguageManager.tr("drawer_group_add_content"))
         all_specs = self.specs_modify + self.specs_add
-        for it, (_, key, _, _, _) in zip(self.items, all_specs):
-            it.set_title(LanguageManager.tr(key))
+        for it, spec in zip(self.items, all_specs):
+            it.set_title(LanguageManager.tr(spec[1]))
 
     def apply_theme(self, theme_name: str = "light"):
         self.theme_name = theme_name
         c = get_modern_theme_colors(theme_name)
         if hasattr(self, 'notice_box'):
             self.notice_box.apply_theme(theme_name)
+        self._update_item_active_states()
         self.setStyleSheet(f"""
             ModernEditDrawer {{
                 background-color: {c['surface']};
@@ -2734,12 +2792,12 @@ class ModernReadDrawer(QFrame):
         v_items.addWidget(self.lbl_g1)
 
         self.specs_layout = [
-            ("view_single", "view_mode_single", ModernIconFactory.icon_view_single(), "", True),
-            ("view_double", "view_mode_double", ModernIconFactory.icon_view_double(), "", True),
-            ("view_fullscreen", "tb_item_fullscreen", ModernIconFactory.icon_fullscreen(), "", True),
+            ("view_single", "view_mode_single", lambda: ModernIconFactory.icon_view_single("#38bdf8"), "", True, "#38bdf8"),
+            ("view_double", "view_mode_double", lambda: ModernIconFactory.icon_view_double("#0ea5e9"), "", True, "#0ea5e9"),
+            ("view_fullscreen", "tb_item_fullscreen", lambda: ModernIconFactory.icon_fullscreen("#8b5cf6"), "", True, "#8b5cf6"),
         ]
-        for cid, key, icon, badge, is_ready in self.specs_layout:
-            it = ModernDrawerItemWidget(cid, LanguageManager.tr(key), icon, badge, is_ready, parent=container)
+        for cid, key, icon_func, badge, is_ready, col in self.specs_layout:
+            it = ModernDrawerItemWidget(cid, LanguageManager.tr(key), icon_func, badge, is_ready, accent_color=col, parent=container)
             it.clicked.connect(self._on_item_clicked)
             v_items.addWidget(it)
             self.items.append(it)
@@ -2750,12 +2808,12 @@ class ModernReadDrawer(QFrame):
         v_items.addWidget(self.lbl_g2)
 
         self.specs_color = [
-            ("color_normal", "reading_mode_normal", ModernIconFactory.icon_reading_mode("#fbbf24"), "", True),
-            ("color_dark", "reading_mode_dark", ModernIconFactory.icon_reading_dark("#a855f7"), "", True),
-            ("color_sepia", "reading_mode_sepia", ModernIconFactory.icon_reading_sepia("#f97316"), "", True),
+            ("color_normal", "reading_mode_normal", lambda: ModernIconFactory.icon_reading_mode("#fbbf24"), "", True, "#fbbf24"),
+            ("color_dark", "reading_mode_dark", lambda: ModernIconFactory.icon_reading_dark("#a855f7"), "", True, "#a855f7"),
+            ("color_sepia", "reading_mode_sepia", lambda: ModernIconFactory.icon_reading_sepia("#f97316"), "", True, "#f97316"),
         ]
-        for cid, key, icon, badge, is_ready in self.specs_color:
-            it = ModernDrawerItemWidget(cid, LanguageManager.tr(key), icon, badge, is_ready, parent=container)
+        for cid, key, icon_func, badge, is_ready, col in self.specs_color:
+            it = ModernDrawerItemWidget(cid, LanguageManager.tr(key), icon_func, badge, is_ready, accent_color=col, parent=container)
             it.clicked.connect(self._on_item_clicked)
             v_items.addWidget(it)
             self.items.append(it)
@@ -2820,14 +2878,15 @@ class ModernReadDrawer(QFrame):
         self.lbl_g1.setText(LanguageManager.tr("view_mode_group"))
         self.lbl_g2.setText(LanguageManager.tr("reading_color_modes"))
         all_specs = self.specs_layout + self.specs_color
-        for it, (_, key, _, _, _) in zip(self.items, all_specs):
-            it.set_title(LanguageManager.tr(key))
+        for it, spec in zip(self.items, all_specs):
+            it.set_title(LanguageManager.tr(spec[1]))
 
     def apply_theme(self, theme_name: str = "light"):
         self.theme_name = theme_name
         c = get_modern_theme_colors(theme_name)
         if hasattr(self, 'notice_box'):
             self.notice_box.apply_theme(theme_name)
+        self._update_item_active_states()
 
         self.setStyleSheet(f"""
             ModernReadDrawer {{
@@ -2916,7 +2975,7 @@ class ModernFillSignDrawer(QWidget):
         super().__init__(parent)
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self.theme_name = "gray"
-        self.active_tool_id: Optional[str] = "add_text"
+        self.active_tool_id: Optional[str] = None
         self.setFixedWidth(248)
 
         main_layout = QVBoxLayout(self)
@@ -2972,18 +3031,18 @@ class ModernFillSignDrawer(QWidget):
 
         self.items: List[ModernDrawerItemWidget] = []
         self.specs = [
-            ("add_text", "drawer_fillsign_add_text", lambda: ModernIconFactory.icon_text_tool("#c084fc")),
-            ("checkmark", "drawer_fillsign_checkmark", lambda: ModernIconFactory.icon_check("#c084fc")),
-            ("cross", "drawer_fillsign_cross", lambda: ModernIconFactory.icon_cross("#c084fc")),
-            ("dot", "drawer_fillsign_dot", lambda: ModernIconFactory.icon_dot("#c084fc")),
-            ("line", "drawer_fillsign_line", lambda: ModernIconFactory.icon_line("#c084fc")),
-            ("date", "drawer_fillsign_date", lambda: ModernIconFactory.icon_date("#c084fc")),
-            ("signature", "drawer_fillsign_signature", lambda: ModernIconFactory.icon_signature("#c084fc")),
-            ("initials", "drawer_fillsign_initials", lambda: ModernIconFactory.icon_initials("#c084fc")),
+            ("add_text", "drawer_fillsign_add_text", lambda: ModernIconFactory.icon_text_tool("#38bdf8"), "#38bdf8"),
+            ("checkmark", "drawer_fillsign_checkmark", lambda: ModernIconFactory.icon_check("#22c55e"), "#22c55e"),
+            ("cross", "drawer_fillsign_cross", lambda: ModernIconFactory.icon_cross("#ef4444"), "#ef4444"),
+            ("dot", "drawer_fillsign_dot", lambda: ModernIconFactory.icon_dot("#f59e0b"), "#f59e0b"),
+            ("line", "drawer_fillsign_line", lambda: ModernIconFactory.icon_line("#8b5cf6"), "#8b5cf6"),
+            ("date", "drawer_fillsign_date", lambda: ModernIconFactory.icon_date("#06b6d4"), "#06b6d4"),
+            ("signature", "drawer_fillsign_signature", lambda: ModernIconFactory.icon_signature("#a855f7"), "#a855f7"),
+            ("initials", "drawer_fillsign_initials", lambda: ModernIconFactory.icon_initials("#ec4899"), "#ec4899"),
         ]
 
-        for cid, key, icon_func in self.specs:
-            it = ModernDrawerItemWidget(cid, LanguageManager.tr(key), icon_func(), badge_text="", is_ready=True, parent=container)
+        for cid, key, icon_func, col in self.specs:
+            it = ModernDrawerItemWidget(cid, LanguageManager.tr(key), icon_func, badge_text="", is_ready=True, accent_color=col, parent=container)
             it.clicked.connect(self._on_item_clicked)
             v_items.addWidget(it)
             self.items.append(it)
@@ -2994,28 +3053,36 @@ class ModernFillSignDrawer(QWidget):
 
         self.apply_theme(self.theme_name)
 
-    def _on_item_clicked(self, cid: str):
+    def set_active_tool(self, cid: Optional[str]):
         self.active_tool_id = cid
         self._update_item_active_states()
+
+    def _on_item_clicked(self, cid: str):
+        self.set_active_tool(cid)
         self.toolTriggered.emit(cid)
+
+    def clear_active_state(self):
+        self.active_tool_id = None
+        self._update_item_active_states()
 
     def _update_item_active_states(self):
         for it in self.items:
-            it.set_active(it.item_id == self.active_tool_id, self.theme_name)
+            it.set_active(bool(self.active_tool_id and it.item_id == self.active_tool_id), self.theme_name)
 
     def retranslate_ui(self):
         self.lbl_head.setText(LanguageManager.tr("drawer_fillsign_title"))
         self.lbl_cat.setText(LanguageManager.tr("drawer_fill_group"))
         if hasattr(self, 'notice_box'):
             self.notice_box.retranslate_ui()
-        for it, (_, key, _) in zip(self.items, self.specs):
-            it.set_title(LanguageManager.tr(key))
+        for it, spec in zip(self.items, self.specs):
+            it.set_title(LanguageManager.tr(spec[1]))
 
     def apply_theme(self, theme_name: str = "gray"):
         self.theme_name = theme_name
         c = get_modern_theme_colors(theme_name)
         if hasattr(self, 'notice_box'):
             self.notice_box.apply_theme(theme_name)
+        self._update_item_active_states()
         self.setStyleSheet(f"""
             ModernFillSignDrawer {{
                 background-color: {c['surface']};
@@ -3169,15 +3236,15 @@ class ModernPrepareFormDrawer(QWidget):
 
         self.items: List[ModernDrawerItemWidget] = []
         self.specs = [
-            ("form_text", "form_field_text", lambda: ModernIconFactory.icon_text_tool("#a855f7")),
-            ("form_checkbox", "form_field_checkbox", lambda: ModernIconFactory.icon_check("#a855f7")),
-            ("form_radio", "form_field_radio", lambda: ModernIconFactory.icon_dot("#a855f7")),
-            ("form_combobox", "form_field_combobox", lambda: ModernIconFactory.icon_menu_hamburger("#a855f7")),
-            ("form_signature", "form_field_signature", lambda: ModernIconFactory.icon_signature("#a855f7")),
+            ("form_text", "form_field_text", lambda: ModernIconFactory.icon_text_tool("#38bdf8"), "#38bdf8"),
+            ("form_checkbox", "form_field_checkbox", lambda: ModernIconFactory.icon_check("#22c55e"), "#22c55e"),
+            ("form_radio", "form_field_radio", lambda: ModernIconFactory.icon_dot("#f59e0b"), "#f59e0b"),
+            ("form_combobox", "form_field_combobox", lambda: ModernIconFactory.icon_menu_hamburger("#8b5cf6"), "#8b5cf6"),
+            ("form_signature", "form_field_signature", lambda: ModernIconFactory.icon_signature("#ec4899"), "#ec4899"),
         ]
 
-        for cid, key, icon_func in self.specs:
-            it = ModernDrawerItemWidget(cid, LanguageManager.tr(key), icon_func(), badge_text="", is_ready=True, parent=container)
+        for cid, key, icon_func, col in self.specs:
+            it = ModernDrawerItemWidget(cid, LanguageManager.tr(key), icon_func, badge_text="", is_ready=True, accent_color=col, parent=container)
             it.clicked.connect(self._on_item_clicked)
             v_items.addWidget(it)
             self.items.append(it)
@@ -3214,13 +3281,13 @@ class ModernPrepareFormDrawer(QWidget):
         v_items.addWidget(self.lbl_actions_group)
 
         self.action_specs = [
-            ("form_clear", "form_action_clear", lambda: ModernIconFactory.icon_trash("#ef4444")),
-            ("form_export", "form_action_export", lambda: ModernIconFactory.icon_export_pdf("#38bdf8")),
-            ("form_import", "form_action_import", lambda: ModernIconFactory.icon_folder_open("#10b981")),
+            ("form_clear", "form_action_clear", lambda: ModernIconFactory.icon_trash("#ef4444"), "#ef4444"),
+            ("form_export", "form_action_export", lambda: ModernIconFactory.icon_export_pdf("#38bdf8"), "#38bdf8"),
+            ("form_import", "form_action_import", lambda: ModernIconFactory.icon_folder_open("#10b981"), "#10b981"),
         ]
         self.action_items: List[ModernDrawerItemWidget] = []
-        for cid, key, icon_func in self.action_specs:
-            it = ModernDrawerItemWidget(cid, LanguageManager.tr(key), icon_func(), badge_text="", is_ready=True, parent=container)
+        for cid, key, icon_func, col in self.action_specs:
+            it = ModernDrawerItemWidget(cid, LanguageManager.tr(key), icon_func, badge_text="", is_ready=True, accent_color=col, parent=container)
             it.clicked.connect(self.toolTriggered.emit)
             v_items.addWidget(it)
             self.action_items.append(it)
@@ -3231,14 +3298,21 @@ class ModernPrepareFormDrawer(QWidget):
 
         self.apply_theme(self.theme_name)
 
-    def _on_item_clicked(self, cid: str):
+    def set_active_tool(self, cid: Optional[str]):
         self.active_form_tool_id = cid
         self._update_item_active_states()
+
+    def clear_active_state(self):
+        self.active_form_tool_id = None
+        self._update_item_active_states()
+
+    def _on_item_clicked(self, cid: str):
+        self.set_active_tool(cid)
         self.toolTriggered.emit(cid)
 
     def _update_item_active_states(self):
         for it in self.items:
-            it.set_active(it.item_id == self.active_form_tool_id, self.theme_name)
+            it.set_active(bool(self.active_form_tool_id and it.item_id == self.active_form_tool_id), self.theme_name)
 
     def _on_mode_toggled(self):
         is_preview = self.btn_mode_toggle.isChecked()
@@ -3309,10 +3383,10 @@ class ModernPrepareFormDrawer(QWidget):
         self.btn_mode_toggle.setText(
             LanguageManager.tr("form_mode_design") if is_preview else LanguageManager.tr("form_mode_preview")
         )
-        for it, (_, key, _) in zip(self.items, self.specs):
-            it.set_title(LanguageManager.tr(key))
-        for it, (_, key, _) in zip(self.action_items, self.action_specs):
-            it.set_title(LanguageManager.tr(key))
+        for it, spec in zip(self.items, self.specs):
+            it.set_title(LanguageManager.tr(spec[1]))
+        for it, spec in zip(self.action_items, self.action_specs):
+            it.set_title(LanguageManager.tr(spec[1]))
         self.refresh_fields_list()
 
     def apply_theme(self, theme_name: str = "gray"):
@@ -3320,6 +3394,7 @@ class ModernPrepareFormDrawer(QWidget):
         c = get_modern_theme_colors(theme_name)
         if hasattr(self, 'notice_box'):
             self.notice_box.apply_theme(theme_name)
+        self._update_item_active_states()
         self.setStyleSheet(f"""
             ModernPrepareFormDrawer {{
                 background-color: {c['surface']};
@@ -3400,6 +3475,7 @@ class ModernPrepareFormDrawer(QWidget):
 
 class ModernLeftSidebar(QStackedWidget):
     """Sol panel yığını: 0=Tüm Araçlar, 1=Export Çekmecesi, 2=Edit Çekmecesi, 3=Read Çekmecesi, 4=Fill & Sign Çekmecesi, 5=Form Hazırla Çekmecesi."""
+    pageChanged = pyqtSignal(str)
     toolTriggered = pyqtSignal(str)
     exportTriggered = pyqtSignal(str)
     editTriggered = pyqtSignal(str)
@@ -3410,7 +3486,7 @@ class ModernLeftSidebar(QStackedWidget):
 
     def __init__(self, main_window=None, parent=None):
         super().__init__(parent or main_window)
-        self.main_window = main_window
+        self.main_window = main_window or parent
         self.setFixedWidth(248)
 
         self.all_tools_panel = ModernAllToolsPanel(self)
@@ -3474,8 +3550,26 @@ class ModernLeftSidebar(QStackedWidget):
         else:
             self.toolTriggered.emit(tool_id)
 
+    def clear_all_active_states(self):
+        if hasattr(self, 'all_tools_panel') and hasattr(self.all_tools_panel, 'clear_active_state'):
+            self.all_tools_panel.clear_active_state()
+        if hasattr(self, 'export_drawer') and hasattr(self.export_drawer, 'clear_active_state'):
+            self.export_drawer.clear_active_state()
+        if hasattr(self, 'edit_drawer') and hasattr(self.edit_drawer, 'clear_active_state'):
+            self.edit_drawer.clear_active_state()
+        if hasattr(self, 'fill_sign_drawer') and hasattr(self.fill_sign_drawer, 'clear_active_state'):
+            self.fill_sign_drawer.clear_active_state()
+        if hasattr(self, 'prepare_form_drawer') and hasattr(self.prepare_form_drawer, 'clear_active_state'):
+            self.prepare_form_drawer.clear_active_state()
+
+    def hideEvent(self, event):
+        self.clear_all_active_states()
+        super().hideEvent(event)
+
     def set_page(self, page_name: str):
         prev_idx = self.currentIndex()
+        self.clear_all_active_states()
+
         if page_name in ("all_tools", "tools"):
             self.setCurrentIndex(0)
         elif page_name in ("export", "convert"):
@@ -3501,8 +3595,43 @@ class ModernLeftSidebar(QStackedWidget):
                 if tab_doc and getattr(tab_doc, 'is_form_design_mode', False):
                     tab_doc.exit_form_design_mode()
 
+        page_to_mode = {
+            0: "all_tools",
+            1: "convert",
+            2: "edit",
+            3: "read",
+            4: "esign",
+            5: "all_tools",
+        }
+        target_mode = page_to_mode.get(self.currentIndex(), "all_tools")
+        if self.main_window and hasattr(self.main_window, 'modern_header_bar') and self.main_window.modern_header_bar:
+            self.main_window.modern_header_bar.set_mode(target_mode, notify=False)
+        self.pageChanged.emit(target_mode)
+
     def set_active_tool(self, tool_id: Optional[str]):
         self.all_tools_panel.set_active_tool(tool_id)
+        if hasattr(self, 'edit_drawer') and self.edit_drawer:
+            if tool_id in ("organize_pages", "organize"):
+                self.edit_drawer.set_active_tool("organize")
+            elif tool_id == "text":
+                self.edit_drawer.set_active_tool("text")
+            elif tool_id is None:
+                self.edit_drawer.clear_active_state()
+        if hasattr(self, 'fill_sign_drawer') and self.fill_sign_drawer:
+            if tool_id in ("text", "add_text"):
+                self.fill_sign_drawer.set_active_tool("add_text")
+            elif tool_id in ("checkmark", "cross", "dot", "line", "date", "signature", "initials"):
+                self.fill_sign_drawer.set_active_tool(tool_id)
+            elif tool_id is None:
+                self.fill_sign_drawer.clear_active_state()
+        if hasattr(self, 'prepare_form_drawer') and self.prepare_form_drawer:
+            if tool_id in ("form_text", "form_checkbox", "form_radio", "form_combobox", "form_signature"):
+                self.prepare_form_drawer.set_active_tool(tool_id)
+            elif tool_id is None:
+                self.prepare_form_drawer.clear_active_state()
+        if hasattr(self, 'export_drawer') and self.export_drawer:
+            if tool_id is None:
+                self.export_drawer.clear_active_state()
 
     def apply_theme(self, theme_name: str):
         self.all_tools_panel.apply_theme(theme_name)
@@ -5397,10 +5526,10 @@ class OrganizePagesWorkspace(QWidget):
         for idx in current_batch:
             if idx >= self.list_widget.count() or idx in self._rendered_pages:
                 continue
-                
+
             item = self.list_widget.item(idx)
             page_index = item.data(Qt.ItemDataRole.UserRole)
-            
+
             if page_index < len(tab_doc.doc):
                 try:
                     page = tab_doc.doc[page_index]
@@ -5408,8 +5537,34 @@ class OrganizePagesWorkspace(QWidget):
                     scale = min(148.0 / max(rect.width, 1), 194.0 / max(rect.height, 1))
                     mat = fitz.Matrix(scale, scale)
                     pix = page.get_pixmap(matrix=mat, alpha=False)
-                    qimg = QImage(pix.samples, pix.width, pix.height, pix.stride, QImage.Format.Format_RGB888)
-                    
+                    base_img = QImage(pix.samples, pix.width, pix.height, pix.stride, QImage.Format.Format_RGB888)
+                    qimg = base_img.convertToFormat(QImage.Format.Format_ARGB32_Premultiplied)
+
+                    # Sayfa üzerindeki canlı çizimleri ve nesneleri doğrudan sahneden küçük resme aktar
+                    pinfo = tab_doc.page_positions.get(page_index) if hasattr(tab_doc, 'page_positions') else None
+                    if pinfo and hasattr(tab_doc, 'scene') and tab_doc.scene:
+                        src_rect = QRectF(pinfo.get('left', 0.0), pinfo['top'], pinfo['width'], pinfo['height'])
+                        
+                        bg_rect = pinfo.get('bg_rect')
+                        was_bg_vis = bg_rect.isVisible() if bg_rect else False
+                        if bg_rect and was_bg_vis:
+                            bg_rect.setVisible(False)
+                        pix_item = pinfo.get('item')
+                        was_pix_vis = pix_item.isVisible() if pix_item else False
+                        if pix_item and was_pix_vis:
+                            pix_item.setVisible(False)
+
+                        painter = QPainter(qimg)
+                        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+                        try:
+                            tab_doc.scene.render(painter, QRectF(0, 0, qimg.width(), qimg.height()), src_rect)
+                        finally:
+                            painter.end()
+                            if bg_rect and was_bg_vis:
+                                bg_rect.setVisible(True)
+                            if pix_item and was_pix_vis:
+                                pix_item.setVisible(True)
+
                     icon = QIcon(QPixmap.fromImage(qimg))
                     item.setIcon(icon)
                     self._rendered_pages.add(idx)
@@ -5871,11 +6026,13 @@ class OrganizePagesWorkspace(QWidget):
         else:
             msg = LanguageManager.tr("organize_delete_pages_confirm", count=count)
 
-        res = QMessageBox.question(
-            self, LanguageManager.tr("app_title"),
-            msg,
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
-        )
+        msg_box = QMessageBox(self)
+        from src.ui.dialog_theme import apply_dialog_theme
+        apply_dialog_theme(msg_box, self)
+        msg_box.setWindowTitle(LanguageManager.tr("app_title"))
+        msg_box.setText(msg)
+        msg_box.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+        res = msg_box.exec()
         if res != QMessageBox.StandardButton.Yes:
             return
 

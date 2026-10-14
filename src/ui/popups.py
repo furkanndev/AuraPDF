@@ -9,7 +9,7 @@ from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QLa
                              QFontComboBox, QComboBox, QCheckBox, QApplication, QInputDialog, QMessageBox,
                              QStackedWidget, QScrollArea, QButtonGroup, QLineEdit)
 from PyQt6.QtGui import (QColor, QFont, QPainter, QPen, QBrush, QLinearGradient, QRadialGradient, QPainterPath, QTextCursor, QFontMetricsF, QPixmap, QImage)
-from PyQt6.QtCore import Qt, QPoint, QPointF, QRect, QRectF, QTimer, QSettings, QEvent
+from PyQt6.QtCore import Qt, QPoint, QPointF, QRect, QRectF, QTimer, QSettings, QEvent, QSize
 from src.core.i18n import LanguageManager
 from src.ui.icons import ModernIconFactory
 
@@ -964,6 +964,7 @@ class TextSettingsPopup(BaseSettingsPopup):
         self.btn_link = QPushButton()
         self.btn_link.setObjectName("FormatBtn")
         self.btn_link.setIcon(ModernIconFactory.icon_link())
+        self.btn_link.setCheckable(True)
         self.btn_link.setFixedSize(36, 28)
         self.btn_link.setToolTip("Metne Web Bağlantısı (Hyperlink) Ekle")
         self.btn_link.clicked.connect(self._on_add_link_clicked)
@@ -1045,7 +1046,15 @@ class TextSettingsPopup(BaseSettingsPopup):
         self.update_preview()
         it = self._get_target_text_item()
         if it and hasattr(it, 'apply_format_to_selection'):
-            it.apply_format_to_selection(bold=self.bold, italic=self.italic, underline=self.underline)
+            snd = self.sender()
+            if snd == self.btn_bold:
+                it.apply_format_to_selection(bold=self.bold)
+            elif snd == self.btn_italic:
+                it.apply_format_to_selection(italic=self.italic)
+            elif snd == self.btn_underline:
+                it.apply_format_to_selection(underline=self.underline)
+            else:
+                it.apply_format_to_selection(bold=self.bold, italic=self.italic, underline=self.underline)
 
     def _on_palette_color_changed(self, col):
         if getattr(self, '_is_syncing', False):
@@ -1106,6 +1115,13 @@ class TextSettingsPopup(BaseSettingsPopup):
             if "underline" in fmt:
                 self.underline = bool(fmt["underline"])
                 self.btn_underline.setChecked(self.underline)
+            if hasattr(self, 'btn_link'):
+                is_l = bool(fmt.get("is_link", False)) or bool(fmt.get("href", ""))
+                self.btn_link.setChecked(is_l)
+                self.btn_link.setProperty("checked", is_l)
+                self.btn_link.style().unpolish(self.btn_link)
+                self.btn_link.style().polish(self.btn_link)
+                self.btn_link.setToolTip("Bağlantıyı Kaldır (Hyperlink)" if is_l else "Metne Web Bağlantısı (Hyperlink) Ekle")
             for btn in (self.btn_bold, self.btn_italic, self.btn_underline):
                 btn.setProperty("checked", btn.isChecked())
                 btn.style().unpolish(btn)
@@ -1140,35 +1156,47 @@ class TextSettingsPopup(BaseSettingsPopup):
         active_item = (getattr(tab_doc, 'active_text_item', None) or 
                        getattr(tab_doc, 'last_text_item', None)) if tab_doc else None
 
-        if active_item:
-            cur = active_item.textCursor()
-            char_range = None
-            if not cur.hasSelection():
-                cur.select(QTextCursor.SelectionType.WordUnderCursor)
-                if cur.selectedText().strip():
-                    active_item.setTextCursor(cur)
-
-            if cur.hasSelection():
-                raw_sel = cur.selectedText()
-                lead_spaces = len(raw_sel) - len(raw_sel.lstrip())
-                trail_spaces = len(raw_sel) - len(raw_sel.rstrip())
-                s_start = cur.selectionStart() + lead_spaces
-                s_end = cur.selectionEnd() - trail_spaces
-                if s_start < s_end:
-                    char_range = (s_start, s_end)
-                    sel_text = raw_sel.strip()
-                else:
-                    sel_text = cur.selectedText().strip()
-            else:
-                sel_text = ""
-
-            active_item.open_link_dialog(prefill_word=sel_text, char_range=char_range)
-        else:
+        if not active_item:
             QMessageBox.information(
                 self,
                 "Bağlantı (Hyperlink) Ekle",
                 "Lütfen önce sayfada bağlantı eklemek istediğiniz metin kutusunu tıklayın veya seçin."
             )
+            return
+
+        fmt = active_item.get_selection_format()
+        has_link = bool(fmt.get("is_link", False)) or bool(fmt.get("href", ""))
+        if has_link:
+            active_item.clear_link_formatting()
+            self.sync_with_item_selection(active_item)
+            hud = getattr(tab_doc, 'text_floating_hud', None)
+            if hud and hud.isVisible():
+                hud.update_ui_from_selection()
+            return
+
+        cur = active_item.textCursor()
+        char_range = None
+        if not cur.hasSelection():
+            cur.select(QTextCursor.SelectionType.WordUnderCursor)
+            if cur.selectedText().strip():
+                active_item.setTextCursor(cur)
+
+        if cur.hasSelection():
+            raw_sel = cur.selectedText()
+            lead_spaces = len(raw_sel) - len(raw_sel.lstrip())
+            trail_spaces = len(raw_sel) - len(raw_sel.rstrip())
+            s_start = cur.selectionStart() + lead_spaces
+            s_end = cur.selectionEnd() - trail_spaces
+            if s_start < s_end:
+                char_range = (s_start, s_end)
+                sel_text = raw_sel.strip()
+            else:
+                sel_text = cur.selectedText().strip()
+        else:
+            sel_text = ""
+
+        self.btn_link.setChecked(False)
+        active_item.open_link_dialog(prefill_word=sel_text, char_range=char_range)
 
 
 # --- 6.5 KAYAN HIZLI BİÇİMLENDİRME ÇUBUĞU (FLOATING RICH TEXT HUD) ---
@@ -1261,6 +1289,7 @@ class TextFloatingFormatHUD(QFrame):
         # 8. HYPERLINK BUTTON
         self.btn_link = QPushButton()
         self.btn_link.setIcon(ModernIconFactory.icon_link())
+        self.btn_link.setCheckable(True)
         self.btn_link.setFixedSize(28, 26)
         self.btn_link.setToolTip("Bağlantı (Hyperlink) Ekle / Düzenle")
         self.btn_link.clicked.connect(self._on_link_clicked)
@@ -1353,15 +1382,19 @@ class TextFloatingFormatHUD(QFrame):
         is_bold = bool(fmt.get("bold", False))
         is_italic = bool(fmt.get("italic", False))
         is_underline = bool(fmt.get("underline", False))
+        is_link = bool(fmt.get("is_link", False)) or bool(fmt.get("href", ""))
 
         self.btn_bold.setChecked(is_bold)
         self.btn_italic.setChecked(is_italic)
         self.btn_underline.setChecked(is_underline)
+        self.btn_link.setChecked(is_link)
 
-        for btn in (self.btn_bold, self.btn_italic, self.btn_underline):
+        for btn in (self.btn_bold, self.btn_italic, self.btn_underline, self.btn_link):
             btn.setProperty("checked", btn.isChecked())
             btn.style().unpolish(btn)
             btn.style().polish(btn)
+
+        self.btn_link.setToolTip("Bağlantıyı Kaldır (Hyperlink)" if is_link else "Bağlantı (Hyperlink) Ekle")
 
         fs = int(round(fmt.get("font_size", 14)))
         self.current_size = fs
@@ -1513,7 +1546,19 @@ class TextFloatingFormatHUD(QFrame):
             self._apply_color(col)
 
     def _on_link_clicked(self):
-        if self.target_text_item:
+        if not self.target_text_item:
+            return
+        fmt = self.target_text_item.get_selection_format()
+        has_link = bool(fmt.get("is_link", False)) or bool(fmt.get("href", ""))
+        if has_link:
+            self.target_text_item.clear_link_formatting()
+            self.btn_link.setChecked(False)
+            self.btn_link.setProperty("checked", False)
+            self.btn_link.style().unpolish(self.btn_link)
+            self.btn_link.style().polish(self.btn_link)
+            self.btn_link.setToolTip("Bağlantı (Hyperlink) Ekle")
+        else:
+            self.btn_link.setChecked(False)
             self.target_text_item.open_link_dialog()
 
 
@@ -3101,10 +3146,26 @@ class ToolSettingsPopup(BaseSettingsPopup):
             layout.addWidget(self.preview)
             self.update_preview()
 
+            clear_btns_layout = QVBoxLayout()
+            clear_btns_layout.setSpacing(6)
+
+            self.btn_clear_page = QPushButton(LanguageManager.tr("clear_page_drawings"))
+            self.btn_clear_page.setObjectName("ClearPageBtn")
+            self.btn_clear_page.setIcon(ModernIconFactory.icon_eraser("#f87171"))
+            self.btn_clear_page.setIconSize(QSize(14, 14))
+            self.btn_clear_page.setCursor(Qt.CursorShape.PointingHandCursor)
+            self.btn_clear_page.clicked.connect(self._on_clear_page_drawings)
+            clear_btns_layout.addWidget(self.btn_clear_page)
+
             self.btn_clear_all = QPushButton(LanguageManager.tr("clear_all_drawings"))
             self.btn_clear_all.setObjectName("ClearBtn")
+            self.btn_clear_all.setIcon(ModernIconFactory.icon_eraser("#f87171"))
+            self.btn_clear_all.setIconSize(QSize(14, 14))
+            self.btn_clear_all.setCursor(Qt.CursorShape.PointingHandCursor)
             self.btn_clear_all.clicked.connect(self._on_clear_all_drawings)
-            layout.addWidget(self.btn_clear_all)
+            clear_btns_layout.addWidget(self.btn_clear_all)
+
+            layout.addLayout(clear_btns_layout)
 
         settings = QSettings("AuraPDF", "PDFViewer")
         current_th = settings.value("app_theme", "gray")
@@ -3208,22 +3269,25 @@ class ToolSettingsPopup(BaseSettingsPopup):
                 self.btn_mode_stroke.setStyleSheet(segment_style)
             if hasattr(self, 'btn_mode_area') and self.btn_mode_area:
                 self.btn_mode_area.setStyleSheet(segment_style)
+            clear_btn_qss = f"""
+                QPushButton#ClearBtn, QPushButton#ClearPageBtn {{
+                    background-color: rgba(239, 68, 68, 0.12);
+                    color: #f87171;
+                    border: 1px solid rgba(239, 68, 68, 0.3);
+                    border-radius: 8px;
+                    padding: 7px 12px;
+                    font-size: 12px;
+                    font-weight: 600;
+                }}
+                QPushButton#ClearBtn:hover, QPushButton#ClearPageBtn:hover {{
+                    background-color: #ef4444;
+                    color: #ffffff;
+                }}
+            """
+            if hasattr(self, 'btn_clear_page') and self.btn_clear_page:
+                self.btn_clear_page.setStyleSheet(clear_btn_qss)
             if hasattr(self, 'btn_clear_all') and self.btn_clear_all:
-                self.btn_clear_all.setStyleSheet(f"""
-                    QPushButton#ClearBtn {{
-                        background-color: rgba(239, 68, 68, 0.12);
-                        color: #f87171;
-                        border: 1px solid rgba(239, 68, 68, 0.3);
-                        border-radius: 8px;
-                        padding: 7px 12px;
-                        font-size: 12px;
-                        font-weight: 600;
-                    }}
-                    QPushButton#ClearBtn:hover {{
-                        background-color: #ef4444;
-                        color: #ffffff;
-                    }}
-                """)
+                self.btn_clear_all.setStyleSheet(clear_btn_qss)
 
         curr_tab = self.stack.currentIndex() if hasattr(self, 'stack') else 0
         self._set_active_tab(curr_tab)
@@ -3732,6 +3796,12 @@ class ToolSettingsPopup(BaseSettingsPopup):
 
         self.presets_container_layout.addStretch()
 
+    def _on_clear_page_drawings(self):
+        self.close()
+        p = self.parent()
+        if hasattr(p, 'clear_page_drawings'):
+            p.clear_page_drawings()
+
     def _on_clear_all_drawings(self):
         self.close()
         p = self.parent()
@@ -3757,6 +3827,8 @@ class ToolSettingsPopup(BaseSettingsPopup):
             self.btn_mode_stroke.setText(LanguageManager.tr("eraser_stroke"))
         if hasattr(self, 'btn_mode_area'):
             self.btn_mode_area.setText(LanguageManager.tr("eraser_area"))
+        if hasattr(self, 'btn_clear_page'):
+            self.btn_clear_page.setText(LanguageManager.tr("clear_page_drawings"))
         if hasattr(self, 'btn_clear_all'):
             self.btn_clear_all.setText(LanguageManager.tr("clear_all_drawings"))
         if hasattr(self, 'presets_container'):
