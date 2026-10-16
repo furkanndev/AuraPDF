@@ -5,18 +5,40 @@
 </p>
 
 <p align="center">
-  <strong>Modern, Hızlı ve Güvenilir Masaüstü PDF Platformu</strong><br>
-  Python 3, PyQt6 ve PyMuPDF motoru üzerine inşa edilmiş, hafif ve zengin özellikli PDF okuyucu ve düzenleyici.
+  <strong>Modern, Fast, and Extensible Windows Desktop PDF Suite</strong><br>
+  Engineered with Python 3, PyQt6, and the high-speed PyMuPDF rendering engine. Features native OCR, direct page text editing, interactive forms, annotations, and standalone installer packaging.
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Sürüm-Basic%20v1.1-3b82f6?style=flat-square" alt="Version" />
-  <img src="https://img.shields.io/badge/Python-3.10%2B-blue?style=flat-square" alt="Python Version" />
-  <img src="https://img.shields.io/badge/Arayüz-PyQt6-green?style=flat-square" alt="PyQt6" />
-  <img src="https://img.shields.io/badge/PDF_Motoru-PyMuPDF-orange?style=flat-square" alt="PyMuPDF" />
-  <img src="https://img.shields.io/badge/Platform-Windows_10%20%2F%2011-0078D6?style=flat-square" alt="Platform" />
-  <img src="https://img.shields.io/badge/Lisans-MIT-purple?style=flat-square" alt="License" />
+  <img src="https://img.shields.io/badge/Version-Basic%20v1.1-27272a?style=flat-square" alt="Version" />
+  <img src="https://img.shields.io/badge/Python-3.10%2B-3776AB?style=flat-square&logo=python&logoColor=white" alt="Python" />
+  <img src="https://img.shields.io/badge/GUI-PyQt6-41CD52?style=flat-square&logo=qt&logoColor=white" alt="PyQt6" />
+  <img src="https://img.shields.io/badge/Engine-PyMuPDF-D9381E?style=flat-square" alt="PyMuPDF" />
+  <img src="https://img.shields.io/badge/OCR-RapidOCR%20%2F%20ONNX-blue?style=flat-square" alt="OCR" />
+  <img src="https://img.shields.io/badge/Packaging-Inno%20Setup-0078D7?style=flat-square&logo=windows&logoColor=white" alt="Inno Setup" />
+  <img src="https://img.shields.io/badge/Platform-Windows%2010%20%2F%2011-0078D6?style=flat-square&logo=windows11&logoColor=white" alt="Platform" />
+  <img src="https://img.shields.io/badge/License-MIT-gray?style=flat-square" alt="License" />
 </p>
+
+<p align="center">
+  <a href="#english-overview">English Overview</a> •
+  <a href="#genel-bakış">Türkçe Dokümantasyon</a> •
+  <a href="#kurulum-ve-çalıştırma">Kurulum & İndirme</a>
+</p>
+
+---
+
+## English Overview
+
+AuraPDF is a high-performance Windows desktop PDF productivity suite engineered for power users, developers, and office professionals. By combining the low-latency C-based rendering of PyMuPDF with modern PyQt6 UI architecture, AuraPDF delivers fluid multi-tabbed viewing, in-place text modification, and complete document management without heavy runtime overhead.
+
+### Key Capabilities
+- **Direct Page Text Editing:** Select, mutate, re-font, and reflow text blocks directly on PDF pages in real time.
+- **Embedded OCR Pipeline:** Extract text from scanned pages using local ONNX / RapidOCR inference.
+- **Interactive Form Filling (AcroForms):** Populate, serialize, and validate text boxes, checkboxes, and select dropdowns.
+- **Document Management Toolbox:** Split, merge, reorder, rotate, compress, redact sensitive areas, and password-encrypt documents.
+- **Modern Fluent UI & Themes:** 8 curated color themes (Dark, Nord, Emerald, Vice City, etc.) with resolution-independent vector icons.
+- **Production Installer:** Automated standalone build scripts generating single-click Windows installers (`.exe`) via PyInstaller and Inno Setup 6.
 
 ---
 
