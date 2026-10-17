@@ -1094,6 +1094,8 @@ class PDFTabDocument(QWidget):
             fitz.PDF_ANNOT_LINE,
             fitz.PDF_ANNOT_POLY_LINE,
             fitz.PDF_ANNOT_HIGHLIGHT,
+            fitz.PDF_ANNOT_UNDERLINE,
+            fitz.PDF_ANNOT_STRIKE_OUT,
             fitz.PDF_ANNOT_FREE_TEXT,
             fitz.PDF_ANNOT_POLYGON
         )
@@ -1247,11 +1249,55 @@ class PDFTabDocument(QWidget):
                             pts_stroke = [fitz.Point(pt[0], pt[1]) * page.rotation_matrix for pt in raw_v]
                             strokes_to_add.append((pts_stroke, None))
 
-                    elif a_type == fitz.PDF_ANNOT_HIGHLIGHT:
-                        r = annot.rect
-                        p_start = fitz.Point(r.x0, (r.y0 + r.y1) / 2) * page.rotation_matrix
-                        p_end = fitz.Point(r.x1, (r.y0 + r.y1) / 2) * page.rotation_matrix
-                        strokes_to_add.append(([p_start, p_end], None))
+                    elif a_type in (fitz.PDF_ANNOT_HIGHLIGHT, fitz.PDF_ANNOT_UNDERLINE, fitz.PDF_ANNOT_STRIKE_OUT):
+                        if a_type == fitz.PDF_ANNOT_HIGHLIGHT:
+                            markup_type = "highlight"
+                            m_color = col if col != (0.0, 0.0, 0.0) else (1.0, 0.9, 0.2)
+                            m_alpha = opacity if opacity > 0 else 0.38
+                        elif a_type == fitz.PDF_ANNOT_UNDERLINE:
+                            markup_type = "underline"
+                            m_color = col if col != (0.0, 0.0, 0.0) else (0.1, 0.5, 0.9)
+                            m_alpha = opacity if opacity > 0 else 1.0
+                        else:
+                            markup_type = "strikeout"
+                            m_color = col if col != (0.0, 0.0, 0.0) else (0.9, 0.2, 0.2)
+                            m_alpha = opacity if opacity > 0 else 1.0
+
+                        v = annot.vertices or []
+                        rects = []
+                        if len(v) >= 4 and len(v) % 4 == 0:
+                            quads = [v[i:i+4] for i in range(0, len(v), 4)]
+                            for q in quads:
+                                pts = [fitz.Point(pt[0], pt[1]) * page.rotation_matrix for pt in q]
+                                rects.append([
+                                    min(pt.x for pt in pts),
+                                    min(pt.y for pt in pts),
+                                    max(pt.x for pt in pts),
+                                    max(pt.y for pt in pts)
+                                ])
+                        else:
+                            r = annot.rect * page.rotation_matrix
+                            r.normalize()
+                            rects.append([r.x0, r.y0, r.x1, r.y1])
+
+                        new_item = {
+                            "id": uuid.uuid4().hex[:12],
+                            "type": "text_markup",
+                            "markup_type": markup_type,
+                            "page": p_idx,
+                            "rects": rects,
+                            "color": m_color,
+                            "alpha": m_alpha,
+                            "width": 2.0,
+                            "source_annot": True
+                        }
+                        self.drawings.append(new_item)
+                        try:
+                            annot.set_flags(annot.flags | fitz.PDF_ANNOT_IS_HIDDEN)
+                            annot.update()
+                        except Exception:
+                            pass
+                        continue
 
                     for stroke_pts, ah in strokes_to_add:
                         pts_coords = [(pt.x, pt.y) for pt in stroke_pts]
@@ -1292,7 +1338,10 @@ class PDFTabDocument(QWidget):
             fitz.PDF_ANNOT_LINE,
             fitz.PDF_ANNOT_POLY_LINE,
             fitz.PDF_ANNOT_HIGHLIGHT,
-            fitz.PDF_ANNOT_FREE_TEXT
+            fitz.PDF_ANNOT_UNDERLINE,
+            fitz.PDF_ANNOT_STRIKE_OUT,
+            fitz.PDF_ANNOT_FREE_TEXT,
+            fitz.PDF_ANNOT_POLYGON
         )
         for page in target_doc:
             try:
@@ -1474,7 +1523,16 @@ class PDFTabDocument(QWidget):
         else:
             pages_to_clean = set(range(len(target_doc)))
 
-        MANAGED_TYPES = (fitz.PDF_ANNOT_INK, fitz.PDF_ANNOT_LINE, fitz.PDF_ANNOT_POLY_LINE, fitz.PDF_ANNOT_HIGHLIGHT, fitz.PDF_ANNOT_FREE_TEXT, fitz.PDF_ANNOT_POLYGON)
+        MANAGED_TYPES = (
+            fitz.PDF_ANNOT_INK,
+            fitz.PDF_ANNOT_LINE,
+            fitz.PDF_ANNOT_POLY_LINE,
+            fitz.PDF_ANNOT_HIGHLIGHT,
+            fitz.PDF_ANNOT_UNDERLINE,
+            fitz.PDF_ANNOT_STRIKE_OUT,
+            fitz.PDF_ANNOT_FREE_TEXT,
+            fitz.PDF_ANNOT_POLYGON
+        )
         for p_idx in pages_to_clean:
             try:
                 page = target_doc[p_idx]
@@ -1582,6 +1640,45 @@ class PDFTabDocument(QWidget):
                             annot.update()
                         except Exception:
                             pass
+
+            elif d.get("type") == "text_markup":
+                markup_type = d.get("markup_type", "highlight")
+                rects = d.get("rects", [])
+                if not rects:
+                    continue
+                pdf_rects = []
+                for r in rects:
+                    vis_rect = fitz.Rect(r[0], r[1], r[2], r[3])
+                    pr = vis_rect * page.derotation_matrix
+                    pr.normalize()
+                    pdf_rects.append(pr)
+
+                col = d.get("color", (1.0, 0.9, 0.2))
+                if isinstance(col, (tuple, list)) and len(col) >= 3:
+                    stroke_col = (float(col[0]), float(col[1]), float(col[2]))
+                elif isinstance(col, QColor):
+                    stroke_col = (col.redF(), col.greenF(), col.blueF())
+                else:
+                    stroke_col = (1.0, 0.9, 0.2)
+
+                alpha_val = float(d.get("alpha", 0.38 if markup_type == "highlight" else 1.0))
+
+                try:
+                    if markup_type == "highlight":
+                        annot = page.add_highlight_annot(pdf_rects)
+                    elif markup_type == "underline":
+                        annot = page.add_underline_annot(pdf_rects)
+                    elif markup_type == "strikeout":
+                        annot = page.add_strikeout_annot(pdf_rects)
+                    else:
+                        annot = page.add_highlight_annot(pdf_rects)
+
+                    annot.set_colors(stroke=stroke_col)
+                    annot.set_opacity(alpha_val)
+                    annot.update()
+                except Exception as e:
+                    import traceback
+                    traceback.print_exc()
 
             elif d.get("type") == "text":
                 content = d.get("text", "") or ""
@@ -1992,7 +2089,16 @@ class PDFTabDocument(QWidget):
         # Hedef doküman self.doc ise, get_pixmap arka planında statik kopya çizilmesini önlemek
         # ve çizimlerin sahnede iki defa görünmesini engellemek için açıklamaları gizle
         if target_doc is self.doc:
-            MANAGED_TYPES = (fitz.PDF_ANNOT_INK, fitz.PDF_ANNOT_LINE, fitz.PDF_ANNOT_POLY_LINE, fitz.PDF_ANNOT_HIGHLIGHT, fitz.PDF_ANNOT_FREE_TEXT, fitz.PDF_ANNOT_POLYGON)
+            MANAGED_TYPES = (
+                fitz.PDF_ANNOT_INK,
+                fitz.PDF_ANNOT_LINE,
+                fitz.PDF_ANNOT_POLY_LINE,
+                fitz.PDF_ANNOT_HIGHLIGHT,
+                fitz.PDF_ANNOT_UNDERLINE,
+                fitz.PDF_ANNOT_STRIKE_OUT,
+                fitz.PDF_ANNOT_FREE_TEXT,
+                fitz.PDF_ANNOT_POLYGON
+            )
             for p in self.doc:
                 try:
                     for a in list(p.annots()):
@@ -2059,6 +2165,10 @@ class PDFTabDocument(QWidget):
             s["h"] = d["h"]
         if "text" in d:
             s["text"] = d["text"]
+        if "rects" in d:
+            s["rects"] = [list(r) for r in d["rects"]]
+        if "markup_type" in d:
+            s["markup_type"] = d["markup_type"]
         return s
 
     def _apply_drawing_state(self, d, state):
@@ -2079,6 +2189,10 @@ class PDFTabDocument(QWidget):
             d["h"] = state["h"]
         if "text" in state:
             d["text"] = state["text"]
+        if "rects" in state:
+            d["rects"] = [list(r) for r in state["rects"]]
+        if "markup_type" in state:
+            d["markup_type"] = state["markup_type"]
 
     def delete_selected_items(self):
         # 1. Seçili ölçüm cetvellerini sil
@@ -2308,9 +2422,12 @@ class PDFTabDocument(QWidget):
         action = self.undo_stack.pop()
 
         if action["type"] == "add":
-            item_data = action["data"]
-            if item_data in self.drawings: self.drawings.remove(item_data)
-            if item_data.get("item_ref"): self.scene.removeItem(item_data["item_ref"])
+            items = action["data"] if isinstance(action["data"], list) else [action["data"]]
+            for item_data in items:
+                if item_data in self.drawings:
+                    self.drawings.remove(item_data)
+                if item_data.get("item_ref") and item_data["item_ref"].scene() == self.scene:
+                    self.scene.removeItem(item_data["item_ref"])
             self.redo_stack.append(action)
 
         elif action["type"] == "edit_text":
@@ -2411,9 +2528,10 @@ class PDFTabDocument(QWidget):
         action = self.redo_stack.pop()
 
         if action["type"] == "add":
-            item_data = action["data"]
-            self.drawings.append(item_data)
-            self.restore_drawing_item(item_data)
+            items = action["data"] if isinstance(action["data"], list) else [action["data"]]
+            for item_data in items:
+                self.drawings.append(item_data)
+                self.restore_drawing_item(item_data)
             self.undo_stack.append(action)
 
         elif action["type"] == "edit_text":
@@ -3254,12 +3372,77 @@ class PDFTabDocument(QWidget):
             self.render_audio_item(d)
         elif d["type"] == "video":
             self.render_video_item(d)
+        elif d["type"] == "text_markup":
+            if d.get("item_ref") and d["item_ref"].scene() == self.scene:
+                try:
+                    self.scene.removeItem(d["item_ref"])
+                except Exception:
+                    pass
+                d["item_ref"] = None
+
+            scale = self.base_render_dpi
+            markup_type = d.get("markup_type", "highlight")
+            rects = d.get("rects", [])
+            col = d.get("color", (1.0, 0.9, 0.2))
+            alpha = float(d.get("alpha", 0.38 if markup_type == "highlight" else 1.0))
+            width = float(d.get("width", 2.0))
+
+            if isinstance(col, QColor):
+                qcolor = QColor(col)
+                qcolor.setAlphaF(alpha)
+            elif isinstance(col, (tuple, list)) and len(col) >= 3:
+                qcolor = QColor.fromRgbF(float(col[0]), float(col[1]), float(col[2]), alpha)
+            else:
+                qcolor = QColor(255, 230, 0, int(alpha * 255))
+
+            path = QPainterPath()
+            if markup_type == "highlight":
+                for r in rects:
+                    sx = r[0] * scale + page_left
+                    sy = r[1] * scale + page_top
+                    sw = (r[2] - r[0]) * scale
+                    sh = (r[3] - r[1]) * scale
+                    path.addRect(QRectF(sx, sy, sw, sh))
+                item = self.scene.addPath(path, QPen(Qt.PenStyle.NoPen), QBrush(qcolor))
+            elif markup_type == "underline":
+                pen = QPen(qcolor, max(1.5, width * scale * 0.7), Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin)
+                for r in rects:
+                    sx0 = r[0] * scale + page_left
+                    sx1 = r[2] * scale + page_left
+                    sy = (r[3] - 1.0) * scale + page_top
+                    path.moveTo(sx0, sy)
+                    path.lineTo(sx1, sy)
+                item = self.scene.addPath(path, pen)
+            elif markup_type == "strikeout":
+                pen = QPen(qcolor, max(1.5, width * scale * 0.7), Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin)
+                for r in rects:
+                    sx0 = r[0] * scale + page_left
+                    sx1 = r[2] * scale + page_left
+                    sy = ((r[1] + r[3]) / 2.0) * scale + page_top
+                    path.moveTo(sx0, sy)
+                    path.lineTo(sx1, sy)
+                item = self.scene.addPath(path, pen)
+            else:
+                return
+
+            item.setZValue(5)
+            item.setAcceptedMouseButtons(Qt.MouseButton.NoButton)
+            d["item_ref"] = item
 
     # --- Render & Zoom ---
     def render_pages_init(self):
         if self.doc is None: return
         # In-memory dokümanda ek açıklamaların get_pixmap ile çift çizilmesini önle
-        MANAGED_TYPES = (fitz.PDF_ANNOT_INK, fitz.PDF_ANNOT_LINE, fitz.PDF_ANNOT_POLY_LINE, fitz.PDF_ANNOT_HIGHLIGHT, fitz.PDF_ANNOT_FREE_TEXT, fitz.PDF_ANNOT_POLYGON)
+        MANAGED_TYPES = (
+            fitz.PDF_ANNOT_INK,
+            fitz.PDF_ANNOT_LINE,
+            fitz.PDF_ANNOT_POLY_LINE,
+            fitz.PDF_ANNOT_HIGHLIGHT,
+            fitz.PDF_ANNOT_UNDERLINE,
+            fitz.PDF_ANNOT_STRIKE_OUT,
+            fitz.PDF_ANNOT_FREE_TEXT,
+            fitz.PDF_ANNOT_POLYGON
+        )
         for p in self.doc:
             try:
                 for a in list(p.annots()):
@@ -5772,6 +5955,33 @@ class PDFTabDocument(QWidget):
                             hit = True
                             break
 
+                elif d.get("type") == "text_markup":
+                    scale = self.base_render_dpi
+                    rects = d.get("rects", [])
+                    markup_type = d.get("markup_type", "highlight")
+                    hit_radius = radius + 6.0
+                    for s_pt in sample_points:
+                        check_rect = QRectF(s_pt.x() - hit_radius, s_pt.y() - hit_radius, hit_radius * 2, hit_radius * 2)
+                        for r in rects:
+                            sx0 = r[0] * scale + page_left
+                            sy0 = r[1] * scale + page_top
+                            sw = (r[2] - r[0]) * scale
+                            sh = (r[3] - r[1]) * scale
+                            if markup_type == "highlight":
+                                m_rect = QRectF(sx0, sy0, sw, sh)
+                            elif markup_type == "underline":
+                                m_rect = QRectF(sx0, (r[3] - 2.0) * scale + page_top, sw, 4.0 * scale)
+                            elif markup_type == "strikeout":
+                                m_rect = QRectF(sx0, ((r[1] + r[3]) / 2.0 - 2.0) * scale + page_top, sw, 4.0 * scale)
+                            else:
+                                m_rect = QRectF(sx0, sy0, sw, sh)
+
+                            if m_rect.intersects(check_rect):
+                                hit = True
+                                break
+                        if hit:
+                            break
+
                 if hit:
                     deleted.append(d)
                     if d.get("item_ref") and d["item_ref"].scene() == self.scene:
@@ -5893,12 +6103,30 @@ class PDFTabDocument(QWidget):
                     transform.translate(page_left, top_y)
                     transform.scale(self.base_render_dpi, self.base_render_dpi)
                     target_path = transform.map(record["rel_path"])
+                elif record["type"] == "text_markup":
+                    if item and hasattr(item, 'path'):
+                        target_path = item.path()
+                    else:
+                        target_path = QPainterPath()
+                        for r in record.get("rects", []):
+                            target_path.addRect(QRectF(
+                                r[0] * self.base_render_dpi + page_left,
+                                r[1] * self.base_render_dpi + top_y,
+                                (r[2] - r[0]) * self.base_render_dpi,
+                                (r[3] - r[1]) * self.base_render_dpi
+                            ))
                 else:
                     new_drawings.append(record)
                     continue
 
                 if not target_path.intersects(eraser_path):
                     new_drawings.append(record)
+                    continue
+
+                if record["type"] == "text_markup":
+                    erased_any = True
+                    if item.scene() == self.scene:
+                        self.scene.removeItem(item)
                     continue
                     
                 new_path = target_path.subtracted(eraser_path)
@@ -6603,71 +6831,69 @@ class PDFTabDocument(QWidget):
             elif hasattr(self.main_window, 'show_osd_message'):
                 self.main_window.show_osd_message(LanguageManager.tr("text_copied_to_clipboard"))
 
-    def highlight_selected_text(self, color=(1.0, 0.9, 0.2)):
+    def add_text_markup(self, markup_type: str, color=None):
         if not self.selected_text_rects or not self.doc:
             return
+
+        if color is None:
+            if markup_type == "highlight":
+                color = (1.0, 0.9, 0.2)
+            elif markup_type == "underline":
+                color = (0.1, 0.5, 0.9)
+            elif markup_type == "strikeout":
+                color = (0.9, 0.2, 0.2)
+            else:
+                color = (1.0, 0.9, 0.2)
+        elif isinstance(color, QColor):
+            color = (color.redF(), color.greenF(), color.blueF())
+
+        alpha = 0.38 if markup_type == "highlight" else 1.0
+        width = 2.0
+
         pages = {}
         for p_idx, s_rect, pdf_rect in self.selected_text_rects:
             pages.setdefault(p_idx, []).append(pdf_rect)
+
+        created_items = []
         for p_idx, rects in pages.items():
-            try:
-                page = self.doc[p_idx]
-                annot = page.add_highlight_annot(rects)
-                annot.set_colors(stroke=color)
-                annot.update()
-            except Exception:
-                pass
-        self.set_modified(True)
+            rect_coords = [[r.x0, r.y0, r.x1, r.y1] for r in rects]
+            record = {
+                "id": uuid.uuid4().hex[:12],
+                "type": "text_markup",
+                "markup_type": markup_type,
+                "page": p_idx,
+                "rects": rect_coords,
+                "color": color,
+                "alpha": alpha,
+                "width": width,
+                "item_ref": None
+            }
+            self.drawings.append(record)
+            self.restore_drawing_item(record)
+            created_items.append(record)
+            self.notify_drawings_changed(p_idx)
+
+        if created_items:
+            self.push_undo_action({"type": "add", "data": created_items})
+            self.set_modified(True)
+
         self.clear_text_selection()
-        self.rerender_visible_pages(force=True)
+        self.scene.update()
+        self.view.viewport().update()
+
         if hasattr(self.main_window, 'dock_thumbs') and self.main_window.dock_thumbs:
             self.main_window.dock_thumbs.load_comments()
         elif hasattr(self.main_window, 'thumbnails_dock') and self.main_window.thumbnails_dock:
             self.main_window.thumbnails_dock.load_comments()
+
+    def highlight_selected_text(self, color=(1.0, 0.9, 0.2)):
+        self.add_text_markup("highlight", color)
 
     def underline_selected_text(self, color=(0.1, 0.5, 0.9)):
-        if not self.selected_text_rects or not self.doc:
-            return
-        pages = {}
-        for p_idx, s_rect, pdf_rect in self.selected_text_rects:
-            pages.setdefault(p_idx, []).append(pdf_rect)
-        for p_idx, rects in pages.items():
-            try:
-                page = self.doc[p_idx]
-                annot = page.add_underline_annot(rects)
-                annot.set_colors(stroke=color)
-                annot.update()
-            except Exception:
-                pass
-        self.set_modified(True)
-        self.clear_text_selection()
-        self.rerender_visible_pages(force=True)
-        if hasattr(self.main_window, 'dock_thumbs') and self.main_window.dock_thumbs:
-            self.main_window.dock_thumbs.load_comments()
-        elif hasattr(self.main_window, 'thumbnails_dock') and self.main_window.thumbnails_dock:
-            self.main_window.thumbnails_dock.load_comments()
+        self.add_text_markup("underline", color)
 
     def strikeout_selected_text(self, color=(0.9, 0.2, 0.2)):
-        if not self.selected_text_rects or not self.doc:
-            return
-        pages = {}
-        for p_idx, s_rect, pdf_rect in self.selected_text_rects:
-            pages.setdefault(p_idx, []).append(pdf_rect)
-        for p_idx, rects in pages.items():
-            try:
-                page = self.doc[p_idx]
-                annot = page.add_strikeout_annot(rects)
-                annot.set_colors(stroke=color)
-                annot.update()
-            except Exception:
-                pass
-        self.set_modified(True)
-        self.clear_text_selection()
-        self.rerender_visible_pages(force=True)
-        if hasattr(self.main_window, 'dock_thumbs') and self.main_window.dock_thumbs:
-            self.main_window.dock_thumbs.load_comments()
-        elif hasattr(self.main_window, 'thumbnails_dock') and self.main_window.thumbnails_dock:
-            self.main_window.thumbnails_dock.load_comments()
+        self.add_text_markup("strikeout", color)
 
     def search_selected_text(self):
         if not self.selected_text:
@@ -7832,6 +8058,12 @@ class PDFTabDocument(QWidget):
                             if invertible:
                                 d["page"] = target_page
                                 d["rel_path"] = target_inv.map(moved_scene_path)
+
+                        elif init_s.get("type") == "text_markup" and "rects" in init_s:
+                            scale = self.base_render_dpi
+                            dx_pdf = total_dx / scale
+                            dy_pdf = total_dy / scale
+                            d["rects"] = [[r[0] + dx_pdf, r[1] + dy_pdf, r[2] + dx_pdf, r[3] + dy_pdf] for r in init_s["rects"]]
 
                         new_states.append(self._snapshot_drawing_state(d))
 
