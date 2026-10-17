@@ -7,7 +7,7 @@ from typing import Optional
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QLabel, 
                              QPushButton, QSlider, QFrame, QColorDialog, 
                              QFontComboBox, QComboBox, QCheckBox, QApplication, QInputDialog, QMessageBox,
-                             QStackedWidget, QScrollArea, QButtonGroup, QLineEdit)
+                             QStackedWidget, QScrollArea, QButtonGroup, QLineEdit, QToolButton, QGraphicsDropShadowEffect)
 from PyQt6.QtGui import (QColor, QFont, QPainter, QPen, QBrush, QLinearGradient, QRadialGradient, QPainterPath, QTextCursor, QFontMetricsF, QPixmap, QImage)
 from PyQt6.QtCore import Qt, QPoint, QPointF, QRect, QRectF, QTimer, QSettings, QEvent, QSize
 from src.core.i18n import LanguageManager
@@ -123,6 +123,10 @@ class BaseSettingsPopup(QWidget):
     def apply_theme(self, theme_name="dark", spec=None):
         if not spec:
             spec = POPUP_THEME_SPECS.get(theme_name, POPUP_THEME_SPECS.get("dark", {}))
+        if getattr(self, '_applied_theme', None) == theme_name and getattr(self, '_applied_spec', None) == spec:
+            return
+        self._applied_theme = theme_name
+        self._applied_spec = spec
         self.setStyleSheet(f"""
             QWidget, QWidget#RulerCard, QWidget#MeasurementCard {{
                 background-color: {spec['tb_bg']};
@@ -513,13 +517,13 @@ class SelectionSettingsPopup(BaseSettingsPopup):
                 self.btn_move.setChecked(mode == "move")
                 self.btn_ruler.setChecked(False)
                 self.box_ruler_opts.setVisible(False)
-            self.adjustSize()
-
-            for btn in (getattr(self, 'btn_select', None), getattr(self, 'btn_pan', None),
-                        self.btn_rect, self.btn_lasso, self.btn_move, self.btn_ruler):
-                if btn:
-                    btn.style().unpolish(btn)
-                    btn.style().polish(btn)
+            if self.isVisible():
+                self.adjustSize()
+                for btn in (getattr(self, 'btn_select', None), getattr(self, 'btn_pan', None),
+                            self.btn_rect, self.btn_lasso, self.btn_move, self.btn_ruler):
+                    if btn:
+                        btn.style().unpolish(btn)
+                        btn.style().polish(btn)
 
 
 class CursorPopup(BaseSettingsPopup):
@@ -4602,94 +4606,198 @@ class RulerMeasurementPopup(BaseSettingsPopup):
 
 class PDFTextSelectionHUD(QFrame):
     """
-    Kullanıcı PDF sayfasındaki metinleri seçtiğinde beliren,
+    Kullanıcı PDF sayfasındaki metinleri seçtiğinde beliren;
     seçili metni kopyalama, vurgulama, altını çizme, üstünü çizme,
-    arama, çeviri ve seslendirme işlemlerini sunan modern floating HUD.
+    seslendirme, arama ve çeviri işlemlerini sunan ultra-modern, emojisiz,
+    tamamen vektörel ve temaya duyarlı floating quick-action HUD.
     """
     def __init__(self, parent=None, tab_doc=None):
         super().__init__(parent)
         self.tab_doc = tab_doc
         self.setObjectName("PDFTextSelectionHUD")
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
         self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating, True)
         self.setWindowFlags(Qt.WindowType.SubWindow | Qt.WindowType.FramelessWindowHint)
+        self.theme_name = "gray"
+        self.spec = {}
 
-        self.setStyleSheet("""
-            #PDFTextSelectionHUD {
-                background-color: rgba(28, 28, 32, 0.96);
-                border: 1px solid rgba(255, 255, 255, 0.18);
-                border-radius: 8px;
-            }
-            QPushButton {
-                background: transparent;
-                border: none;
-                border-radius: 5px;
-                padding: 4px 6px;
-                color: #e2e8f0;
-                font-size: 11px;
-                font-weight: 500;
-            }
-            QPushButton:hover {
-                background: rgba(255, 255, 255, 0.12);
-                color: #38bdf8;
-            }
-            QPushButton:pressed {
-                background: rgba(2, 132, 199, 0.3);
-            }
-            QFrame#Separator {
-                background: rgba(255, 255, 255, 0.12);
-                width: 1px;
-                max-width: 1px;
-                margin: 4px 2px;
-            }
-        """)
+        # Ana layout: etrafında yumuşak drop shadow efekti için 8px kenar boşluğu
+        main_layout = QVBoxLayout(self)
+        main_layout.setContentsMargins(8, 8, 8, 8)
+        main_layout.setSpacing(0)
 
-        layout = QHBoxLayout(self)
-        layout.setContentsMargins(6, 4, 6, 4)
-        layout.setSpacing(3)
+        # İç kapsül paneli
+        self.capsule = QFrame(self)
+        self.capsule.setObjectName("SelectionCapsule")
 
-        # 1. Kopyala
-        self.btn_copy = QPushButton("📋 " + LanguageManager.tr("copy") if hasattr(LanguageManager, 'tr') else "📋 Kopyala")
-        self.btn_copy.setToolTip(LanguageManager.tr("text_copied_to_clipboard") + " (Ctrl+C)")
+        shadow = QGraphicsDropShadowEffect(self.capsule)
+        shadow.setBlurRadius(16)
+        shadow.setOffset(0, 3)
+        shadow.setColor(QColor(0, 0, 0, 95))
+        self.capsule.setGraphicsEffect(shadow)
+
+        self.layout_capsule = QHBoxLayout(self.capsule)
+        self.layout_capsule.setContentsMargins(6, 4, 6, 4)
+        self.layout_capsule.setSpacing(2)
+
+        # 1. Kopyala (Copy)
+        self.btn_copy = QToolButton(self.capsule)
+        self.btn_copy.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+        self.btn_copy.setIconSize(QSize(15, 15))
+        self.btn_copy.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_copy.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.btn_copy.clicked.connect(self._on_copy)
-        layout.addWidget(self.btn_copy)
+        self.layout_capsule.addWidget(self.btn_copy)
 
-        sep1 = QFrame()
-        sep1.setObjectName("Separator")
-        layout.addWidget(sep1)
+        self.sep1 = QFrame(self.capsule)
+        self.sep1.setObjectName("Separator")
+        self.layout_capsule.addWidget(self.sep1)
 
         # 2. Vurgula (Highlight)
-        self.btn_hl = QPushButton("🟡 " + LanguageManager.tr("text_markup_highlight"))
-        self.btn_hl.setToolTip(LanguageManager.tr("text_markup_highlight"))
+        self.btn_hl = QToolButton(self.capsule)
+        self.btn_hl.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+        self.btn_hl.setIconSize(QSize(15, 15))
+        self.btn_hl.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_hl.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.btn_hl.clicked.connect(self._on_highlight)
-        layout.addWidget(self.btn_hl)
+        self.layout_capsule.addWidget(self.btn_hl)
 
-        # 3. Altı Çizili (Underline)
-        self.btn_ul = QPushButton("✍️ " + LanguageManager.tr("text_markup_underline"))
-        self.btn_ul.setToolTip(LanguageManager.tr("text_markup_underline"))
+        # 3. Altını Çiz (Underline)
+        self.btn_ul = QToolButton(self.capsule)
+        self.btn_ul.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+        self.btn_ul.setIconSize(QSize(15, 15))
+        self.btn_ul.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_ul.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.btn_ul.clicked.connect(self._on_underline)
-        layout.addWidget(self.btn_ul)
+        self.layout_capsule.addWidget(self.btn_ul)
 
-        # 4. Üstü Çizili (Strikeout)
-        self.btn_so = QPushButton("<s> " + LanguageManager.tr("text_markup_strikeout"))
-        self.btn_so.setToolTip(LanguageManager.tr("text_markup_strikeout"))
+        # 4. Üstünü Çiz (Strikeout)
+        self.btn_so = QToolButton(self.capsule)
+        self.btn_so.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+        self.btn_so.setIconSize(QSize(15, 15))
+        self.btn_so.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_so.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.btn_so.clicked.connect(self._on_strikeout)
-        layout.addWidget(self.btn_so)
+        self.layout_capsule.addWidget(self.btn_so)
 
-        sep2 = QFrame()
-        sep2.setObjectName("Separator")
-        layout.addWidget(sep2)
+        # 5. Seslendir (Read Aloud)
+        self.btn_speak = QToolButton(self.capsule)
+        self.btn_speak.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+        self.btn_speak.setIconSize(QSize(15, 15))
+        self.btn_speak.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_speak.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.btn_speak.clicked.connect(self._on_speak)
+        self.layout_capsule.addWidget(self.btn_speak)
 
-        # 5. Web'de Ara
-        self.btn_search = QPushButton("🔍 " + LanguageManager.tr("text_search_google"))
-        self.btn_search.setToolTip(LanguageManager.tr("text_search_google"))
+        self.sep2 = QFrame(self.capsule)
+        self.sep2.setObjectName("Separator")
+        self.layout_capsule.addWidget(self.sep2)
+
+        # 6. Web'de Ara (Google Search)
+        self.btn_search = QToolButton(self.capsule)
+        self.btn_search.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+        self.btn_search.setIconSize(QSize(15, 15))
+        self.btn_search.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_search.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.btn_search.clicked.connect(self._on_search)
-        layout.addWidget(self.btn_search)
+        self.layout_capsule.addWidget(self.btn_search)
 
-        # 6. Çevir
-        self.btn_translate = QPushButton("🌐 " + LanguageManager.tr("text_translate_google"))
-        self.btn_translate.setToolTip(LanguageManager.tr("text_translate_google"))
+        # 7. Çevir (Google Translate)
+        self.btn_translate = QToolButton(self.capsule)
+        self.btn_translate.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+        self.btn_translate.setIconSize(QSize(15, 15))
+        self.btn_translate.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_translate.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.btn_translate.clicked.connect(self._on_translate)
-        layout.addWidget(self.btn_translate)
+        self.layout_capsule.addWidget(self.btn_translate)
+
+        main_layout.addWidget(self.capsule)
+
+        # İlk metinleri ve temayı yükle
+        self.retranslate_ui()
+        current_th = "gray"
+        if self.tab_doc and hasattr(self.tab_doc, 'main_window') and self.tab_doc.main_window:
+            current_th = getattr(self.tab_doc.main_window, 'current_theme', 'gray')
+        self.apply_theme(current_th)
+
+    def retranslate_ui(self):
+        self.btn_copy.setText(LanguageManager.tr("copy"))
+        self.btn_copy.setToolTip(LanguageManager.tr("copy") + " (Ctrl+C)")
+
+        self.btn_hl.setText(LanguageManager.tr("text_markup_highlight"))
+        self.btn_hl.setToolTip(LanguageManager.tr("text_markup_highlight"))
+
+        self.btn_ul.setText(LanguageManager.tr("text_markup_underline"))
+        self.btn_ul.setToolTip(LanguageManager.tr("text_markup_underline"))
+
+        self.btn_so.setText(LanguageManager.tr("text_markup_strikeout"))
+        self.btn_so.setToolTip(LanguageManager.tr("text_markup_strikeout"))
+
+        self.btn_speak.setText(LanguageManager.tr("text_read_aloud"))
+        self.btn_speak.setToolTip(LanguageManager.tr("text_read_aloud"))
+
+        self.btn_search.setText(LanguageManager.tr("text_search_google"))
+        self.btn_search.setToolTip(LanguageManager.tr("text_search_google"))
+
+        self.btn_translate.setText(LanguageManager.tr("text_translate_google"))
+        self.btn_translate.setToolTip(LanguageManager.tr("text_translate_google"))
+
+    def apply_theme(self, theme_name: str = "gray", spec: Optional[dict] = None):
+        if not spec:
+            spec = get_popup_theme_spec(theme_name)
+        self.theme_name = theme_name
+        self.spec = spec
+
+        bg_col = QColor(spec.get("tb_bg", "#25272a"))
+        accent_col = spec.get("accent", "#38bdf8")
+        text_col = spec.get("main_text", "#f8fafc")
+
+        # Glassmorphic yarı saydam arka plan
+        bg_rgba = f"rgba({bg_col.red()}, {bg_col.green()}, {bg_col.blue()}, 0.95)"
+        ac = QColor(accent_col)
+        hover_bg = f"rgba({ac.red()}, {ac.green()}, {ac.blue()}, 0.18)"
+        pressed_bg = f"rgba({ac.red()}, {ac.green()}, {ac.blue()}, 0.30)"
+
+        self.capsule.setStyleSheet(f"""
+            QFrame#SelectionCapsule {{
+                background-color: {bg_rgba};
+                border: 1px solid rgba(255, 255, 255, 0.15);
+                border-radius: 9px;
+            }}
+            QToolButton {{
+                background-color: transparent;
+                color: {text_col};
+                border: 1px solid transparent;
+                border-radius: 5px;
+                padding: 4px 8px;
+                font-size: 11.5px;
+                font-weight: 500;
+            }}
+            QToolButton:hover {{
+                background-color: {hover_bg};
+                color: #ffffff;
+                border: 1px solid rgba(255, 255, 255, 0.10);
+            }}
+            QToolButton:pressed {{
+                background-color: {pressed_bg};
+                color: #ffffff;
+            }}
+            QFrame#Separator {{
+                background-color: rgba(255, 255, 255, 0.15);
+                width: 1px;
+                max-width: 1px;
+                margin: 5px 2px;
+            }}
+        """)
+
+        # Vektörel ikonları yenile
+        self.btn_copy.setIcon(ModernIconFactory.icon_copy("#94a3b8"))
+        self.btn_hl.setIcon(ModernIconFactory.icon_highlighter("#eab308"))
+        self.btn_ul.setIcon(ModernIconFactory.icon_underline("#38bdf8"))
+        self.btn_so.setIcon(ModernIconFactory.icon_strikethrough("#fb7185"))
+        self.btn_speak.setIcon(ModernIconFactory.icon_speech("#34d399"))
+        self.btn_search.setIcon(ModernIconFactory.icon_search("#60a5fa"))
+        self.btn_translate.setIcon(ModernIconFactory.icon_translate("#c084fc"))
 
     def _on_copy(self):
         if self.tab_doc and hasattr(self.tab_doc, 'copy_selected_text'):
@@ -4711,6 +4819,22 @@ class PDFTextSelectionHUD(QFrame):
             self.tab_doc.strikeout_selected_text()
         self.hide()
 
+    def _on_speak(self):
+        if self.tab_doc:
+            if hasattr(self.tab_doc, 'speak_selected_text'):
+                self.tab_doc.speak_selected_text()
+            elif getattr(self.tab_doc, 'selected_text', ''):
+                mw = getattr(self.tab_doc, 'main_window', None)
+                if mw and hasattr(mw, 'modern_right_sidebar') and mw.modern_right_sidebar:
+                    panel_acc = getattr(mw.modern_right_sidebar, 'panel_accessibility', None)
+                    if panel_acc:
+                        panel_acc.speak_text(self.tab_doc.selected_text, source_doc=self.tab_doc)
+                    else:
+                        se = getattr(mw.modern_right_sidebar, 'speech_engine', None)
+                        if se:
+                            se.speak(self.tab_doc.selected_text)
+        self.hide()
+
     def _on_search(self):
         if self.tab_doc and hasattr(self.tab_doc, 'search_selected_text'):
             self.tab_doc.search_selected_text()
@@ -4722,13 +4846,17 @@ class PDFTextSelectionHUD(QFrame):
         self.hide()
 
     def show_at_pos(self, viewport_pos: QPoint):
+        if self.tab_doc and hasattr(self.tab_doc, 'main_window') and self.tab_doc.main_window:
+            cur_th = getattr(self.tab_doc.main_window, 'current_theme', None)
+            if cur_th and cur_th != getattr(self, 'theme_name', None):
+                self.apply_theme(cur_th)
         self.adjustSize()
         x = viewport_pos.x() - self.width() // 2
-        y = viewport_pos.y() - self.height() - 10
+        y = viewport_pos.y() - self.height() - 4
         # Clamp to viewport bounds
         if self.parent():
-            x = max(10, min(x, self.parent().width() - self.width() - 10))
-            if y < 10:
+            x = max(6, min(x, self.parent().width() - self.width() - 6))
+            if y < 6:
                 y = viewport_pos.y() + 25
         self.move(x, y)
         self.show()

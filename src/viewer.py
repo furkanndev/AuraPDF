@@ -275,7 +275,6 @@ class AuraPDFViewer(QMainWindow):
         self.tab_widget.setMovable(True)
         self.tab_widget.tabCloseRequested.connect(self.close_tab)
         self.tab_widget.currentChanged.connect(self.on_tab_changed)
-        self.setCentralWidget(self.tab_widget)
 
         self.floating_hud = FloatingHUDPreview()
         self.search_bar = AuraSearchBar(self)
@@ -288,9 +287,6 @@ class AuraPDFViewer(QMainWindow):
             else:
                 self.fullscreen_reading_hud._apply_edge_layout('bottom')
                 self.fullscreen_reading_hud.edge = 'bottom'
-        app_inst = QApplication.instance()
-        if app_inst:
-            app_inst.installEventFilter(self)
 
         # --- V3 SİSTEM YÖNETİCİLERİ ---
         self.closed_tabs_history = []
@@ -312,6 +308,11 @@ class AuraPDFViewer(QMainWindow):
         self.apply_theme(settings.value("app_theme", "gray"))
         self.retranslate_ui()
         self.update_viewport_cursor()
+
+        # Olay filtresini arayüz tamamen kurulduktan sonra bağla
+        app_inst = QApplication.instance()
+        if app_inst:
+            app_inst.installEventFilter(self)
 
         # Oturumu Geri Yükle
         QTimer.singleShot(250, self.restore_previous_session)
@@ -485,69 +486,80 @@ class AuraPDFViewer(QMainWindow):
                 self.search_bar.find_prev()
 
     def eventFilter(self, obj, event):
+        etype = event.type()
+        if etype not in (
+            QEvent.Type.MouseButtonRelease,
+            QEvent.Type.MouseButtonPress,
+            QEvent.Type.Resize,
+            QEvent.Type.Move,
+            QEvent.Type.MouseMove,
+        ):
+            return super().eventFilter(obj, event)
+
         # 0. Orta Tuşla Sekme Kapatma (Middle Click Tab Close)
-        if hasattr(self, 'tab_widget') and hasattr(self.tab_widget, 'tabBar') and obj == self.tab_widget.tabBar():
-            if event.type() == QEvent.Type.MouseButtonRelease and event.button() == Qt.MouseButton.MiddleButton:
-                tab_idx = self.tab_widget.tabBar().tabAt(event.position().toPoint() if hasattr(event, 'position') else event.pos())
-                if tab_idx >= 0:
-                    self.close_tab(tab_idx)
-                    return True
+        if etype == QEvent.Type.MouseButtonRelease and event.button() == Qt.MouseButton.MiddleButton:
+            if hasattr(self, 'tab_widget') and self.tab_widget:
+                tab_bar = self.tab_widget.tabBar()
+                if tab_bar and obj == tab_bar:
+                    tab_idx = tab_bar.tabAt(event.position().toPoint() if hasattr(event, 'position') else event.pos())
+                    if tab_idx >= 0:
+                        self.close_tab(tab_idx)
+                        return True
 
         # 0B. Merkez Panel Boyut Değişimi -> Kapsül Konumlandırma
-        if hasattr(self, 'central_stack') and obj == self.central_stack:
-            if event.type() in (QEvent.Type.Resize, QEvent.Type.Move):
+        if etype in (QEvent.Type.Resize, QEvent.Type.Move):
+            if hasattr(self, 'central_stack') and obj == self.central_stack:
                 if (hasattr(self, 'floating_capsule') and self.floating_capsule and self.floating_capsule.isVisible()) or \
                    (hasattr(self, 'top_pinned_tools_bar') and self.top_pinned_tools_bar and self.top_pinned_tools_bar.isVisible()):
                     self.update_floating_capsule_pos()
 
         # 1. Fare Kısayolları (Mouse Shortcuts) Kontrolü
-        if event.type() == QEvent.Type.MouseButtonPress:
+        if etype == QEvent.Type.MouseButtonPress:
             if self.handle_mouse_shortcut(event):
                 event.accept()
                 return True
 
-        if self.isFullScreen():
-            if event.type() == QEvent.Type.MouseMove:
-                if hasattr(event, 'globalPosition'):
-                    global_pos = event.globalPosition().toPoint()
-                elif hasattr(event, 'globalPos'):
-                    global_pos = event.globalPos()
-                else:
-                    global_pos = event.pos()
-                win_pos = self.mapFromGlobal(global_pos)
+        if etype == QEvent.Type.MouseMove and self.isFullScreen():
+            if hasattr(event, 'globalPosition'):
+                global_pos = event.globalPosition().toPoint()
+            elif hasattr(event, 'globalPos'):
+                global_pos = event.globalPos()
+            else:
+                global_pos = event.pos()
+            win_pos = self.mapFromGlobal(global_pos)
 
-                if hasattr(self, 'fullscreen_toolbar') and self.fullscreen_toolbar is not None:
-                    edge = getattr(self.fullscreen_toolbar, 'edge', getattr(self.fullscreen_toolbar, 'side', 'left'))
-                    near_edge = False
-                    if edge == 'left':
-                        near_edge = (win_pos.x() <= 35 and 0 <= win_pos.y() <= self.height())
-                    elif edge == 'right':
-                        near_edge = (win_pos.x() >= self.width() - 35 and 0 <= win_pos.y() <= self.height())
-                    elif edge == 'top':
-                        near_edge = (win_pos.y() <= 35 and 0 <= win_pos.x() <= self.width())
-                    elif edge == 'bottom':
-                        near_edge = (win_pos.y() >= self.height() - 35 and 0 <= win_pos.x() <= self.width())
+            if hasattr(self, 'fullscreen_toolbar') and self.fullscreen_toolbar is not None:
+                edge = getattr(self.fullscreen_toolbar, 'edge', getattr(self.fullscreen_toolbar, 'side', 'left'))
+                near_edge = False
+                if edge == 'left':
+                    near_edge = (win_pos.x() <= 35 and 0 <= win_pos.y() <= self.height())
+                elif edge == 'right':
+                    near_edge = (win_pos.x() >= self.width() - 35 and 0 <= win_pos.y() <= self.height())
+                elif edge == 'top':
+                    near_edge = (win_pos.y() <= 35 and 0 <= win_pos.x() <= self.width())
+                elif edge == 'bottom':
+                    near_edge = (win_pos.y() >= self.height() - 35 and 0 <= win_pos.x() <= self.width())
 
-                    if near_edge:
-                        if not self.fullscreen_toolbar.is_slid_in:
-                            self.fullscreen_toolbar.slide_in()
+                if near_edge:
+                    if not self.fullscreen_toolbar.is_slid_in:
+                        self.fullscreen_toolbar.slide_in()
 
-                if hasattr(self, 'fullscreen_reading_hud') and self.fullscreen_reading_hud is not None:
-                    hud = self.fullscreen_reading_hud
-                    hud_edge = getattr(hud, 'edge', 'bottom')
-                    near_hud = False
-                    if hud_edge == 'left':
-                        near_hud = (win_pos.x() <= 35 and 0 <= win_pos.y() <= self.height())
-                    elif hud_edge == 'right':
-                        near_hud = (win_pos.x() >= self.width() - 35 and 0 <= win_pos.y() <= self.height())
-                    elif hud_edge == 'top':
-                        near_hud = (win_pos.y() <= 35 and 0 <= win_pos.x() <= self.width())
-                    elif hud_edge == 'bottom':
-                        near_hud = (win_pos.y() >= self.height() - 35 and 0 <= win_pos.x() <= self.width())
+            if hasattr(self, 'fullscreen_reading_hud') and self.fullscreen_reading_hud is not None:
+                hud = self.fullscreen_reading_hud
+                hud_edge = getattr(hud, 'edge', 'bottom')
+                near_hud = False
+                if hud_edge == 'left':
+                    near_hud = (win_pos.x() <= 35 and 0 <= win_pos.y() <= self.height())
+                elif hud_edge == 'right':
+                    near_hud = (win_pos.x() >= self.width() - 35 and 0 <= win_pos.y() <= self.height())
+                elif hud_edge == 'top':
+                    near_hud = (win_pos.y() <= 35 and 0 <= win_pos.x() <= self.width())
+                elif hud_edge == 'bottom':
+                    near_hud = (win_pos.y() >= self.height() - 35 and 0 <= win_pos.x() <= self.width())
 
-                    if near_hud:
-                        if not hud.is_slid_in:
-                            hud.slide_in()
+                if near_hud:
+                    if not hud.is_slid_in:
+                        hud.slide_in()
         return super().eventFilter(obj, event)
 
     def ensure_distinct_fullscreen_edges(self, moved_widget, target_edge: str):
@@ -890,10 +902,10 @@ class AuraPDFViewer(QMainWindow):
         self._add_toolbar_widget(self.btn_cursor, "btn_cursor")
 
         self.btn_selection = DraggableToolButton()
+        self.btn_selection.setIcon(ModernIconFactory.icon_select_rect())
         self.btn_selection.setText(" ⌵")
         self.btn_selection.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
         self.btn_selection.setCheckable(True)
-        self.set_selection_mode(self.selection_shape_mode)
         self.btn_selection.clicked.connect(self.handle_selection_button_click)
         self.btn_selection.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.btn_selection.customContextMenuRequested.connect(lambda pos: self.selection_popup.show_below(self.btn_selection))
@@ -1633,6 +1645,8 @@ class AuraPDFViewer(QMainWindow):
             if hasattr(self, 'top_pinned_tools_bar'): self.top_pinned_tools_bar.hide()
         if hasattr(self, 'left_pinned_tools_bar'):
             self.left_pinned_tools_bar.hide()
+        if hasattr(self, 'right_pinned_tools_bar'):
+            self.right_pinned_tools_bar.hide()
         if hasattr(self, 'toolbar'):
             self.toolbar.hide()
         if hasattr(self, 'modern_right_sidebar'):
@@ -3429,8 +3443,9 @@ class AuraPDFViewer(QMainWindow):
                 if isinstance(widget, PDFTabDocument):
                     if hasattr(widget, 'view') and widget.view:
                         widget.view.setStyleSheet(f"background-color: {view_bg}; border: none;")
-                    if hasattr(widget, 'floating_text_hud') and widget.floating_text_hud and hasattr(widget.floating_text_hud, 'apply_theme'):
-                        widget.floating_text_hud.apply_theme(theme_name, spec)
+                    hud = getattr(widget, 'text_selection_hud', getattr(widget, 'floating_text_hud', None))
+                    if hud and hasattr(hud, 'apply_theme'):
+                        hud.apply_theme(theme_name, spec)
 
         if hasattr(self, 'modern_tab_bar'):
             self.modern_tab_bar.apply_theme(theme_name)
@@ -3709,6 +3724,19 @@ class AuraPDFViewer(QMainWindow):
             elif reply == QMessageBox.StandardButton.Cancel:
                 return
 
+        # V4: Kapatılan sekme seslendiriliyorsa (TTS) güvenle durdur
+        if hasattr(self, 'modern_right_sidebar') and self.modern_right_sidebar:
+            try:
+                panel_acc = getattr(self.modern_right_sidebar, 'panel_accessibility', None)
+                if panel_acc:
+                    panel_acc.on_document_closed(widget)
+                elif getattr(self.modern_right_sidebar, 'speech_engine', None):
+                    se = self.modern_right_sidebar.speech_engine
+                    if se and (se.is_speaking() or se.is_paused()) and (self.tab_widget.count() <= 1 or self.tab_widget.currentWidget() == widget):
+                        se.stop()
+            except Exception:
+                pass
+
         if isinstance(widget, PDFTabDocument):
             if widget.file_path and os.path.exists(widget.file_path):
                 # V3: Son kapatılan sekme geçmişine ekle
@@ -3740,6 +3768,11 @@ class AuraPDFViewer(QMainWindow):
             self.lbl_zoom.setText(f" {LanguageManager.tr('percent_format', val=100)} ")
             self.thumbnails_dock.load_thumbnails_lazy()
             self.setWindowTitle(LanguageManager.tr("app_title"))
+            if hasattr(self, 'modern_right_sidebar') and self.modern_right_sidebar:
+                try:
+                    self.modern_right_sidebar.clear_accessibility()
+                except Exception:
+                    pass
         self.update_undo_redo_state()
         self.sync_modern_tabs()
         if hasattr(self, 'organize_workspace') and hasattr(self, 'central_stack') and self.central_stack.currentWidget() == self.organize_workspace:
@@ -3747,12 +3780,17 @@ class AuraPDFViewer(QMainWindow):
         if hasattr(self, 'modern_right_sidebar'):
             if self.tab_widget.count() == 0:
                 self.modern_right_sidebar.clear_thumbnails()
+                self.modern_right_sidebar.clear_accessibility()
             elif self.modern_right_sidebar.current_panel == "thumbnails":
                 self.modern_right_sidebar.load_thumbnails()
             elif self.modern_right_sidebar.current_panel == "bookmarks":
                 self.modern_right_sidebar.load_bookmarks()
             elif self.modern_right_sidebar.current_panel == "attachments":
                 self.modern_right_sidebar.load_attachments()
+            elif self.modern_right_sidebar.current_panel == "accessibility":
+                panel_acc = getattr(self.modern_right_sidebar, 'panel_accessibility', None)
+                if panel_acc:
+                    panel_acc._sync_page_info()
 
     def on_tab_changed(self, index):
         if (tab_doc := self.get_current_tab_doc()) and tab_doc.doc is not None:
@@ -3776,12 +3814,21 @@ class AuraPDFViewer(QMainWindow):
                     self.modern_right_sidebar.load_comments()
                 elif self.modern_right_sidebar.current_panel == "attachments":
                     self.modern_right_sidebar.load_attachments()
+                elif self.modern_right_sidebar.current_panel == "accessibility":
+                    panel_acc = getattr(self.modern_right_sidebar, 'panel_accessibility', None)
+                    if panel_acc:
+                        se = getattr(panel_acc, 'speech_engine', None)
+                        if not se or not se.is_speaking():
+                            panel_acc._sync_page_info()
+                            if getattr(panel_acc, '_source_mode', 'page') == "page":
+                                panel_acc._load_current_page_text()
             self.update_viewport_cursor()
             if hasattr(self, 'search_bar') and self.search_bar.isVisible():
                 self.search_bar.do_search(reset_index=True)
         elif self.tab_widget.count() == 0:
             if hasattr(self, 'modern_right_sidebar'):
                 self.modern_right_sidebar.clear_thumbnails()
+                self.modern_right_sidebar.clear_accessibility()
             self.txt_page.setText("0")
             self.lbl_total.setText(LanguageManager.tr("page_of", total=0))
             self.lbl_zoom.setText(f" {LanguageManager.tr('percent_format', val=100)} ")
@@ -5162,7 +5209,7 @@ class AuraPDFViewer(QMainWindow):
                 self._audio_record_dialog.close()
             except Exception:
                 pass
-        if hasattr(self, 'modern_right_sidebar') and hasattr(self.modern_right_sidebar, 'speech_engine'):
+        if hasattr(self, 'modern_right_sidebar') and getattr(self.modern_right_sidebar, 'speech_engine', None):
             try:
                 self.modern_right_sidebar.speech_engine.stop()
             except Exception:

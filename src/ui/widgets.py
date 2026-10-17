@@ -4701,58 +4701,6 @@ class AuraSearchBar(QFrame):
         self.setObjectName("AuraSearchBar")
         self.setFocusPolicy(Qt.FocusPolicy.ClickFocus)
 
-        self.setStyleSheet("""
-            QFrame#AuraSearchBar, QFrame#ModernSearchBar {
-                background-color: #252526;
-                border: 1px solid #3c3c3c;
-                border-radius: 8px;
-            }
-            QLineEdit {
-                background-color: #1e1e1e;
-                color: #f0f0f0;
-                border: 1px solid #444444;
-                border-radius: 4px;
-                padding: 4px 8px;
-                font-size: 13px;
-                min-width: 170px;
-                selection-background-color: #1a73e8;
-            }
-            QLineEdit:focus {
-                border: 1px solid #388bfd;
-            }
-            QLabel {
-                color: #aaaaaa;
-                font-size: 12px;
-                font-weight: 500;
-                padding: 0 4px;
-            }
-            QToolButton {
-                background-color: transparent;
-                color: #cccccc;
-                border: 1px solid transparent;
-                border-radius: 4px;
-                padding: 3px;
-                min-width: 24px;
-                min-height: 24px;
-                font-size: 12px;
-                font-weight: bold;
-            }
-            QToolButton:hover {
-                background-color: #383838;
-                color: #ffffff;
-                border: 1px solid #555555;
-            }
-            QToolButton:pressed {
-                background-color: #1a73e8;
-                color: #ffffff;
-            }
-            QToolButton:checked {
-                background-color: #1a73e8;
-                color: #ffffff;
-                border: 1px solid #388bfd;
-            }
-        """)
-
         layout = QHBoxLayout(self)
         layout.setContentsMargins(8, 5, 8, 5)
         layout.setSpacing(5)
@@ -4826,7 +4774,7 @@ class AuraSearchBar(QFrame):
         tab_text = spec.get("tab_text", "#aaaaaa")
 
         self.setStyleSheet(f"""
-            QFrame#ModernSearchBar {{
+            QFrame#AuraSearchBar, QFrame#ModernSearchBar {{
                 background-color: {bg};
                 border: 1px solid {border};
                 border-radius: 8px;

@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Sürüm-Pro%20v2.2.1-6366f1?style=flat-square" alt="Version" />
+  <img src="https://img.shields.io/badge/Sürüm-Pro%20v2.2.2-6366f1?style=flat-square" alt="Version" />
   <img src="https://img.shields.io/badge/Python-3.10%2B-blue?style=flat-square" alt="Python Version" />
   <img src="https://img.shields.io/badge/Arayüz-PyQt6-green?style=flat-square" alt="PyQt6" />
   <img src="https://img.shields.io/badge/PDF_Motoru-PyMuPDF-orange?style=flat-square" alt="PyMuPDF" />

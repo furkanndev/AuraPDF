@@ -289,13 +289,14 @@ class ModernIconFactory:
 
 
     @staticmethod
-    def icon_highlighter():
+    def icon_highlighter(color: str = None):
         pix, p = ModernIconFactory._base()
+        col = QColor(color or "#ffd600")
         p.setPen(QPen(QColor("#ffffff"), 1.2))
         p.setBrush(QBrush(QColor("#ffffff")))
         p.drawPolygon(QPolygonF([QPointF(4, 9), QPointF(17, 9), QPointF(14, 15), QPointF(7, 15)]))
         p.setPen(Qt.PenStyle.NoPen)
-        p.setBrush(QBrush(QColor("#ffd600")))
+        p.setBrush(QBrush(col))
         p.drawPolygon(QPolygonF([QPointF(7, 16), QPointF(14, 16), QPointF(12, 22), QPointF(6, 20)]))
         p.end()
         return QIcon(pix)
@@ -643,9 +644,10 @@ class ModernIconFactory:
         return QIcon(pix)
 
     @staticmethod
-    def icon_search():
+    def icon_search(color: str = None):
         pix, p = ModernIconFactory._base()
-        p.setPen(QPen(QColor("#ffffff"), 1.8, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+        col = QColor(color or "#ffffff")
+        p.setPen(QPen(col, 1.8, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
         p.drawEllipse(QRectF(4.0, 4.0, 11.5, 11.5))
         p.drawLine(QPointF(12.5, 12.5), QPointF(20.0, 20.0))
         p.end()
@@ -3099,6 +3101,52 @@ class ModernIconFactory:
         for x in (9.0, 15.0):
             for y in (6.5, 12.0, 17.5):
                 p.drawEllipse(QPointF(x, y), 1.6, 1.6)
+        p.end()
+        return QIcon(pix)
+
+    @staticmethod
+    def icon_copy(color: str = None) -> QIcon:
+        pix, p = ModernIconFactory._base()
+        col = QColor(color or "#38bdf8")
+        p.setPen(QPen(col, 1.5, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
+        p.setBrush(Qt.BrushStyle.NoBrush)
+        p.drawRoundedRect(QRectF(8.0, 4.5, 12.0, 13.5), 2.0, 2.0)
+        p.setBrush(QBrush(QColor(col.red(), col.green(), col.blue(), 30)))
+        p.drawRoundedRect(QRectF(4.5, 7.5, 12.0, 13.5), 2.0, 2.0)
+        p.end()
+        return QIcon(pix)
+
+    @staticmethod
+    def icon_underline(color: str = None) -> QIcon:
+        pix, p = ModernIconFactory._base()
+        col = QColor(color or "#22c55e")
+        p.setPen(QPen(col, 1.8, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
+        p.setBrush(Qt.BrushStyle.NoBrush)
+        path = QPainterPath()
+        path.moveTo(6.5, 5.0)
+        path.lineTo(6.5, 12.0)
+        path.arcTo(QRectF(6.5, 7.5, 13.0, 9.0), 180, 180)
+        path.lineTo(19.5, 5.0)
+        p.drawPath(path)
+        p.drawLine(QPointF(5.0, 20.0), QPointF(21.0, 20.0))
+        p.end()
+        return QIcon(pix)
+
+    @staticmethod
+    def icon_strikethrough(color: str = None) -> QIcon:
+        pix, p = ModernIconFactory._base()
+        col = QColor(color or "#f43f5e")
+        p.setPen(QPen(col, 1.8, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
+        p.setBrush(Qt.BrushStyle.NoBrush)
+        path = QPainterPath()
+        path.moveTo(17.5, 7.5)
+        path.cubicTo(16.5, 4.5, 8.5, 4.5, 8.5, 9.0)
+        path.cubicTo(8.5, 12.5, 17.5, 12.5, 17.5, 17.0)
+        path.cubicTo(17.5, 21.5, 8.5, 21.5, 7.5, 18.0)
+        p.drawPath(path)
+        strike_pen = QPen(col, 1.9, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap)
+        p.setPen(strike_pen)
+        p.drawLine(QPointF(4.0, 13.0), QPointF(22.0, 13.0))
         p.end()
         return QIcon(pix)
 

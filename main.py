@@ -188,8 +188,12 @@ def main():
     app = QApplication(sys.argv)
     from PyQt6.QtCore import QSettings
     settings = QSettings("AuraPDF", "PDFViewer")
-    saved_font_size = settings.value("app_font_size", 10, type=int)
-    if saved_font_size <= 0:
+    try:
+        raw_font_size = settings.value("app_font_size", 10)
+        saved_font_size = int(raw_font_size) if raw_font_size is not None else 10
+        if saved_font_size <= 0:
+            saved_font_size = 10
+    except Exception:
         saved_font_size = 10
     f = app.font()
     f.setPointSize(saved_font_size)
@@ -214,6 +218,13 @@ def main():
     app_icon = AuraIconFactory.icon_app()
     app.setWindowIcon(app_icon)
 
+    # Windows Dosya Gezgini PDF kucuk resim onizlemesi ve sag-alt AuraPDF rozeti
+    try:
+        from src.core.shell_integration import ensure_pdf_shell_integration
+        ensure_pdf_shell_integration()
+    except Exception:
+        pass
+
     # 1. Argümanlardan açılacak dosyaları tespit et (çift tıklanan PDF kitapları)
     files_to_open = get_pdf_paths_from_args(sys.argv[1:])
 
@@ -221,7 +232,7 @@ def main():
     if HAS_LOCAL_IPC:
         client_socket = QLocalSocket()
         client_socket.connectToServer(SERVER_NAME)
-        if client_socket.waitForConnected(600):
+        if client_socket.waitForConnected(60):
             payload = "\n".join(files_to_open) if files_to_open else "__ACTIVATE__"
             client_socket.write(payload.encode("utf-8"))
             client_socket.flush()

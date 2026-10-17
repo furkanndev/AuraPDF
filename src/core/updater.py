@@ -16,12 +16,12 @@ from datetime import datetime
 from typing import Optional, Tuple
 from PyQt6.QtCore import QThread, pyqtSignal, QSettings
 
-CURRENT_VERSION = "Pro v2.2.1"
+CURRENT_VERSION = "Pro v2.2.2"
 GITHUB_REPO = "furkanndev/AuraPDF"
 
 
 def parse_version(v_str: str) -> Tuple[int, ...]:
-    """Sürüm metnini (örn: 'v2.1.0', 'Pro v2.2.1' -> (2, 2, 1)) sayı demetine çevirir."""
+    """Sürüm metnini (örn: 'v2.1.0', 'Pro v2.2.2' -> (2, 2, 2)) sayı demetine çevirir."""
     if not v_str:
         return (0, 0, 0)
     digits = [int(x) for x in re.findall(r'\d+', str(v_str))]

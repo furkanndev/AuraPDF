@@ -32,12 +32,13 @@ from PyQt6.QtGui import (
     QPainterPath, QCursor, QKeySequence, QShortcut, QDesktopServices,
     QFontMetrics, QIntValidator, QLinearGradient, QDrag, QTextCursor, QTextCharFormat
 )
-from PyQt6.QtMultimedia import QMediaDevices
 
 from src.core.i18n import LanguageManager
 from src.ui.icons import ModernIconFactory
 from src.ui.dialog_theme import apply_dialog_theme
-from src.core.speech_engine import AuraSpeechEngine, clean_text_for_speech
+
+# Global önbellek: son açılan PDF dosyalarının metaverilerini (mtime -> sayfa sayısı, boyut) saklar
+_RECENT_FILE_INFO_CACHE: Dict[str, Any] = {}
 
 
 def get_modern_theme_colors(theme_name: str = "gray") -> Dict[str, str]:
@@ -835,6 +836,7 @@ class ModernPinnedQuickToolsBar(QFrame):
             self.setGraphicsEffect(shadow)
         else:
             self.setFixedWidth(46)
+            self.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Expanding)
             layout = QVBoxLayout(self)
             layout.setContentsMargins(4, 6, 4, 6)
             layout.setSpacing(4)
@@ -923,8 +925,13 @@ class ModernPinnedQuickToolsBar(QFrame):
             layout.addWidget(self.sep)
             layout.addWidget(self.btn_unpin)
 
-        self.adjustSize()
+        if self.orientation == Qt.Orientation.Horizontal:
+            self.adjustSize()
         self.apply_theme(self.theme_name)
+
+    def adjustSize(self):
+        if self.orientation == Qt.Orientation.Horizontal:
+            super().adjustSize()
 
     def sizeHint(self):
         if self.orientation == Qt.Orientation.Horizontal:
@@ -945,7 +952,8 @@ class ModernPinnedQuickToolsBar(QFrame):
             if k not in valid_order:
                 valid_order.append(k)
         if valid_order == self.tool_order:
-            self.adjustSize()
+            if self.orientation == Qt.Orientation.Horizontal:
+                self.adjustSize()
             return
         self.tool_order = valid_order
 
@@ -973,7 +981,8 @@ class ModernPinnedQuickToolsBar(QFrame):
                 layout.addWidget(self.sep)
             if hasattr(self, 'btn_unpin'):
                 layout.addWidget(self.btn_unpin)
-        self.adjustSize()
+        if self.orientation == Qt.Orientation.Horizontal:
+            self.adjustSize()
 
     def _on_btn_clicked(self, tool_id: str):
         self.set_active_tool(tool_id)
@@ -1028,7 +1037,11 @@ class ModernPinnedQuickToolsBar(QFrame):
         if "select" in self.buttons and getattr(self, 'cursor_mode', 'select') == 'select':
             self.buttons["select"].setIcon(ModernIconFactory.icon_cursor(c['text']))
         
-        border_style = f"border: 1px solid {c['border']}; border-radius: 21px;" if self.orientation == Qt.Orientation.Horizontal else f"border-right: 1px solid {c['border']}; border-left: 1px solid {c['border']}; border-radius: 0px;"
+        border_style = (
+            f"border: 1px solid {c['border']}; border-radius: 21px;"
+            if self.orientation == Qt.Orientation.Horizontal
+            else f"border-right: 1px solid {c['border']}; border-left: 1px solid {c['border']}; border-bottom: 1px solid {c['border']}; border-radius: 0px;"
+        )
         self.setStyleSheet(f"""
             #PinnedQuickToolsBar {{
                 background-color: {c['card_bg']};
@@ -1714,11 +1727,14 @@ class ModernToolItemWidget(QFrame):
         super().mousePressEvent(event)
 
     def set_active(self, active: bool, theme_name: str = "light"):
+        if getattr(self, 'is_active', False) == active and getattr(self, 'theme_name', None) == theme_name and getattr(self, '_style_applied', False):
+            return
         self.is_active = active
         self._apply_style(theme_name)
 
     def _apply_style(self, theme_name: str = "light"):
         self.theme_name = theme_name
+        self._style_applied = True
         c = get_modern_theme_colors(theme_name)
         item_accent = self.accent_color if (self.accent_color and QColor.isValidColor(self.accent_color)) else c.get('accent', '#38bdf8')
         ac = QColor(item_accent)
@@ -2226,8 +2242,11 @@ class ModernDrawerItemWidget(QFrame):
         self.lbl_icon.setPixmap(actual_icon.pixmap(20, 20))
 
     def set_active(self, active: bool, theme_name: Optional[str] = None):
+        target_theme = theme_name or getattr(self, 'theme_name', 'light')
+        if getattr(self, 'is_active', False) == active and getattr(self, 'theme_name', None) == target_theme and getattr(self, '_style_applied', False):
+            return
         self.is_active = active
-        self._apply_style(theme_name or self.theme_name)
+        self._apply_style(target_theme)
 
     def mousePressEvent(self, e):
         if e.button() == Qt.MouseButton.LeftButton:
@@ -2236,6 +2255,7 @@ class ModernDrawerItemWidget(QFrame):
 
     def _apply_style(self, theme_name: str = "light"):
         self.theme_name = theme_name
+        self._style_applied = True
         c = get_modern_theme_colors(theme_name)
         item_accent = self.accent_color if (getattr(self, 'accent_color', None) and QColor.isValidColor(self.accent_color)) else c.get('accent', '#38bdf8')
         ac = QColor(item_accent)
@@ -3494,35 +3514,140 @@ class ModernLeftSidebar(QStackedWidget):
         self.all_tools_panel.closeRequested.connect(self.closeRequested.emit)
         self.addWidget(self.all_tools_panel)
 
-        self.export_drawer = ModernExportDrawer(self)
-        self.export_drawer.backRequested.connect(lambda: self.set_page("all_tools"))
-        self.export_drawer.closeRequested.connect(self.closeRequested.emit)
-        self.export_drawer.exportTriggered.connect(self.exportTriggered.emit)
-        self.addWidget(self.export_drawer)
+        self._export_drawer = None
+        self._export_placeholder = QWidget(self)
+        self.addWidget(self._export_placeholder)
 
-        self.edit_drawer = ModernEditDrawer(self)
-        self.edit_drawer.backRequested.connect(lambda: self.set_page("all_tools"))
-        self.edit_drawer.closeRequested.connect(self.closeRequested.emit)
-        self.edit_drawer.editTriggered.connect(self.editTriggered.emit)
-        self.addWidget(self.edit_drawer)
+        self._edit_drawer = None
+        self._edit_placeholder = QWidget(self)
+        self.addWidget(self._edit_placeholder)
 
-        self.read_drawer = ModernReadDrawer(self)
-        self.read_drawer.backRequested.connect(lambda: self.set_page("all_tools"))
-        self.read_drawer.closeRequested.connect(self.closeRequested.emit)
-        self.read_drawer.readTriggered.connect(self.readTriggered.emit)
-        self.addWidget(self.read_drawer)
+        self._read_drawer = None
+        self._read_placeholder = QWidget(self)
+        self.addWidget(self._read_placeholder)
 
-        self.fill_sign_drawer = ModernFillSignDrawer(self)
-        self.fill_sign_drawer.backRequested.connect(lambda: self.set_page("all_tools"))
-        self.fill_sign_drawer.closeRequested.connect(self.closeRequested.emit)
-        self.fill_sign_drawer.toolTriggered.connect(self.fillSignTriggered.emit)
-        self.addWidget(self.fill_sign_drawer)
+        self._fill_sign_drawer = None
+        self._fill_sign_placeholder = QWidget(self)
+        self.addWidget(self._fill_sign_placeholder)
 
-        self.prepare_form_drawer = ModernPrepareFormDrawer(self.main_window, self)
-        self.prepare_form_drawer.backRequested.connect(self._on_prepare_form_back)
-        self.prepare_form_drawer.closeRequested.connect(self._on_prepare_form_close)
-        self.prepare_form_drawer.toolTriggered.connect(self.prepareFormTriggered.emit)
-        self.addWidget(self.prepare_form_drawer)
+        self._prepare_form_drawer = None
+        self._prepare_form_placeholder = QWidget(self)
+        self.addWidget(self._prepare_form_placeholder)
+
+    def _ensure_export_drawer(self):
+        if self._export_drawer is None:
+            self._export_drawer = ModernExportDrawer(self)
+            self._export_drawer.backRequested.connect(lambda: self.set_page("all_tools"))
+            self._export_drawer.closeRequested.connect(self.closeRequested.emit)
+            self._export_drawer.exportTriggered.connect(self.exportTriggered.emit)
+            if hasattr(self, '_export_placeholder') and self._export_placeholder:
+                idx = self.indexOf(self._export_placeholder)
+                if idx >= 0:
+                    self.insertWidget(idx, self._export_drawer)
+                    self.removeWidget(self._export_placeholder)
+                    self._export_placeholder.deleteLater()
+                    self._export_placeholder = None
+            else:
+                self.addWidget(self._export_drawer)
+            current_theme = getattr(self.main_window, 'current_theme', 'gray') if self.main_window else 'gray'
+            self._export_drawer.apply_theme(current_theme)
+        return self._export_drawer
+
+    def _ensure_edit_drawer(self):
+        if self._edit_drawer is None:
+            self._edit_drawer = ModernEditDrawer(self)
+            self._edit_drawer.backRequested.connect(lambda: self.set_page("all_tools"))
+            self._edit_drawer.closeRequested.connect(self.closeRequested.emit)
+            self._edit_drawer.editTriggered.connect(self.editTriggered.emit)
+            if hasattr(self, '_edit_placeholder') and self._edit_placeholder:
+                idx = self.indexOf(self._edit_placeholder)
+                if idx >= 0:
+                    self.insertWidget(idx, self._edit_drawer)
+                    self.removeWidget(self._edit_placeholder)
+                    self._edit_placeholder.deleteLater()
+                    self._edit_placeholder = None
+            else:
+                self.addWidget(self._edit_drawer)
+            current_theme = getattr(self.main_window, 'current_theme', 'gray') if self.main_window else 'gray'
+            self._edit_drawer.apply_theme(current_theme)
+        return self._edit_drawer
+
+    def _ensure_read_drawer(self):
+        if self._read_drawer is None:
+            self._read_drawer = ModernReadDrawer(self)
+            self._read_drawer.backRequested.connect(lambda: self.set_page("all_tools"))
+            self._read_drawer.closeRequested.connect(self.closeRequested.emit)
+            self._read_drawer.readTriggered.connect(self.readTriggered.emit)
+            if hasattr(self, '_read_placeholder') and self._read_placeholder:
+                idx = self.indexOf(self._read_placeholder)
+                if idx >= 0:
+                    self.insertWidget(idx, self._read_drawer)
+                    self.removeWidget(self._read_placeholder)
+                    self._read_placeholder.deleteLater()
+                    self._read_placeholder = None
+            else:
+                self.addWidget(self._read_drawer)
+            current_theme = getattr(self.main_window, 'current_theme', 'gray') if self.main_window else 'gray'
+            self._read_drawer.apply_theme(current_theme)
+        return self._read_drawer
+
+    def _ensure_fill_sign_drawer(self):
+        if self._fill_sign_drawer is None:
+            self._fill_sign_drawer = ModernFillSignDrawer(self)
+            self._fill_sign_drawer.backRequested.connect(lambda: self.set_page("all_tools"))
+            self._fill_sign_drawer.closeRequested.connect(self.closeRequested.emit)
+            self._fill_sign_drawer.toolTriggered.connect(self.fillSignTriggered.emit)
+            if hasattr(self, '_fill_sign_placeholder') and self._fill_sign_placeholder:
+                idx = self.indexOf(self._fill_sign_placeholder)
+                if idx >= 0:
+                    self.insertWidget(idx, self._fill_sign_drawer)
+                    self.removeWidget(self._fill_sign_placeholder)
+                    self._fill_sign_placeholder.deleteLater()
+                    self._fill_sign_placeholder = None
+            else:
+                self.addWidget(self._fill_sign_drawer)
+            current_theme = getattr(self.main_window, 'current_theme', 'gray') if self.main_window else 'gray'
+            self._fill_sign_drawer.apply_theme(current_theme)
+        return self._fill_sign_drawer
+
+    def _ensure_prepare_form_drawer(self):
+        if self._prepare_form_drawer is None:
+            self._prepare_form_drawer = ModernPrepareFormDrawer(self.main_window, self)
+            self._prepare_form_drawer.backRequested.connect(self._on_prepare_form_back)
+            self._prepare_form_drawer.closeRequested.connect(self._on_prepare_form_close)
+            self._prepare_form_drawer.toolTriggered.connect(self.prepareFormTriggered.emit)
+            if hasattr(self, '_prepare_form_placeholder') and self._prepare_form_placeholder:
+                idx = self.indexOf(self._prepare_form_placeholder)
+                if idx >= 0:
+                    self.insertWidget(idx, self._prepare_form_drawer)
+                    self.removeWidget(self._prepare_form_placeholder)
+                    self._prepare_form_placeholder.deleteLater()
+                    self._prepare_form_placeholder = None
+            else:
+                self.addWidget(self._prepare_form_drawer)
+            current_theme = getattr(self.main_window, 'current_theme', 'gray') if self.main_window else 'gray'
+            self._prepare_form_drawer.apply_theme(current_theme)
+        return self._prepare_form_drawer
+
+    @property
+    def export_drawer(self):
+        return self._ensure_export_drawer()
+
+    @property
+    def edit_drawer(self):
+        return self._ensure_edit_drawer()
+
+    @property
+    def read_drawer(self):
+        return self._ensure_read_drawer()
+
+    @property
+    def fill_sign_drawer(self):
+        return self._ensure_fill_sign_drawer()
+
+    @property
+    def prepare_form_drawer(self):
+        return self._ensure_prepare_form_drawer()
 
     def _on_prepare_form_back(self):
         if self.main_window:
@@ -3553,14 +3678,14 @@ class ModernLeftSidebar(QStackedWidget):
     def clear_all_active_states(self):
         if hasattr(self, 'all_tools_panel') and hasattr(self.all_tools_panel, 'clear_active_state'):
             self.all_tools_panel.clear_active_state()
-        if hasattr(self, 'export_drawer') and hasattr(self.export_drawer, 'clear_active_state'):
-            self.export_drawer.clear_active_state()
-        if hasattr(self, 'edit_drawer') and hasattr(self.edit_drawer, 'clear_active_state'):
-            self.edit_drawer.clear_active_state()
-        if hasattr(self, 'fill_sign_drawer') and hasattr(self.fill_sign_drawer, 'clear_active_state'):
-            self.fill_sign_drawer.clear_active_state()
-        if hasattr(self, 'prepare_form_drawer') and hasattr(self.prepare_form_drawer, 'clear_active_state'):
-            self.prepare_form_drawer.clear_active_state()
+        if getattr(self, '_export_drawer', None) and hasattr(self._export_drawer, 'clear_active_state'):
+            self._export_drawer.clear_active_state()
+        if getattr(self, '_edit_drawer', None) and hasattr(self._edit_drawer, 'clear_active_state'):
+            self._edit_drawer.clear_active_state()
+        if getattr(self, '_fill_sign_drawer', None) and hasattr(self._fill_sign_drawer, 'clear_active_state'):
+            self._fill_sign_drawer.clear_active_state()
+        if getattr(self, '_prepare_form_drawer', None) and hasattr(self._prepare_form_drawer, 'clear_active_state'):
+            self._prepare_form_drawer.clear_active_state()
 
     def hideEvent(self, event):
         self.clear_all_active_states()
@@ -3573,21 +3698,26 @@ class ModernLeftSidebar(QStackedWidget):
         if page_name in ("all_tools", "tools"):
             self.setCurrentIndex(0)
         elif page_name in ("export", "convert"):
+            self._ensure_export_drawer()
             self.setCurrentIndex(1)
         elif page_name in ("edit", "modify"):
+            self._ensure_edit_drawer()
             self.setCurrentIndex(2)
         elif page_name in ("read", "reading"):
+            self._ensure_read_drawer()
             self.setCurrentIndex(3)
-            self.read_drawer.sync_from_document()
+            self._read_drawer.sync_from_document()
         elif page_name in ("esign", "fill_sign", "sign"):
+            self._ensure_fill_sign_drawer()
             self.setCurrentIndex(4)
         elif page_name in ("prepare_form", "form"):
+            self._ensure_prepare_form_drawer()
             self.setCurrentIndex(5)
             if self.main_window:
                 tab_doc = self.main_window.get_current_tab_doc()
                 if tab_doc:
                     tab_doc.enter_form_design_mode()
-            self.prepare_form_drawer.refresh_fields_list()
+            self._prepare_form_drawer.refresh_fields_list()
 
         if prev_idx == 5 and self.currentIndex() != 5:
             if self.main_window:
@@ -3609,45 +3739,58 @@ class ModernLeftSidebar(QStackedWidget):
         self.pageChanged.emit(target_mode)
 
     def set_active_tool(self, tool_id: Optional[str]):
-        self.all_tools_panel.set_active_tool(tool_id)
-        if hasattr(self, 'edit_drawer') and self.edit_drawer:
+        if hasattr(self, 'all_tools_panel') and self.all_tools_panel:
+            self.all_tools_panel.set_active_tool(tool_id)
+        if getattr(self, '_edit_drawer', None):
             if tool_id in ("organize_pages", "organize"):
-                self.edit_drawer.set_active_tool("organize")
+                self._edit_drawer.set_active_tool("organize")
             elif tool_id == "text":
-                self.edit_drawer.set_active_tool("text")
+                self._edit_drawer.set_active_tool("text")
             elif tool_id is None:
-                self.edit_drawer.clear_active_state()
-        if hasattr(self, 'fill_sign_drawer') and self.fill_sign_drawer:
+                self._edit_drawer.clear_active_state()
+        if getattr(self, '_fill_sign_drawer', None):
             if tool_id in ("text", "add_text"):
-                self.fill_sign_drawer.set_active_tool("add_text")
+                self._fill_sign_drawer.set_active_tool("add_text")
             elif tool_id in ("checkmark", "cross", "dot", "line", "date", "signature", "initials"):
-                self.fill_sign_drawer.set_active_tool(tool_id)
+                self._fill_sign_drawer.set_active_tool(tool_id)
             elif tool_id is None:
-                self.fill_sign_drawer.clear_active_state()
-        if hasattr(self, 'prepare_form_drawer') and self.prepare_form_drawer:
+                self._fill_sign_drawer.clear_active_state()
+        if getattr(self, '_prepare_form_drawer', None):
             if tool_id in ("form_text", "form_checkbox", "form_radio", "form_combobox", "form_signature"):
-                self.prepare_form_drawer.set_active_tool(tool_id)
+                self._prepare_form_drawer.set_active_tool(tool_id)
             elif tool_id is None:
-                self.prepare_form_drawer.clear_active_state()
-        if hasattr(self, 'export_drawer') and self.export_drawer:
+                self._prepare_form_drawer.clear_active_state()
+        if getattr(self, '_export_drawer', None):
             if tool_id is None:
-                self.export_drawer.clear_active_state()
+                self._export_drawer.clear_active_state()
 
     def apply_theme(self, theme_name: str):
-        self.all_tools_panel.apply_theme(theme_name)
-        self.export_drawer.apply_theme(theme_name)
-        self.edit_drawer.apply_theme(theme_name)
-        self.read_drawer.apply_theme(theme_name)
-        self.fill_sign_drawer.apply_theme(theme_name)
-        self.prepare_form_drawer.apply_theme(theme_name)
+        if hasattr(self, 'all_tools_panel') and self.all_tools_panel:
+            self.all_tools_panel.apply_theme(theme_name)
+        if getattr(self, '_export_drawer', None):
+            self._export_drawer.apply_theme(theme_name)
+        if getattr(self, '_edit_drawer', None):
+            self._edit_drawer.apply_theme(theme_name)
+        if getattr(self, '_read_drawer', None):
+            self._read_drawer.apply_theme(theme_name)
+        if getattr(self, '_fill_sign_drawer', None):
+            self._fill_sign_drawer.apply_theme(theme_name)
+        if getattr(self, '_prepare_form_drawer', None):
+            self._prepare_form_drawer.apply_theme(theme_name)
 
     def retranslate_ui(self):
-        self.all_tools_panel.retranslate_ui()
-        self.export_drawer.retranslate_ui()
-        self.edit_drawer.retranslate_ui()
-        self.read_drawer.retranslate_ui()
-        self.fill_sign_drawer.retranslate_ui()
-        self.prepare_form_drawer.retranslate_ui()
+        if hasattr(self, 'all_tools_panel') and self.all_tools_panel:
+            self.all_tools_panel.retranslate_ui()
+        if getattr(self, '_export_drawer', None):
+            self._export_drawer.retranslate_ui()
+        if getattr(self, '_edit_drawer', None):
+            self._edit_drawer.retranslate_ui()
+        if getattr(self, '_read_drawer', None):
+            self._read_drawer.retranslate_ui()
+        if getattr(self, '_fill_sign_drawer', None):
+            self._fill_sign_drawer.retranslate_ui()
+        if getattr(self, '_prepare_form_drawer', None):
+            self._prepare_form_drawer.retranslate_ui()
 
 
 class FloatingQuickToolsCapsule(QFrame):
@@ -4472,7 +4615,8 @@ class HomeDashboardWorkspace(QWidget):
         main_layout.addWidget(scroll)
 
         self.apply_theme(self.theme_name)
-        self.load_recent_files()
+        # Pencere ekrana geldikten hemen sonra yükle (Açılış blokajını önler)
+        QTimer.singleShot(0, self.load_recent_files)
 
     def set_tab_mode(self, mode: str):
         self.current_tab_mode = mode
@@ -4534,19 +4678,24 @@ class HomeDashboardWorkspace(QWidget):
 
         row_count = 0
         for path in files:
-            if not os.path.exists(path):
+            try:
+                st = os.stat(path)
+                mtime = st.st_mtime
+                cached = _RECENT_FILE_INFO_CACHE.get(path)
+                if cached and cached[0] == mtime:
+                    pages, sz_str = cached[1], cached[2]
+                else:
+                    sz = st.st_size
+                    sz_str = f"{sz / 1024:.1f} KB" if sz < 1024 * 1024 else f"{sz / (1024 * 1024):.1f} MB"
+                    try:
+                        d = fitz.open(path)
+                        pages = len(d)
+                        d.close()
+                    except Exception:
+                        pages = 1
+                    _RECENT_FILE_INFO_CACHE[path] = (mtime, pages, sz_str)
+            except Exception:
                 continue
-            try:
-                sz = os.path.getsize(path)
-                sz_str = f"{sz / 1024:.1f} KB" if sz < 1024 * 1024 else f"{sz / (1024 * 1024):.1f} MB"
-            except Exception:
-                sz_str = "0 KB"
-            try:
-                d = fitz.open(path)
-                pages = len(d)
-                d.close()
-            except Exception:
-                pages = 1
 
             is_fav = False
             if self.main_window and hasattr(self.main_window, 'is_favorite_file'):
@@ -6266,6 +6415,8 @@ class ModernAccessibilityPanel(QWidget):
         self._is_seeking = False
         self._last_total_dur = 0
         self._current_sentence_index = 0
+        self._reading_tab_doc = None
+        self._reading_doc_path = None
 
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(4, 4, 4, 4)
@@ -6629,6 +6780,8 @@ class ModernAccessibilityPanel(QWidget):
         main_layout.addWidget(self.card_tts_player, stretch=0)
 
         # Ses Motoru Bağlantıları
+        global clean_text_for_speech
+        from src.core.speech_engine import AuraSpeechEngine, clean_text_for_speech
         self.speech_engine = AuraSpeechEngine(self)
         self.speech_engine.state_changed.connect(self._on_tts_state_changed)
         self.speech_engine.reading_started.connect(self._on_tts_reading_started)
@@ -6842,6 +6995,7 @@ class ModernAccessibilityPanel(QWidget):
     def _setup_audio_device_menu(self):
         if not hasattr(self, 'btn_audio_device'):
             return
+        from PyQt6.QtMultimedia import QMediaDevices
         menu = QMenu(self)
         self._audio_device_menu = menu
         devices = self.speech_engine.get_available_audio_devices()
@@ -6993,6 +7147,9 @@ class ModernAccessibilityPanel(QWidget):
         if not text:
             QMessageBox.information(self, LanguageManager.tr("app_title"), LanguageManager.tr("tts_no_text_found"))
             return
+        tab_doc = self.main_window.get_current_tab_doc() if self.main_window else None
+        self._reading_tab_doc = tab_doc
+        self._reading_doc_path = getattr(tab_doc, 'file_path', None) if tab_doc else None
         self.lbl_tts_playback_status.setText(LanguageManager.tr("tts_status_reading"))
         self.speech_engine.speak(text)
 
@@ -7003,6 +7160,9 @@ class ModernAccessibilityPanel(QWidget):
         if not text:
             QMessageBox.information(self, LanguageManager.tr("app_title"), LanguageManager.tr("tts_no_text_found"))
             return
+        tab_doc = self.main_window.get_current_tab_doc() if self.main_window else None
+        self._reading_tab_doc = tab_doc
+        self._reading_doc_path = getattr(tab_doc, 'file_path', None) if tab_doc else None
         self.lbl_tts_playback_status.setText(LanguageManager.tr("tts_status_reading"))
         self.speech_engine.speak(text)
 
@@ -7013,6 +7173,23 @@ class ModernAccessibilityPanel(QWidget):
         if not text:
             QMessageBox.information(self, LanguageManager.tr("app_title"), LanguageManager.tr("tts_no_text_found"))
             return
+        tab_doc = self.main_window.get_current_tab_doc() if self.main_window else None
+        self._reading_tab_doc = tab_doc
+        self._reading_doc_path = getattr(tab_doc, 'file_path', None) if tab_doc else None
+        self.lbl_tts_playback_status.setText(LanguageManager.tr("tts_status_reading"))
+        self.speech_engine.speak(text)
+
+    def speak_text(self, text: str, source_doc=None):
+        """Dış bileşenlerden (HUD/seçim çubuğu) gelen metni güvenle okur ve durumu eşitler."""
+        if not text or not text.strip():
+            return
+        if source_doc is None and self.main_window:
+            source_doc = self.main_window.get_current_tab_doc()
+        self._reading_tab_doc = source_doc
+        self._reading_doc_path = getattr(source_doc, 'file_path', None) if source_doc else None
+        cleaned = clean_text_for_speech(text)
+        if cleaned and hasattr(self, 'txt_tts_input'):
+            self.txt_tts_input.setPlainText(cleaned)
         self.lbl_tts_playback_status.setText(LanguageManager.tr("tts_status_reading"))
         self.speech_engine.speak(text)
 
@@ -7025,7 +7202,7 @@ class ModernAccessibilityPanel(QWidget):
 
     def _clear_text(self):
         self.txt_tts_input.clear()
-        self._stop_tts()
+        self.stop_tts()
 
     def _export_audio_action(self):
         if not self.speech_engine._all_chunks:
@@ -7109,8 +7286,8 @@ class ModernAccessibilityPanel(QWidget):
             self.speech_engine.pause()
         else:
             text = self.txt_tts_input.toPlainText().strip()
+            tab_doc = self.main_window.get_current_tab_doc() if self.main_window else None
             if not text:
-                tab_doc = self.main_window.get_current_tab_doc() if self.main_window else None
                 curr_idx = getattr(tab_doc, 'current_page_idx', 0) if tab_doc else 0
                 page_text = self._extract_text_from_page(tab_doc, curr_idx)
                 if page_text:
@@ -7119,21 +7296,83 @@ class ModernAccessibilityPanel(QWidget):
             if not text:
                 QMessageBox.information(self, LanguageManager.tr("app_title"), LanguageManager.tr("tts_no_text_found"))
                 return
+            self._reading_tab_doc = tab_doc
+            self._reading_doc_path = getattr(tab_doc, 'file_path', None) if tab_doc else None
             self.lbl_tts_playback_status.setText(LanguageManager.tr("tts_status_reading"))
             self.speech_engine.speak(text)
 
     def _pause_tts(self):
         self.speech_engine.pause()
 
-    def _stop_tts(self):
-        self.speech_engine.stop()
-        self.btn_tts_play.setText(" " + LanguageManager.tr("tts_play_btn"))
-        self.btn_tts_play.setIcon(ModernIconFactory.icon_play("#ffffff"))
-        self.slider_tts_progress.setValue(0)
-        self.lbl_tts_time.setText("00:00")
-        self.lbl_tts_playback_status.setText(LanguageManager.tr("tts_status_stopped"))
-        self.waveform.set_active(False)
+    def stop_tts(self):
+        """Ses motorunu durdurur ve paneli bekleme/durma durumuna getirir."""
+        if hasattr(self, 'speech_engine') and self.speech_engine:
+            try:
+                self.speech_engine.stop()
+            except Exception:
+                pass
+        self._reading_tab_doc = None
+        self._reading_doc_path = None
+        if hasattr(self, 'btn_tts_play'):
+            self.btn_tts_play.setText(" " + LanguageManager.tr("tts_play_btn"))
+            self.btn_tts_play.setIcon(ModernIconFactory.icon_play("#ffffff"))
+        if hasattr(self, 'slider_tts_progress'):
+            self.slider_tts_progress.setValue(0)
+        if hasattr(self, 'lbl_tts_time'):
+            self.lbl_tts_time.setText("00:00")
+        if hasattr(self, 'lbl_tts_playback_status'):
+            self.lbl_tts_playback_status.setText(LanguageManager.tr("tts_status_stopped"))
+        if hasattr(self, 'waveform'):
+            self.waveform.set_active(False)
         self._clear_highlights()
+
+    def _stop_tts(self):
+        self.stop_tts()
+
+    def clear_accessibility(self):
+        """Tüm sekmeler/belgeler kapatıldığında erişilebilirlik ve okuma panelini sıfırlar."""
+        self.stop_tts()
+        if hasattr(self, 'txt_tts_input'):
+            self.txt_tts_input.clear()
+        if hasattr(self, 'lbl_page_info'):
+            self.lbl_page_info.setText(LanguageManager.tr("tts_page_nav", curr=1, total=1))
+        if hasattr(self, 'btn_page_prev'):
+            self.btn_page_prev.setEnabled(False)
+        if hasattr(self, 'btn_page_next'):
+            self.btn_page_next.setEnabled(False)
+        if hasattr(self, 'lbl_tts_playback_status'):
+            self.lbl_tts_playback_status.setText(LanguageManager.tr("tts_status_ready"))
+
+    def on_document_closed(self, closed_doc=None):
+        """
+        Bir sekme veya belge kapatıldığında çağrılır.
+        Kapatılan sekme seslendirilen belge ise veya hiç açık belge kalmıyorsa TTS'i anında durdurur.
+        """
+        is_closed_doc_reading = False
+        if closed_doc is not None:
+            if self._reading_tab_doc is not None and self._reading_tab_doc is closed_doc:
+                is_closed_doc_reading = True
+            elif self._reading_doc_path and getattr(closed_doc, 'file_path', None) == self._reading_doc_path:
+                is_closed_doc_reading = True
+
+        tw = getattr(self.main_window, 'tab_widget', None) if self.main_window else None
+        remaining_count = tw.count() if tw is not None else 0
+
+        # Eğer okunan belge kapatılıyorsa veya kalan sekme sayısı <= 1 ise (yani bu son sekme kapatılıyorsa)
+        should_stop = is_closed_doc_reading or (remaining_count <= 1)
+
+        # Eğer aktif olarak ses çalıyor ve hangi belgenin okunduğu net değilse (örn. HUD üzerinden başlamışsa),
+        # kapatılan sekme o anki aktif sekme idiyse yine durdur
+        if not should_stop and hasattr(self, 'speech_engine') and (self.speech_engine.is_speaking() or self.speech_engine.is_paused()):
+            if tw and tw.currentWidget() == closed_doc:
+                should_stop = True
+
+        if should_stop:
+            self.stop_tts()
+            if remaining_count <= 1:
+                self.clear_accessibility()
+            else:
+                self._sync_page_info()
 
     def _on_volume_changed(self, val: int):
         if hasattr(self, 'slider_tts_vol'):
@@ -7169,6 +7408,14 @@ class ModernAccessibilityPanel(QWidget):
             self.btn_tts_play.setIcon(ModernIconFactory.icon_play("#ffffff"))
             if self.speech_engine.is_paused():
                 self.lbl_tts_playback_status.setText(LanguageManager.tr("tts_status_paused"))
+            else:
+                self.lbl_tts_playback_status.setText(LanguageManager.tr("tts_status_ready"))
+                self.slider_tts_progress.setValue(0)
+                self.lbl_tts_time.setText("00:00")
+                self.waveform.set_active(False)
+                self._clear_highlights()
+                self._reading_tab_doc = None
+                self._reading_doc_path = None
 
     def _on_tts_reading_started(self, snippet: str):
         self.lbl_tts_playback_status.setText(LanguageManager.tr("tts_status_reading"))
@@ -7182,6 +7429,8 @@ class ModernAccessibilityPanel(QWidget):
         self.lbl_tts_time.setText("00:00")
         self.waveform.set_active(False)
         self._clear_highlights()
+        self._reading_tab_doc = None
+        self._reading_doc_path = None
 
     def _on_tts_chunk_changed(self, idx: int, total: int, chunk_text: str):
         self.lbl_tts_playback_status.setText(LanguageManager.tr("tts_sentence_progress", curr=idx + 1, total=total))
@@ -7736,18 +7985,42 @@ class ModernRightSidebar(QWidget):
         v_att.addWidget(self.stack_attachments)
         self.main_stack.addWidget(self.panel_attachments)
 
-        # 4. Panel: Erişilebilirlik ve Sesli Okuma (TTS)
-        self.panel_accessibility = ModernAccessibilityPanel(main_window=self.main_window, parent=self)
-        self.speech_engine = self.panel_accessibility.speech_engine
-        self.main_stack.addWidget(self.panel_accessibility)
+        # 4. Panel: Erişilebilirlik ve Sesli Okuma (TTS) - Gecikmeli Başlatma (Lazy Initialization)
+        self.panel_accessibility = None
+        self._panel_accessibility_placeholder = QWidget()
+        self.main_stack.addWidget(self._panel_accessibility_placeholder)
 
         main_layout.addWidget(self.main_stack, stretch=1)
         self.apply_theme(self.theme_name)
+
+    @property
+    def speech_engine(self):
+        if self.panel_accessibility is not None:
+            return self.panel_accessibility.speech_engine
+        return None
+
+    def _ensure_accessibility_panel(self):
+        if self.panel_accessibility is None:
+            self.panel_accessibility = ModernAccessibilityPanel(main_window=self.main_window, parent=self)
+            self.panel_accessibility.apply_theme(self.theme_name)
+            if self._panel_accessibility_placeholder is not None:
+                idx = self.main_stack.indexOf(self._panel_accessibility_placeholder)
+                if idx >= 0:
+                    self.main_stack.removeWidget(self._panel_accessibility_placeholder)
+                    self._panel_accessibility_placeholder.deleteLater()
+                    self._panel_accessibility_placeholder = None
+                    self.main_stack.insertWidget(idx, self.panel_accessibility)
+                else:
+                    self.main_stack.addWidget(self.panel_accessibility)
+            else:
+                self.main_stack.addWidget(self.panel_accessibility)
+        return self.panel_accessibility
 
     def set_panel(self, panel_name: str):
         """Çekmeceyi 'thumbnails', 'bookmarks', 'attachments', 'comments' veya 'accessibility' paneline geçirir."""
         self.current_panel = panel_name
         if panel_name == "accessibility":
+            self._ensure_accessibility_panel()
             self.tab_container.hide()
             self.main_stack.setCurrentIndex(4)
             self.lbl_head_title.setText(LanguageManager.tr("accessibility_panel_title"))
@@ -7835,8 +8108,34 @@ class ModernRightSidebar(QWidget):
                 self.btn_add.setToolTip(LanguageManager.tr("sidebar_add_page"))
             else:
                 self.btn_add.setToolTip(LanguageManager.tr("bookmarks_add_btn"))
-        if hasattr(self, 'panel_accessibility'):
+        if hasattr(self, 'panel_accessibility') and self.panel_accessibility is not None:
             self.panel_accessibility.retranslate_ui()
+
+    def stop_accessibility_tts(self):
+        """Erişilebilirlik sesli okuma motorunu ve panelini güvenle durdurur."""
+        if hasattr(self, 'panel_accessibility') and self.panel_accessibility is not None:
+            try:
+                self.panel_accessibility.stop_tts()
+            except Exception:
+                pass
+        elif getattr(self, 'speech_engine', None):
+            try:
+                self.speech_engine.stop()
+            except Exception:
+                pass
+
+    def clear_accessibility(self):
+        """Erişilebilirlik panelini sıfırlar ve seslendirmeyi durdurur."""
+        if hasattr(self, 'panel_accessibility') and self.panel_accessibility is not None:
+            try:
+                self.panel_accessibility.clear_accessibility()
+            except Exception:
+                pass
+        elif getattr(self, 'speech_engine', None):
+            try:
+                self.speech_engine.stop()
+            except Exception:
+                pass
 
     # ==========================================================================
     # SAYFA KÜÇÜK RESİMLERİ (THUMBNAILS) İŞLEMLERİ
@@ -9439,7 +9738,7 @@ class ModernRightSidebar(QWidget):
         """)
         if hasattr(self, 'btn_close'):
             self.btn_close.setIcon(ModernIconFactory.icon_close(c['text']))
-        if hasattr(self, 'panel_accessibility'):
+        if hasattr(self, 'panel_accessibility') and self.panel_accessibility is not None:
             self.panel_accessibility.apply_theme(theme_name)
 
     def mouseMoveEvent(self, event):

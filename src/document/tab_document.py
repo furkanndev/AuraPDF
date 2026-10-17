@@ -1312,6 +1312,22 @@ class PDFTabDocument(QWidget):
             pass
         self._do_save_zoom_setting()
 
+        # Sesli okuma (TTS) aktifse ve bu belge okunuyorsa güvenle durdur
+        try:
+            mw = getattr(self, 'main_window', None)
+            if mw and hasattr(mw, 'modern_right_sidebar') and mw.modern_right_sidebar:
+                panel_acc = getattr(mw.modern_right_sidebar, 'panel_accessibility', None)
+                if panel_acc:
+                    panel_acc.on_document_closed(self)
+                else:
+                    se = getattr(mw.modern_right_sidebar, 'speech_engine', None)
+                    if se and (se.is_speaking() or se.is_paused()):
+                        tw = getattr(mw, 'tab_widget', None)
+                        if tw is None or tw.count() <= 1:
+                            se.stop()
+        except Exception:
+            pass
+
         self.clear_search_highlights()
         self.hide_laser_pointer()
         self._cleanup_comment_drag()
@@ -6544,13 +6560,14 @@ class PDFTabDocument(QWidget):
             QMenu::item:selected { background-color: #0284c7; color: #ffffff; }
         """)
 
-        act_copy = menu.addAction(ModernIconFactory.icon_cursor(), LanguageManager.tr("copy") + " (Ctrl+C)")
+        act_copy = menu.addAction(ModernIconFactory.icon_copy(), LanguageManager.tr("copy") + " (Ctrl+C)")
         act_hl = menu.addAction(ModernIconFactory.icon_highlighter(), LanguageManager.tr("text_markup_highlight"))
-        act_ul = menu.addAction(LanguageManager.tr("text_markup_underline"))
-        act_so = menu.addAction(LanguageManager.tr("text_markup_strikeout"))
+        act_ul = menu.addAction(ModernIconFactory.icon_underline(), LanguageManager.tr("text_markup_underline"))
+        act_so = menu.addAction(ModernIconFactory.icon_strikethrough(), LanguageManager.tr("text_markup_strikeout"))
+        act_speak = menu.addAction(ModernIconFactory.icon_speech(), LanguageManager.tr("text_read_aloud"))
         menu.addSeparator()
         act_search = menu.addAction(ModernIconFactory.icon_search(), LanguageManager.tr("text_search_google"))
-        act_trans = menu.addAction(LanguageManager.tr("text_translate_google"))
+        act_trans = menu.addAction(ModernIconFactory.icon_translate(), LanguageManager.tr("text_translate_google"))
 
         chosen = menu.exec(global_pos)
         if chosen == act_copy:
@@ -6561,6 +6578,8 @@ class PDFTabDocument(QWidget):
             self.underline_selected_text()
         elif chosen == act_so:
             self.strikeout_selected_text()
+        elif chosen == act_speak:
+            self.speak_selected_text()
         elif chosen == act_search:
             self.search_selected_text()
         elif chosen == act_trans:
@@ -6661,6 +6680,20 @@ class PDFTabDocument(QWidget):
             return
         q = urllib.parse.quote(self.selected_text.strip())
         QDesktopServices.openUrl(QUrl(f"https://translate.google.com/?sl=auto&tl=tr&text={q}"))
+
+    def speak_selected_text(self):
+        if not getattr(self, 'selected_text', '').strip():
+            return
+        mw = getattr(self, 'main_window', None)
+        if mw and hasattr(mw, 'modern_right_sidebar') and mw.modern_right_sidebar:
+            panel_acc = getattr(mw.modern_right_sidebar, 'panel_accessibility', None)
+            if panel_acc:
+                panel_acc.speak_text(self.selected_text, source_doc=self)
+            else:
+                se = getattr(mw.modern_right_sidebar, 'speech_engine', None)
+                if se:
+                    se.speak(self.selected_text)
+
     def _load_interactive_form_widgets(self):
         for p in getattr(self, 'interactive_form_proxies', []):
             try:

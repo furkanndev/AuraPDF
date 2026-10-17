@@ -36,8 +36,11 @@ _EMA_INFERENCE_LOCK = threading.Lock()
 
 def is_ema_installed() -> bool:
     try:
-        import ema_lightning  # noqa: F401
-        import torch  # noqa: F401
+        import importlib.util
+        if importlib.util.find_spec("ema_lightning") is None:
+            return False
+        if importlib.util.find_spec("torch") is None:
+            return False
         return True
     except Exception:
         return False
@@ -332,6 +335,9 @@ class AuraSpeechEngine(QObject):
 
     def is_paused(self) -> bool:
         return self._is_paused and (self._active_wav_path is not None or self._is_playing)
+
+    def is_active(self) -> bool:
+        return self.is_speaking() or self.is_paused()
 
     def check_and_notify_status(self):
         ready = self.is_model_ready()
@@ -673,6 +679,13 @@ class AuraSpeechEngine(QObject):
         self._estimated_total_ms = 0
         self.state_changed.emit(False)
         self.playback_progress.emit(0, 0)
+
+        # Tüm parçaların geçici wav dosyalarını temizliğe ekle
+        for c in self._all_chunks:
+            wpath = c.get("wav_path")
+            if wpath and wpath not in self._played_wav_paths:
+                self._played_wav_paths.append(wpath)
+        self._all_chunks.clear()
 
         self._cleanup_temp_files()
 
