@@ -4,10 +4,10 @@
 #define MyAppName "AuraPDF"
 #define MyAppFullName "AuraPDF"
 #ifndef MyAppVersion
-#define MyAppVersion "Pro v2.2.3"
+#define MyAppVersion "Pro v2.2.2"
 #endif
 #ifndef OutputFileName
-#define OutputFileName "AuraPDF_Pro v2.2.3"
+#define OutputFileName "AuraPDF_Pro v2.2.2"
 #endif
 #ifndef OutputDir
 #define OutputDir "Kurulum\Pro"
