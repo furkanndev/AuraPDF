@@ -24,3 +24,7 @@ Thumbs.db
 
 # Temporary Folders
 scratch/
+
+# .NET Build Folders
+[Bb]in/
+[Oo]bj/
