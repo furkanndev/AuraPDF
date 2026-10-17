@@ -955,6 +955,46 @@ class ModernIconFactory:
         return QIcon(pix)
 
     @staticmethod
+    def icon_multiview(color: str = None):
+        pix, p = ModernIconFactory._base()
+        c_acc = QColor(color or "#38bdf8")
+        p.setPen(QPen(c_acc, 1.4, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
+        p.setBrush(QBrush(QColor(c_acc.red(), c_acc.green(), c_acc.blue(), 25)))
+        p.drawRoundedRect(QRectF(2.5, 3.5, 9.5, 19.0), 2.0, 2.0)
+        p.drawRoundedRect(QRectF(14.0, 3.5, 9.5, 19.0), 2.0, 2.0)
+        p.setPen(QPen(QColor(color or "#94a3b8"), 1.0, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+        p.drawLine(QPointF(5.0, 8.0), QPointF(9.5, 8.0))
+        p.drawLine(QPointF(5.0, 12.0), QPointF(9.5, 12.0))
+        p.drawLine(QPointF(5.0, 16.0), QPointF(8.0, 16.0))
+        p.drawLine(QPointF(16.5, 8.0), QPointF(21.0, 8.0))
+        p.drawLine(QPointF(16.5, 12.0), QPointF(21.0, 12.0))
+        p.drawLine(QPointF(16.5, 16.0), QPointF(19.5, 16.0))
+        p.end()
+        return QIcon(pix)
+
+    @staticmethod
+    def icon_swap(color: str = None):
+        pix, p = ModernIconFactory._base()
+        col = QColor(color or "#94a3b8")
+        pen = QPen(col, 1.8, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin)
+        p.setPen(pen)
+        p.setBrush(Qt.BrushStyle.NoBrush)
+        p.drawLine(QPointF(4.0, 9.0), QPointF(20.0, 9.0))
+        path_right = QPainterPath()
+        path_right.moveTo(16.0, 5.5)
+        path_right.lineTo(20.5, 9.0)
+        path_right.lineTo(16.0, 12.5)
+        p.drawPath(path_right)
+        p.drawLine(QPointF(22.0, 17.0), QPointF(6.0, 17.0))
+        path_left = QPainterPath()
+        path_left.moveTo(10.0, 13.5)
+        path_left.lineTo(5.5, 17.0)
+        path_left.lineTo(10.0, 20.5)
+        p.drawPath(path_left)
+        p.end()
+        return QIcon(pix)
+
+    @staticmethod
     def icon_new_document(color: str = None) -> QIcon:
         pix, p = ModernIconFactory._base()
         col = QColor(color or "#ef4444")
@@ -3150,7 +3190,69 @@ class ModernIconFactory:
         p.end()
         return QIcon(pix)
 
+    @staticmethod
+    def icon_upload(color: str = None) -> QIcon:
+        pix, p = ModernIconFactory._base()
+        col = QColor(color or "#3b82f6")
+        pen = QPen(col, 1.8, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin)
+        p.setPen(pen)
+        p.setBrush(Qt.BrushStyle.NoBrush)
+        p.drawLine(QPointF(13.0, 5.5), QPointF(13.0, 16.5))
+        p.drawLine(QPointF(8.5, 9.5), QPointF(13.0, 5.5))
+        p.drawLine(QPointF(17.5, 9.5), QPointF(13.0, 5.5))
+        p.drawLine(QPointF(5.5, 15.0), QPointF(5.5, 20.5))
+        p.drawLine(QPointF(5.5, 20.5), QPointF(20.5, 20.5))
+        p.drawLine(QPointF(20.5, 20.5), QPointF(20.5, 15.0))
+        p.end()
+        return QIcon(pix)
 
+    @staticmethod
+    def icon_sparkle(color: str = None) -> QIcon:
+        pix, p = ModernIconFactory._base()
+        col = QColor(color or "#a855f7")
+        p.setBrush(QBrush(col))
+        p.setPen(Qt.PenStyle.NoPen)
+
+        # Ana 4 köseli AI yildizi (Primary 4-point star)
+        path1 = QPainterPath()
+        cx1, cy1 = 11.0, 14.5
+        r_outer1 = 7.5
+        path1.moveTo(cx1, cy1 - r_outer1)
+        path1.quadTo(cx1, cy1, cx1 + r_outer1, cy1)
+        path1.quadTo(cx1, cy1, cx1, cy1 + r_outer1)
+        path1.quadTo(cx1, cy1, cx1 - r_outer1, cy1)
+        path1.quadTo(cx1, cy1, cx1, cy1 - r_outer1)
+        p.drawPath(path1)
+
+        # Sag üstteki küçük parilti yildizi (Secondary small star)
+        path2 = QPainterPath()
+        cx2, cy2 = 19.5, 6.5
+        r_outer2 = 4.2
+        path2.moveTo(cx2, cy2 - r_outer2)
+        path2.quadTo(cx2, cy2, cx2 + r_outer2, cy2)
+        path2.quadTo(cx2, cy2, cx2, cy2 + r_outer2)
+        path2.quadTo(cx2, cy2, cx2 - r_outer2, cy2)
+        path2.quadTo(cx2, cy2, cx2, cy2 - r_outer2)
+        p.drawPath(path2)
+
+        p.end()
+        return QIcon(pix)
+
+    @staticmethod
+    def icon_send(color: str = None) -> QIcon:
+        pix, p = ModernIconFactory._base()
+        col = QColor(color or "#a855f7")
+        p.setBrush(QBrush(col))
+        p.setPen(Qt.PenStyle.NoPen)
+        path = QPainterPath()
+        path.moveTo(4.5, 4.5)
+        path.lineTo(21.5, 12.5)
+        path.lineTo(4.5, 20.5)
+        path.lineTo(8.5, 12.5)
+        path.closeSubpath()
+        p.drawPath(path)
+        p.end()
+        return QIcon(pix)
 
 
 def _wrap_icon_methods():

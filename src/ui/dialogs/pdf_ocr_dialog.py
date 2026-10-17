@@ -420,5 +420,19 @@ class PDFScanOCRDialog(QDialog):
             self.lbl_status.setText(LanguageManager.tr("ocr_failed"))
             QMessageBox.warning(self, LanguageManager.tr("info"), message)
 
+    def _cancel_and_abort(self):
+        if hasattr(self, 'worker') and self.worker and self.worker.isRunning():
+            self.worker.cancel()
+            self.worker.quit()
+            self.worker.wait(600)
+
+    def closeEvent(self, event):
+        self._cancel_and_abort()
+        super().closeEvent(event)
+
+    def reject(self):
+        self._cancel_and_abort()
+        super().reject()
+
 
 PDFOCRDialog = PDFScanOCRDialog

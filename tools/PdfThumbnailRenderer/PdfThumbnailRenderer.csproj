@@ -14,4 +14,10 @@
     <AssemblyName>PowerToys.PdfThumbnailProvider</AssemblyName>
   </PropertyGroup>
 
+  <ItemGroup>
+    <EmbeddedResource Include="..\..\assets\app_icon_128.png" Link="app_icon_128.png" />
+    <EmbeddedResource Include="..\..\assets\locked_pdf_thumbnail.png" Link="locked_pdf_thumbnail.png" />
+    <EmbeddedResource Include="..\..\assets\standard_pdf_thumbnail.png" Link="standard_pdf_thumbnail.png" />
+  </ItemGroup>
+
 </Project>

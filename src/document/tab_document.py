@@ -9,7 +9,7 @@ import urllib.parse
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QGraphicsView, QGraphicsScene, 
                              QGraphicsTextItem, QMessageBox, QGraphicsItem, QMenu, QInputDialog,
                              QGraphicsItemGroup, QGraphicsPathItem, QApplication, QLineEdit,
-                             QTextEdit, QCheckBox, QRadioButton, QComboBox, QGraphicsProxyWidget,
+                             QTextEdit, QPlainTextEdit, QSpinBox, QCheckBox, QRadioButton, QComboBox, QGraphicsProxyWidget,
                              QGraphicsPixmapItem)
 from PyQt6.QtGui import (QImage, QPixmap, QPen, QColor, QPainter, QPainterPath, QPainterPathStroker,
                          QBrush, QLinearGradient, QRadialGradient, QFont,
@@ -22,6 +22,23 @@ from src.ui.icons import ModernIconFactory
 from src.ui.cursors import CursorFactory
 from src.ui.widgets import EditableInlineTextItem
 from src.document.media_items import PDFTableItem, PDFResizableImageItem, PDFAudioItem, PDFVideoItem
+
+
+def apply_smart_dark_invert(pix: fitz.Pixmap, page: fitz.Page, mat: fitz.Matrix) -> None:
+    """Sayfa pixmap'ine akıllı gece modu uygular; metin ve arka planı tersine çevirirken
+    sayfa içindeki resim, grafik ve fotoğrafların doğal renklerini korur."""
+    pix.invert_irect()
+    try:
+        images = page.get_image_info(xrefs=True)
+        for img_info in images:
+            bbox = img_info.get("bbox")
+            if bbox:
+                irect = (fitz.Rect(bbox) * mat).round()
+                irect = irect.intersect(pix.irect)
+                if not irect.is_empty:
+                    pix.invert_irect(irect)
+    except Exception:
+        pass
 
 
 # ---------------------------------------------------------------------------
@@ -65,7 +82,7 @@ class _PageRenderWorker(QThread):
             try:
                 pix = doc[page_idx].get_pixmap(matrix=mat, annots=annots_flag)
                 if mode == 'dark':
-                    pix.invert_irect()
+                    apply_smart_dark_invert(pix, doc[page_idx], mat)
                 qimg = QImage(pix.samples, pix.width, pix.height,
                               pix.stride, QImage.Format.Format_RGB888)
                 if mode == 'sepia':
@@ -248,18 +265,41 @@ def get_graphite_fill_texture(color: QColor, alpha_base: float = 1.0) -> QPixmap
 class BookmarkRibbonItem(QGraphicsItem):
     """
     Sayfa üzerinde yer imi ekleme/kaldırma kurdelesi (Bookmark Ribbon).
-    Sayfanın sağ üst köşesinde zarif bir kurdele olarak konumlanır.
+    Sayfanın sağ üst köşesinde sayfa boyutuna orantılı zarif bir kurdele olarak konumlanır.
     """
     WIDTH = 26.0
     HEIGHT = 40.0
     NOTCH = 9.0
+    BASE_WIDTH = 26.0
+    BASE_HEIGHT = 40.0
+    BASE_NOTCH = 9.0
+    BASE_MARGIN = 22.0
 
-    def __init__(self, tab_doc: 'PDFTabDocument', page_idx: int, x: float, y: float, is_bookmarked: bool = False):
+    def __init__(
+        self,
+        tab_doc: 'PDFTabDocument',
+        page_idx: int,
+        x: float,
+        y: float,
+        is_bookmarked: bool = False,
+        scale: float = 1.0
+    ):
         super().__init__()
         self.tab_doc = tab_doc
         self.page_idx = page_idx
         self.is_bookmarked = is_bookmarked
         self.is_hovered = False
+        self.scale = max(0.35, min(1.35, float(scale)))
+
+        self.width = self.BASE_WIDTH * self.scale
+        self.height = self.BASE_HEIGHT * self.scale
+        self.notch = self.BASE_NOTCH * self.scale
+
+        # Geriye dönük uyumluluk
+        self.WIDTH = self.width
+        self.HEIGHT = self.height
+        self.NOTCH = self.notch
+
         self.setPos(x, y)
         self.setZValue(50)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -269,9 +309,9 @@ class BookmarkRibbonItem(QGraphicsItem):
     def _update_tooltip(self):
         p_num = self.page_idx + 1
         if self.is_bookmarked:
-            self.setToolTip(f"Sayfa {p_num} yer imlerine ekli (Kaldırmak için tıklayın)")
+            self.setToolTip(LanguageManager.tr("bookmark_ribbon_remove_tip", page=p_num))
         else:
-            self.setToolTip(f"Sayfa {p_num}'i yer imlerine ekle")
+            self.setToolTip(LanguageManager.tr("bookmark_ribbon_add_tip", page=p_num))
 
     def set_bookmarked(self, val: bool):
         if self.is_bookmarked != val:
@@ -284,6 +324,14 @@ class BookmarkRibbonItem(QGraphicsItem):
             self.is_hovered = val
             self.update()
 
+    def hoverEnterEvent(self, event):
+        self.set_hovered(True)
+        super().hoverEnterEvent(event)
+
+    def hoverLeaveEvent(self, event):
+        self.set_hovered(False)
+        super().hoverLeaveEvent(event)
+
     def toggle_bookmark(self):
         if self.is_bookmarked:
             self.tab_doc.toggle_page_bookmark(self.page_idx)
@@ -291,11 +339,12 @@ class BookmarkRibbonItem(QGraphicsItem):
             self.tab_doc.add_custom_page_bookmark(self.page_idx)
 
     def boundingRect(self) -> QRectF:
-        return QRectF(-3, -2, self.WIDTH + 6, self.HEIGHT + 6)
+        pad = max(2.0, 3.0 * self.scale)
+        return QRectF(-pad, -pad, self.width + pad * 2, self.height + pad * 2)
 
     def shape(self) -> QPainterPath:
         path = QPainterPath()
-        w, h, notch = self.WIDTH, self.HEIGHT, self.NOTCH
+        w, h, notch = self.width, self.height, self.notch
         path.moveTo(0, 0)
         path.lineTo(w, 0)
         path.lineTo(w, h)
@@ -312,9 +361,10 @@ class BookmarkRibbonItem(QGraphicsItem):
         painter.save()
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
 
-        w = self.WIDTH
-        h = self.HEIGHT
-        notch = self.NOTCH
+        w = self.width
+        h = self.height
+        notch = self.notch
+        s = self.scale
 
         # Path caching - her repaint'te yeniden oluşturmak yerine cache kullan
         if not hasattr(self, '_cached_path') or self._cached_path is None:
@@ -327,15 +377,17 @@ class BookmarkRibbonItem(QGraphicsItem):
             self._cached_path.closeSubpath()
 
             self._cached_shadow_path = QPainterPath()
+            shadow_off = max(1.0, 1.8 * s)
             self._cached_shadow_path.moveTo(1, 1)
             self._cached_shadow_path.lineTo(w + 1, 1)
-            self._cached_shadow_path.lineTo(w + 1, h + 2)
-            self._cached_shadow_path.lineTo(w / 2.0 + 1, h - notch + 2)
-            self._cached_shadow_path.lineTo(1, h + 2)
+            self._cached_shadow_path.lineTo(w + 1, h + shadow_off)
+            self._cached_shadow_path.lineTo(w / 2.0 + 1, h - notch + shadow_off)
+            self._cached_shadow_path.lineTo(1, h + shadow_off)
             self._cached_shadow_path.closeSubpath()
 
             iw, ih = w * 0.44, h * 0.42
-            ix, iy = (w - iw) / 2.0, 7.0
+            ix = (w - iw) / 2.0
+            iy = max(2.5, 7.0 * s)
             inotch = notch * 0.42
             self._cached_icon_path = QPainterPath()
             self._cached_icon_path.moveTo(ix, iy)
@@ -360,38 +412,43 @@ class BookmarkRibbonItem(QGraphicsItem):
                 grad.setColorAt(0.0, QColor("#ef4444"))
                 grad.setColorAt(1.0, QColor("#be123c"))
 
-            painter.setPen(QPen(QColor("#881337"), 1.2))
+            pen_w = max(0.8, 1.2 * s)
+            painter.setPen(QPen(QColor("#881337"), pen_w))
             painter.setBrush(QBrush(grad))
             painter.drawPath(path)
 
             # 3. Üst kenar katlantı efekti (Sayfa kenarından sarkma hissi)
-            painter.setPen(QPen(QColor(255, 255, 255, 90), 1.0))
+            painter.setPen(QPen(QColor(255, 255, 255, 90), max(0.6, 1.0 * s)))
             painter.drawLine(QPointF(1, 1), QPointF(w - 1, 1))
 
             # 4. İç zarif yer imi ikonu
-            painter.setPen(QPen(QColor(255, 255, 255, 220), 1.2))
+            painter.setPen(QPen(QColor(255, 255, 255, 220), max(0.8, 1.2 * s)))
             painter.setBrush(QBrush(QColor(255, 255, 255, 45)))
             painter.drawPath(self._cached_icon_path)
 
         else:
             if self.is_hovered:
-                painter.setPen(QPen(QColor("#f43f5e"), 1.4, Qt.PenStyle.SolidLine))
+                painter.setPen(QPen(QColor("#f43f5e"), max(1.0, 1.4 * s), Qt.PenStyle.SolidLine))
                 painter.setBrush(QBrush(QColor(244, 63, 94, 70)))
                 painter.drawPath(path)
 
-                cx, cy = w / 2.0, 15.0
-                painter.setPen(QPen(QColor("#f43f5e"), 1.6, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
-                painter.drawLine(QPointF(cx - 4, cy), QPointF(cx + 4, cy))
-                painter.drawLine(QPointF(cx, cy - 4), QPointF(cx, cy + 4))
+                cx = w / 2.0
+                cy = max(5.0, 15.0 * s)
+                cross_size = max(2.0, 4.0 * s)
+                painter.setPen(QPen(QColor("#f43f5e"), max(1.0, 1.6 * s), Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+                painter.drawLine(QPointF(cx - cross_size, cy), QPointF(cx + cross_size, cy))
+                painter.drawLine(QPointF(cx, cy - cross_size), QPointF(cx, cy + cross_size))
             else:
-                painter.setPen(QPen(QColor(160, 160, 175, 170), 1.2, Qt.PenStyle.SolidLine))
+                painter.setPen(QPen(QColor(160, 160, 175, 170), max(0.8, 1.2 * s), Qt.PenStyle.SolidLine))
                 painter.setBrush(QBrush(QColor(230, 230, 240, 90)))
                 painter.drawPath(path)
 
-                cx, cy = w / 2.0, 15.0
-                painter.setPen(QPen(QColor(140, 140, 155, 160), 1.3, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
-                painter.drawLine(QPointF(cx - 3.5, cy), QPointF(cx + 3.5, cy))
-                painter.drawLine(QPointF(cx, cy - 3.5), QPointF(cx, cy + 3.5))
+                cx = w / 2.0
+                cy = max(5.0, 15.0 * s)
+                cross_size = max(1.8, 3.5 * s)
+                painter.setPen(QPen(QColor(140, 140, 155, 160), max(0.8, 1.3 * s), Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+                painter.drawLine(QPointF(cx - cross_size, cy), QPointF(cx + cross_size, cy))
+                painter.drawLine(QPointF(cx, cy - cross_size), QPointF(cx, cy + cross_size))
 
         painter.restore()
 
@@ -423,9 +480,9 @@ class BookmarkRibbonItem(QGraphicsItem):
         target_page_1_based = self.page_idx + 1
 
         if self.is_bookmarked:
-            act_add_sub = menu.addAction(ModernIconFactory.icon_bookmark(), "Bu Sayfaya Alt Yer İmi Ekle...")
-            act_rename = menu.addAction(ModernIconFactory.icon_bookmark(), "Yer İmini Yeniden Adlandır...")
-            act_remove = menu.addAction("Yer İmini Kaldır")
+            act_add_sub = menu.addAction(ModernIconFactory.icon_bookmark(), LanguageManager.tr("bookmark_ribbon_add_sub"))
+            act_rename = menu.addAction(ModernIconFactory.icon_bookmark(), LanguageManager.tr("bookmark_ribbon_rename"))
+            act_remove = menu.addAction(LanguageManager.tr("bookmark_ribbon_remove"))
             chosen = menu.exec(global_pos)
             if chosen == act_add_sub:
                 self.tab_doc.add_custom_page_bookmark(self.page_idx)
@@ -434,8 +491,8 @@ class BookmarkRibbonItem(QGraphicsItem):
             elif chosen == act_remove:
                 self.tab_doc.toggle_page_bookmark(self.page_idx)
         else:
-            act_add = menu.addAction(ModernIconFactory.icon_bookmark(), f"Sayfa {target_page_1_based}'i Yer İmlerine Ekle")
-            act_add_custom = menu.addAction("Özel Başlıkla Yer İmi Ekle...")
+            act_add = menu.addAction(ModernIconFactory.icon_bookmark(), LanguageManager.tr("bookmark_ribbon_add_page", page=target_page_1_based))
+            act_add_custom = menu.addAction(LanguageManager.tr("bookmark_ribbon_add_custom"))
             chosen = menu.exec(global_pos)
             if chosen == act_add:
                 self.tab_doc.toggle_page_bookmark(self.page_idx)
@@ -925,6 +982,7 @@ class PDFTabDocument(QWidget):
         self.move_last_pos = None
         self.move_initial_states = []
         self.is_panning = False
+        self.space_pan_active = False
         self.pan_last_viewport_pos = None
         self.laser_pointer_item = None
         self.pointer_last_pos = None
@@ -3153,7 +3211,7 @@ class PDFTabDocument(QWidget):
 
         is_tab_visible = self.isVisible() and (
             self.main_window and hasattr(self.main_window, 'central_stack')
-            and self.main_window.central_stack.currentWidget() == getattr(self.main_window, 'tab_widget', None)
+            and self.main_window.central_stack.currentWidget() in (getattr(self.main_window, 'tab_widget', None), getattr(self.main_window, 'document_splitter', None))
         )
         if is_tab_visible:
             self.render_pages_init()
@@ -3609,9 +3667,16 @@ class PDFTabDocument(QWidget):
             bookmarked_pages = set()
 
         for idx, pinfo in self.page_positions.items():
-            rx = pinfo['right'] - BookmarkRibbonItem.WIDTH - 24.0
+            pw = float(pinfo.get('width', 595.0))
+            ph = float(pinfo.get('height', 842.0))
+            eff_dim = min(pw, ph * 0.85)
+            scale = max(0.35, min(1.35, eff_dim / 595.0))
+
+            ribbon_w = BookmarkRibbonItem.BASE_WIDTH * scale
+            margin_x = BookmarkRibbonItem.BASE_MARGIN * scale
+            rx = pinfo['right'] - ribbon_w - margin_x
             ry = pinfo['top']
-            ribbon = BookmarkRibbonItem(self, idx, rx, ry, is_bookmarked=(idx in bookmarked_pages))
+            ribbon = BookmarkRibbonItem(self, idx, rx, ry, is_bookmarked=(idx in bookmarked_pages), scale=scale)
             self.scene.addItem(ribbon)
             self.bookmark_ribbon_items[idx] = ribbon
 
@@ -3832,7 +3897,7 @@ class PDFTabDocument(QWidget):
                 try:
                     pix = doc2[idx].get_pixmap(matrix=mat2, annots=annots_flag)
                     if mode2 == 'dark':
-                        pix.invert_irect()
+                        apply_smart_dark_invert(pix, doc2[idx], mat2)
                     qimg = QImage(pix.samples, pix.width, pix.height,
                                   pix.stride, QImage.Format.Format_RGB888)
                     if mode2 == 'sepia':
@@ -5643,6 +5708,16 @@ class PDFTabDocument(QWidget):
             if hover_item and was_hover_vis:
                 hover_item.setVisible(False)
 
+            sel_highlights = list(getattr(self, 'selection_highlight_items', []))
+            vis_highlights = []
+            for h_item in sel_highlights:
+                try:
+                    if h_item and h_item.isVisible():
+                        h_item.setVisible(False)
+                        vis_highlights.append(h_item)
+                except Exception:
+                    pass
+
             selected_items = self.scene.selectedItems() if self.scene else []
             for sit in selected_items:
                 sit.setSelected(False)
@@ -5698,6 +5773,11 @@ class PDFTabDocument(QWidget):
                     ribbon.setVisible(True)
                 if hover_item and was_hover_vis:
                     hover_item.setVisible(True)
+                for h_item in vis_highlights:
+                    try:
+                        h_item.setVisible(True)
+                    except Exception:
+                        pass
                 for sit in selected_items:
                     sit.setSelected(True)
 
@@ -6295,6 +6375,31 @@ class PDFTabDocument(QWidget):
                         self.main_window.handle_dropped_urls(pdf_urls)
                         event.acceptProposedAction()
                         return True
+            elif event.type() == QEvent.Type.KeyPress:
+                if event.key() == Qt.Key.Key_Space and not event.isAutoRepeat():
+                    fw = QApplication.focusWidget()
+                    is_text_edit = (
+                        isinstance(fw, (QLineEdit, QTextEdit, QPlainTextEdit, QSpinBox, QComboBox)) or
+                        (getattr(self, 'direct_edit_editor', None) is not None and getattr(self.direct_edit_editor, 'isVisible', lambda: False)())
+                    )
+                    if not is_text_edit:
+                        self.space_pan_active = True
+                        self.view.viewport().setCursor(CursorFactory.get_pan_cursor())
+                        return True
+            elif event.type() == QEvent.Type.KeyRelease:
+                if event.key() == Qt.Key.Key_Space and not event.isAutoRepeat():
+                    if getattr(self, 'space_pan_active', False):
+                        self.space_pan_active = False
+                        self.is_panning = False
+                        self.pan_last_viewport_pos = None
+                        self.main_window.update_viewport_cursor()
+                        return True
+            elif event.type() in (QEvent.Type.FocusOut, QEvent.Type.WindowDeactivate):
+                if getattr(self, 'space_pan_active', False):
+                    self.space_pan_active = False
+                    self.is_panning = False
+                    self.pan_last_viewport_pos = None
+                    self.main_window.update_viewport_cursor()
 
         if source != self.view.viewport() or self.doc is None:
             return super().eventFilter(source, event)
@@ -7576,7 +7681,8 @@ class PDFTabDocument(QWidget):
 
         page_idx = self.get_page_at_pos(pos)
 
-        if tool == 'pan':
+        # Spacebar Pan, orta fare tuşu pan veya 'pan' aracı
+        if getattr(self, 'space_pan_active', False) or event.button() == Qt.MouseButton.MiddleButton or tool == 'pan':
             self.is_panning = True
             self.pan_last_viewport_pos = event.pos()
             self.view.viewport().setCursor(CursorFactory.get_closed_hand_cursor())
@@ -7803,15 +7909,17 @@ class PDFTabDocument(QWidget):
                 self.update_measurement(pos, has_shift=has_shift)
             return True
 
+        # Öncelikli Pan hareketi (Spacebar Pan, orta tuş veya Pan aracı)
+        if self.is_panning and self.pan_last_viewport_pos is not None:
+            delta = event.pos() - self.pan_last_viewport_pos
+            self.pan_last_viewport_pos = event.pos()
+            h_bar = self.view.horizontalScrollBar()
+            v_bar = self.view.verticalScrollBar()
+            h_bar.setValue(h_bar.value() - delta.x())
+            v_bar.setValue(v_bar.value() - delta.y())
+            return True
+
         if tool in ('pan', 'selection_tool'):
-            if self.is_panning and self.pan_last_viewport_pos is not None:
-                delta = event.pos() - self.pan_last_viewport_pos
-                self.pan_last_viewport_pos = event.pos()
-                h_bar = self.view.horizontalScrollBar()
-                v_bar = self.view.verticalScrollBar()
-                h_bar.setValue(h_bar.value() - delta.x())
-                v_bar.setValue(v_bar.value() - delta.y())
-                return True
             if tool == 'pan':
                 return True
 
@@ -7941,12 +8049,17 @@ class PDFTabDocument(QWidget):
                 self.finish_measurement(pos, has_shift=has_shift)
             return True
 
-        if tool in ('pan', 'selection_tool'):
-            if self.is_panning:
-                self.is_panning = False
-                self.pan_last_viewport_pos = None
+        # Pan bırakma kontrolü
+        if self.is_panning:
+            self.is_panning = False
+            self.pan_last_viewport_pos = None
+            if getattr(self, 'space_pan_active', False) or tool == 'pan':
                 self.view.viewport().setCursor(CursorFactory.get_pan_cursor())
-                return True
+            else:
+                self.main_window.update_viewport_cursor()
+            return True
+
+        if tool in ('pan', 'selection_tool'):
             if tool == 'pan':
                 return True
 

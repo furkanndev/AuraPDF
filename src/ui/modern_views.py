@@ -1214,6 +1214,7 @@ class ModernHeaderBar(QWidget):
     fitPageRequested = pyqtSignal()
     rotateRequested = pyqtSignal()
     zoomSetRequested = pyqtSignal(int)
+    multiviewRequested = pyqtSignal()
 
     """
     Üst Başlık Çubuğu:
@@ -1382,6 +1383,16 @@ class ModernHeaderBar(QWidget):
         self.btn_rotate.clicked.connect(self.rotateRequested.emit)
         h_zoom.addWidget(self.btn_rotate)
 
+        self.btn_multiview = QToolButton()
+        self.btn_multiview.setObjectName("HeaderBtnMultiview")
+        self.btn_multiview.setIcon(ModernIconFactory.icon_multiview())
+        self.btn_multiview.setIconSize(QSize(16, 16))
+        self.btn_multiview.setFixedSize(28, 26)
+        self.btn_multiview.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_multiview.setToolTip(LanguageManager.tr("header_btn_multiview_tip"))
+        self.btn_multiview.clicked.connect(self.multiviewRequested.emit)
+        h_zoom.addWidget(self.btn_multiview)
+
         layout.addWidget(self.zoom_capsule)
 
         layout.addStretch(1)
@@ -1500,6 +1511,30 @@ class ModernHeaderBar(QWidget):
             self.btn_fit.setToolTip(LanguageManager.tr("fit_to_page"))
         if hasattr(self, 'btn_rotate'):
             self.btn_rotate.setToolTip(LanguageManager.tr("tb_item_rotate"))
+        if hasattr(self, 'btn_multiview'):
+            if getattr(self, '_is_multiview_active', False):
+                self.btn_multiview.setToolTip(LanguageManager.tr("header_btn_multiview_active_tip"))
+            else:
+                self.btn_multiview.setToolTip(LanguageManager.tr("header_btn_multiview_tip"))
+
+    def set_multiview_active(self, active: bool):
+        self._is_multiview_active = active
+        if hasattr(self, 'btn_multiview'):
+            c = get_modern_theme_colors(getattr(self, 'theme_name', 'gray'))
+            if active:
+                self.btn_multiview.setIcon(ModernIconFactory.icon_multiview(c['accent']))
+                self.btn_multiview.setToolTip(LanguageManager.tr("header_btn_multiview_active_tip"))
+                self.btn_multiview.setStyleSheet(f"""
+                    QToolButton#HeaderBtnMultiview {{
+                        background-color: {c['surface_hover']};
+                        border: 1px solid {c['accent']};
+                        border-radius: 6px;
+                    }}
+                """)
+            else:
+                self.btn_multiview.setIcon(ModernIconFactory.icon_multiview(c['text']))
+                self.btn_multiview.setToolTip(LanguageManager.tr("header_btn_multiview_tip"))
+                self.btn_multiview.setStyleSheet("")
 
     def set_mode(self, mode_id: Optional[str], notify: bool = True):
         self.current_mode = mode_id
@@ -1545,6 +1580,11 @@ class ModernHeaderBar(QWidget):
             self.btn_fit.setIcon(ModernIconFactory.icon_fit_page(c['text']))
         if hasattr(self, 'btn_rotate'):
             self.btn_rotate.setIcon(ModernIconFactory.icon_rotate(c['text']))
+        if hasattr(self, 'btn_multiview'):
+            if getattr(self, '_is_multiview_active', False):
+                self.btn_multiview.setIcon(ModernIconFactory.icon_multiview(c['accent']))
+            else:
+                self.btn_multiview.setIcon(ModernIconFactory.icon_multiview(c['text']))
 
         self.setStyleSheet(f"""
             ModernHeaderBar {{
@@ -1654,6 +1694,562 @@ class ModernHeaderBar(QWidget):
                 padding: 1px 5px;
                 font-size: 10px;
                 font-weight: 600;
+            }}
+        """)
+
+
+# ==============================================================================
+# 2B. MULTIVIEW: İKİNCİ BELGE BÖLÜNMÜŞ EKRAN PANELİ (ModernSecondaryDocPane)
+# ==============================================================================
+class ModernSecondaryDocPane(QWidget):
+    """
+    Multiview: İkinci PDF Belgesi Bölünmüş Ekran Paneli (Side-by-Side Dual Document Split Pane).
+    Kullanıcının ana penceredeki birincil PDF'in yanında ikinci bir PDF'i (veya açık diğer sekmelerden birini,
+    ya da aynı belgenin ikinci bir görünümünü) bağımsız veya eşzamanlı kaydırma ile incelemesini sağlar.
+    """
+    closeRequested = pyqtSignal()
+    swapRequested = pyqtSignal()
+    syncScrollToggled = pyqtSignal(bool)
+    documentLoaded = pyqtSignal(str)
+
+    def __init__(self, main_window=None, parent=None):
+        super().__init__(parent)
+        self.setObjectName("ModernSecondaryDocPane")
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        self.main_window = main_window
+        self.theme_name = "gray"
+        self.tab_doc = None
+        self.file_path = None
+        self.is_sync_scroll_enabled = False
+        self._is_syncing_scroll = False
+
+        self._setup_ui()
+
+    def _setup_ui(self):
+        root_layout = QVBoxLayout(self)
+        root_layout.setContentsMargins(0, 0, 0, 0)
+        root_layout.setSpacing(0)
+
+        # 1. Üst İnce Denetim ve Belge Seçim Çubuğu (Secondary Header)
+        self.header_frame = QFrame(self)
+        self.header_frame.setObjectName("SecondaryDocHeader")
+        self.header_frame.setFixedHeight(38)
+        h_layout = QHBoxLayout(self.header_frame)
+        h_layout.setContentsMargins(8, 2, 8, 2)
+        h_layout.setSpacing(6)
+
+        # Multiview İkonu
+        self.lbl_pane_icon = QLabel(self)
+        self.lbl_pane_icon.setPixmap(ModernIconFactory.icon_multiview().pixmap(16, 16))
+        self.lbl_pane_icon.setFixedSize(18, 18)
+        h_layout.addWidget(self.lbl_pane_icon)
+
+        # Belge Seçici Dropdown (Açık sekmeler + Başka PDF Aç...)
+        self.combo_docs = QComboBox(self)
+        self.combo_docs.setObjectName("SecondaryDocCombo")
+        self.combo_docs.setMinimumWidth(160)
+        self.combo_docs.setMaximumWidth(280)
+        self.combo_docs.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.combo_docs.setToolTip(LanguageManager.tr("multiview_choose_second_pdf"))
+        self.combo_docs.activated.connect(self._on_combo_doc_selected)
+        h_layout.addWidget(self.combo_docs)
+
+        # Dikey Ayırıcı
+        sep1 = QFrame(self)
+        sep1.setObjectName("SecondaryHeaderSep")
+        sep1.setFrameShape(QFrame.Shape.VLine)
+        sep1.setFixedWidth(1)
+        sep1.setFixedHeight(20)
+        h_layout.addWidget(sep1)
+
+        # Sayfa Gezinme Kapsülü
+        self.page_capsule = QFrame(self)
+        self.page_capsule.setObjectName("SecondaryNavCapsule")
+        self.page_capsule.setFixedHeight(28)
+        h_page = QHBoxLayout(self.page_capsule)
+        h_page.setContentsMargins(2, 1, 4, 1)
+        h_page.setSpacing(2)
+
+        self.btn_prev = QToolButton(self)
+        self.btn_prev.setIcon(ModernIconFactory.icon_chevron_left())
+        self.btn_prev.setIconSize(QSize(14, 14))
+        self.btn_prev.setFixedSize(22, 22)
+        self.btn_prev.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_prev.setToolTip(LanguageManager.tr("prev_page"))
+        self.btn_prev.clicked.connect(self.prev_page)
+        h_page.addWidget(self.btn_prev)
+
+        self.lbl_page = QLabel("1 / 1", self)
+        self.lbl_page.setObjectName("SecondaryLblPage")
+        self.lbl_page.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        h_page.addWidget(self.lbl_page)
+
+        self.btn_next = QToolButton(self)
+        self.btn_next.setIcon(ModernIconFactory.icon_chevron_right())
+        self.btn_next.setIconSize(QSize(14, 14))
+        self.btn_next.setFixedSize(22, 22)
+        self.btn_next.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_next.setToolTip(LanguageManager.tr("next_page"))
+        self.btn_next.clicked.connect(self.next_page)
+        h_page.addWidget(self.btn_next)
+        h_layout.addWidget(self.page_capsule)
+
+        # Zoom Kapsülü
+        self.zoom_capsule = QFrame(self)
+        self.zoom_capsule.setObjectName("SecondaryNavCapsule")
+        self.zoom_capsule.setFixedHeight(28)
+        h_zoom = QHBoxLayout(self.zoom_capsule)
+        h_zoom.setContentsMargins(2, 1, 2, 1)
+        h_zoom.setSpacing(2)
+
+        self.btn_zout = QToolButton(self)
+        self.btn_zout.setIcon(ModernIconFactory.icon_minus())
+        self.btn_zout.setIconSize(QSize(14, 14))
+        self.btn_zout.setFixedSize(22, 22)
+        self.btn_zout.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_zout.setToolTip(LanguageManager.tr("zoom_out"))
+        self.btn_zout.clicked.connect(self.zoom_out)
+        h_zoom.addWidget(self.btn_zout)
+
+        self.lbl_zoom = QLabel("100%", self)
+        self.lbl_zoom.setObjectName("SecondaryLblZoom")
+        self.lbl_zoom.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        h_zoom.addWidget(self.lbl_zoom)
+
+        self.btn_zin = QToolButton(self)
+        self.btn_zin.setIcon(ModernIconFactory.icon_plus())
+        self.btn_zin.setIconSize(QSize(14, 14))
+        self.btn_zin.setFixedSize(22, 22)
+        self.btn_zin.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_zin.setToolTip(LanguageManager.tr("zoom_in"))
+        self.btn_zin.clicked.connect(self.zoom_in)
+        h_zoom.addWidget(self.btn_zin)
+
+        self.btn_fit = QToolButton(self)
+        self.btn_fit.setIcon(ModernIconFactory.icon_fit_page())
+        self.btn_fit.setIconSize(QSize(14, 14))
+        self.btn_fit.setFixedSize(22, 22)
+        self.btn_fit.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_fit.setToolTip(LanguageManager.tr("fit_to_page"))
+        self.btn_fit.clicked.connect(self.fit_to_width)
+        h_zoom.addWidget(self.btn_fit)
+        h_layout.addWidget(self.zoom_capsule)
+
+        h_layout.addStretch(1)
+
+        # Eşzamanlı Kaydırma (Sync Scroll) Butonu
+        self.btn_sync_scroll = QToolButton(self)
+        self.btn_sync_scroll.setObjectName("SecondaryBtnSyncScroll")
+        self.btn_sync_scroll.setCheckable(True)
+        self.btn_sync_scroll.setIcon(ModernIconFactory.icon_link())
+        self.btn_sync_scroll.setIconSize(QSize(16, 16))
+        self.btn_sync_scroll.setFixedSize(28, 26)
+        self.btn_sync_scroll.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_sync_scroll.setToolTip(LanguageManager.tr("multiview_sync_scroll"))
+        self.btn_sync_scroll.toggled.connect(self._on_sync_scroll_toggled)
+        h_layout.addWidget(self.btn_sync_scroll)
+
+        # Belgeleri Değiştir (Swap Panes) Butonu
+        self.btn_swap = QToolButton(self)
+        self.btn_swap.setObjectName("SecondaryBtnSwap")
+        self.btn_swap.setIcon(ModernIconFactory.icon_swap())
+        self.btn_swap.setIconSize(QSize(16, 16))
+        self.btn_swap.setFixedSize(28, 26)
+        self.btn_swap.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_swap.setToolTip(LanguageManager.tr("multiview_swap"))
+        self.btn_swap.clicked.connect(self.swapRequested.emit)
+        h_layout.addWidget(self.btn_swap)
+
+        # Kapat Butonu
+        self.btn_close = QToolButton(self)
+        self.btn_close.setObjectName("SecondaryBtnClose")
+        self.btn_close.setIcon(ModernIconFactory.icon_close())
+        self.btn_close.setIconSize(QSize(14, 14))
+        self.btn_close.setFixedSize(26, 26)
+        self.btn_close.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_close.setToolTip(LanguageManager.tr("multiview_close"))
+        self.btn_close.clicked.connect(self.closeRequested.emit)
+        h_layout.addWidget(self.btn_close)
+
+        root_layout.addWidget(self.header_frame)
+
+        # 2. Gövde Yığını (Placeholder vs Doküman Görünümü)
+        self.body_stack = QStackedWidget(self)
+
+        # A. Boş Durum (Placeholder)
+        self.placeholder_widget = QFrame(self)
+        self.placeholder_widget.setObjectName("SecondaryPlaceholder")
+        ph_layout = QVBoxLayout(self.placeholder_widget)
+        ph_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        ph_layout.setSpacing(14)
+        ph_layout.setContentsMargins(30, 30, 30, 30)
+
+        card = QFrame(self.placeholder_widget)
+        card.setObjectName("SecondaryPlaceholderCard")
+        card_layout = QVBoxLayout(card)
+        card_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        card_layout.setSpacing(12)
+        card_layout.setContentsMargins(28, 28, 28, 28)
+
+        self.lbl_card_icon = QLabel(card)
+        self.lbl_card_icon.setPixmap(ModernIconFactory.icon_multiview().pixmap(48, 48))
+        self.lbl_card_icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        card_layout.addWidget(self.lbl_card_icon)
+
+        self.lbl_card_title = QLabel(LanguageManager.tr("multiview_placeholder_title"), card)
+        self.lbl_card_title.setObjectName("SecondaryCardTitle")
+        self.lbl_card_title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        card_layout.addWidget(self.lbl_card_title)
+
+        self.lbl_card_desc = QLabel(LanguageManager.tr("multiview_placeholder_desc"), card)
+        self.lbl_card_desc.setObjectName("SecondaryCardDesc")
+        self.lbl_card_desc.setWordWrap(True)
+        self.lbl_card_desc.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.lbl_card_desc.setMaximumWidth(380)
+        card_layout.addWidget(self.lbl_card_desc)
+
+        btn_row = QHBoxLayout()
+        btn_row.setSpacing(10)
+        btn_row.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        self.btn_card_browse = QPushButton(LanguageManager.tr("multiview_select_pdf_btn"), card)
+        self.btn_card_browse.setObjectName("SecondaryPrimaryBtn")
+        self.btn_card_browse.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_card_browse.setIcon(ModernIconFactory.icon_folder())
+        self.btn_card_browse.clicked.connect(self._browse_and_open_pdf)
+        btn_row.addWidget(self.btn_card_browse)
+
+        self.btn_card_clone = QPushButton(LanguageManager.tr("multiview_clone_current"), card)
+        self.btn_card_clone.setObjectName("SecondarySecondaryBtn")
+        self.btn_card_clone.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_card_clone.setIcon(ModernIconFactory.icon_copy())
+        self.btn_card_clone.clicked.connect(self._clone_current_document)
+        btn_row.addWidget(self.btn_card_clone)
+
+        card_layout.addLayout(btn_row)
+        ph_layout.addWidget(card)
+
+        self.body_stack.addWidget(self.placeholder_widget)
+
+        # B. Belge Görünüm Alanı (Container)
+        self.doc_container = QWidget(self)
+        self.doc_container_layout = QVBoxLayout(self.doc_container)
+        self.doc_container_layout.setContentsMargins(0, 0, 0, 0)
+        self.doc_container_layout.setSpacing(0)
+        self.body_stack.addWidget(self.doc_container)
+
+        root_layout.addWidget(self.body_stack, stretch=1)
+
+    def refresh_open_documents_list(self):
+        """Açık olan sekmeleri ve ekstra seçenekleri açılır menüye doldurur."""
+        self.combo_docs.blockSignals(True)
+        self.combo_docs.clear()
+
+        # Ana sekme çubuğundaki açık belgeleri listele
+        if self.main_window and hasattr(self.main_window, 'tab_widget'):
+            tw = self.main_window.tab_widget
+            for i in range(tw.count()):
+                w = tw.widget(i)
+                f_path = getattr(w, 'file_path', None)
+                title = tw.tabText(i) or (os.path.basename(f_path) if f_path else "Adsız")
+                if f_path:
+                    self.combo_docs.addItem(ModernIconFactory.icon_view_single(), f"[{i + 1}] {title}", f_path)
+
+        # Özel aksiyonlar
+        self.combo_docs.addItem(ModernIconFactory.icon_copy(), LanguageManager.tr("multiview_clone_current"), "__CLONE_CURRENT__")
+        self.combo_docs.addItem(ModernIconFactory.icon_folder(), LanguageManager.tr("multiview_open_another"), "__OPEN_FILE__")
+
+        # Mevcut yüklü dosyayı seçili yap
+        if self.file_path:
+            norm_cur = os.path.abspath(self.file_path)
+            for idx in range(self.combo_docs.count()):
+                d = self.combo_docs.itemData(idx)
+                if d and isinstance(d, str) and not d.startswith("__"):
+                    if os.path.abspath(d) == norm_cur:
+                        self.combo_docs.setCurrentIndex(idx)
+                        break
+
+        self.combo_docs.blockSignals(False)
+
+    def _on_combo_doc_selected(self, index: int):
+        data = self.combo_docs.itemData(index)
+        if not data:
+            return
+        if data == "__OPEN_FILE__":
+            self._browse_and_open_pdf()
+        elif data == "__CLONE_CURRENT__":
+            self._clone_current_document()
+        elif isinstance(data, str) and os.path.isfile(data):
+            self.load_document(data)
+
+    def _browse_and_open_pdf(self):
+        path, _ = QFileDialog.getOpenFileName(
+            self,
+            LanguageManager.tr("multiview_choose_second_pdf"),
+            "",
+            "PDF Files (*.pdf)"
+        )
+        if path and os.path.isfile(path):
+            self.load_document(path)
+        else:
+            self.refresh_open_documents_list()
+
+    def _clone_current_document(self):
+        if self.main_window and hasattr(self.main_window, 'get_current_tab_doc'):
+            cur_doc = self.main_window.get_current_tab_doc()
+            if cur_doc and getattr(cur_doc, 'file_path', None) and os.path.isfile(cur_doc.file_path):
+                self.load_document(cur_doc.file_path)
+
+    def load_document(self, file_path: str):
+        """İkinci PDF belgesini sağ panele yükler."""
+        if not file_path or not os.path.isfile(file_path):
+            return
+
+        # Varsa önceki belgeyi kapat
+        self.close_document(reset_placeholder=False)
+
+        try:
+            from src.document.tab_document import PDFTabDocument
+            self.tab_doc = PDFTabDocument(file_path, self.main_window)
+            if self.main_window and hasattr(self.main_window, 'get_theme_view_bg'):
+                view_bg = self.main_window.get_theme_view_bg()
+                self.tab_doc.view.setStyleSheet(f"background-color: {view_bg}; border: none;")
+
+            self.doc_container_layout.addWidget(self.tab_doc)
+            self.file_path = file_path
+            self.body_stack.setCurrentIndex(1)
+
+            # Kaydırma ve sayfa takibi
+            self.tab_doc.view.verticalScrollBar().valueChanged.connect(self._on_tab_scrolled)
+            self.tab_doc.fit_to_width()
+
+            self._update_indicators()
+            self.refresh_open_documents_list()
+            self.documentLoaded.emit(file_path)
+
+            # Eşzamanlı kaydırma aktifse ana pencereye sinyal ilet
+            if self.is_sync_scroll_enabled:
+                self.syncScrollToggled.emit(True)
+        except Exception as e:
+            QMessageBox.warning(self, LanguageManager.tr("error"), LanguageManager.tr("open_error", error=e))
+            self.close_document(reset_placeholder=True)
+
+    def close_document(self, reset_placeholder: bool = True):
+        """İkinci belgeyi güvenli bir şekilde kapatır ve bellekten temizler."""
+        if self.tab_doc:
+            try:
+                self.doc_container_layout.removeWidget(self.tab_doc)
+                if hasattr(self.tab_doc, 'close_document'):
+                    self.tab_doc.close_document()
+                self.tab_doc.deleteLater()
+            except Exception:
+                pass
+            self.tab_doc = None
+
+        self.file_path = None
+        if reset_placeholder:
+            self.body_stack.setCurrentIndex(0)
+            self.lbl_page.setText("1 / 1")
+            self.lbl_zoom.setText("100%")
+            self.refresh_open_documents_list()
+
+    def _update_indicators(self):
+        if self.tab_doc and getattr(self.tab_doc, 'doc', None):
+            cur = getattr(self.tab_doc, 'current_page_idx', 0) + 1
+            tot = len(self.tab_doc.doc)
+            self.lbl_page.setText(f"{cur} / {tot}")
+            zoom = int(getattr(self.tab_doc, 'zoom_level', 1.0) * 100)
+            self.lbl_zoom.setText(f"{zoom}%")
+
+    def _on_tab_scrolled(self, val: int):
+        self._update_indicators()
+
+    def prev_page(self):
+        if self.tab_doc:
+            self.tab_doc.prev_page()
+            self._update_indicators()
+
+    def next_page(self):
+        if self.tab_doc:
+            self.tab_doc.next_page()
+            self._update_indicators()
+
+    def zoom_in(self):
+        if self.tab_doc:
+            self.tab_doc.zoom_in()
+            self._update_indicators()
+
+    def zoom_out(self):
+        if self.tab_doc:
+            self.tab_doc.zoom_out()
+            self._update_indicators()
+
+    def fit_to_width(self):
+        if self.tab_doc:
+            self.tab_doc.fit_to_width()
+            self._update_indicators()
+
+    def _on_sync_scroll_toggled(self, checked: bool):
+        self.is_sync_scroll_enabled = checked
+        c = get_modern_theme_colors(self.theme_name)
+        if checked:
+            self.btn_sync_scroll.setIcon(ModernIconFactory.icon_link(c['accent']))
+        else:
+            self.btn_sync_scroll.setIcon(ModernIconFactory.icon_link(c['text']))
+        self.syncScrollToggled.emit(checked)
+
+    def retranslate_ui(self):
+        self.combo_docs.setToolTip(LanguageManager.tr("multiview_choose_second_pdf"))
+        self.btn_prev.setToolTip(LanguageManager.tr("prev_page"))
+        self.btn_next.setToolTip(LanguageManager.tr("next_page"))
+        self.btn_zout.setToolTip(LanguageManager.tr("zoom_out"))
+        self.btn_zin.setToolTip(LanguageManager.tr("zoom_in"))
+        self.btn_fit.setToolTip(LanguageManager.tr("fit_to_page"))
+        self.btn_sync_scroll.setToolTip(LanguageManager.tr("multiview_sync_scroll"))
+        self.btn_swap.setToolTip(LanguageManager.tr("multiview_swap"))
+        self.btn_close.setToolTip(LanguageManager.tr("multiview_close"))
+        self.lbl_card_title.setText(LanguageManager.tr("multiview_placeholder_title"))
+        self.lbl_card_desc.setText(LanguageManager.tr("multiview_placeholder_desc"))
+        self.btn_card_browse.setText(LanguageManager.tr("multiview_select_pdf_btn"))
+        self.btn_card_clone.setText(LanguageManager.tr("multiview_clone_current"))
+        self.refresh_open_documents_list()
+
+    def apply_theme(self, theme_name: str = "gray"):
+        self.theme_name = theme_name
+        c = get_modern_theme_colors(theme_name)
+
+        self.lbl_pane_icon.setPixmap(ModernIconFactory.icon_multiview(c['accent']).pixmap(16, 16))
+        self.lbl_card_icon.setPixmap(ModernIconFactory.icon_multiview(c['accent']).pixmap(48, 48))
+        self.btn_prev.setIcon(ModernIconFactory.icon_chevron_left(c['text']))
+        self.btn_next.setIcon(ModernIconFactory.icon_chevron_right(c['text']))
+        self.btn_zout.setIcon(ModernIconFactory.icon_minus(c['text']))
+        self.btn_zin.setIcon(ModernIconFactory.icon_plus(c['text']))
+        self.btn_fit.setIcon(ModernIconFactory.icon_fit_page(c['text']))
+        self.btn_sync_scroll.setIcon(ModernIconFactory.icon_link(c['accent'] if self.is_sync_scroll_enabled else c['text']))
+        self.btn_swap.setIcon(ModernIconFactory.icon_swap(c['text']))
+        self.btn_close.setIcon(ModernIconFactory.icon_close(c['text']))
+        self.btn_card_browse.setIcon(ModernIconFactory.icon_folder())
+        self.btn_card_clone.setIcon(ModernIconFactory.icon_copy())
+
+        if self.tab_doc and self.main_window and hasattr(self.main_window, 'get_theme_view_bg'):
+            view_bg = self.main_window.get_theme_view_bg()
+            self.tab_doc.view.setStyleSheet(f"background-color: {view_bg}; border: none;")
+
+        self.setStyleSheet(f"""
+            ModernSecondaryDocPane {{
+                background-color: {c['bg']};
+            }}
+            QFrame#SecondaryDocHeader {{
+                background-color: {c['surface']};
+                border-bottom: 1px solid {c['border']};
+                border-left: 1px solid {c['border']};
+            }}
+            QFrame#SecondaryHeaderSep {{
+                background-color: {c['border']};
+                border: none;
+            }}
+            QFrame#SecondaryNavCapsule {{
+                background-color: {c['surface_hover']};
+                border: 1px solid {c['border']};
+                border-radius: 6px;
+            }}
+            QFrame#SecondaryNavCapsule QToolButton {{
+                background-color: transparent;
+                border: none;
+                border-radius: 4px;
+                color: {c['text']};
+            }}
+            QFrame#SecondaryNavCapsule QToolButton:hover {{
+                background-color: {c['card_bg']};
+            }}
+            QFrame#SecondaryNavCapsule QLabel {{
+                color: {c['text_muted']};
+                font-size: 11px;
+                font-weight: 500;
+                padding: 0 4px;
+            }}
+            QComboBox#SecondaryDocCombo {{
+                background-color: {c['surface_hover']};
+                border: 1px solid {c['border']};
+                border-radius: 6px;
+                padding: 2px 8px;
+                color: {c['text']};
+                font-size: 11px;
+            }}
+            QComboBox#SecondaryDocCombo:hover {{
+                border-color: {c['accent']};
+            }}
+            QComboBox#SecondaryDocCombo::drop-down {{
+                border: none;
+                width: 16px;
+            }}
+            QComboBox#SecondaryDocCombo QAbstractItemView {{
+                background-color: {c['surface']};
+                border: 1px solid {c['border']};
+                color: {c['text']};
+                selection-background-color: {c['surface_active']};
+                selection-color: {c['text']};
+            }}
+            QToolButton {{
+                background-color: transparent;
+                border: 1px solid transparent;
+                border-radius: 6px;
+                color: {c['text']};
+            }}
+            QToolButton:hover {{
+                background-color: {c['surface_hover']};
+                border-color: {c['border']};
+            }}
+            QToolButton#SecondaryBtnSyncScroll:checked {{
+                background-color: {c['accent_light']};
+                border: 1px solid {c['accent']};
+                border-radius: 6px;
+            }}
+            QToolButton#SecondaryBtnClose:hover {{
+                background-color: rgba(239, 68, 68, 0.15);
+                border-color: #ef4444;
+            }}
+            QFrame#SecondaryPlaceholder {{
+                background-color: {c['bg']};
+            }}
+            QFrame#SecondaryPlaceholderCard {{
+                background-color: {c['surface']};
+                border: 1px solid {c['border']};
+                border-radius: 12px;
+            }}
+            QLabel#SecondaryCardTitle {{
+                color: {c['text']};
+                font-size: 14px;
+                font-weight: 600;
+            }}
+            QLabel#SecondaryCardDesc {{
+                color: {c['text_muted']};
+                font-size: 12px;
+            }}
+            QPushButton#SecondaryPrimaryBtn {{
+                background-color: {c['accent']};
+                color: #ffffff;
+                border: none;
+                border-radius: 6px;
+                padding: 7px 16px;
+                font-weight: 500;
+                font-size: 12px;
+            }}
+            QPushButton#SecondaryPrimaryBtn:hover {{
+                background-color: {c['accent_hover']};
+            }}
+            QPushButton#SecondarySecondaryBtn {{
+                background-color: {c['surface_hover']};
+                color: {c['text']};
+                border: 1px solid {c['border']};
+                border-radius: 6px;
+                padding: 7px 16px;
+                font-weight: 500;
+                font-size: 12px;
+            }}
+            QPushButton#SecondarySecondaryBtn:hover {{
+                background-color: {c['card_bg']};
+                border-color: {c['accent']};
             }}
         """)
 
@@ -1933,6 +2529,7 @@ class ModernAllToolsPanel(QWidget):
         self.main_window = parent.main_window if hasattr(parent, "main_window") else None
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self.theme_name = "light"
+        self.dock_side = "left"
         self.active_tool_id: Optional[str] = None
         self.is_expanded = False
         self.setFixedWidth(248)
@@ -2066,15 +2663,20 @@ class ModernAllToolsPanel(QWidget):
     def clear_active_state(self):
         self.set_active_tool(None)
 
+    def set_dock_side(self, side: str = "left"):
+        self.dock_side = side
+        self.apply_theme(self.theme_name)
+
     def apply_theme(self, theme_name: str = "light"):
         self.theme_name = theme_name
         c = get_modern_theme_colors(theme_name)
         if hasattr(self, 'notice_box'):
             self.notice_box.apply_theme(theme_name)
+        border_css = f"border-right: 1px solid {c['border']};" if getattr(self, 'dock_side', 'left') == "left" else f"border-left: 1px solid {c['border']};"
         self.setStyleSheet(f"""
             ModernAllToolsPanel {{
                 background-color: {c['surface']};
-                border-left: 1px solid {c['border']};
+                {border_css}
             }}
             QScrollArea {{
                 background-color: transparent;
@@ -2461,16 +3063,21 @@ class ModernExportDrawer(QWidget):
         for it, spec in zip(self.items, self.specs):
             it.set_title(LanguageManager.tr(spec[1]))
 
+    def set_dock_side(self, side: str = "left"):
+        self.dock_side = side
+        self.apply_theme(self.theme_name)
+
     def apply_theme(self, theme_name: str = "light"):
         self.theme_name = theme_name
         c = get_modern_theme_colors(theme_name)
         if hasattr(self, 'notice_box'):
             self.notice_box.apply_theme(theme_name)
         self._update_item_active_states()
+        border_css = f"border-right: 1px solid {c['border']};" if getattr(self, 'dock_side', 'left') == "left" else f"border-left: 1px solid {c['border']};"
         self.setStyleSheet(f"""
             ModernExportDrawer {{
                 background-color: {c['surface']};
-                border-left: 1px solid {c['border']};
+                {border_css}
             }}
             QScrollArea {{
                 background-color: transparent;
@@ -2669,16 +3276,21 @@ class ModernEditDrawer(QWidget):
         for it, spec in zip(self.items, all_specs):
             it.set_title(LanguageManager.tr(spec[1]))
 
+    def set_dock_side(self, side: str = "left"):
+        self.dock_side = side
+        self.apply_theme(self.theme_name)
+
     def apply_theme(self, theme_name: str = "light"):
         self.theme_name = theme_name
         c = get_modern_theme_colors(theme_name)
         if hasattr(self, 'notice_box'):
             self.notice_box.apply_theme(theme_name)
         self._update_item_active_states()
+        border_css = f"border-right: 1px solid {c['border']};" if getattr(self, 'dock_side', 'left') == "left" else f"border-left: 1px solid {c['border']};"
         self.setStyleSheet(f"""
             ModernEditDrawer {{
                 background-color: {c['surface']};
-                border-left: 1px solid {c['border']};
+                {border_css}
             }}
             QScrollArea {{
                 background-color: transparent;
@@ -2901,6 +3513,10 @@ class ModernReadDrawer(QFrame):
         for it, spec in zip(self.items, all_specs):
             it.set_title(LanguageManager.tr(spec[1]))
 
+    def set_dock_side(self, side: str = "left"):
+        self.dock_side = side
+        self.apply_theme(self.theme_name)
+
     def apply_theme(self, theme_name: str = "light"):
         self.theme_name = theme_name
         c = get_modern_theme_colors(theme_name)
@@ -2908,10 +3524,11 @@ class ModernReadDrawer(QFrame):
             self.notice_box.apply_theme(theme_name)
         self._update_item_active_states()
 
+        border_css = f"border-right: 1px solid {c['border']};" if getattr(self, 'dock_side', 'left') == "left" else f"border-left: 1px solid {c['border']};"
         self.setStyleSheet(f"""
             ModernReadDrawer {{
                 background-color: {c['surface']};
-                border-left: 1px solid {c['border']};
+                {border_css}
             }}
             QScrollArea {{
                 background-color: transparent;
@@ -3097,16 +3714,21 @@ class ModernFillSignDrawer(QWidget):
         for it, spec in zip(self.items, self.specs):
             it.set_title(LanguageManager.tr(spec[1]))
 
+    def set_dock_side(self, side: str = "left"):
+        self.dock_side = side
+        self.apply_theme(self.theme_name)
+
     def apply_theme(self, theme_name: str = "gray"):
         self.theme_name = theme_name
         c = get_modern_theme_colors(theme_name)
         if hasattr(self, 'notice_box'):
             self.notice_box.apply_theme(theme_name)
         self._update_item_active_states()
+        border_css = f"border-right: 1px solid {c['border']};" if getattr(self, 'dock_side', 'left') == "left" else f"border-left: 1px solid {c['border']};"
         self.setStyleSheet(f"""
             ModernFillSignDrawer {{
                 background-color: {c['surface']};
-                border-left: 1px solid {c['border']};
+                {border_css}
             }}
             QScrollArea {{
                 background-color: transparent;
@@ -3409,16 +4031,21 @@ class ModernPrepareFormDrawer(QWidget):
             it.set_title(LanguageManager.tr(spec[1]))
         self.refresh_fields_list()
 
+    def set_dock_side(self, side: str = "left"):
+        self.dock_side = side
+        self.apply_theme(self.theme_name)
+
     def apply_theme(self, theme_name: str = "gray"):
         self.theme_name = theme_name
         c = get_modern_theme_colors(theme_name)
         if hasattr(self, 'notice_box'):
             self.notice_box.apply_theme(theme_name)
         self._update_item_active_states()
+        border_css = f"border-right: 1px solid {c['border']};" if getattr(self, 'dock_side', 'left') == "left" else f"border-left: 1px solid {c['border']};"
         self.setStyleSheet(f"""
             ModernPrepareFormDrawer {{
                 background-color: {c['surface']};
-                border-left: 1px solid {c['border']};
+                {border_css}
             }}
             QScrollArea {{
                 background-color: transparent;
@@ -3507,6 +4134,7 @@ class ModernLeftSidebar(QStackedWidget):
     def __init__(self, main_window=None, parent=None):
         super().__init__(parent or main_window)
         self.main_window = main_window or parent
+        self.dock_side = "left"
         self.setFixedWidth(248)
 
         self.all_tools_panel = ModernAllToolsPanel(self)
@@ -3534,6 +4162,15 @@ class ModernLeftSidebar(QStackedWidget):
         self._prepare_form_placeholder = QWidget(self)
         self.addWidget(self._prepare_form_placeholder)
 
+    def set_dock_side(self, side: str = "left"):
+        self.dock_side = side
+        if hasattr(self, 'all_tools_panel') and hasattr(self.all_tools_panel, 'set_dock_side'):
+            self.all_tools_panel.set_dock_side(side)
+        for drw_name in ('_export_drawer', '_edit_drawer', '_read_drawer', '_fill_sign_drawer', '_prepare_form_drawer'):
+            drw = getattr(self, drw_name, None)
+            if drw and hasattr(drw, 'set_dock_side'):
+                drw.set_dock_side(side)
+
     def _ensure_export_drawer(self):
         if self._export_drawer is None:
             self._export_drawer = ModernExportDrawer(self)
@@ -3549,6 +4186,8 @@ class ModernLeftSidebar(QStackedWidget):
                     self._export_placeholder = None
             else:
                 self.addWidget(self._export_drawer)
+            if hasattr(self, 'dock_side'):
+                self._export_drawer.set_dock_side(self.dock_side)
             current_theme = getattr(self.main_window, 'current_theme', 'gray') if self.main_window else 'gray'
             self._export_drawer.apply_theme(current_theme)
         return self._export_drawer
@@ -3568,6 +4207,8 @@ class ModernLeftSidebar(QStackedWidget):
                     self._edit_placeholder = None
             else:
                 self.addWidget(self._edit_drawer)
+            if hasattr(self, 'dock_side'):
+                self._edit_drawer.set_dock_side(self.dock_side)
             current_theme = getattr(self.main_window, 'current_theme', 'gray') if self.main_window else 'gray'
             self._edit_drawer.apply_theme(current_theme)
         return self._edit_drawer
@@ -3587,6 +4228,8 @@ class ModernLeftSidebar(QStackedWidget):
                     self._read_placeholder = None
             else:
                 self.addWidget(self._read_drawer)
+            if hasattr(self, 'dock_side'):
+                self._read_drawer.set_dock_side(self.dock_side)
             current_theme = getattr(self.main_window, 'current_theme', 'gray') if self.main_window else 'gray'
             self._read_drawer.apply_theme(current_theme)
         return self._read_drawer
@@ -3606,6 +4249,8 @@ class ModernLeftSidebar(QStackedWidget):
                     self._fill_sign_placeholder = None
             else:
                 self.addWidget(self._fill_sign_drawer)
+            if hasattr(self, 'dock_side'):
+                self._fill_sign_drawer.set_dock_side(self.dock_side)
             current_theme = getattr(self.main_window, 'current_theme', 'gray') if self.main_window else 'gray'
             self._fill_sign_drawer.apply_theme(current_theme)
         return self._fill_sign_drawer
@@ -3625,6 +4270,8 @@ class ModernLeftSidebar(QStackedWidget):
                     self._prepare_form_placeholder = None
             else:
                 self.addWidget(self._prepare_form_drawer)
+            if hasattr(self, 'dock_side'):
+                self._prepare_form_drawer.set_dock_side(self.dock_side)
             current_theme = getattr(self.main_window, 'current_theme', 'gray') if self.main_window else 'gray'
             self._prepare_form_drawer.apply_theme(current_theme)
         return self._prepare_form_drawer
@@ -4453,6 +5100,909 @@ class RecentFileRowWidget(QFrame):
             }}
         """)
 
+class HomeQuickActionCard(QFrame):
+    """
+    Hızlı İş Akışı Kartı (Tek bir işlem: Merge, Compress, OCR veya Word Dönüştür).
+    - Canlı aksan rengi ve özel vektörel ikon rozeti
+    - Başlık ve kısa işlevsel alt açıklama
+    - Tıklama ile doğrudan diyalog/araç tetikleme
+    - Doğrudan kart üzerine PDF sürükle-bırak desteği
+    """
+    actionTriggered = pyqtSignal(str)
+    fileDropped = pyqtSignal(str, str)  # (action_id, file_path)
+
+    def __init__(self, action_id: str, title_key: str, desc_key: str, icon_func, accent_color: str, theme_name="dark", parent=None):
+        super().__init__(parent)
+        self.action_id = action_id
+        self.title_key = title_key
+        self.desc_key = desc_key
+        self.icon_func = icon_func
+        self.accent_color = accent_color
+        self.theme_name = theme_name
+        self.is_drag_active = False
+
+        self.setAcceptDrops(True)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self.setMinimumHeight(76)
+        self.setMaximumHeight(86)
+
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(14, 12, 14, 12)
+        layout.setSpacing(12)
+        layout.setAlignment(Qt.AlignmentFlag.AlignVCenter)
+
+        # İkon Rozeti (40x40 px)
+        self.icon_badge = QLabel(self)
+        self.icon_badge.setFixedSize(40, 40)
+        self.icon_badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.icon_badge.setObjectName("QaIconBadge")
+        layout.addWidget(self.icon_badge, 0, Qt.AlignmentFlag.AlignVCenter)
+
+        # Başlık ve Açıklama
+        v_text = QVBoxLayout()
+        v_text.setSpacing(3)
+        v_text.setContentsMargins(0, 0, 0, 0)
+        v_text.setAlignment(Qt.AlignmentFlag.AlignVCenter)
+
+        self.lbl_title = QLabel(LanguageManager.tr(self.title_key), self)
+        self.lbl_title.setObjectName("QaTitle")
+        v_text.addWidget(self.lbl_title)
+
+        self.lbl_desc = QLabel(LanguageManager.tr(self.desc_key), self)
+        self.lbl_desc.setObjectName("QaDesc")
+        self.lbl_desc.setWordWrap(True)
+        v_text.addWidget(self.lbl_desc)
+
+        layout.addLayout(v_text, stretch=1)
+
+        # Sağ: Küçük zarif ok / aksiyon ikonu
+        self.lbl_arrow = QLabel(self)
+        self.lbl_arrow.setFixedSize(14, 14)
+        self.lbl_arrow.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(self.lbl_arrow, 0, Qt.AlignmentFlag.AlignVCenter)
+
+        self.apply_theme(self.theme_name)
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            event.accept()
+        else:
+            super().mousePressEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton and self.rect().contains(event.pos()):
+            self.actionTriggered.emit(self.action_id)
+            event.accept()
+        else:
+            super().mouseReleaseEvent(event)
+
+    def dragEnterEvent(self, event):
+        if event.mimeData().hasUrls():
+            urls = event.mimeData().urls()
+            if any(u.toLocalFile().lower().endswith(('.pdf', '.docx', '.png', '.jpg', '.jpeg')) for u in urls):
+                self.is_drag_active = True
+                event.acceptProposedAction()
+                self._update_style()
+                return
+        event.ignore()
+
+    def dragLeaveEvent(self, event):
+        self.is_drag_active = False
+        self._update_style()
+
+    def dropEvent(self, event):
+        self.is_drag_active = False
+        self._update_style()
+        if event.mimeData().hasUrls():
+            for u in event.mimeData().urls():
+                path = u.toLocalFile()
+                if path and os.path.isfile(path):
+                    self.fileDropped.emit(self.action_id, path)
+                    event.acceptProposedAction()
+                    return
+
+    def retranslate_ui(self):
+        self.lbl_title.setText(LanguageManager.tr(self.title_key))
+        self.lbl_desc.setText(LanguageManager.tr(self.desc_key))
+
+    def apply_theme(self, theme_name):
+        self.theme_name = theme_name
+        self._update_style()
+
+    def _update_style(self):
+        c = get_modern_theme_colors(self.theme_name)
+        is_light = self.theme_name in ["emerald", "purple", "crimson", "apple"]
+
+        badge_bg = f"{self.accent_color}22"
+        badge_border = f"{self.accent_color}44"
+
+        if self.is_drag_active:
+            bg_normal = f"{self.accent_color}28"
+            border_normal = self.accent_color
+            border_style = "dashed"
+        else:
+            border_style = "solid"
+            if is_light:
+                bg_normal = "rgba(255, 255, 255, 0.90)"
+                border_normal = "rgba(0, 0, 0, 0.08)"
+            else:
+                bg_normal = "rgba(255, 255, 255, 0.03)"
+                border_normal = "rgba(255, 255, 255, 0.08)"
+
+        bg_hover = f"{self.accent_color}18"
+        border_hover = self.accent_color
+
+        try:
+            icon = self.icon_func(self.accent_color) if callable(self.icon_func) else self.icon_func
+            self.icon_badge.setPixmap(icon.pixmap(22, 22))
+        except Exception:
+            pass
+
+        arrow_color = self.accent_color if not is_light else c['text_muted']
+        try:
+            self.lbl_arrow.setPixmap(ModernIconFactory.icon_skip_forward(arrow_color).pixmap(12, 12))
+        except Exception:
+            pass
+
+        self.retranslate_ui()
+
+        self.setStyleSheet(f"""
+            HomeQuickActionCard {{
+                background-color: {bg_normal};
+                border: 1px {border_style} {border_normal};
+                border-radius: 12px;
+            }}
+            HomeQuickActionCard:hover {{
+                background-color: {bg_hover};
+                border: 1px solid {border_hover};
+            }}
+            #QaIconBadge {{
+                background-color: {badge_bg};
+                border: 1px solid {badge_border};
+                border-radius: 10px;
+            }}
+            #QaTitle {{
+                color: {c['text']};
+                font-size: 13px;
+                font-weight: 700;
+            }}
+            #QaDesc {{
+                color: {c['text_muted']};
+                font-size: 11px;
+                font-weight: 400;
+            }}
+        """)
+
+
+class HomeQuickActionsHub(QFrame):
+    """
+    Öneri 3: Hızlı İş Akışları / Eylem Kartları (Quick Workflows Hub).
+    Kullanıcıların en sık gerçekleştirdiği 4 ana PDF operasyonunu
+    (Birleştir, Sıkıştır, OCR, Word'e Dönüştür) tek tıkla ve
+    sürükle-bırak desteğiyle başlatan şık, kompakt kontrol paneli.
+    """
+    actionTriggered = pyqtSignal(str)
+    fileDropped = pyqtSignal(str, str)  # (action_id, file_path)
+
+    def __init__(self, theme_name="dark", parent=None):
+        super().__init__(parent)
+        self.theme_name = theme_name
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+
+        v_hub = QVBoxLayout(self)
+        v_hub.setContentsMargins(18, 14, 18, 16)
+        v_hub.setSpacing(12)
+
+        # 1. Üst Başlık Satırı
+        h_header = QHBoxLayout()
+        h_header.setSpacing(10)
+        h_header.setContentsMargins(2, 0, 2, 0)
+
+        self.lbl_hub_icon = QLabel(self)
+        self.lbl_hub_icon.setFixedSize(20, 20)
+        self.lbl_hub_icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        h_header.addWidget(self.lbl_hub_icon)
+
+        self.lbl_hub_title = QLabel(LanguageManager.tr("home_qa_hub_title"), self)
+        self.lbl_hub_title.setObjectName("QaHubTitle")
+        h_header.addWidget(self.lbl_hub_title)
+
+        self.lbl_hub_badge = QLabel(LanguageManager.tr("home_qa_hub_badge"), self)
+        self.lbl_hub_badge.setObjectName("QaHubBadge")
+        h_header.addWidget(self.lbl_hub_badge)
+
+        h_header.addStretch(1)
+
+        self.lbl_hub_hint = QLabel(LanguageManager.tr("home_qa_hub_drop_hint"), self)
+        self.lbl_hub_hint.setObjectName("QaHubHint")
+        h_header.addWidget(self.lbl_hub_hint)
+
+        v_hub.addLayout(h_header)
+
+        # 2. 4 Kartlık Eylem Tablosu (Row)
+        h_cards = QHBoxLayout()
+        h_cards.setSpacing(12)
+        h_cards.setContentsMargins(0, 0, 0, 0)
+
+        self.cards_data = [
+            ("merge_pdf", "home_qa_merge_title", "home_qa_merge_desc", lambda col: ModernIconFactory.icon_merge(), "#10b981"),
+            ("compress_pdf", "home_qa_compress_title", "home_qa_compress_desc", lambda col: ModernIconFactory.icon_compress(col), "#f59e0b"),
+            ("ocr_pdf", "home_qa_ocr_title", "home_qa_ocr_desc", lambda col: ModernIconFactory.icon_ocr(col), "#06b6d4"),
+            ("convert_word", "home_qa_convert_title", "home_qa_convert_desc", lambda col: ModernIconFactory.icon_word(), "#3b82f6"),
+        ]
+
+        self.action_cards = []
+        for aid, t_key, d_key, ifunc, accent in self.cards_data:
+            card = HomeQuickActionCard(aid, t_key, d_key, ifunc, accent, theme_name=self.theme_name, parent=self)
+            card.actionTriggered.connect(self.actionTriggered.emit)
+            card.fileDropped.connect(self.fileDropped.emit)
+            h_cards.addWidget(card)
+            self.action_cards.append(card)
+
+        v_hub.addLayout(h_cards)
+
+        self.apply_theme(self.theme_name)
+
+    def apply_theme(self, theme_name):
+        self.theme_name = theme_name
+        c = get_modern_theme_colors(theme_name)
+        is_light = theme_name in ["emerald", "purple", "crimson", "apple"]
+
+        if is_light:
+            hub_bg = f"qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 {c['surface']}, stop:1 rgba(245, 247, 250, 0.95))"
+            hub_border = "rgba(0, 0, 0, 0.08)"
+            badge_bg = "rgba(2, 132, 199, 0.12)"
+            badge_color = "#0284c7"
+            hint_color = c['text_muted']
+            icon_col = "#0284c7"
+        else:
+            hub_bg = f"qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 rgba(30, 41, 59, 0.45), stop:1 {c['surface']})"
+            hub_border = "rgba(255, 255, 255, 0.07)"
+            badge_bg = "rgba(56, 189, 248, 0.15)"
+            badge_color = "#38bdf8"
+            hint_color = c['text_muted']
+            icon_col = "#38bdf8"
+
+        self.lbl_hub_icon.setPixmap(ModernIconFactory.icon_toolbox(icon_col).pixmap(18, 18))
+
+        self.setStyleSheet(f"""
+            HomeQuickActionsHub {{
+                background: {hub_bg};
+                border: 1px solid {hub_border};
+                border-radius: 14px;
+            }}
+            #QaHubTitle {{
+                color: {c['text']};
+                font-size: 14px;
+                font-weight: 700;
+            }}
+            #QaHubBadge {{
+                background-color: {badge_bg};
+                color: {badge_color};
+                font-size: 9px;
+                font-weight: 800;
+                letter-spacing: 0.5px;
+                padding: 2px 7px;
+                border-radius: 6px;
+            }}
+            #QaHubHint {{
+                color: {hint_color};
+                font-size: 11px;
+                font-weight: 400;
+            }}
+        """)
+
+        for card in self.action_cards:
+            card.apply_theme(theme_name)
+        self.retranslate_ui()
+
+    def retranslate_ui(self):
+        self.lbl_hub_title.setText(LanguageManager.tr("home_qa_hub_title"))
+        self.lbl_hub_badge.setText(LanguageManager.tr("home_qa_hub_badge"))
+        self.lbl_hub_hint.setText(LanguageManager.tr("home_qa_hub_drop_hint"))
+        for card in self.action_cards:
+            card.retranslate_ui()
+
+
+class HomeAiHeroCard(QFrame):
+    """
+    Öneri 2: Aura AI Belge Zekasi Vitrini (Aura AI Document Assistant Hero Card).
+    Zarif cam ve gradient efektli, PRO etiketli, hizli soru/özet çipleri ve
+    birincil 'AI ile Belge Aç' eylem butonu barindiran profesyonel karsilama karti.
+    Ayrica PDF dosyalarini sürükle & birak yöntemiyle kabul eder.
+    """
+    fileDropped = pyqtSignal(str)
+    openRequested = pyqtSignal()
+    aiActionRequested = pyqtSignal(str)
+
+    def __init__(self, theme_name="dark", parent=None):
+        super().__init__(parent)
+        self.theme_name = theme_name
+        self.is_drag_active = False
+        self.setAcceptDrops(True)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self.setMinimumHeight(106)
+        self.setMaximumHeight(122)
+
+        main_layout = QHBoxLayout(self)
+        main_layout.setContentsMargins(22, 14, 22, 14)
+        main_layout.setSpacing(16)
+        main_layout.setAlignment(Qt.AlignmentFlag.AlignVCenter)
+
+        # 1. Sol: Glowing AI Sparkle Ikon Rozeti
+        self.icon_badge = QLabel(self)
+        self.icon_badge.setFixedSize(44, 44)
+        self.icon_badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.icon_badge.setObjectName("AiHeroIconBadge")
+        main_layout.addWidget(self.icon_badge, 0, Qt.AlignmentFlag.AlignVCenter)
+
+        # 2. Orta: Baslik, PRO Rozeti, Açiklama ve Hizli Eylem Çipleri
+        mid_layout = QVBoxLayout()
+        mid_layout.setSpacing(6)
+        mid_layout.setContentsMargins(0, 0, 0, 0)
+
+        # 2A. Baslik Satiri
+        title_row = QHBoxLayout()
+        title_row.setSpacing(8)
+        title_row.setContentsMargins(0, 0, 0, 0)
+
+        self.lbl_title = QLabel(LanguageManager.tr("home_ai_hero_title"), self)
+        self.lbl_title.setObjectName("AiHeroTitle")
+        title_row.addWidget(self.lbl_title)
+
+        self.lbl_pro_badge = QLabel(LanguageManager.tr("home_ai_badge_pro"), self)
+        self.lbl_pro_badge.setObjectName("AiHeroProBadge")
+        title_row.addWidget(self.lbl_pro_badge)
+
+        title_row.addStretch(1)
+        mid_layout.addLayout(title_row)
+
+        # 2B. Açiklama
+        self.lbl_desc = QLabel(LanguageManager.tr("home_ai_hero_desc"), self)
+        self.lbl_desc.setObjectName("AiHeroDesc")
+        mid_layout.addWidget(self.lbl_desc)
+
+        # 2C. Hizli Eylem Çipleri (Prompt Chips)
+        chips_row = QHBoxLayout()
+        chips_row.setSpacing(8)
+        chips_row.setContentsMargins(0, 2, 0, 0)
+
+        self.btn_chip_summary = QPushButton(LanguageManager.tr("home_ai_chip_summary"), self)
+        self.btn_chip_summary.setObjectName("AiHeroChip")
+        self.btn_chip_summary.setIconSize(QSize(13, 13))
+        self.btn_chip_summary.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_chip_summary.clicked.connect(lambda: self.aiActionRequested.emit("summary"))
+        chips_row.addWidget(self.btn_chip_summary)
+
+        self.btn_chip_risks = QPushButton(LanguageManager.tr("home_ai_chip_risks"), self)
+        self.btn_chip_risks.setObjectName("AiHeroChip")
+        self.btn_chip_risks.setIconSize(QSize(13, 13))
+        self.btn_chip_risks.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_chip_risks.clicked.connect(lambda: self.aiActionRequested.emit("risks"))
+        chips_row.addWidget(self.btn_chip_risks)
+
+        self.btn_chip_qa = QPushButton(LanguageManager.tr("home_ai_chip_qa"), self)
+        self.btn_chip_qa.setObjectName("AiHeroChip")
+        self.btn_chip_qa.setIconSize(QSize(13, 13))
+        self.btn_chip_qa.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_chip_qa.clicked.connect(lambda: self.aiActionRequested.emit("qa"))
+        chips_row.addWidget(self.btn_chip_qa)
+
+        chips_row.addStretch(1)
+        mid_layout.addLayout(chips_row)
+
+        main_layout.addLayout(mid_layout, stretch=1)
+
+        # 3. Sag: Birincil Aksiyon Butonu ("AI ile Belge Aç")
+        self.btn_open_ai = QPushButton(LanguageManager.tr("home_ai_btn_open"), self)
+        self.btn_open_ai.setObjectName("AiHeroCtaBtn")
+        self.btn_open_ai.setIcon(ModernIconFactory.icon_sparkle("#ffffff"))
+        self.btn_open_ai.setIconSize(QSize(15, 15))
+        self.btn_open_ai.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_open_ai.clicked.connect(self.openRequested.emit)
+        main_layout.addWidget(self.btn_open_ai, 0, Qt.AlignmentFlag.AlignVCenter)
+
+        self.apply_theme(self.theme_name)
+
+    def dragEnterEvent(self, event):
+        if event.mimeData().hasUrls():
+            urls = event.mimeData().urls()
+            if any(u.toLocalFile().lower().endswith(('.pdf', '.docx', '.png', '.jpg', '.jpeg')) for u in urls):
+                self.is_drag_active = True
+                event.acceptProposedAction()
+                self._update_drag_state()
+                return
+        event.ignore()
+
+    def dragMoveEvent(self, event):
+        if self.is_drag_active:
+            event.acceptProposedAction()
+
+    def dragLeaveEvent(self, event):
+        self.is_drag_active = False
+        self._update_drag_state()
+
+    def dropEvent(self, event):
+        self.is_drag_active = False
+        self._update_drag_state()
+        if event.mimeData().hasUrls():
+            for u in event.mimeData().urls():
+                path = u.toLocalFile()
+                if path and os.path.isfile(path):
+                    self.fileDropped.emit(path)
+                    event.acceptProposedAction()
+                    return
+
+    def retranslate_ui(self):
+        self.lbl_title.setText(LanguageManager.tr("home_ai_hero_title"))
+        self.lbl_pro_badge.setText(LanguageManager.tr("home_ai_badge_pro"))
+        self.lbl_desc.setText(LanguageManager.tr("home_ai_hero_desc"))
+        self.btn_chip_summary.setText(LanguageManager.tr("home_ai_chip_summary"))
+        self.btn_chip_risks.setText(LanguageManager.tr("home_ai_chip_risks"))
+        self.btn_chip_qa.setText(LanguageManager.tr("home_ai_chip_qa").replace("&", "&&"))
+        self.btn_open_ai.setText(LanguageManager.tr("home_ai_btn_open"))
+
+    def _update_drag_state(self):
+        c = get_modern_theme_colors(self.theme_name)
+        if self.is_drag_active:
+            self.setStyleSheet(f"""
+                HomeAiHeroCard {{
+                    background-color: rgba(168, 85, 247, 0.20);
+                    border: 2px dashed #a855f7;
+                    border-radius: 14px;
+                }}
+                #AiHeroIconBadge {{
+                    background-color: #a855f7;
+                    border-radius: 22px;
+                }}
+                #AiHeroTitle {{
+                    color: #a855f7;
+                    font-size: 15px;
+                    font-weight: 700;
+                }}
+                #AiHeroProBadge {{
+                    background: #a855f7;
+                    color: #ffffff;
+                    font-size: 10px;
+                    font-weight: 800;
+                    padding: 2px 7px;
+                    border-radius: 8px;
+                }}
+                #AiHeroDesc {{
+                    color: {c['text']};
+                    font-size: 12px;
+                    font-weight: 500;
+                }}
+                #AiHeroChip {{
+                    background-color: rgba(255, 255, 255, 0.1);
+                    border: 1px solid rgba(255, 255, 255, 0.2);
+                    border-radius: 12px;
+                    color: {c['text']};
+                    font-size: 11px;
+                    padding: 3px 10px;
+                }}
+                #AiHeroCtaBtn {{
+                    background: #a855f7;
+                    color: #ffffff;
+                    border-radius: 10px;
+                    font-size: 12px;
+                    font-weight: 600;
+                    padding: 9px 18px;
+                }}
+            """)
+            self.icon_badge.setPixmap(ModernIconFactory.icon_upload("#ffffff").pixmap(24, 24))
+            self.lbl_title.setText(LanguageManager.tr("home_dropzone_hover"))
+        else:
+            self.apply_theme(self.theme_name)
+
+    def apply_theme(self, theme_name: str):
+        self.theme_name = theme_name
+        c = get_modern_theme_colors(theme_name)
+        is_light = theme_name in ("light", "apple")
+
+        if is_light:
+            card_bg = "qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 rgba(147, 51, 234, 0.08), stop:0.5 rgba(99, 102, 241, 0.04), stop:1 #ffffff)"
+            card_border = "rgba(147, 51, 234, 0.28)"
+            card_border_hover = "rgba(147, 51, 234, 0.55)"
+            badge_bg = "rgba(147, 51, 234, 0.12)"
+            chip_bg = "rgba(147, 51, 234, 0.06)"
+            chip_border = "rgba(147, 51, 234, 0.20)"
+            chip_hover = "rgba(147, 51, 234, 0.14)"
+            chip_text = "#4c1d95"
+            sparkle_col = "#7c3aed"
+        else:
+            card_bg = f"qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 rgba(168, 85, 247, 0.12), stop:0.4 rgba(99, 102, 241, 0.06), stop:1 {c['surface']})"
+            card_border = "rgba(168, 85, 247, 0.32)"
+            card_border_hover = "rgba(168, 85, 247, 0.65)"
+            badge_bg = "rgba(168, 85, 247, 0.18)"
+            chip_bg = "rgba(255, 255, 255, 0.05)"
+            chip_border = "rgba(255, 255, 255, 0.12)"
+            chip_hover = "rgba(168, 85, 247, 0.22)"
+            chip_text = c['text']
+            sparkle_col = "#a855f7"
+
+        self.icon_badge.setPixmap(ModernIconFactory.icon_sparkle(sparkle_col).pixmap(24, 24))
+        self.btn_chip_summary.setIcon(ModernIconFactory.icon_sparkle(sparkle_col))
+        self.btn_chip_risks.setIcon(ModernIconFactory.icon_search(sparkle_col))
+        self.btn_chip_qa.setIcon(ModernIconFactory.icon_comments(sparkle_col))
+
+        self.retranslate_ui()
+
+        self.setStyleSheet(f"""
+            HomeAiHeroCard {{
+                background: {card_bg};
+                border: 1px solid {card_border};
+                border-radius: 14px;
+            }}
+            HomeAiHeroCard:hover {{
+                border: 1px solid {card_border_hover};
+            }}
+            #AiHeroIconBadge {{
+                background-color: {badge_bg};
+                border-radius: 22px;
+                border: 1px solid {card_border};
+            }}
+            #AiHeroTitle {{
+                color: {c['text']};
+                font-size: 15px;
+                font-weight: 700;
+            }}
+            #AiHeroProBadge {{
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #a855f7, stop:1 #6366f1);
+                color: #ffffff;
+                font-size: 10px;
+                font-weight: 800;
+                padding: 2px 7px;
+                border-radius: 8px;
+            }}
+            #AiHeroDesc {{
+                color: {c['text_muted']};
+                font-size: 12px;
+                font-weight: 400;
+            }}
+            #AiHeroChip {{
+                background-color: {chip_bg};
+                border: 1px solid {chip_border};
+                border-radius: 12px;
+                color: {chip_text};
+                font-size: 11px;
+                font-weight: 500;
+                padding: 3px 10px;
+            }}
+            #AiHeroChip:hover {{
+                background-color: {chip_hover};
+                border-color: {sparkle_col};
+            }}
+            #AiHeroCtaBtn {{
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #9333ea, stop:1 #6366f1);
+                color: #ffffff;
+                border: none;
+                border-radius: 10px;
+                font-size: 12px;
+                font-weight: 600;
+                padding: 9px 18px;
+            }}
+            #AiHeroCtaBtn:hover {{
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #a855f7, stop:1 #7275f3);
+            }}
+            #AiHeroCtaBtn:pressed {{
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #7e22ce, stop:1 #4f46e5);
+            }}
+        """)
+
+
+class TemplateMiniatureWidget(QWidget):
+    """
+    Kompakt ve gerçekçi bir minyatür kağıt sayfası çizen vektörel bileşen.
+    Şablon türüne göre (boş, çizgili, kareli, cornell, noktalı) ölçekli desen çizer.
+    """
+    def __init__(self, template_type: str = "blank", theme_name: str = "dark", parent=None):
+        super().__init__(parent)
+        self.template_type = template_type
+        self.theme_name = theme_name
+        self.setFixedSize(36, 48)
+        self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+
+    def paintEvent(self, event):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+
+        is_light = (self.theme_name == "light")
+        w, h = 34.0, 46.0
+        x, y = 1.0, 1.0
+
+        # Hafif kağıt gölgesi
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(QColor(0, 0, 0, 25 if is_light else 45))
+        p.drawRoundedRect(QRectF(x + 1.0, y + 1.5, w, h), 3, 3)
+
+        # Kağıt sayfası gövdesi (hafif gradient)
+        paper_grad = QLinearGradient(x, y, x, y + h)
+        paper_grad.setColorAt(0.0, QColor("#FFFFFF"))
+        paper_grad.setColorAt(1.0, QColor("#F8FAFC"))
+        p.setBrush(QBrush(paper_grad))
+
+        border_pen = QPen(QColor(0, 0, 0, 40) if is_light else QColor(255, 255, 255, 35), 1.0)
+        p.setPen(border_pen)
+        p.drawRoundedRect(QRectF(x, y, w, h), 3, 3)
+
+        # Şablona özel iç çizimler
+        t = self.template_type
+        if t == "blank":
+            # Boş sayfa: Sağ üst kıvrık köşe (dog-ear fold)
+            fold_size = 7.0
+            fold_path = QPainterPath()
+            fold_path.moveTo(x + w - fold_size, y)
+            fold_path.lineTo(x + w, y + fold_size)
+            fold_path.lineTo(x + w - fold_size, y + fold_size)
+            fold_path.closeSubpath()
+            p.setPen(Qt.PenStyle.NoPen)
+            p.setBrush(QColor("#E2E8F0"))
+            p.drawPath(fold_path)
+
+            p.setPen(QPen(QColor(0, 0, 0, 30), 0.8))
+            p.drawLine(QPointF(x + w - fold_size, y), QPointF(x + w - fold_size, y + fold_size))
+            p.drawLine(QPointF(x + w - fold_size, y + fold_size), QPointF(x + w, y + fold_size))
+
+            # Sembolik açık gri mini metin şeritleri
+            p.setPen(Qt.PenStyle.NoPen)
+            p.setBrush(QColor(148, 163, 184, 90))
+            p.drawRoundedRect(QRectF(x + 5, y + 15, 14, 2), 1, 1)
+            p.drawRoundedRect(QRectF(x + 5, y + 21, 20, 2), 1, 1)
+            p.drawRoundedRect(QRectF(x + 5, y + 27, 16, 2), 1, 1)
+
+        elif t in ("lined", "lines"):
+            # Çizgili not kağıdı: Sol kırmızı marj çizgisi + yatay satırlar
+            p.setPen(QPen(QColor(239, 68, 68, 150), 0.9))
+            p.drawLine(QPointF(x + 9, y + 4), QPointF(x + 9, y + h - 4))
+
+            p.setPen(QPen(QColor(148, 163, 184, 180), 0.9))
+            for line_y in [y + 10, y + 16, y + 22, y + 28, y + 34, y + 40]:
+                p.drawLine(QPointF(x + 11, line_y), QPointF(x + w - 4, line_y))
+
+        elif t == "grid":
+            # Kareli kağıt: Milimetrik ızgara
+            p.setPen(QPen(QColor(148, 163, 184, 120), 0.75))
+            for grid_x in [x + 6, x + 12, x + 18, x + 24, x + 30]:
+                p.drawLine(QPointF(grid_x, y + 4), QPointF(grid_x, y + h - 4))
+            for grid_y in [y + 6, y + 12, y + 18, y + 24, y + 30, y + 36, y + 42]:
+                p.drawLine(QPointF(x + 4, grid_y), QPointF(x + w - 4, grid_y))
+
+        elif t == "cornell":
+            # Cornell Not Sistemi: Başlık çizgisi, sol sütun ve alt özet
+            p.setPen(QPen(QColor(239, 68, 68, 180), 1.0))
+            p.drawLine(QPointF(x + 4, y + 10), QPointF(x + w - 4, y + 10))
+            p.drawLine(QPointF(x + 12, y + 10), QPointF(x + 12, y + 36))
+            p.drawLine(QPointF(x + 4, y + 36), QPointF(x + w - 4, y + 36))
+
+            p.setPen(QPen(QColor(148, 163, 184, 150), 0.8))
+            for line_y in [y + 15, y + 20, y + 25, y + 30]:
+                p.drawLine(QPointF(x + 14, line_y), QPointF(x + w - 4, line_y))
+
+        elif t == "dotted":
+            # Noktalı Defter / Bullet Journal: Zarif nokta matrisi
+            p.setPen(Qt.PenStyle.NoPen)
+            p.setBrush(QColor(100, 116, 139, 210))
+            for dot_x in [x + 7, x + 13, x + 19, x + 25]:
+                for dot_y in [y + 8, y + 14, y + 20, y + 26, y + 32, y + 38]:
+                    p.drawEllipse(QPointF(dot_x, dot_y), 0.9, 0.9)
+
+        p.end()
+
+
+class HomeTemplateCard(QFrame):
+    """
+    Şablon seçim kartı. Minyatür kağıt önizlemesi, başlık ve açıklama içerir.
+    Üzerine gelindiğinde (hover) modern gölge ve renk vurgusu kazanır.
+    """
+    templateSelected = pyqtSignal(str)
+
+    def __init__(self, template_type: str, title_key: str, desc_key: str, theme_name: str = "dark", parent=None):
+        super().__init__(parent)
+        self.template_type = template_type
+        self.title_key = title_key
+        self.desc_key = desc_key
+        self.theme_name = theme_name
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self.setFixedHeight(74)
+
+        h_layout = QHBoxLayout(self)
+        h_layout.setContentsMargins(12, 10, 12, 10)
+        h_layout.setSpacing(12)
+
+        self.miniature = TemplateMiniatureWidget(template_type, theme_name=self.theme_name, parent=self)
+        h_layout.addWidget(self.miniature)
+
+        v_text = QVBoxLayout()
+        v_text.setSpacing(2)
+        v_text.setAlignment(Qt.AlignmentFlag.AlignVCenter)
+
+        self.lbl_title = QLabel(LanguageManager.tr(self.title_key), self)
+        self.lbl_title.setObjectName("TplCardTitle")
+        v_text.addWidget(self.lbl_title)
+
+        self.lbl_desc = QLabel(LanguageManager.tr(self.desc_key), self)
+        self.lbl_desc.setObjectName("TplCardDesc")
+        self.lbl_desc.setWordWrap(True)
+        v_text.addWidget(self.lbl_desc)
+
+        h_layout.addLayout(v_text, stretch=1)
+
+        self.apply_theme(self.theme_name)
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            self.templateSelected.emit(self.template_type)
+        super().mousePressEvent(event)
+
+    def apply_theme(self, theme_name: str):
+        self.theme_name = theme_name
+        self.miniature.theme_name = theme_name
+        self.miniature.update()
+        c = get_modern_theme_colors(theme_name)
+
+        self.setStyleSheet(f"""
+            HomeTemplateCard {{
+                background-color: {c['surface']};
+                border: 1px solid {c['border']};
+                border-radius: 10px;
+            }}
+            HomeTemplateCard:hover {{
+                background-color: {c['surface_hover']};
+                border: 1px solid {c['accent']};
+            }}
+            #TplCardTitle {{
+                background-color: transparent;
+                color: {c['text']};
+                font-size: 13px;
+                font-weight: 700;
+            }}
+            #TplCardDesc {{
+                background-color: transparent;
+                color: {c['text_muted']};
+                font-size: 11px;
+                font-weight: 400;
+            }}
+        """)
+
+    def retranslate_ui(self):
+        self.lbl_title.setText(LanguageManager.tr(self.title_key))
+        self.lbl_desc.setText(LanguageManager.tr(self.desc_key))
+
+
+class HomeTemplatesHub(QFrame):
+    """
+    Öneri 4: Yeni Belge Başlat / Şablonlar Paneli (Templates Hub).
+    Kullanıcının tek tıkla boş A4, çizgili, kareli, cornell veya noktalı
+    sayfa ile yeni bir PDF dokümanı başlatmasını sağlar.
+    """
+    templateSelected = pyqtSignal(str)
+    moreTemplatesRequested = pyqtSignal()
+
+    def __init__(self, theme_name="dark", parent=None):
+        super().__init__(parent)
+        self.theme_name = theme_name
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+
+        v_hub = QVBoxLayout(self)
+        v_hub.setContentsMargins(18, 14, 18, 16)
+        v_hub.setSpacing(12)
+
+        # 1. Üst Başlık Satırı
+        h_header = QHBoxLayout()
+        h_header.setSpacing(10)
+        h_header.setContentsMargins(2, 0, 2, 0)
+
+        self.lbl_hub_icon = QLabel(self)
+        self.lbl_hub_icon.setFixedSize(20, 20)
+        self.lbl_hub_icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        h_header.addWidget(self.lbl_hub_icon)
+
+        self.lbl_hub_title = QLabel(LanguageManager.tr("home_templates_hub_title"), self)
+        self.lbl_hub_title.setObjectName("TplHubTitle")
+        h_header.addWidget(self.lbl_hub_title)
+
+        self.lbl_hub_badge = QLabel(LanguageManager.tr("home_templates_hub_badge"), self)
+        self.lbl_hub_badge.setObjectName("TplHubBadge")
+        h_header.addWidget(self.lbl_hub_badge)
+
+        h_header.addStretch(1)
+
+        self.btn_more = QPushButton(LanguageManager.tr("home_templates_btn_more").replace("&", "&&"), self)
+        self.btn_more.setObjectName("TplBtnMore")
+        self.btn_more.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_more.clicked.connect(self.moreTemplatesRequested.emit)
+        h_header.addWidget(self.btn_more)
+
+        v_hub.addLayout(h_header)
+
+        # 2. 5 Şablon Kartlık Satır
+        h_cards = QHBoxLayout()
+        h_cards.setSpacing(10)
+        h_cards.setContentsMargins(0, 0, 0, 0)
+
+        self.templates_data = [
+            ("blank", "home_template_blank_title", "home_template_blank_desc"),
+            ("lined", "home_template_lined_title", "home_template_lined_desc"),
+            ("grid", "home_template_grid_title", "home_template_grid_desc"),
+            ("cornell", "home_template_cornell_title", "home_template_cornell_desc"),
+            ("dotted", "home_template_dotted_title", "home_template_dotted_desc"),
+        ]
+
+        self.template_cards = []
+        for t_type, t_key, d_key in self.templates_data:
+            card = HomeTemplateCard(t_type, t_key, d_key, theme_name=self.theme_name, parent=self)
+            card.templateSelected.connect(self.templateSelected.emit)
+            h_cards.addWidget(card)
+            self.template_cards.append(card)
+
+        v_hub.addLayout(h_cards)
+
+        self.apply_theme(self.theme_name)
+
+    def apply_theme(self, theme_name):
+        self.theme_name = theme_name
+        c = get_modern_theme_colors(theme_name)
+
+        hub_bg = f"qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 {c['surface']}, stop:1 {c['bg']})"
+        hub_border = c['border']
+        badge_bg = c['accent_light']
+        badge_color = c['accent']
+        icon_col = c['accent']
+
+        self.lbl_hub_icon.setPixmap(ModernIconFactory.icon_new_document(icon_col).pixmap(18, 18))
+
+        self.setStyleSheet(f"""
+            HomeTemplatesHub {{
+                background: {hub_bg};
+                border: 1px solid {hub_border};
+                border-radius: 14px;
+            }}
+            #TplHubTitle {{
+                background-color: transparent;
+                color: {c['text']};
+                font-size: 14px;
+                font-weight: 700;
+            }}
+            #TplHubBadge {{
+                background-color: {badge_bg};
+                color: {badge_color};
+                font-size: 9px;
+                font-weight: 800;
+                letter-spacing: 0.5px;
+                padding: 2px 7px;
+                border-radius: 6px;
+            }}
+            #TplBtnMore {{
+                background-color: transparent;
+                color: {c['text_muted']};
+                border: 1px solid {c['border']};
+                border-radius: 6px;
+                padding: 4px 10px;
+                font-size: 11px;
+                font-weight: 600;
+            }}
+            #TplBtnMore:hover {{
+                background-color: {c['surface_hover']};
+                color: {c['text']};
+                border-color: {c['accent']};
+            }}
+        """)
+
+        for card in self.template_cards:
+            card.apply_theme(theme_name)
+        self.retranslate_ui()
+
+    def retranslate_ui(self):
+        self.lbl_hub_title.setText(LanguageManager.tr("home_templates_hub_title"))
+        self.lbl_hub_badge.setText(LanguageManager.tr("home_templates_hub_badge"))
+        self.btn_more.setText(LanguageManager.tr("home_templates_btn_more").replace("&", "&&"))
+        for card in self.template_cards:
+            card.retranslate_ui()
+
+
 
 class HomeDashboardWorkspace(QWidget):
     """
@@ -4505,6 +6055,12 @@ class HomeDashboardWorkspace(QWidget):
         v_title.addWidget(self.lbl_welcome)
         v_title.addWidget(self.lbl_sub)
         v_inner.addLayout(v_title)
+
+        # 1B. Yeni Belge Başlat / Şablonlar Paneli (Öneri 4: Start New Document / Templates Hub)
+        self.templates_hub = HomeTemplatesHub(theme_name=self.theme_name, parent=self.inner_wrapper)
+        self.templates_hub.templateSelected.connect(self._on_template_selected)
+        self.templates_hub.moreTemplatesRequested.connect(self._on_more_templates_requested)
+        v_inner.addWidget(self.templates_hub)
 
         # 2. Önerilen Araçlar (Recommended tools)
         v_rec = QVBoxLayout()
@@ -4609,6 +6165,7 @@ class HomeDashboardWorkspace(QWidget):
 
         v_recent.addWidget(self.recent_list_container)
         v_inner.addLayout(v_recent)
+        v_inner.addStretch(1)
 
         v_content.addWidget(self.inner_wrapper)
         scroll.setWidget(self.content_container)
@@ -4784,6 +6341,12 @@ class HomeDashboardWorkspace(QWidget):
     def retranslate_ui(self):
         self.lbl_welcome.setText(LanguageManager.tr("home_welcome_title"))
         self.lbl_sub.setText(LanguageManager.tr("home_welcome_subtitle"))
+        if hasattr(self, 'templates_hub'):
+            self.templates_hub.retranslate_ui()
+        if hasattr(self, 'quick_actions_hub'):
+            self.quick_actions_hub.retranslate_ui()
+        if hasattr(self, 'ai_hero_card'):
+            self.ai_hero_card.retranslate_ui()
         self.lbl_rec_title.setText(LanguageManager.tr("home_recommended_tools"))
         for card, (_, title_key, sub_key, _) in zip(self.recommended_cards, self.rec_tool_specs):
             card.retranslate(LanguageManager.tr(title_key), LanguageManager.tr(sub_key))
@@ -4804,6 +6367,12 @@ class HomeDashboardWorkspace(QWidget):
 
     def apply_theme(self, theme_name: str = "light"):
         self.theme_name = theme_name
+        if hasattr(self, 'templates_hub'):
+            self.templates_hub.apply_theme(theme_name)
+        if hasattr(self, 'quick_actions_hub'):
+            self.quick_actions_hub.apply_theme(theme_name)
+        if hasattr(self, 'ai_hero_card'):
+            self.ai_hero_card.apply_theme(theme_name)
         c = get_modern_theme_colors(theme_name)
         self.setStyleSheet(f"""
             HomeDashboardWorkspace, QScrollArea, #HomeContentContainer, #HomeInnerWrapper, #RecentListContainer {{
@@ -4879,6 +6448,69 @@ class HomeDashboardWorkspace(QWidget):
             w = self.v_recent_items.itemAt(i).widget()
             if isinstance(w, RecentFileRowWidget):
                 w.apply_theme(theme_name)
+
+    def _on_template_selected(self, template_type: str):
+        if self.main_window and hasattr(self.main_window, 'new_blank_document'):
+            self.main_window.new_blank_document(template_type=template_type)
+        else:
+            self.toolRequested.emit(f"template_{template_type}")
+
+    def _on_more_templates_requested(self):
+        if self.main_window and hasattr(self.main_window, 'show_new_page_dialog'):
+            self.main_window.show_new_page_dialog(force_new_doc=True)
+        else:
+            self.toolRequested.emit("more_templates")
+
+    def _on_qa_action_triggered(self, action_id: str):
+        if self.main_window:
+            if action_id == "merge_pdf":
+                self.main_window.open_merge_dialog()
+            elif action_id == "compress_pdf":
+                self.main_window.open_compress_dialog()
+            elif action_id == "ocr_pdf":
+                self.main_window.open_pdf_ocr_dialog()
+            elif action_id == "convert_word":
+                self.main_window.open_word_dialog()
+            else:
+                self.toolRequested.emit(action_id)
+        else:
+            self.toolRequested.emit(action_id)
+
+    def _on_qa_file_dropped(self, action_id: str, file_path: str):
+        if self.main_window:
+            if action_id == "merge_pdf":
+                self.main_window.open_merge_dialog()
+                if hasattr(self.main_window, 'merge_dialog') and self.main_window.merge_dialog:
+                    if hasattr(self.main_window.merge_dialog, 'add_files'):
+                        self.main_window.merge_dialog.add_files([file_path])
+            elif action_id == "compress_pdf":
+                self.main_window.add_pdf_tab(file_path)
+                self.main_window.open_compress_dialog()
+            elif action_id == "ocr_pdf":
+                self.main_window.add_pdf_tab(file_path)
+                self.main_window.open_pdf_ocr_dialog()
+            elif action_id == "convert_word":
+                self.main_window.add_pdf_tab(file_path)
+                self.main_window.open_word_dialog()
+        else:
+            self.fileSelected.emit(file_path)
+
+    def _on_ai_open_requested(self):
+        if self.main_window and hasattr(self.main_window, "open_ai_assistant_dialog"):
+            self.main_window.open_ai_assistant_dialog(action="summary")
+        else:
+            self.openFileRequested.emit()
+
+    def _on_ai_file_dropped(self, file_path: str):
+        if self.main_window:
+            self.main_window._pending_ai_action = "summary"
+        self.fileSelected.emit(file_path)
+
+    def _on_ai_action_requested(self, action_id: str):
+        if self.main_window and hasattr(self.main_window, "open_ai_assistant_dialog"):
+            self.main_window.open_ai_assistant_dialog(action=action_id)
+        else:
+            self.toolRequested.emit(f"ai_{action_id}")
 
 
 # ==============================================================================
@@ -7607,6 +9239,7 @@ class ModernRightSidebar(QWidget):
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self.main_window = main_window
         self.theme_name = "light"
+        self.dock_side = "right"
         self.current_panel = "thumbnails"
         self._current_thumb_doc = None
         self._thumb_render_queue = []
@@ -8421,6 +10054,21 @@ class ModernRightSidebar(QWidget):
             if ribbon and was_ribbon_vis:
                 ribbon.setVisible(False)
 
+            hover_item = getattr(tab_doc, 'direct_edit_hover_item', None)
+            was_hover_vis = hover_item.isVisible() if hover_item else False
+            if hover_item and was_hover_vis:
+                hover_item.setVisible(False)
+
+            sel_highlights = list(getattr(tab_doc, 'selection_highlight_items', []))
+            vis_highlights = []
+            for h_item in sel_highlights:
+                try:
+                    if h_item and h_item.isVisible():
+                        h_item.setVisible(False)
+                        vis_highlights.append(h_item)
+                except Exception:
+                    pass
+
             selected_items = tab_doc.scene.selectedItems() if hasattr(tab_doc, 'scene') and tab_doc.scene else []
             for sit in selected_items:
                 sit.setSelected(False)
@@ -8473,6 +10121,13 @@ class ModernRightSidebar(QWidget):
                     sel_item.setVisible(True)
                 if ribbon and was_ribbon_vis:
                     ribbon.setVisible(True)
+                if hover_item and was_hover_vis:
+                    hover_item.setVisible(True)
+                for h_item in vis_highlights:
+                    try:
+                        h_item.setVisible(True)
+                    except Exception:
+                        pass
                 for sit in selected_items:
                     sit.setSelected(True)
 
@@ -9302,16 +10957,18 @@ class ModernRightSidebar(QWidget):
             self._open_attachment(name)
         elif action == act_save:
             self._save_attachment(name)
-        elif action == act_del:
-            self._delete_attachment(name)
+    def set_dock_side(self, side: str = "right"):
+        self.dock_side = side
+        self.apply_theme(self.theme_name)
 
     def apply_theme(self, theme_name: str = "light"):
         self.theme_name = theme_name
         c = get_modern_theme_colors(theme_name)
+        border_css = f"border-right: 1px solid {c['border']};" if getattr(self, 'dock_side', 'right') == "left" else f"border-left: 1px solid {c['border']};"
         self.setStyleSheet(f"""
             ModernRightSidebar {{
                 background-color: {c['surface']};
-                border-right: 1px solid {c['border']};
+                {border_css}
             }}
             QWidget {{
                 background-color: {c['surface']};
@@ -9741,10 +11398,19 @@ class ModernRightSidebar(QWidget):
         if hasattr(self, 'panel_accessibility') and self.panel_accessibility is not None:
             self.panel_accessibility.apply_theme(theme_name)
 
+    def _is_on_resize_edge(self, x: float) -> bool:
+        if getattr(self, 'dock_side', 'right') == "left":
+            return x >= self.width() - 8
+        else:
+            return x <= 8
+
     def mouseMoveEvent(self, event):
         if self._is_resizing:
             delta = event.globalPosition().x() - self._resize_start_x
-            new_w = max(self.MIN_WIDTH, min(self.MAX_WIDTH, int(self._resize_start_w + delta)))
+            if getattr(self, 'dock_side', 'right') == "left":
+                new_w = max(self.MIN_WIDTH, min(self.MAX_WIDTH, int(self._resize_start_w + delta)))
+            else:
+                new_w = max(self.MIN_WIDTH, min(self.MAX_WIDTH, int(self._resize_start_w - delta)))
             self.setFixedWidth(new_w)
             settings = QSettings("AuraPDF", "PDFViewer")
             settings.setValue("sidebar_panel_width", new_w)
@@ -9752,12 +11418,12 @@ class ModernRightSidebar(QWidget):
             event.accept()
             return
 
-        is_near_right = (event.pos().x() >= self.width() - 8)
-        if is_near_right != self._hovering_resize_edge:
-            self._hovering_resize_edge = is_near_right
+        is_near_edge = self._is_on_resize_edge(event.pos().x())
+        if is_near_edge != self._hovering_resize_edge:
+            self._hovering_resize_edge = is_near_edge
             self.update()
 
-        if is_near_right:
+        if is_near_edge:
             self.setCursor(Qt.CursorShape.SizeHorCursor)
             self.setToolTip(LanguageManager.tr("sidebar_resize_hint"))
         else:
@@ -9766,7 +11432,7 @@ class ModernRightSidebar(QWidget):
         super().mouseMoveEvent(event)
 
     def mousePressEvent(self, event):
-        if event.button() == Qt.MouseButton.LeftButton and event.pos().x() >= self.width() - 8:
+        if event.button() == Qt.MouseButton.LeftButton and self._is_on_resize_edge(event.pos().x()):
             self._is_resizing = True
             self._resize_start_x = event.globalPosition().x()
             self._resize_start_w = self.width()
@@ -9777,7 +11443,7 @@ class ModernRightSidebar(QWidget):
     def mouseReleaseEvent(self, event):
         if self._is_resizing:
             self._is_resizing = False
-            if event.pos().x() < self.width() - 8:
+            if not self._is_on_resize_edge(event.pos().x()):
                 self.unsetCursor()
                 self._hovering_resize_edge = False
             self.update()
@@ -9786,7 +11452,7 @@ class ModernRightSidebar(QWidget):
         super().mouseReleaseEvent(event)
 
     def mouseDoubleClickEvent(self, event):
-        if event.pos().x() >= self.width() - 8:
+        if self._is_on_resize_edge(event.pos().x()):
             target_w = self.MIN_WIDTH if self.width() > 220 else self.DEFAULT_WIDTH
             self.setFixedWidth(target_w)
             settings = QSettings("AuraPDF", "PDFViewer")
@@ -9807,7 +11473,7 @@ class ModernRightSidebar(QWidget):
     def paintEvent(self, event):
         super().paintEvent(event)
         p = QPainter(self)
-        rx = self.width() - 1
+        rx = self.width() - 1 if getattr(self, 'dock_side', 'right') == "left" else 0
         if self._is_resizing or self._hovering_resize_edge:
             p.setPen(QPen(QColor("#38bdf8"), 2))
         else:
@@ -9866,6 +11532,7 @@ class ModernUtilityRail(QWidget):
         super().__init__(parent)
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self.theme_name = "gray"
+        self.dock_side = "right"
         self.active_rail_id: Optional[str] = None
         self.total_pages = 1
         self.setFixedWidth(64)
@@ -9950,13 +11617,18 @@ class ModernUtilityRail(QWidget):
 
 
 
+    def set_dock_side(self, side: str = "right"):
+        self.dock_side = side
+        self.apply_theme(self.theme_name)
+
     def apply_theme(self, theme_name: str = "light"):
         self.theme_name = theme_name
         c = get_modern_theme_colors(theme_name)
+        border_css = f"border-right: 1px solid {c['border']};" if getattr(self, 'dock_side', 'right') == "left" else f"border-left: 1px solid {c['border']};"
         self.setStyleSheet(f"""
             ModernUtilityRail {{
                 background-color: {c['surface']};
-                border-right: 1px solid {c['border']};
+                {border_css}
             }}
             QLabel {{
                 color: {c['text']};

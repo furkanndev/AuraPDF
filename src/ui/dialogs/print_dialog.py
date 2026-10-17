@@ -461,6 +461,18 @@ class AuraPrintDialog(QDialog):
             self.doc = tab_doc
         else:
             self.doc = getattr(tab_doc, 'doc', None)
+
+        if hasattr(tab_doc, 'sync_form_fields'):
+            try:
+                tab_doc.sync_form_fields()
+            except Exception:
+                pass
+        if hasattr(tab_doc, 'export_drawings_to_pdf') and hasattr(self, 'doc') and self.doc:
+            try:
+                tab_doc.export_drawings_to_pdf(self.doc)
+            except Exception:
+                pass
+
         self.total_pages = len(self.doc) if self.doc else 1
         self.current_page_idx = getattr(tab_doc, 'current_page_idx', 0)
         if self.current_page_idx < 0 or self.current_page_idx >= self.total_pages:

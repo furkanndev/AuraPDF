@@ -24,7 +24,7 @@ from PyQt6.QtGui import (
 )
 
 from src.core.i18n import LanguageManager
-from src.ui.dialog_theme import get_dialog_theme_stylesheet
+from src.ui.dialog_theme import get_dialog_theme_stylesheet, apply_dialog_theme
 from src.ui.icons import ModernIconFactory
 
 
@@ -208,24 +208,14 @@ class PDFSignatureDialog(QDialog):
         self._load_saved_signature()
 
     def _init_ui(self):
-        self.setStyleSheet(get_dialog_theme_stylesheet(self) + """
+        extra_css = """
             QDialog { font-family: 'Segoe UI', -apple-system, sans-serif; }
-            QLabel { font-size: 12px; }
-            QLineEdit { background-color: rgba(255, 255, 255, 0.06); color: #f1f5f9; border: 1px solid rgba(255, 255, 255, 0.12); border-radius: 6px; padding: 7px 10px; font-size: 13px; }
-            QLineEdit:focus { border: 1.5px solid #0a84ff; }
-            QComboBox { background-color: rgba(255, 255, 255, 0.06); color: #f1f5f9; border: 1px solid rgba(255, 255, 255, 0.12); border-radius: 6px; padding: 5px 10px; }
-            QTabWidget::pane { border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 8px; }
-            QTabBar::tab { background: rgba(255, 255, 255, 0.04); color: #94a3b8; padding: 8px 18px; margin-right: 2px; border-top-left-radius: 6px; border-top-right-radius: 6px; font-weight: 500; font-size: 12px; }
-            QTabBar::tab:hover { background: rgba(255, 255, 255, 0.08); color: #ffffff; }
-            QTabBar::tab:selected { background: rgba(255, 255, 255, 0.1); color: #ffffff; border-bottom: 2.5px solid #0a84ff; font-weight: bold; }
-            QPushButton { background-color: rgba(255, 255, 255, 0.06); color: #f1f5f9; border: 1px solid rgba(255, 255, 255, 0.12); border-radius: 6px; padding: 6px 14px; font-weight: 500; min-height: 26px; }
-            QPushButton:hover { background-color: rgba(255, 255, 255, 0.12); color: #ffffff; border-color: rgba(255, 255, 255, 0.25); }
-            QPushButton#PrimaryBtn { background-color: #2563eb; color: #ffffff; border: none; font-weight: bold; }
+            QPushButton#PrimaryBtn { background-color: #2563eb; color: #ffffff; border: none; font-weight: bold; border-radius: 6px; padding: 6px 14px; min-height: 26px; }
             QPushButton#PrimaryBtn:hover { background-color: #3b82f6; }
-            QPushButton#ActionBtn { background-color: rgba(255, 255, 255, 0.08); color: #f1f5f9; border: 1px solid rgba(255, 255, 255, 0.15); }
-            QPushButton#ActionBtn:hover { background-color: rgba(255, 255, 255, 0.15); border-color: #38bdf8; color: #ffffff; }
+            QPushButton#ActionBtn { border-radius: 6px; padding: 6px 14px; min-height: 26px; }
             QCheckBox { font-size: 12px; spacing: 8px; }
-        """)
+        """
+        apply_dialog_theme(self, self.parent(), extra_css=extra_css)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(16, 16, 16, 16)

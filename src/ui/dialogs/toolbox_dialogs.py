@@ -11,6 +11,7 @@ import base64
 import io
 import math
 import secrets
+import hashlib
 import time
 import pymupdf as fitz
 
@@ -27,12 +28,12 @@ from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel, QFrame,
 from PyQt6.QtGui import (QDragEnterEvent, QDropEvent, QImage, QPixmap, QIcon, QColor, QPainter, QPen, QBrush, QFont, QFontMetrics, QShortcut, QKeySequence, QTransform)
 from PyQt6.QtCore import (Qt, QThread, pyqtSignal, QSize, QByteArray, QBuffer, QIODevice, QRectF, QPointF, QTimer)
 from src.core.i18n import LanguageManager
-from src.ui.dialog_theme import apply_modern_dialog_style, ModernInfoCard
+from src.ui.dialog_theme import apply_modern_dialog_style, ModernInfoCard, get_theme_palette
 from src.ui.modern_stepper import ModernSpinBox, ModernDoubleSpinBox
 from src.ui.icons import ModernIconFactory
 
 
-def get_spinbox_stylesheet() -> str:
+def get_spinbox_stylesheet(parent=None) -> str:
     base_dir = getattr(sys, '_MEIPASS', os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
     up_candidates = [
         os.path.join(base_dir, "assets", "spin_up.png"),
@@ -45,11 +46,17 @@ def get_spinbox_stylesheet() -> str:
     up_icon = next((p for p in up_candidates if os.path.isfile(p)), up_candidates[0]).replace("\\", "/")
     down_icon = next((p for p in down_candidates if os.path.isfile(p)), down_candidates[0]).replace("\\", "/")
 
+    pal = get_theme_palette(parent)
+    bg = pal.get("card", "#242426")
+    text = pal.get("text", "#f1f5f9")
+    border = pal.get("border", "rgba(255, 255, 255, 0.12)")
+    accent = pal.get("accent", "#38bdf8")
+
     return f"""
         QSpinBox {{
-            background-color: #242426;
-            color: #f1f5f9;
-            border: 1px solid rgba(255, 255, 255, 0.12);
+            background-color: {bg};
+            color: {text};
+            border: 1px solid {border};
             border-radius: 4px;
             padding: 3px 2px 3px 6px;
             padding-right: 42px;
@@ -57,9 +64,9 @@ def get_spinbox_stylesheet() -> str:
             font-weight: bold;
         }}
         QSpinBox#PreviewPageSpin {{
-            background-color: #1a1a1e;
-            color: #f1f5f9;
-            border: 1px solid rgba(255, 255, 255, 0.12);
+            background-color: {bg};
+            color: {text};
+            border: 1px solid {border};
             border-radius: 4px;
             padding: 2px 2px;
             font-size: 12px;
@@ -4311,23 +4318,53 @@ class PDFEncryptDialog(QDialog):
                     base_name, _ = os.path.splitext(os.path.basename(dst_path))
                     txt_path = os.path.join(dst_dir, f"{base_name}_Kurtarma_Anahtari.txt")
                     
+                    sha256_hash = hashlib.sha256()
+                    md5_hash = hashlib.md5()
+                    file_size = 0
+                    if os.path.isfile(dst_path):
+                        with open(dst_path, "rb") as f:
+                            while chunk := f.read(65536):
+                                sha256_hash.update(chunk)
+                                md5_hash.update(chunk)
+                        file_size = os.path.getsize(dst_path)
+                    sha256_hex = sha256_hash.hexdigest()
+                    md5_hex = md5_hash.hexdigest()
+
+                    if file_size < 1024:
+                        size_str = f"{file_size} bayt"
+                    elif file_size < 1024 * 1024:
+                        size_str = f"{file_size:,} bayt ({file_size / 1024:.1f} KB)".replace(",", ".")
+                    else:
+                        size_str = f"{file_size:,} bayt ({file_size / (1024 * 1024):.2f} MB)".replace(",", ".")
+                    
                     content = (
                         "============================================================\n"
                         "              AURAPDF - GÜVENLİK VE KURTARMA BİLGİSİ\n"
                         "============================================================\n\n"
-                        f"Dosya Adı        : {os.path.basename(dst_path)}\n"
-                        f"Kayıt Tarihi     : {time.strftime('%Y-%m-%d %H:%M:%S')}\n"
-                        f"Tam Dosya Yolu   : {dst_path}\n\n"
+                        "[BELGE BİLGİLERİ]\n"
+                        f"Orijinal Dosya Adı : {os.path.basename(dst_path)}\n"
+                        f"Kayıt Tarihi       : {time.strftime('%Y-%m-%d %H:%M:%S')}\n"
+                        f"Dosya Boyutu       : {size_str}\n"
+                        f"Tam Dosya Yolu     : {dst_path}\n\n"
+                        "[DİJİTAL PARMAK İZİ / DOSYA HASH DEĞERLERİ]\n"
+                        f"SHA-256 Özeti      : {sha256_hex}\n"
+                        f"MD5 Özeti          : {md5_hex}\n\n"
+                        "ÖNEMLİ GÜVENCE NOTU:\n"
+                        "Bu belgenin dosya adı veya konumu gelecekte değiştirilse dahi, yukarıda yer\n"
+                        "alan benzersiz SHA-256 dijital parmak izi (hash) sayesinde bu kurtarma anahtarının\n"
+                        "hangi PDF belgesine ait olduğunu her zaman AuraPDF üzerinden teyit edebilirsiniz.\n\n"
                         "------------------------------------------------------------\n"
                         "ACİL DURUM KURTARMA ANAHTARI (EMERGENCY RECOVERY KEY):\n"
                         f"{rec_key}\n"
                         "------------------------------------------------------------\n\n"
-                        f"Parola İpucu     : {hint_val if hint_val else 'Belirtilmedi'}\n\n"
+                        f"Parola İpucu       : {hint_val if hint_val else 'Belirtilmedi'}\n\n"
                         "NASIL KULLANILIR?\n"
                         "1. Belgenin normal açma parolasını unutursanız AuraPDF uygulamasını açın.\n"
                         "2. Araçlar (Toolbox) menüsünden 'Şifre Kurtarma Asistanı'nı seçin.\n"
-                        "3. 'Kurtarma Anahtarı ile Çöz' sekmesine bu anahtarı girin.\n"
-                        "   (Ya da belgeyi açarken parola yerine doğrudan bu anahtarı yazabilirsiniz.)\n\n"
+                        "3. 'Kurtarma Anahtarı ile Aç' sekmesinde belgenizi seçin (veya bu .txt dosyasını yükleyin).\n"
+                        "4. 'Kurtarma Dosyası (.txt) Yükle' butonu ile bu dosyayı seçtiğinizde, AuraPDF dosya hash değerini\n"
+                        "   ve anahtarınızı otomatik doğrulayacaktır.\n"
+                        "   (Ya da belgeyi açarken parola yerine doğrudan bu kurtarma anahtarını yazabilirsiniz.)\n\n"
                         "DİKKAT: Bu dosyayı güvenli bir yerde saklayınız.\n"
                         "============================================================\n"
                     )
@@ -4498,6 +4535,8 @@ class PDFPasswordRecoveryDialog(QDialog):
         self.initial_file = initial_file
         self.worker: Optional[PasswordRecoveryWorker] = None
         self.found_pw = None
+        self.current_doc_hash = ""
+        self.loaded_txt_hash = None
 
         self.setWindowTitle(LanguageManager.tr("recovery_dialog_title"))
         self.resize(660, 580)
@@ -4520,13 +4559,50 @@ class PDFPasswordRecoveryDialog(QDialog):
         v_key.addWidget(QLabel(LanguageManager.tr("recovery_source_file")))
         h_src1 = QHBoxLayout()
         self.txt_key_src = QLineEdit()
+        self.txt_key_src.textChanged.connect(self._on_source_file_changed)
         btn_src1 = QPushButton(LanguageManager.tr("split_btn_browse"))
         btn_src1.clicked.connect(lambda: self.browse_source(self.txt_key_src, self.txt_key_dst))
         h_src1.addWidget(self.txt_key_src)
         h_src1.addWidget(btn_src1)
         v_key.addLayout(h_src1)
 
-        v_key.addWidget(QLabel(LanguageManager.tr("recovery_key_label")))
+        # Hash ve Dijital Parmak İzi Doğrulama Kartı
+        frame_hash = QFrame()
+        frame_hash.setStyleSheet("QFrame { background: rgba(128, 128, 128, 0.08); border-radius: 6px; padding: 6px 8px; }")
+        v_hash_card = QVBoxLayout(frame_hash)
+        v_hash_card.setContentsMargins(6, 6, 6, 6)
+        v_hash_card.setSpacing(4)
+
+        h_hash_line = QHBoxLayout()
+        h_hash_line.addWidget(QLabel(LanguageManager.tr("recovery_file_hash")))
+        self.lbl_src_hash = QLabel(LanguageManager.tr("recovery_no_file_selected"))
+        self.lbl_src_hash.setStyleSheet("font-family: Consolas, monospace; font-size: 11px;")
+        self.lbl_src_hash.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        h_hash_line.addWidget(self.lbl_src_hash, 1)
+
+        self.btn_copy_hash = QPushButton(LanguageManager.tr("recovery_copy_hash"))
+        self.btn_copy_hash.setStyleSheet("padding: 2px 8px; font-size: 11px;")
+        self.btn_copy_hash.setEnabled(False)
+        self.btn_copy_hash.clicked.connect(self._copy_src_hash)
+        h_hash_line.addWidget(self.btn_copy_hash)
+        v_hash_card.addLayout(h_hash_line)
+
+        self.lbl_hash_match_status = QLabel("")
+        self.lbl_hash_match_status.setStyleSheet("font-size: 11px; font-weight: 500;")
+        self.lbl_hash_match_status.setVisible(False)
+        v_hash_card.addWidget(self.lbl_hash_match_status)
+        v_key.addWidget(frame_hash)
+
+        # Anahtar Başlığı ve TXT'den Yükle Butonu
+        h_key_head = QHBoxLayout()
+        h_key_head.addWidget(QLabel(LanguageManager.tr("recovery_key_label")))
+        h_key_head.addStretch()
+        btn_load_txt = QPushButton(LanguageManager.tr("recovery_btn_load_txt"))
+        btn_load_txt.setObjectName("SecondaryBtn")
+        btn_load_txt.clicked.connect(self.load_from_recovery_file)
+        h_key_head.addWidget(btn_load_txt)
+        v_key.addLayout(h_key_head)
+
         self.txt_key_input = QLineEdit()
         self.txt_key_input.setPlaceholderText(LanguageManager.tr("recovery_key_placeholder"))
         self.txt_key_input.setStyleSheet("font-family: Consolas, monospace; font-size: 13px; font-weight: bold; ")
@@ -4643,6 +4719,115 @@ class PDFPasswordRecoveryDialog(QDialog):
         dst = os.path.join(base_dir, f"{base_name}_kurtarildi.pdf")
         self.txt_key_dst.setText(dst)
         self.txt_brute_dst.setText(dst)
+        self._on_source_file_changed()
+
+    def _compute_sha256(self, filepath: str) -> str:
+        try:
+            if not filepath or not os.path.isfile(filepath):
+                return ""
+            h = hashlib.sha256()
+            with open(filepath, "rb") as f:
+                while chunk := f.read(65536):
+                    h.update(chunk)
+            return h.hexdigest().lower()
+        except Exception:
+            return ""
+
+    def _on_source_file_changed(self, text: str = ""):
+        path = self.txt_key_src.text().strip()
+        if path and os.path.isfile(path):
+            hash_val = self._compute_sha256(path)
+            self.current_doc_hash = hash_val
+            if hash_val:
+                self.lbl_src_hash.setText(hash_val)
+                self.btn_copy_hash.setEnabled(True)
+            else:
+                self.lbl_src_hash.setText(LanguageManager.tr("recovery_no_file_selected"))
+                self.btn_copy_hash.setEnabled(False)
+        else:
+            self.current_doc_hash = ""
+            self.lbl_src_hash.setText(LanguageManager.tr("recovery_no_file_selected"))
+            self.btn_copy_hash.setEnabled(False)
+        self._check_hash_match()
+
+    def _check_hash_match(self):
+        if getattr(self, 'loaded_txt_hash', None) and getattr(self, 'current_doc_hash', None):
+            if self.loaded_txt_hash.lower() == self.current_doc_hash.lower():
+                self.lbl_hash_match_status.setText(f"✓ {LanguageManager.tr('recovery_hash_match')}")
+                self.lbl_hash_match_status.setStyleSheet("color: #10b981; font-size: 11px; font-weight: bold;")
+                self.lbl_hash_match_status.setVisible(True)
+            else:
+                short_txt = self.loaded_txt_hash[:12] + "..."
+                short_doc = self.current_doc_hash[:12] + "..."
+                self.lbl_hash_match_status.setText(f"⚠ {LanguageManager.tr('recovery_hash_mismatch', txt_hash=short_txt, doc_hash=short_doc)}")
+                self.lbl_hash_match_status.setStyleSheet("color: #f59e0b; font-size: 11px; font-weight: bold;")
+                self.lbl_hash_match_status.setVisible(True)
+        else:
+            self.lbl_hash_match_status.setVisible(False)
+
+    def _copy_src_hash(self):
+        if getattr(self, 'current_doc_hash', None):
+            QApplication.clipboard().setText(self.current_doc_hash)
+            QMessageBox.information(self, LanguageManager.tr("confirm_title"), LanguageManager.tr("recovery_hash_copied"))
+
+    def load_from_recovery_file(self):
+        cur_src = self.txt_key_src.text().strip()
+        init_dir = os.path.dirname(cur_src) if cur_src and os.path.isfile(cur_src) else ""
+        file_path, _ = QFileDialog.getOpenFileName(
+            self,
+            LanguageManager.tr("recovery_btn_load_txt"),
+            init_dir,
+            LanguageManager.tr("recovery_txt_filter")
+        )
+        if not file_path:
+            return
+        try:
+            with open(file_path, "r", encoding="utf-8", errors="replace") as f:
+                content = f.read()
+        except Exception as e:
+            QMessageBox.warning(self, LanguageManager.tr("error"), str(e))
+            return
+
+        key = ""
+        match_aura = re.search(r"AURA-[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}", content)
+        if match_aura:
+            key = match_aura.group(0)
+        else:
+            match_gen = re.search(r"(?:ACİL DURUM KURTARMA ANAHTARI|EMERGENCY RECOVERY KEY)[:\s\n\-]+([^\n\r]+)", content, re.IGNORECASE)
+            if match_gen:
+                candidate = match_gen.group(1).strip()
+                if candidate and not candidate.startswith("---") and not candidate.startswith("==="):
+                    key = candidate
+
+        match_sha = re.search(r"SHA-256\s*(?:Özeti|Hash|Digest)?\s*[:=]\s*([a-fA-F0-9]{64})", content, re.IGNORECASE)
+        if match_sha:
+            self.loaded_txt_hash = match_sha.group(1).strip().lower()
+        else:
+            self.loaded_txt_hash = None
+
+        if key:
+            self.txt_key_input.setText(key)
+
+        if not key and not self.loaded_txt_hash:
+            QMessageBox.warning(self, LanguageManager.tr("error"), LanguageManager.tr("recovery_txt_read_err"))
+            return
+
+        cur_pdf = self.txt_key_src.text().strip()
+        if not cur_pdf or not os.path.isfile(cur_pdf):
+            candidate_pdf = file_path.replace("_Kurtarma_Anahtari.txt", ".pdf")
+            if not os.path.isfile(candidate_pdf):
+                match_name = re.search(r"(?:Orijinal Dosya Adı|Dosya Adı)\s*[:=]\s*(.+)", content, re.IGNORECASE)
+                if match_name:
+                    fname = match_name.group(1).strip()
+                    cand2 = os.path.join(os.path.dirname(file_path), fname)
+                    if os.path.isfile(cand2):
+                        candidate_pdf = cand2
+            if os.path.isfile(candidate_pdf):
+                self.set_source_file(candidate_pdf)
+
+        self._check_hash_match()
+        if key:
+            QMessageBox.information(self, LanguageManager.tr("success"), LanguageManager.tr("recovery_txt_loaded_ok"))
 
     def _on_method_changed(self):
         method = self.cmb_method.currentData()

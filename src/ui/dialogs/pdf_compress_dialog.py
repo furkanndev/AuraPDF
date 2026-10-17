@@ -36,10 +36,16 @@ class CompressThread(QThread):
         self.preset = preset
         self.quality = quality
         self.max_dpi = max_dpi
+        self._is_aborted = False
+
+    def abort(self):
+        self._is_aborted = True
 
     def run(self):
         try:
             def cb(curr, total, msg):
+                if self._is_aborted:
+                    raise InterruptedError("Compression cancelled")
                 self.progressChanged.emit(curr, total, msg)
 
             res = PDFCompressor.compress_pdf(
@@ -50,9 +56,13 @@ class CompressThread(QThread):
                 max_dpi=self.max_dpi,
                 progress_callback=cb
             )
-            self.finishedSuccess.emit(res)
+            if not self._is_aborted:
+                self.finishedSuccess.emit(res)
+        except InterruptedError:
+            pass
         except Exception as e:
-            self.finishedError.emit(str(e))
+            if not self._is_aborted:
+                self.finishedError.emit(str(e))
 
 
 class PDFCompressDialog(QDialog):
@@ -154,7 +164,7 @@ class PDFCompressDialog(QDialog):
         grid_cust.setContentsMargins(18, 4, 4, 4)
         grid_cust.setSpacing(6)
 
-        lbl_q = QLabel("JPEG Kalitesi (%):", self.frame_custom)
+        lbl_q = QLabel(LanguageManager.tr("compress_lbl_jpeg_quality"), self.frame_custom)
         self.slider_quality = QSlider(Qt.Orientation.Horizontal, self.frame_custom)
         self.slider_quality.setRange(20, 95)
         self.slider_quality.setValue(70)
@@ -230,7 +240,7 @@ class PDFCompressDialog(QDialog):
     def _format_orig_size(self) -> str:
         if self.input_path and os.path.isfile(self.input_path):
             sz = os.path.getsize(self.input_path)
-            return f"Orijinal Dosya Boyutu: {self._format_bytes(sz)}"
+            return LanguageManager.tr("compress_orig_size_format", size=self._format_bytes(sz))
         return ""
 
     @staticmethod
@@ -252,9 +262,9 @@ class PDFCompressDialog(QDialog):
         curr = self.txt_input.text().strip() or os.path.expanduser("~/Documents")
         path, _ = QFileDialog.getOpenFileName(
             self,
-            "Sıkıştırılacak PDF Dosyasını Seç",
+            LanguageManager.tr("compress_browse_input_title"),
             curr,
-            "PDF Belgeleri (*.pdf)"
+            LanguageManager.tr("compress_pdf_filter")
         )
         if path:
             self.input_path = path
@@ -266,9 +276,9 @@ class PDFCompressDialog(QDialog):
         curr = self.txt_output.text().strip() or self._generate_default_output()
         path, _ = QFileDialog.getSaveFileName(
             self,
-            "Sıkıştırılmış PDF Belgesini Kaydet",
+            LanguageManager.tr("compress_browse_output_title"),
             curr,
-            "PDF Belgeleri (*.pdf)"
+            LanguageManager.tr("compress_pdf_filter")
         )
         if path:
             if not path.lower().endswith(".pdf"):
@@ -278,19 +288,19 @@ class PDFCompressDialog(QDialog):
     def _start_compression(self):
         inp = self.txt_input.text().strip()
         if not inp or not os.path.isfile(inp):
-            QMessageBox.warning(self, LanguageManager.tr("warning"), "Lütfen geçerli bir PDF dosyası seçin.")
+            QMessageBox.warning(self, LanguageManager.tr("warning"), LanguageManager.tr("compress_err_invalid_input"))
             return
 
         outp = self.txt_output.text().strip()
         if not outp:
-            QMessageBox.warning(self, LanguageManager.tr("warning"), "Lütfen hedef kayıt yolunu belirleyin.")
+            QMessageBox.warning(self, LanguageManager.tr("warning"), LanguageManager.tr("compress_err_empty_output"))
             return
 
         if os.path.abspath(inp) == os.path.abspath(outp):
             QMessageBox.warning(
                 self,
                 LanguageManager.tr("warning"),
-                "Orijinal belgenin üzerine yazamazsınız. Lütfen farklı bir dosya adı belirleyin."
+                LanguageManager.tr("compress_err_same_file")
             )
             return
 
@@ -313,7 +323,7 @@ class PDFCompressDialog(QDialog):
         self.prog_bar.setVisible(True)
         self.prog_bar.setValue(0)
         self.lbl_status.setVisible(True)
-        self.lbl_status.setText("Sıkıştırma başlatılıyor...")
+        self.lbl_status.setText(LanguageManager.tr("compress_status_starting"))
         self.card_result.setVisible(False)
 
         self.worker_thread = CompressThread(inp, outp, preset, quality, max_dpi)
@@ -329,7 +339,7 @@ class PDFCompressDialog(QDialog):
 
     def _on_success(self, res: dict):
         self.prog_bar.setValue(100)
-        self.lbl_status.setText("Sıkıştırma tamamlandı.")
+        self.lbl_status.setText(LanguageManager.tr("compress_status_done"))
         self.btn_compress.setEnabled(True)
         self.btn_cancel.setEnabled(True)
 
@@ -340,10 +350,12 @@ class PDFCompressDialog(QDialog):
         self.compressed_pdf_path = self.txt_output.text().strip()
         self.open_after_compress = self.chk_open_after.isChecked()
 
-        msg = (
-            f"Başarıyla Sıkıştırıldı:\n"
-            f"Orijinal Boyut: {orig_str} -> Yeni Boyut: {comp_str}\n"
-            f"Tasarruf: %{pct} ({self._format_bytes(res['saved_bytes'])} küçültüldü)"
+        msg = LanguageManager.tr(
+            "compress_success_msg",
+            orig_size=orig_str,
+            comp_size=comp_str,
+            pct=pct,
+            saved_size=self._format_bytes(res['saved_bytes'])
         )
         self.card_result.set_text(msg)
         self.card_result.setVisible(True)
@@ -356,4 +368,18 @@ class PDFCompressDialog(QDialog):
         self.btn_cancel.setEnabled(True)
         self.prog_bar.setVisible(False)
         self.lbl_status.setVisible(False)
-        QMessageBox.critical(self, LanguageManager.tr("error"), f"Sıkıştırma sırasında hata oluştu:\n{err_msg}")
+        QMessageBox.critical(self, LanguageManager.tr("error"), LanguageManager.tr("compress_err_failed", error=err_msg))
+
+    def _cancel_and_abort(self):
+        if self.worker_thread and self.worker_thread.isRunning():
+            self.worker_thread.abort()
+            self.worker_thread.quit()
+            self.worker_thread.wait(600)
+
+    def closeEvent(self, event):
+        self._cancel_and_abort()
+        super().closeEvent(event)
+
+    def reject(self):
+        self._cancel_and_abort()
+        super().reject()

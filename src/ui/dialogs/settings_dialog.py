@@ -1580,6 +1580,22 @@ class AuraSettingsDialog(QDialog):
         )
         card_layout.addWidget(row_font)
 
+        sep3 = QFrame()
+        sep3.setFixedHeight(1)
+        sep3.setObjectName("SettingsCardSep")
+        card_layout.addWidget(sep3)
+
+        # 4. Yan Panel & Araç Çubuğu Düzeni
+        self.cmb_panel_layout = QComboBox()
+        self.cmb_panel_layout.addItem(LanguageManager.tr("settings_panel_layout_tools_left"), "tools_left_nav_right")
+        self.cmb_panel_layout.addItem(LanguageManager.tr("settings_panel_layout_tools_right"), "tools_right_nav_left")
+        row_panel_layout = self._create_setting_row(
+            LanguageManager.tr("settings_panel_layout_lbl"),
+            self.cmb_panel_layout,
+            LanguageManager.tr("settings_panel_layout_desc")
+        )
+        card_layout.addWidget(row_panel_layout)
+
         layout.addWidget(card)
 
         # Fabrika Ayarlarına Sıfırlama Kartı
@@ -1642,6 +1658,8 @@ class AuraSettingsDialog(QDialog):
         self._set_cmb_data(self.cmb_default_template, "blank")
         if hasattr(self, 'cmb_app_font_size'):
             self._set_cmb_data(self.cmb_app_font_size, 10)
+        if hasattr(self, 'cmb_panel_layout'):
+            self._set_cmb_data(self.cmb_panel_layout, "tools_left_nav_right")
 
         # Yazar bilgileri
         def_user, def_comp = get_default_author_info()
@@ -2659,6 +2677,11 @@ class AuraSettingsDialog(QDialog):
             saved_fs = int(self.settings.value("app_font_size", 10))
             self._set_cmb_data(self.cmb_app_font_size, saved_fs)
 
+        # Panel Yerleşimi
+        if hasattr(self, 'cmb_panel_layout'):
+            saved_layout = self.settings.value("sidebar_layout", "tools_left_nav_right")
+            self._set_cmb_data(self.cmb_panel_layout, saved_layout)
+
         tb_version = self.settings.value("floating_tools_order_version", 0, type=int)
         raw_tb = self.settings.value("floating_tools_order", None)
         saved_tb = []
@@ -2775,6 +2798,14 @@ class AuraSettingsDialog(QDialog):
                         f.setPointSize(int(font_size))
                         app.setFont(f)
 
+        # Panel Yerleşimi
+        if hasattr(self, 'cmb_panel_layout'):
+            panel_layout = self.cmb_panel_layout.currentData()
+            if panel_layout:
+                self.settings.setValue("sidebar_layout", panel_layout)
+                if hasattr(self.main_window, 'update_panels_layout'):
+                    self.main_window.update_panels_layout(panel_layout)
+
         # 6. Toolbar Düzenini Kaydet & Uygula
         reordered_items = []
         for i in range(self.list_toolbar.count()):
@@ -2814,10 +2845,16 @@ class AuraSettingsDialog(QDialog):
             self.settings.setValue("github_token", self.txt_github_token.text().strip())
 
         # Görsel geribildirim
-        if hasattr(self, 'btn_apply'):
+        if hasattr(self, 'btn_apply') and self.btn_apply:
             orig_txt = LanguageManager.tr("btn_apply_settings")
             self.btn_apply.setText(LanguageManager.tr("settings_applied_feedback"))
-            QTimer.singleShot(1400, lambda: self.btn_apply.setText(orig_txt))
+            def _safe_reset_apply():
+                try:
+                    if hasattr(self, 'btn_apply') and self.btn_apply:
+                        self.btn_apply.setText(orig_txt)
+                except (RuntimeError, Exception):
+                    pass
+            QTimer.singleShot(1400, _safe_reset_apply)
 
     def save_settings(self):
         self.apply_settings()

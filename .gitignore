@@ -28,3 +28,4 @@ scratch/
 # .NET Build Folders
 [Bb]in/
 [Oo]bj/
+*.pdb

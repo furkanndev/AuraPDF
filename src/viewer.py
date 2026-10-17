@@ -11,7 +11,7 @@ import shutil
 import pymupdf as fitz
 from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
                              QLabel, QLineEdit, QToolButton, QMessageBox, 
-                             QFileDialog, QMenu, QStackedLayout, QStackedWidget, QSizePolicy, QLayout, QDialog, QApplication)
+                             QFileDialog, QMenu, QStackedLayout, QStackedWidget, QSizePolicy, QLayout, QDialog, QApplication, QSplitter)
 from PyQt6.QtGui import (QIcon, QIntValidator, QShortcut, QKeySequence, QColor, QPen, QBrush, QPixmap, QImage, QCursor)
 from PyQt6.QtCore import Qt, QPoint, QSettings, QTimer, QEvent, QFileSystemWatcher, pyqtSignal
 
@@ -37,7 +37,7 @@ from src.ui.modern_views import (
     ModernCommandPaletteDialog, get_modern_theme_colors,
     ModernLeftSidebar, ModernExportDrawer, ModernEditDrawer,
     HomeDashboardWorkspace, FloatingQuickToolsCapsule,
-    ModernPinnedQuickToolsBar
+    ModernPinnedQuickToolsBar, ModernSecondaryDocPane
 )
 
 
@@ -351,7 +351,10 @@ class AuraPDFViewer(QMainWindow):
         QShortcut(QKeySequence("Alt+Right"), self, activated=self.nav_forward)
         QShortcut(QKeySequence("Ctrl+Shift+T"), self, activated=self.reopen_last_closed_tab)
         QShortcut(QKeySequence("Ctrl+0"), self, activated=self.fit_to_page)
+        QShortcut(QKeySequence("Ctrl+1"), self, activated=self.reset_zoom_100)
         QShortcut(QKeySequence("Ctrl+2"), self, activated=self.fit_to_width)
+        QShortcut(QKeySequence(Qt.Key.Key_PageUp), self, activated=self.prev_page)
+        QShortcut(QKeySequence(Qt.Key.Key_PageDown), self, activated=self.next_page)
         QShortcut(QKeySequence("Ctrl+D"), self, activated=self.open_document_properties_dialog)
         QShortcut(QKeySequence("F1"), self, activated=self.open_shortcuts_dialog)
         QShortcut(QKeySequence("Ctrl+Shift+C"), self, activated=self.open_compress_dialog)
@@ -711,7 +714,17 @@ class AuraPDFViewer(QMainWindow):
         self.set_tool_state('select')
 
     def delete_selected_items(self):
-        if doc := self.get_current_tab_doc(): doc.delete_selected_items()
+        focus_w = QApplication.focusWidget()
+        if focus_w:
+            from PyQt6.QtWidgets import QLineEdit, QTextEdit, QPlainTextEdit, QSpinBox, QDoubleSpinBox, QComboBox
+            if isinstance(focus_w, (QLineEdit, QTextEdit, QPlainTextEdit, QSpinBox, QDoubleSpinBox, QComboBox)):
+                return
+            if getattr(focus_w, 'is_text_input', False):
+                return
+        if doc := self.get_current_tab_doc():
+            if getattr(doc, 'direct_edit_editor', None) or getattr(doc, 'active_text_item', None):
+                return
+            doc.delete_selected_items()
 
     def undo(self):
         if doc := self.get_current_tab_doc():
@@ -1215,6 +1228,7 @@ class AuraPDFViewer(QMainWindow):
             self.modern_header_bar.settingsRequested.connect(self.open_settings_dialog)
         if hasattr(self.modern_header_bar, 'fullscreenRequested'):
             self.modern_header_bar.fullscreenRequested.connect(self.toggle_fullscreen)
+        self._pending_ai_action = None
 
         self.modern_header_bar.pageJumpRequested.connect(self._on_rail_page_jump)
         self.modern_header_bar.prevPageRequested.connect(self.prev_page)
@@ -1224,6 +1238,7 @@ class AuraPDFViewer(QMainWindow):
         self.modern_header_bar.fitPageRequested.connect(self.toggle_fit_page_width)
         self.modern_header_bar.rotateRequested.connect(self.rotate_current_page)
         self.modern_header_bar.zoomSetRequested.connect(self._on_zoom_input_submitted)
+        self.modern_header_bar.multiviewRequested.connect(self.toggle_multiview)
 
         # 3. Sol Çekmece Yığını: Tüm Araçlar / Export / Edit / Read
         self.modern_left_sidebar = ModernLeftSidebar(main_window=self, parent=self)
@@ -1247,9 +1262,22 @@ class AuraPDFViewer(QMainWindow):
         self.organize_workspace.openPageRequested.connect(self._on_organize_open_page)
         self.organize_workspace.documentModified.connect(self._on_organize_doc_modified)
 
+        # 4A. Multiview ve Belge Bölünmüş Alanı (Document Splitter: Sol TabWidget, Sağ Secondary Pane)
+        self.document_splitter = QSplitter(Qt.Orientation.Horizontal, self)
+        self.document_splitter.setObjectName("DocumentSplitter")
+        self.document_splitter.setChildrenCollapsible(False)
+        self.document_splitter.addWidget(self.tab_widget)
+
+        self.secondary_split_pane = ModernSecondaryDocPane(main_window=self, parent=self)
+        self.secondary_split_pane.closeRequested.connect(self.close_multiview)
+        self.secondary_split_pane.swapRequested.connect(self.swap_multiview_documents)
+        self.secondary_split_pane.syncScrollToggled.connect(self._on_multiview_sync_scroll_toggled)
+        self.document_splitter.addWidget(self.secondary_split_pane)
+        self.secondary_split_pane.hide()
+
         self.central_stack = QStackedWidget(self)
         self.central_stack.addWidget(self.home_workspace)
-        self.central_stack.addWidget(self.tab_widget)
+        self.central_stack.addWidget(self.document_splitter)
         self.central_stack.addWidget(self.organize_workspace)
 
         # 4B. Yüzen Hızlı Araç Kapsülü (FloatingQuickToolsCapsule)
@@ -1314,12 +1342,7 @@ class AuraPDFViewer(QMainWindow):
         self.body_layout.setContentsMargins(0, 0, 0, 0)
         self.body_layout.setSpacing(0)
 
-        self.body_layout.addWidget(self.modern_utility_rail)
-        self.body_layout.addWidget(self.modern_right_sidebar)
-        self.body_layout.addWidget(self.left_pinned_tools_bar)
-        self.body_layout.addWidget(self.central_stack, stretch=1)
-        self.body_layout.addWidget(self.right_pinned_tools_bar)
-        self.body_layout.addWidget(self.modern_left_sidebar)
+        self.update_panels_layout()
 
         self.modern_root_layout.addWidget(self.body_container, stretch=1)
         self.setCentralWidget(self.modern_root_widget)
@@ -1404,7 +1427,7 @@ class AuraPDFViewer(QMainWindow):
             if hasattr(self, 'floating_capsule'):
                 self.top_pinned_tools_bar.set_tools_order(self.floating_capsule.tool_order)
                 self.top_pinned_tools_bar.set_active_tool(self.floating_capsule.active_tool)
-            if self.tab_widget.count() > 0 and self.central_stack.currentWidget() == self.tab_widget:
+            if self.tab_widget.count() > 0 and self.central_stack.currentWidget() in (self.tab_widget, getattr(self, 'document_splitter', None)):
                 self.top_pinned_tools_bar.show()
                 self.update_floating_capsule_pos()
 
@@ -1428,7 +1451,7 @@ class AuraPDFViewer(QMainWindow):
             if hasattr(self, 'floating_capsule'):
                 self.left_pinned_tools_bar.set_tools_order(self.floating_capsule.tool_order)
                 self.left_pinned_tools_bar.set_active_tool(self.floating_capsule.active_tool)
-            if self.tab_widget.count() > 0 and self.central_stack.currentWidget() == self.tab_widget:
+            if self.tab_widget.count() > 0 and self.central_stack.currentWidget() in (self.tab_widget, getattr(self, 'document_splitter', None)):
                 self.left_pinned_tools_bar.show()
 
     def dock_capsule_to_right(self):
@@ -1451,7 +1474,7 @@ class AuraPDFViewer(QMainWindow):
             if hasattr(self, 'floating_capsule'):
                 self.right_pinned_tools_bar.set_tools_order(self.floating_capsule.tool_order)
                 self.right_pinned_tools_bar.set_active_tool(self.floating_capsule.active_tool)
-            if self.tab_widget.count() > 0 and self.central_stack.currentWidget() == self.tab_widget:
+            if self.tab_widget.count() > 0 and self.central_stack.currentWidget() in (self.tab_widget, getattr(self, 'document_splitter', None)):
                 self.right_pinned_tools_bar.show()
 
     def undock_capsule_from_top(self):
@@ -1488,11 +1511,65 @@ class AuraPDFViewer(QMainWindow):
             self.right_pinned_tools_bar.hide()
         if hasattr(self, 'floating_capsule'):
             self.floating_capsule.set_active_tool(active_tool)
-            if self.tab_widget.count() > 0 and self.central_stack.currentWidget() == self.tab_widget:
+            if self.tab_widget.count() > 0 and self.central_stack.currentWidget() in (self.tab_widget, getattr(self, 'document_splitter', None)):
                 self.update_floating_capsule_pos()
                 self.floating_capsule.show()
                 self.floating_capsule.raise_()
 
+    def update_panels_layout(self, layout_mode: Optional[str] = None):
+        """Tüm Araçlar paneli ile Gezinme / Yardımcı Ray panellerinin ekran yerleşimini (Sol / Sağ) ayarlar."""
+        if layout_mode is None:
+            settings = QSettings("AuraPDF", "PDFViewer")
+            layout_mode = settings.value("sidebar_layout", "tools_left_nav_right", type=str)
+        self.sidebar_layout_mode = layout_mode
+
+        if getattr(self, 'body_layout', None) is not None:
+            # Önce mevcut bileşenleri yerleşimden çıkar
+            for w in [
+                getattr(self, 'modern_utility_rail', None),
+                getattr(self, 'modern_right_sidebar', None),
+                getattr(self, 'left_pinned_tools_bar', None),
+                getattr(self, 'central_stack', None),
+                getattr(self, 'right_pinned_tools_bar', None),
+                getattr(self, 'modern_left_sidebar', None)
+            ]:
+                if w is not None:
+                    self.body_layout.removeWidget(w)
+
+            # İstenen sıralamayla yeniden ekle
+            if layout_mode == "tools_right_nav_left":
+                # Solda Gezinme Rayı & Çekmecesi, Sağda Tüm Araçlar
+                self.body_layout.addWidget(self.modern_utility_rail)
+                self.body_layout.addWidget(self.modern_right_sidebar)
+                self.body_layout.addWidget(self.left_pinned_tools_bar)
+                self.body_layout.addWidget(self.central_stack, stretch=1)
+                self.body_layout.addWidget(self.right_pinned_tools_bar)
+                self.body_layout.addWidget(self.modern_left_sidebar)
+
+                if hasattr(self, 'modern_utility_rail') and hasattr(self.modern_utility_rail, 'set_dock_side'):
+                    self.modern_utility_rail.set_dock_side("left")
+                if hasattr(self, 'modern_right_sidebar') and hasattr(self.modern_right_sidebar, 'set_dock_side'):
+                    self.modern_right_sidebar.set_dock_side("left")
+                if hasattr(self, 'modern_left_sidebar') and hasattr(self.modern_left_sidebar, 'set_dock_side'):
+                    self.modern_left_sidebar.set_dock_side("right")
+            else:
+                # Varsayılan: Solda Tüm Araçlar, Sağda Gezinme Rayı & Çekmecesi
+                self.body_layout.addWidget(self.modern_left_sidebar)
+                self.body_layout.addWidget(self.left_pinned_tools_bar)
+                self.body_layout.addWidget(self.central_stack, stretch=1)
+                self.body_layout.addWidget(self.right_pinned_tools_bar)
+                self.body_layout.addWidget(self.modern_right_sidebar)
+                self.body_layout.addWidget(self.modern_utility_rail)
+
+                if hasattr(self, 'modern_left_sidebar') and hasattr(self.modern_left_sidebar, 'set_dock_side'):
+                    self.modern_left_sidebar.set_dock_side("left")
+                if hasattr(self, 'modern_right_sidebar') and hasattr(self.modern_right_sidebar, 'set_dock_side'):
+                    self.modern_right_sidebar.set_dock_side("right")
+                if hasattr(self, 'modern_utility_rail') and hasattr(self.modern_utility_rail, 'set_dock_side'):
+                    self.modern_utility_rail.set_dock_side("right")
+
+            if hasattr(self, '_center_active_document'):
+                self._center_active_document()
 
     def sync_modern_tabs(self):
         """Modern üst sekme çubuğunu AuraTabWidget içeriği ile tam senkronize eder."""
@@ -1831,7 +1908,8 @@ class AuraPDFViewer(QMainWindow):
 
     def switch_to_document_view(self):
         if self.tab_widget.count() > 0:
-            self.central_stack.setCurrentWidget(self.tab_widget)
+            target_widget = getattr(self, 'document_splitter', self.tab_widget)
+            self.central_stack.setCurrentWidget(target_widget)
             if hasattr(self, 'modern_tab_bar'):
                 self.modern_tab_bar.set_home_active(False)
             if self.isFullScreen():
@@ -2046,6 +2124,19 @@ class AuraPDFViewer(QMainWindow):
             self.modern_header_bar.set_mode("edit")
         elif tool_id == "protect_pdf":
             self.open_encrypt_dialog()
+        elif tool_id == "merge_pdf":
+            self.open_merge_dialog()
+        elif tool_id == "compress_pdf":
+            self.open_compress_dialog()
+        elif tool_id == "ocr_pdf":
+            self.open_pdf_ocr_dialog()
+        elif tool_id == "convert_word":
+            self.open_word_dialog()
+        elif tool_id.startswith("ai_"):
+            action = tool_id.replace("ai_", "")
+            self.open_ai_assistant_dialog(action=action)
+        elif tool_id == "ai_assistant":
+            self.open_ai_assistant_dialog(action="summary")
 
     def _on_export_drawer_action(self, action_id: str):
         try:
@@ -2841,7 +2932,7 @@ class AuraPDFViewer(QMainWindow):
         if tab_doc and tab_doc.doc:
             try:
                 tab_doc.set_modified(True)
-                is_tab_visible = getattr(self, 'central_stack', None) and self.central_stack.currentWidget() == self.tab_widget
+                is_tab_visible = getattr(self, 'central_stack', None) and self.central_stack.currentWidget() in (self.tab_widget, getattr(self, 'document_splitter', None))
                 if is_tab_visible:
                     tab_doc.render_all_pages()
                 tab_doc.update_tab_title()
@@ -3058,7 +3149,7 @@ class AuraPDFViewer(QMainWindow):
                 self.toolbar.hide()
             if hasattr(self, 'modern_utility_rail') and hasattr(self, 'central_stack') and self.central_stack.currentWidget() != getattr(self, 'home_workspace', None):
                 self.modern_utility_rail.show()
-            if hasattr(self, 'central_stack') and self.central_stack.currentWidget() == self.tab_widget:
+            if hasattr(self, 'central_stack') and self.central_stack.currentWidget() in (self.tab_widget, getattr(self, 'document_splitter', None)):
                 if getattr(self, 'capsule_docked_to_top', False):
                     if hasattr(self, 'top_pinned_tools_bar'):
                         self.top_pinned_tools_bar.show()
@@ -3465,6 +3556,19 @@ class AuraPDFViewer(QMainWindow):
             self.modern_right_sidebar.apply_theme(theme_name)
         if hasattr(self, 'modern_utility_rail'):
             self.modern_utility_rail.apply_theme(theme_name)
+        if hasattr(self, 'secondary_split_pane') and self.secondary_split_pane:
+            self.secondary_split_pane.apply_theme(theme_name)
+        if hasattr(self, 'document_splitter') and self.document_splitter:
+            c = get_modern_theme_colors(theme_name)
+            self.document_splitter.setStyleSheet(f"""
+                QSplitter#DocumentSplitter::handle {{
+                    background-color: {c['border']};
+                    width: 3px;
+                }}
+                QSplitter#DocumentSplitter::handle:hover {{
+                    background-color: {c['accent']};
+                }}
+            """)
 
     def change_language(self, lang: str):
         LanguageManager.set_language(lang)
@@ -3655,6 +3759,8 @@ class AuraPDFViewer(QMainWindow):
             self.left_pinned_tools_bar.retranslate_ui()
         if hasattr(self, 'right_pinned_tools_bar') and hasattr(self.right_pinned_tools_bar, 'retranslate_ui'):
             self.right_pinned_tools_bar.retranslate_ui()
+        if hasattr(self, 'secondary_split_pane') and hasattr(self.secondary_split_pane, 'retranslate_ui'):
+            self.secondary_split_pane.retranslate_ui()
 
         self.tab_widget.update()
 
@@ -3677,6 +3783,10 @@ class AuraPDFViewer(QMainWindow):
                 if isinstance(widget, PDFTabDocument) and getattr(widget, 'file_path', None) and os.path.abspath(widget.file_path) == norm_path:
                     self.tab_widget.setCurrentIndex(idx)
                     self.switch_to_document_view()
+                    if hasattr(self, '_pending_ai_action') and self._pending_ai_action:
+                        act = self._pending_ai_action
+                        self._pending_ai_action = None
+                        QTimer.singleShot(250, lambda p=widget.file_path, a=act: self.open_ai_assistant_dialog(file_path=p, action=a))
                     return
             tab_doc = PDFTabDocument(file_path, self)
             view_bg = self.get_theme_view_bg()
@@ -3685,6 +3795,8 @@ class AuraPDFViewer(QMainWindow):
             self.tab_widget.setCurrentIndex(tab_idx)
             tab_doc.update_tab_title()
             self.sync_modern_tabs()
+            if hasattr(self, 'secondary_split_pane') and self.secondary_split_pane.isVisible():
+                self.secondary_split_pane.refresh_open_documents_list()
             if hasattr(self, 'organize_workspace') and hasattr(self, 'central_stack') and self.central_stack.currentWidget() == self.organize_workspace:
                 self.organize_workspace.load_document()
             if hasattr(self, 'modern_right_sidebar') and self.modern_right_sidebar.isVisible():
@@ -3696,6 +3808,10 @@ class AuraPDFViewer(QMainWindow):
             self.add_to_recent_files(file_path)
             if hasattr(self, 'file_watcher') and os.path.exists(file_path):
                 self.file_watcher.addPath(norm_path)
+            if hasattr(self, '_pending_ai_action') and self._pending_ai_action:
+                act = self._pending_ai_action
+                self._pending_ai_action = None
+                QTimer.singleShot(250, lambda p=file_path, a=act: self.open_ai_assistant_dialog(file_path=p, action=a))
         except Exception as e:
             if str(e) == LanguageManager.tr("password_cancelled"):
                 return
@@ -3775,6 +3891,11 @@ class AuraPDFViewer(QMainWindow):
                     pass
         self.update_undo_redo_state()
         self.sync_modern_tabs()
+        if hasattr(self, 'secondary_split_pane') and self.secondary_split_pane.isVisible():
+            if self.tab_widget.count() == 0:
+                self.close_multiview()
+            else:
+                self.secondary_split_pane.refresh_open_documents_list()
         if hasattr(self, 'organize_workspace') and hasattr(self, 'central_stack') and self.central_stack.currentWidget() == self.organize_workspace:
             self.organize_workspace.load_document()
         if hasattr(self, 'modern_right_sidebar'):
@@ -3838,6 +3959,13 @@ class AuraPDFViewer(QMainWindow):
                 self.search_bar.lbl_count.setText(LanguageManager.tr("search_no_results"))
         self.update_undo_redo_state()
         self.sync_modern_tabs()
+        if hasattr(self, 'secondary_split_pane') and self.secondary_split_pane.isVisible():
+            if self.tab_widget.count() == 0:
+                self.close_multiview()
+            else:
+                self.secondary_split_pane.refresh_open_documents_list()
+                if getattr(self.secondary_split_pane, 'is_sync_scroll_enabled', False):
+                    self._connect_multiview_scroll_sync()
         if hasattr(self, 'modern_right_sidebar') and self.modern_right_sidebar.isVisible():
             self.modern_right_sidebar.load_bookmarks()
         if hasattr(self, 'organize_workspace') and hasattr(self, 'central_stack') and self.central_stack.currentWidget() == self.organize_workspace:
@@ -3877,6 +4005,11 @@ class AuraPDFViewer(QMainWindow):
         if doc := self.get_current_tab_doc(): doc.zoom_in()
     def zoom_out(self):
         if doc := self.get_current_tab_doc(): doc.zoom_out()
+    def reset_zoom_100(self):
+        if doc := self.get_current_tab_doc():
+            doc.set_zoom(1.0)
+            if hasattr(self, 'modern_header_bar') and self.modern_header_bar:
+                self.modern_header_bar.update_zoom_info(100)
     def fit_to_width(self):
         if doc := self.get_current_tab_doc():
             doc.fit_to_width()
@@ -4148,13 +4281,175 @@ class AuraPDFViewer(QMainWindow):
             self.set_page_view_mode(new_mode)
 
     def update_view_mode_button(self):
-        if hasattr(self, 'btn_view_mode'):
-            tab_doc = self.get_current_tab_doc()
-            mode = getattr(tab_doc, 'page_view_mode', 'single') if tab_doc else 'single'
+        tab_doc = self.get_current_tab_doc()
+        mode = getattr(tab_doc, 'page_view_mode', 'single') if tab_doc else 'single'
+        if hasattr(self, 'btn_view_mode') and self.btn_view_mode:
             if mode == 'double':
                 self.btn_view_mode.setIcon(ModernIconFactory.icon_view_double())
             else:
                 self.btn_view_mode.setIcon(ModernIconFactory.icon_view_single())
+        if hasattr(self, 'modern_header_bar') and hasattr(self.modern_header_bar, 'update_view_mode_icon'):
+            self.modern_header_bar.update_view_mode_icon(mode)
+
+    # =========================================================================
+    # MULTIVIEW (YAN YANA İKİ BELGE BÖLÜNMÜŞ GÖRÜNÜMÜ) METOTLARI
+    # =========================================================================
+    def toggle_multiview(self):
+        """İki PDF belgesini yan yana bölünmüş ekranda görüntüleme modunu açar veya kapatır."""
+        if not hasattr(self, 'secondary_split_pane') or not hasattr(self, 'document_splitter'):
+            return
+        if self.secondary_split_pane.isVisible():
+            self.close_multiview()
+        else:
+            self.open_multiview()
+
+    def open_multiview(self, second_file_path: Optional[str] = None):
+        """İki belgeyi yan yana bölünmüş ekranda açar."""
+        if self.tab_widget.count() == 0:
+            QMessageBox.warning(self, LanguageManager.tr("warning"), LanguageManager.tr("multiview_no_doc_warning"))
+            return
+
+        self.switch_to_document_view()
+
+        # Splitter'ı 50% - 50% genişliğe ayarla
+        self.secondary_split_pane.show()
+        w = self.document_splitter.width()
+        half_w = max(300, w // 2) if w > 0 else 500
+        self.document_splitter.setSizes([half_w, half_w])
+
+        # Eğer ikinci dosya belirtilmediyse, diğer açık sekmelerden birini otomatik seç
+        if not second_file_path:
+            cur_idx = self.tab_widget.currentIndex()
+            if self.tab_widget.count() > 1:
+                other_idx = (cur_idx + 1) % self.tab_widget.count()
+                other_w = self.tab_widget.widget(other_idx)
+                if other_w and getattr(other_w, 'file_path', None):
+                    second_file_path = other_w.file_path
+
+        if second_file_path and os.path.isfile(second_file_path):
+            self.secondary_split_pane.load_document(second_file_path)
+        else:
+            self.secondary_split_pane.refresh_open_documents_list()
+
+        if hasattr(self, 'modern_header_bar') and hasattr(self.modern_header_bar, 'set_multiview_active'):
+            self.modern_header_bar.set_multiview_active(True)
+
+    def close_multiview(self):
+        """Multiview bölünmüş ekranını kapatır ve tekli belge görünümüne döner."""
+        if hasattr(self, 'secondary_split_pane'):
+            self.secondary_split_pane.close_document()
+            self.secondary_split_pane.hide()
+        if hasattr(self, 'modern_header_bar') and hasattr(self.modern_header_bar, 'set_multiview_active'):
+            self.modern_header_bar.set_multiview_active(False)
+
+    def swap_multiview_documents(self):
+        """Sol (birincil) ve sağ (ikincil) belgelerin konumlarını yer değiştirir."""
+        if not hasattr(self, 'secondary_split_pane') or not self.secondary_split_pane.isVisible():
+            return
+        sec_path = getattr(self.secondary_split_pane, 'file_path', None)
+        prim_doc = self.get_current_tab_doc()
+        prim_path = getattr(prim_doc, 'file_path', None) if prim_doc else None
+
+        if not sec_path or not prim_path:
+            return
+
+        # 1. Sağdaki belgeyi sol taraftaki sekmelerde ara veya aç
+        found_tab_idx = -1
+        norm_sec = os.path.abspath(sec_path)
+        for i in range(self.tab_widget.count()):
+            w = self.tab_widget.widget(i)
+            f_path = getattr(w, 'file_path', None)
+            if f_path and os.path.abspath(f_path) == norm_sec:
+                found_tab_idx = i
+                break
+
+        if found_tab_idx >= 0:
+            self.tab_widget.setCurrentIndex(found_tab_idx)
+        else:
+            self.add_pdf_tab(sec_path)
+
+        # 2. Önceki birincil belgeyi sağdaki ikincil panele yükle
+        self.secondary_split_pane.load_document(prim_path)
+
+    def _on_multiview_sync_scroll_toggled(self, enabled: bool):
+        """Eşzamanlı kaydırma açıldığında veya kapandığında scrollbar sinyallerini bağlar/koparır."""
+        self._connect_multiview_scroll_sync()
+
+    def _connect_multiview_scroll_sync(self):
+        if not hasattr(self, 'secondary_split_pane') or not self.secondary_split_pane.isVisible():
+            return
+        if not getattr(self.secondary_split_pane, 'is_sync_scroll_enabled', False):
+            return
+        prim_doc = self.get_current_tab_doc()
+        sec_doc = getattr(self.secondary_split_pane, 'tab_doc', None)
+        if not prim_doc or not sec_doc or not hasattr(prim_doc, 'view') or not hasattr(sec_doc, 'view'):
+            return
+
+        try:
+            prim_bar = prim_doc.view.verticalScrollBar()
+            prim_bar.valueChanged.disconnect(self._on_primary_doc_scrolled)
+        except Exception:
+            pass
+        try:
+            sec_bar = sec_doc.view.verticalScrollBar()
+            sec_bar.valueChanged.disconnect(self._on_secondary_doc_scrolled)
+        except Exception:
+            pass
+
+        prim_doc.view.verticalScrollBar().valueChanged.connect(self._on_primary_doc_scrolled)
+        sec_doc.view.verticalScrollBar().valueChanged.connect(self._on_secondary_doc_scrolled)
+
+    def _on_primary_doc_scrolled(self, val: int):
+        if getattr(self, '_is_syncing_multiview_scroll', False):
+            return
+        if not hasattr(self, 'secondary_split_pane') or not self.secondary_split_pane.isVisible():
+            return
+        if not getattr(self.secondary_split_pane, 'is_sync_scroll_enabled', False):
+            return
+        prim_doc = self.get_current_tab_doc()
+        sec_doc = getattr(self.secondary_split_pane, 'tab_doc', None)
+        if not prim_doc or not sec_doc or not hasattr(sec_doc, 'view'):
+            return
+
+        v_prim = prim_doc.view.verticalScrollBar()
+        v_sec = sec_doc.view.verticalScrollBar()
+        max_prim = v_prim.maximum()
+        max_sec = v_sec.maximum()
+        if max_prim <= 0 or max_sec <= 0:
+            return
+
+        ratio = val / float(max_prim)
+        self._is_syncing_multiview_scroll = True
+        try:
+            v_sec.setValue(int(ratio * max_sec))
+        finally:
+            self._is_syncing_multiview_scroll = False
+
+    def _on_secondary_doc_scrolled(self, val: int):
+        if getattr(self, '_is_syncing_multiview_scroll', False):
+            return
+        if not hasattr(self, 'secondary_split_pane') or not self.secondary_split_pane.isVisible():
+            return
+        if not getattr(self.secondary_split_pane, 'is_sync_scroll_enabled', False):
+            return
+        prim_doc = self.get_current_tab_doc()
+        sec_doc = getattr(self.secondary_split_pane, 'tab_doc', None)
+        if not prim_doc or not sec_doc or not hasattr(prim_doc, 'view'):
+            return
+
+        v_prim = prim_doc.view.verticalScrollBar()
+        v_sec = sec_doc.view.verticalScrollBar()
+        max_prim = v_prim.maximum()
+        max_sec = v_sec.maximum()
+        if max_prim <= 0 or max_sec <= 0:
+            return
+
+        ratio = val / float(max_sec)
+        self._is_syncing_multiview_scroll = True
+        try:
+            v_prim.setValue(int(ratio * max_prim))
+        finally:
+            self._is_syncing_multiview_scroll = False
 
     def on_new_doc_btn_clicked(self):
         self.show_new_page_dialog()
@@ -4659,6 +4954,16 @@ class AuraPDFViewer(QMainWindow):
     def print_pdf(self):
         if not (tab_doc := self.get_current_tab_doc()) or tab_doc.doc is None or len(tab_doc.doc) == 0:
             return QMessageBox.warning(self, LanguageManager.tr("warning"), LanguageManager.tr("no_pdf_print"))
+        if hasattr(tab_doc, 'sync_form_fields'):
+            try:
+                tab_doc.sync_form_fields()
+            except Exception:
+                pass
+        if hasattr(tab_doc, 'export_drawings_to_pdf') and tab_doc.doc:
+            try:
+                tab_doc.export_drawings_to_pdf(tab_doc.doc)
+            except Exception:
+                pass
         from src.ui.dialogs.print_dialog import ModernPrintDialog
         ModernPrintDialog(tab_doc, self).exec()
 
@@ -4692,7 +4997,7 @@ class AuraPDFViewer(QMainWindow):
     def show_insert_table_dialog(self):
         tab_doc = self.get_current_tab_doc()
         if not tab_doc or not tab_doc.doc or len(tab_doc.doc) == 0:
-            QMessageBox.warning(self, LanguageManager.tr("warning"), "Lütfen önce bir PDF belgesi açın.")
+            QMessageBox.warning(self, LanguageManager.tr("warning"), LanguageManager.tr("open_pdf_first_warning"))
             return
         from src.ui.dialogs.media_dialogs import TableInsertDialog
         dlg = TableInsertDialog(self)
@@ -4713,7 +5018,7 @@ class AuraPDFViewer(QMainWindow):
     def show_insert_emoji_dialog(self):
         tab_doc = self.get_current_tab_doc()
         if not tab_doc or not tab_doc.doc or len(tab_doc.doc) == 0:
-            QMessageBox.warning(self, LanguageManager.tr("warning"), "Lütfen önce bir PDF belgesi açın.")
+            QMessageBox.warning(self, LanguageManager.tr("warning"), LanguageManager.tr("open_pdf_first_warning"))
             return
         from src.ui.dialogs.media_dialogs import EmojiGifPickerDialog
         dlg = EmojiGifPickerDialog(self)
@@ -4726,7 +5031,7 @@ class AuraPDFViewer(QMainWindow):
     def show_insert_image_dialog(self, default_tab=0):
         tab_doc = self.get_current_tab_doc()
         if not tab_doc or not tab_doc.doc or len(tab_doc.doc) == 0:
-            QMessageBox.warning(self, LanguageManager.tr("warning"), "Lütfen önce bir PDF belgesi açın.")
+            QMessageBox.warning(self, LanguageManager.tr("warning"), LanguageManager.tr("open_pdf_first_warning"))
             return
         from src.ui.dialogs.media_dialogs import ImageInsertDialog
         dlg = ImageInsertDialog(self, default_tab=default_tab)
@@ -4741,7 +5046,7 @@ class AuraPDFViewer(QMainWindow):
     def show_insert_audio_dialog(self):
         tab_doc = self.get_current_tab_doc()
         if not tab_doc or not tab_doc.doc or len(tab_doc.doc) == 0:
-            QMessageBox.warning(self, LanguageManager.tr("warning"), "Lütfen önce bir PDF belgesi açın.")
+            QMessageBox.warning(self, LanguageManager.tr("warning"), LanguageManager.tr("open_pdf_first_warning"))
             return
 
         # Zaten açık bir ses kayıt penceresi varsa öne getir
@@ -4783,7 +5088,7 @@ class AuraPDFViewer(QMainWindow):
     def show_insert_video_dialog(self):
         tab_doc = self.get_current_tab_doc()
         if not tab_doc or not tab_doc.doc or len(tab_doc.doc) == 0:
-            QMessageBox.warning(self, LanguageManager.tr("warning"), "Lütfen önce bir PDF belgesi açın.")
+            QMessageBox.warning(self, LanguageManager.tr("warning"), LanguageManager.tr("open_pdf_first_warning"))
             return
         from src.ui.dialogs.media_dialogs import VideoInsertDialog
         dlg = VideoInsertDialog(self)
@@ -4799,7 +5104,7 @@ class AuraPDFViewer(QMainWindow):
     def show_insert_audio_file_picker(self):
         tab_doc = self.get_current_tab_doc()
         if not tab_doc or not tab_doc.doc or len(tab_doc.doc) == 0:
-            QMessageBox.warning(self, LanguageManager.tr("warning"), "Lütfen önce bir PDF belgesi açın.")
+            QMessageBox.warning(self, LanguageManager.tr("warning"), LanguageManager.tr("open_pdf_first_warning"))
             return
         from PyQt6.QtWidgets import QFileDialog
         path, _ = QFileDialog.getOpenFileName(
@@ -4821,12 +5126,12 @@ class AuraPDFViewer(QMainWindow):
                     format=ext
                 )
             except Exception as e:
-                QMessageBox.warning(self, LanguageManager.tr("warning"), f"Ses dosyası eklenemedi: {e}")
+                QMessageBox.warning(self, LanguageManager.tr("warning"), LanguageManager.tr("audio_file_add_error", error=str(e)))
 
     def insert_sticky_note(self):
         tab_doc = self.get_current_tab_doc()
         if not tab_doc or not tab_doc.doc or len(tab_doc.doc) == 0:
-            QMessageBox.warning(self, LanguageManager.tr("warning"), "Lütfen önce bir PDF belgesi açın.")
+            QMessageBox.warning(self, LanguageManager.tr("warning"), LanguageManager.tr("open_pdf_first_warning"))
             return
         self.set_tool_state('text')
         center_scene = tab_doc.view.mapToScene(tab_doc.view.viewport().rect().center())
@@ -5073,6 +5378,31 @@ class AuraPDFViewer(QMainWindow):
         from src.ui.dialogs.toolbox_dialogs import PDFToEbookDialog
         PDFToEbookDialog(self, format_type).exec()
 
+    def open_ai_assistant_dialog(self, file_path: str = None, action: str = "summary"):
+        """Aura AI Belge Asistani diyalogunu belirtilen belge ve eylemle açar."""
+        target_path = file_path
+        if not target_path:
+            if hasattr(self, 'tab_widget') and self.tab_widget.count() > 0:
+                cur_widget = self.tab_widget.currentWidget()
+                if cur_widget and getattr(cur_widget, 'file_path', None) and os.path.exists(cur_widget.file_path):
+                    target_path = cur_widget.file_path
+
+        if not target_path or not os.path.exists(target_path):
+            path, _ = QFileDialog.getOpenFileName(
+                self,
+                LanguageManager.tr("home_ai_btn_open"),
+                "",
+                "PDF Files (*.pdf)"
+            )
+            if path and os.path.isfile(path):
+                self._pending_ai_action = action
+                self.add_pdf_tab(path)
+            return
+
+        from src.ui.dialogs.ai_assistant_dialog import AuraAiAssistantDialog
+        dlg = AuraAiAssistantDialog(target_path, initial_action=action, main_window=self, parent=self)
+        dlg.show()
+
     def save_toolbar_order(self):
         if not hasattr(self, 'toolbar'):
             return
@@ -5169,7 +5499,7 @@ class AuraPDFViewer(QMainWindow):
         if enabled:
             if self.toolBarArea(self.toolbar) == Qt.ToolBarArea.NoToolBarArea:
                 self.addToolBar(self.toolbar)
-            if hasattr(self, 'central_stack') and self.central_stack.currentWidget() == self.tab_widget:
+            if hasattr(self, 'central_stack') and self.central_stack.currentWidget() in (self.tab_widget, getattr(self, 'document_splitter', None)):
                 self.toolbar.show()
             self.restore_toolbar_order()
         else:

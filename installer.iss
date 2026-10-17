@@ -4,10 +4,10 @@
 #define MyAppName "AuraPDF"
 #define MyAppFullName "AuraPDF"
 #ifndef MyAppVersion
-#define MyAppVersion "Pro v2.2.2"
+#define MyAppVersion "Pro v2.2.3"
 #endif
 #ifndef OutputFileName
-#define OutputFileName "AuraPDF_Pro v2.2.2"
+#define OutputFileName "AuraPDF_Pro v2.2.3"
 #endif
 #ifndef OutputDir
 #define OutputDir "Kurulum\Pro"
@@ -65,6 +65,7 @@ Name: "assocpdf"; Description: "{cm:AssocPdf}"; GroupDescription: "{cm:FileAssoc
 
 [Files]
 Source: "{#MyAppIcon}"; DestDir: "{app}"; Flags: ignoreversion
+Source: "assets\pdf_file.ico"; DestDir: "{app}"; Flags: ignoreversion
 Source: "assets\PdfThumbnailProvider.dll"; DestDir: "{app}"; Flags: ignoreversion
 Source: "assets\PowerToys.PdfThumbnailProvider.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#MyDistDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
@@ -78,7 +79,7 @@ Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; IconFilen
 ; PDF Dosya Iliskilendirmesi
 Root: HKA; Subkey: "Software\Classes\.pdf\OpenWithProgids"; ValueType: string; ValueName: "AuraPDF.AssocFile.PDF"; ValueData: ""; Flags: uninsdeletevalue; Tasks: assocpdf
 Root: HKA; Subkey: "Software\Classes\AuraPDF.AssocFile.PDF"; ValueType: string; ValueName: ""; ValueData: "{cm:PdfDocType}"; Flags: uninsdeletekey; Tasks: assocpdf
-Root: HKA; Subkey: "Software\Classes\AuraPDF.AssocFile.PDF\DefaultIcon"; ValueType: string; ValueName: ""; ValueData: "{app}\app_icon.ico,0"; Tasks: assocpdf
+Root: HKA; Subkey: "Software\Classes\AuraPDF.AssocFile.PDF\DefaultIcon"; ValueType: string; ValueName: ""; ValueData: "{app}\pdf_file.ico,0"; Tasks: assocpdf
 Root: HKA; Subkey: "Software\Classes\AuraPDF.AssocFile.PDF\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\{#MyAppExeName}"" ""%1"""; Tasks: assocpdf
 Root: HKA; Subkey: "Software\Classes\AuraPDF.AssocFile.PDF\ShellEx\{{8895b1c6-b41f-4c1c-a562-0d564250836f}"; ValueType: string; ValueName: ""; ValueData: "{{3A84F9C2-6164-485C-A7D9-4B27F8AC009E}"; Tasks: assocpdf
 ; PDF Onizleme (Thumbnail Provider) ve Sag-Alt AuraPDF Logo Rozeti

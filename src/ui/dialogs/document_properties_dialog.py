@@ -15,7 +15,7 @@ from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel,
                              QScrollArea, QFrame)
 from PyQt6.QtCore import Qt
 from src.core.i18n import LanguageManager
-from src.ui.dialog_theme import get_dialog_theme_stylesheet
+from src.ui.dialog_theme import get_dialog_theme_stylesheet, apply_dialog_theme
 
 
 class AuraDocumentPropertiesDialog(QDialog):
@@ -38,9 +38,11 @@ class AuraDocumentPropertiesDialog(QDialog):
         self.resize(580, 520)
         self.setMinimumSize(500, 440)
         self.setSizeGripEnabled(True)
-        self.setStyleSheet(get_dialog_theme_stylesheet(self, extra_css="""
+
+        self._build_ui()
+        self._load_data()
+        apply_dialog_theme(self, parent_widget, extra_css="""
             QGroupBox {
-                border: 1px solid rgba(255, 255, 255, 0.12);
                 border-radius: 8px;
                 margin-top: 10px;
                 padding-top: 14px;
@@ -52,30 +54,13 @@ class AuraDocumentPropertiesDialog(QDialog):
                 padding: 0 4px;
             }
             QLineEdit, QTextEdit {
-                background: rgba(255, 255, 255, 0.05);
-                border: 1px solid rgba(255, 255, 255, 0.15);
                 border-radius: 6px;
                 padding: 6px 8px;
-                color: #f1f5f9;
-            }
-            QLineEdit:focus, QTextEdit:focus {
-                border-color: #38bdf8;
-            }
-            QLineEdit:read-only {
-                background: rgba(0, 0, 0, 0.2);
-                color: #94a3b8;
             }
             QLabel.KeyLabel {
                 font-weight: 600;
-                color: #94a3b8;
             }
-            QLabel.ValueLabel {
-                color: #e2e8f0;
-            }
-        """))
-
-        self._build_ui()
-        self._load_data()
+        """)
 
     def _build_ui(self):
         root_layout = QVBoxLayout(self)
