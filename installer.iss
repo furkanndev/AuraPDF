@@ -104,9 +104,9 @@ Root: HKCU; Subkey: "Software\Classes\.pdf\ShellEx\{{e357fccd-a995-4576-b01f-234
 Root: HKCU; Subkey: "Software\Classes\SystemFileAssociations\.pdf\ShellEx\{{e357fccd-a995-4576-b01f-234630154e96}"; Flags: dontcreatekey uninsdeletekey
 Root: HKCU; Subkey: "Software\Classes\CLSID\{{D8BB9942-93BD-412D-87E4-33FAB214DC1A}"; Flags: dontcreatekey uninsdeletekey
 Root: HKCU; Subkey: "Software\Classes\AuraPDF.AssocFile.PDF"; Flags: dontcreatekey uninsdeletekey
-Root: HKCU; Subkey: "Software\Classes\.pdf"; ValueType: string; ValueName: "TypeOverlay"; Flags: dontcreatekey uninsdeletevalue
-Root: HKCU; Subkey: "Software\Classes\SystemFileAssociations\.pdf"; ValueType: string; ValueName: "TypeOverlay"; Flags: dontcreatekey uninsdeletevalue
-Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced"; ValueType: dword; ValueName: "ShowTypeOverlay"; Flags: dontcreatekey uninsdeletevalue
+Root: HKCU; Subkey: "Software\Classes\.pdf"; ValueType: none; ValueName: "TypeOverlay"; Flags: dontcreatekey uninsdeletevalue
+Root: HKCU; Subkey: "Software\Classes\SystemFileAssociations\.pdf"; ValueType: none; ValueName: "TypeOverlay"; Flags: dontcreatekey uninsdeletevalue
+Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced"; ValueType: none; ValueName: "ShowTypeOverlay"; Flags: dontcreatekey uninsdeletevalue
 
 [UninstallRun]
 Filename: "{app}\{#MyAppExeName}"; Parameters: "--uninstall-cleanup"; Flags: runhidden skipifdoesntexist
