@@ -5,8 +5,8 @@
 <h1 align="center">AuraPDF Pro</h1>
 
 <p align="center">
-  <strong>Advanced, High-Performance, and Offline AI-Powered Desktop PDF Platform</strong><br>
-  Built on Python 3, PyQt6, and the native C++ PyMuPDF engine. Designed for mission-critical PDF reading, in-place content editing, visual page organization, and local document intelligence.
+  <strong>High-Performance Desktop PDF Platform</strong><br>
+  Engineered with Python 3, PyQt6, and the native C++ PyMuPDF rendering engine. Designed for high-speed document viewing, direct in-page text editing, visual page organization, digital signatures, AcroForms, and format conversion.
 </p>
 
 <p align="center">
@@ -34,9 +34,8 @@
   - [3. Visual Page Organization & Manipulation](#3-visual-page-organization--manipulation)
   - [4. Comprehensive Conversion & PDF Toolbox](#4-comprehensive-conversion--pdf-toolbox)
   - [5. Direct In-Page Content Editing & Annotations](#5-direct-in-page-content-editing--annotations)
-  - [6. Aura AI - Offline Document Intelligence](#6-aura-ai---offline-document-intelligence)
-  - [7. Digital Signatures, Stamps, and AcroForms](#7-digital-signatures-stamps-and-acroforms)
-  - [8. Modern Theme Engine & High-DPI Aesthetics](#8-modern-theme-engine--high-dpi-aesthetics)
+  - [6. Digital Signatures, Stamps, and AcroForms](#6-digital-signatures-stamps-and-acroforms)
+  - [7. Modern Theme Engine & High-DPI Aesthetics](#7-modern-theme-engine--high-dpi-aesthetics)
 - [System Requirements](#system-requirements)
 - [Installation & Getting Started](#installation--getting-started)
 - [Building the Windows Installer (.exe)](#building-the-windows-installer-exe)
@@ -49,9 +48,9 @@
 
 ## Overview
 
-**AuraPDF Pro** is a modern desktop PDF workstation engineered to meet both everyday productivity demands and enterprise document workflows.
+**AuraPDF Pro** is a modern desktop PDF workstation built to deliver high performance, offline privacy, and an Adobe Acrobat-grade feature set.
 
-By combining the native C++ rasterization performance of PyMuPDF with PyQt6's responsive graphics architecture, AuraPDF Pro provides fluid 60+ FPS navigation across multi-thousand-page documents, near-zero memory overhead, 100% offline document analysis, in-place text editing, searchable sandwich OCR, and a comprehensive suite of Adobe Acrobat-class utility tools.
+By utilizing PyMuPDF's low-level C++ rendering pipeline combined with PyQt6's responsive UI architecture, AuraPDF Pro provides smooth 60+ FPS navigation across large documents, minimal memory usage, in-place content editing, searchable sandwich OCR, interactive form filling, and a comprehensive suite of page management and conversion tools.
 
 ---
 
@@ -63,13 +62,13 @@ By combining the native C++ rasterization performance of PyMuPDF with PyQt6's re
   <img src="docs/screenshots/01_hero_reader_dark.png" alt="AuraPDF Pro Reading Experience" width="94%" style="border-radius: 8px;" />
 </p>
 
-* **Multi-Tab Architecture:** Manage multiple PDF files simultaneously in detachable, draggable, and restorable tabs (`Ctrl+W`, `Ctrl+Shift+T`).
-* **Hierarchical Table of Contents (TOC):** Expandable tree navigation allowing instantaneous jumping between chapters, sections, and nested headings.
-* **Floating Quick Tools Capsule:** Context-aware, draggable floating tool palette placed beside your cursor for quick highlighter, pen, eraser, and annotation selection.
+* **Multi-Tab Architecture:** Manage multiple PDF documents simultaneously in detached, draggable, and restorable tabs (`Ctrl+W`, `Ctrl+Shift+T`).
+* **Hierarchical Table of Contents (TOC):** Interactive tree navigation enabling instant jumping between document sections and nested headings.
+* **Floating Quick Tools Capsule:** Context-aware, draggable floating tool palette positioned beside your cursor for quick highlighter, pen, eraser, and annotation selection.
 * **Reading & Color Modes:**
   * **Day Mode:** Native, color-accurate PDF rendering.
-  * **Hardware-Accelerated Dark Mode:** Low-light inverted C-level palette preserving vector crispness while minimizing eye strain.
-  * **Book (Sepia) Mode:** Warm paper hue tailored for extended reading sessions.
+  * **Hardware-Accelerated Dark Mode:** Inverted palette preserving vector clarity while minimizing eye fatigue.
+  * **Book (Sepia) Mode:** Warm paper hue designed for extended reading sessions.
 * **Smart Navigation:** Fit-to-width (`Ctrl+2`), fit-to-height (`Ctrl+0`), smooth fractional zoom (`Ctrl++` / `Ctrl+-`), and browser-style view history (`Alt+Left Arrow`, `Alt+Right Arrow`).
 
 ---
@@ -80,10 +79,10 @@ By combining the native C++ rasterization performance of PyMuPDF with PyQt6's re
   <img src="docs/screenshots/02_home_dashboard.png" alt="AuraPDF Pro Home Dashboard" width="94%" style="border-radius: 8px;" />
 </p>
 
-* **Instant Document Starters:** Launch fresh canvas files with one click, including *Blank Document*, *Lined Notes*, *Grid Paper*, *Cornell Notes*, and *Dot Grid*.
-* **Enriched Recent Files Hub:** Track recent files with real-time metadata including page count, file size, last modified timestamp, and path.
-* **Favorites System:** Pin frequently referenced documents for instant single-click access.
-* **Quick Action Tiles:** Direct access to Organize Pages, Annotate, Prepare Form, Edit Content, and Secure PDF.
+* **Document Starter Hub:** Launch new document canvases with one click, including *Blank Document*, *Lined Notes*, *Grid Paper*, *Cornell Notes*, and *Dot Grid*.
+* **Enriched Recent Files:** Track recent files with real-time metadata including page count, file size, last modified timestamp, and location.
+* **Favorites System:** Pin frequently referenced documents for immediate single-click access.
+* **Quick Action Tiles:** Direct access to Organize Pages, Annotate, Prepare Form, Edit Content, and Protect PDF.
 
 ---
 
@@ -93,13 +92,13 @@ By combining the native C++ rasterization performance of PyMuPDF with PyQt6's re
   <img src="docs/screenshots/03_organize_pages.png" alt="AuraPDF Pro Page Organizer" width="94%" style="border-radius: 8px;" />
 </p>
 
-* **Full-Screen Grid View:** High-resolution page thumbnail grid rendering entire documents simultaneously.
-* **Drag-and-Drop Reordering:** Reorganize page sequences dynamically with visual drop indicators.
+* **Full-Screen Grid View:** High-resolution page thumbnail grid displaying entire documents at a glance.
+* **Drag-and-Drop Reordering:** Rearrange page order dynamically with intuitive visual drop indicators.
 * **Comprehensive Page Actions:**
   * Rotate clockwise / counter-clockwise (90° CW / CCW).
   * Bulk selection and deletion of unwanted pages.
   * Extract selected pages into standalone PDF documents.
-  * Insert external PDF files or blank pages anywhere in the sequence.
+  * Insert external PDF files or blank pages into any position.
   * Duplicate selected pages.
 
 ---
@@ -117,8 +116,8 @@ By combining the native C++ rasterization performance of PyMuPDF with PyQt6's re
   * **E-Book (`.epub`):** Reflowable format conversion optimized for e-readers.
   * **Image Export (`.png`, `.jpg`):** Export full pages or batch-extract embedded graphics.
   * **Web & Text:** HTML web pages, Rich Text Format (`.rtf`), Plain Text (`.txt`), and PostScript (`.eps`).
-* **PDF Merge & Split:** Combine dozens of distinct files into one organized document or split by customized page ranges.
-* **Sandwich OCR Engine:** Generate an invisible, coordinate-aligned searchable text layer behind scanned documents without degrading original visual fidelity.
+* **PDF Merge & Split:** Combine multiple distinct files into one organized document or split by customized page ranges.
+* **Sandwich OCR Engine:** Generate an invisible, coordinate-aligned searchable text layer behind scanned documents without degrading original visual quality.
 * **PDF Compression:** Optimize image DPI and strip duplicate streams to reduce file sizes by up to 80%.
 
 ---
@@ -129,29 +128,15 @@ By combining the native C++ rasterization performance of PyMuPDF with PyQt6's re
   <img src="docs/screenshots/05_direct_edit_mode.png" alt="AuraPDF Pro Direct Text Editor" width="94%" style="border-radius: 8px;" />
 </p>
 
-* **In-Place Text Editor:** Click directly into existing PDF text blocks to edit words, sentences, typography, font sizes, and text alignments on the canvas.
+* **In-Place Text Editor:** Click directly into existing PDF text blocks to edit words, sentences, typography, font sizes, and alignments on the canvas.
 * **Standard PDF Markups:** Highlight, underline, strikeout, and wavy line annotations.
 * **Vector Drawing Tools:** Pressure-sensitive pen, freehand highlighter, arrows, lines, rectangles, and ellipses.
 * **Comments & Sticky Notes:** Interactive callout boxes, searchable annotations list, and threaded replies.
-* **Permanent Redaction:** Irreversibly black out confidential data, IDs, credit cards, or sensitive legal clauses directly from the underlying PDF stream.
+* **Permanent Redaction:** Irreversibly black out confidential data, IDs, credit cards, or sensitive clauses directly from the underlying PDF stream.
 
 ---
 
-### 6. Aura AI - Offline Document Intelligence
-
-<p align="center">
-  <img src="docs/screenshots/06_ai_assistant.png" alt="Aura AI Document Assistant" width="88%" style="border-radius: 8px;" />
-</p>
-
-* **100% Offline & Private:** Documents are analyzed strictly locally on your machine. Confidential corporate and legal data is never transmitted to external cloud servers.
-* **Executive Summaries:** Ingest hundreds of pages in seconds to produce structural overviews, key findings, and section breakdowns.
-* **Risk & Obligation Detection:** Detect binding clauses, penal liabilities, deadlines, financial commitments, and compliance flags.
-* **Interactive Document Q&A:** Chat directly with your document in natural language and receive answers with precise page references.
-* **Optional Cloud API Integration:** Seamlessly connect Google Gemini or OpenAI API keys when advanced multi-modal reasoning is desired.
-
----
-
-### 7. Digital Signatures, Stamps, and AcroForms
+### 6. Digital Signatures, Stamps, and AcroForms
 
 * **Signature Suite:**
   * Draw signatures with mouse or stylus.
@@ -162,7 +147,7 @@ By combining the native C++ rasterization performance of PyMuPDF with PyQt6's re
 
 ---
 
-### 8. Modern Theme Engine & High-DPI Aesthetics
+### 7. Modern Theme Engine & High-DPI Aesthetics
 
 AuraPDF Pro includes 8 professionally calibrated theme palettes:
 
@@ -177,7 +162,7 @@ AuraPDF Pro includes 8 professionally calibrated theme palettes:
 | **Crimson** | High-contrast dark palette with energetic crimson red |
 | **Vice City** | Neon cyberpunk synthwave aesthetic |
 
-*All icons are drawn vectorially via `AuraIconFactory` using `QPainterPath`, ensuring pixel-perfect sharpness across 4K displays and high-DPI scaling.*
+*All icons are drawn vectorially via `AuraIconFactory` using `QPainterPath`, ensuring sharpness across 4K displays and high-DPI scaling.*
 
 ---
 
@@ -272,10 +257,10 @@ AuraPDF/
 ├── docs/
 │   └── screenshots/            # High-resolution documentation screenshots
 ├── src/
-│   ├── core/                  # Core engines (i18n, AI threads, updater, shortcut manager)
+│   ├── core/                  # Core engines (i18n, updater, shortcut manager)
 │   ├── document/              # Tab document architecture, render queues, media items
 │   └── ui/                    # Graphical user interface layer
-│       ├── dialogs/           # Toolbox dialogs, AI assistant, OCR, signatures, settings
+│       ├── dialogs/           # Toolbox dialogs, OCR, signatures, settings
 │       ├── popups/            # Floating HUDs, tool settings, stamp palettes
 │       ├── modern_views.py    # Acrobat-style modern tab bar, header, drawers, workspaces
 │       ├── icons.py           # Vector QPainterPath AuraIconFactory engine
@@ -296,7 +281,7 @@ AuraPDF/
 
 AuraPDF is maintained across two active branches:
 * **`aurapdf-basic-windows`:** Lightweight edition focusing on core PDF reading, annotations, page management, and AcroForms.
-* **`aurapdf_pro_windows` (Active Branch):** Professional edition featuring local AI document intelligence, digital signatures, sandwich OCR, and the complete toolbox suite.
+* **`aurapdf_pro_windows` (Active Branch):** Professional edition featuring digital signatures, sandwich OCR, direct text editing, and the complete toolbox suite.
 
 All contributions adhere to the architecture principles, strict i18n parity, and Conventional Commits guidelines defined in [AGENTS.md](AGENTS.md).
 
