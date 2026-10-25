@@ -238,6 +238,14 @@ def _silence_system_sounds():
 
 
 def main():
+    if any(arg in sys.argv for arg in ("--clean-shell", "--uninstall-cleanup")):
+        try:
+            from src.core.shell_integration import remove_pdf_shell_integration
+            remove_pdf_shell_integration()
+        except Exception:
+            pass
+        sys.exit(0)
+
     _silence_system_sounds()
     import ctypes
     try:

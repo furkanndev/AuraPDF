@@ -46,13 +46,44 @@ def get_bundled_file_path(filename: str) -> str | None:
     return None
 
 
+def is_aurapdf_default_viewer() -> bool:
+    """AuraPDF'in sistemde varsayılan PDF okuyucu olup olmadığını doğrular."""
+    if sys.platform != "win32":
+        return False
+    try:
+        import winreg
+        with winreg.OpenKey(
+            winreg.HKEY_CURRENT_USER,
+            r"Software\Microsoft\Windows\CurrentVersion\Explorer\FileExts\.pdf\UserChoice",
+        ) as k:
+            prog_id, _ = winreg.QueryValueEx(k, "ProgId")
+            if "aurapdf" in str(prog_id).lower():
+                return True
+    except Exception:
+        pass
+
+    try:
+        import winreg
+        with winreg.OpenKey(winreg.HKEY_CLASSES_ROOT, ".pdf") as k:
+            val, _ = winreg.QueryValueEx(k, "")
+            if "aurapdf" in str(val).lower():
+                return True
+    except Exception:
+        pass
+
+    return False
+
+
 def ensure_pdf_shell_integration(force: bool = False) -> bool:
     """
-    Windows Dosya Gezgini için PDF önizleme (Thumbnail Provider) ayarlarını doğrular
-    ve sağ-alt köşe uygulama logo rozetini kapatarak (ShowTypeOverlay=0) temiz ve modern
-    bir önizleme sunar.
-    Geliştirme ortamında (main.py doğrudan çalıştırıldığında) sisteme müdahale etmez;
-    yalnızca derlenmiş/kurulu sürümde (sys.frozen) veya force=True durumunda çalışır.
+    Windows Dosya Gezgini için PDF önizleme (Thumbnail Provider) ayarlarını doğrular.
+    - AuraPDF'in kendi ProgID'si (AuraPDF.AssocFile.PDF) için her zaman COM ve ShellEx kaydı yapar.
+    - Sistem genelindeki (.pdf ve SystemFileAssociations) anahtarlara YALNIZCA AuraPDF varsayılan
+      PDF okuyucu olduğunda veya force=True durumunda müdahale eder.
+    - Başka bir okuyucu (Edge, Acrobat vb.) varsayılan ise genel anahtarlardaki AuraPDF kayıtlarını
+      temizler ve diğer okuyucunun simgesine saygı gösterir.
+    - Geliştirme ortamında (main.py doğrudan çalıştırıldığında) sisteme müdahale etmez;
+      yalnızca derlenmiş/kurulu sürümde (sys.frozen) veya force=True durumunda çalışır.
     """
     if sys.platform != "win32":
         return False
@@ -125,6 +156,33 @@ def ensure_pdf_shell_integration(force: bool = False) -> bool:
             except Exception:
                 pass
 
+        def delete_reg_tree(root, subkey):
+            nonlocal changed
+            try:
+                with winreg.OpenKey(root, subkey, 0, winreg.KEY_ALL_ACCESS) as k:
+                    while True:
+                        try:
+                            child = winreg.EnumKey(k, 0)
+                            delete_reg_tree(root, f"{subkey}\\{child}")
+                        except OSError:
+                            break
+                winreg.DeleteKey(root, subkey)
+                changed = True
+                return True
+            except FileNotFoundError:
+                return True
+            except Exception:
+                return False
+
+        def delete_reg_val(root, subkey, name):
+            nonlocal changed
+            try:
+                with winreg.OpenKey(root, subkey, 0, winreg.KEY_SET_VALUE) as k:
+                    winreg.DeleteValue(k, name)
+                    changed = True
+            except Exception:
+                pass
+
         # 2. COM CLSID Kaydı (HKCU\Software\Classes\CLSID\{D8BB9942-93BD-412D-87E4-33FAB214DC1A})
         clsid_path = f"Software\\Classes\\CLSID\\{THUMBNAIL_PROVIDER_CLSID}"
         set_reg_val(winreg.HKEY_CURRENT_USER, clsid_path, "", "AuraPDF Thumbnail Provider")
@@ -133,25 +191,20 @@ def ensure_pdf_shell_integration(force: bool = False) -> bool:
         set_reg_val(winreg.HKEY_CURRENT_USER, f"{clsid_path}\\InprocServer32", "", active_dll)
         set_reg_val(winreg.HKEY_CURRENT_USER, f"{clsid_path}\\InprocServer32", "ThreadingModel", "Apartment")
 
-        # 3. ShellEx Thumbnail Handler İlişkilendirmesi ve TypeOverlay Rozetini Kapatma
-        # Windows Shell SDK: TypeOverlay = "" değeri küçük resim üzerindeki uygulama logo rozetini engeller
-        for assoc_base in [
+        # 3. AuraPDF Kendi ProgID'si (Software\Classes\AuraPDF.AssocFile.PDF)
+        # Bu kayıt AuraPDF varsayılan yapıldığında otomatik devreye girer, diğer okuyucuları etkilemez
+        set_reg_val(
+            winreg.HKEY_CURRENT_USER,
+            f"Software\\Classes\\AuraPDF.AssocFile.PDF\\ShellEx\\{IID_ITHUMBNAIL_PROVIDER}",
+            "",
+            THUMBNAIL_PROVIDER_CLSID,
+        )
+        set_reg_val(
+            winreg.HKEY_CURRENT_USER,
             r"Software\Classes\AuraPDF.AssocFile.PDF",
-            r"Software\Classes\.pdf",
-            r"Software\Classes\SystemFileAssociations\.pdf",
-        ]:
-            set_reg_val(
-                winreg.HKEY_CURRENT_USER,
-                f"{assoc_base}\\ShellEx\\{IID_ITHUMBNAIL_PROVIDER}",
-                "",
-                THUMBNAIL_PROVIDER_CLSID,
-            )
-            set_reg_val(
-                winreg.HKEY_CURRENT_USER,
-                assoc_base,
-                "TypeOverlay",
-                "",
-            )
+            "TypeOverlay",
+            "",
+        )
 
         # 4. AuraPDF DefaultIcon (PDF dosyaları için standart belge simgesi)
         active_pdf_ico = target_pdf_ico if os.path.isfile(target_pdf_ico) else get_bundled_file_path("pdf_file.ico")
@@ -163,19 +216,52 @@ def ensure_pdf_shell_integration(force: bool = False) -> bool:
                 f"{active_pdf_ico},0",
             )
 
-        # 5. Windows Gezgini Sağ-Alt Logo Rozetini Kapat (Temiz Önizleme Görünümü)
-        # ShowTypeOverlay = 0: Küçük resimlerin sağ-alt köşesindeki uygulama logosu rozetini kaldırır
-        set_reg_dword(
-            winreg.HKEY_CURRENT_USER,
-            r"Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced",
-            "ShowTypeOverlay",
-            0,
-        )
+        # 5. Sistem genelindeki (.pdf ve SystemFileAssociations) anahtarlar
+        # YALNIZCA AuraPDF varsayılan PDF okuyucu olduğunda veya force=True durumunda uygulanır.
+        is_default = force or is_aurapdf_default_viewer()
+        if is_default:
+            for assoc_base in [
+                r"Software\Classes\.pdf",
+                r"Software\Classes\SystemFileAssociations\.pdf",
+            ]:
+                set_reg_val(
+                    winreg.HKEY_CURRENT_USER,
+                    f"{assoc_base}\\ShellEx\\{IID_ITHUMBNAIL_PROVIDER}",
+                    "",
+                    THUMBNAIL_PROVIDER_CLSID,
+                )
+                set_reg_val(
+                    winreg.HKEY_CURRENT_USER,
+                    assoc_base,
+                    "TypeOverlay",
+                    "",
+                )
+            set_reg_dword(
+                winreg.HKEY_CURRENT_USER,
+                r"Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced",
+                "ShowTypeOverlay",
+                0,
+            )
+        else:
+            # AuraPDF varsayılan okuyucu değilse, genel .pdf anahtarlarındaki AuraPDF kayıtlarını temizle
+            for assoc_base in [
+                r"Software\Classes\.pdf",
+                r"Software\Classes\SystemFileAssociations\.pdf",
+            ]:
+                thumb_key = f"{assoc_base}\\ShellEx\\{IID_ITHUMBNAIL_PROVIDER}"
+                try:
+                    with winreg.OpenKey(winreg.HKEY_CURRENT_USER, thumb_key) as k:
+                        val, _ = winreg.QueryValueEx(k, "")
+                        if val == THUMBNAIL_PROVIDER_CLSID:
+                            delete_reg_tree(winreg.HKEY_CURRENT_USER, thumb_key)
+                except Exception:
+                    pass
+                delete_reg_val(winreg.HKEY_CURRENT_USER, assoc_base, "TypeOverlay")
 
         # 6. Değişiklik varsa Shell bildirimini gönder
         if changed:
             try:
-                ctypes.windll.shell32.SHChangeNotify(0x08000000, 0, None, None)  # SHCNE_ASSOCCHANGED
+                ctypes.windll.shell32.SHChangeNotify(0x08000000, 0x1000, None, None)  # SHCNE_ASSOCCHANGED | SHCNF_FLUSH
             except Exception:
                 pass
 
@@ -188,7 +274,8 @@ def ensure_pdf_shell_integration(force: bool = False) -> bool:
 def remove_pdf_shell_integration() -> bool:
     """
     Windows Dosya Gezgini için eklenmiş olan PDF Thumbnail Provider ve
-    AuraPDF ShellEx ilişkilendirmelerini temizler.
+    AuraPDF ShellEx ilişkilendirmelerini tamamen temizler.
+    Program kaldırılırken veya kullanıcı ayarlarından sıfırlandığında çağrılır.
     """
     if sys.platform != "win32":
         return False
@@ -213,6 +300,13 @@ def remove_pdf_shell_integration() -> bool:
             except Exception:
                 return False
 
+        def delete_reg_val(root, subkey, name):
+            try:
+                with winreg.OpenKey(root, subkey, 0, winreg.KEY_SET_VALUE) as k:
+                    winreg.DeleteValue(k, name)
+            except Exception:
+                pass
+
         # 1. COM CLSID Kaydını temizle
         clsid_path = f"Software\\Classes\\CLSID\\{THUMBNAIL_PROVIDER_CLSID}"
         delete_reg_tree(winreg.HKEY_CURRENT_USER, clsid_path)
@@ -220,35 +314,47 @@ def remove_pdf_shell_integration() -> bool:
         # 2. AuraPDF ProgID kaydını temizle
         delete_reg_tree(winreg.HKEY_CURRENT_USER, r"Software\Classes\AuraPDF.AssocFile.PDF")
 
-        # 3. .pdf ve SystemFileAssociations altındaki ShellEx Thumbnail Handler kayıtlarını temizle
+        # 3. .pdf ve SystemFileAssociations altındaki ShellEx Thumbnail Handler kayıtlarını ve TypeOverlay'i temizle
         for assoc_base in [
             r"Software\Classes\.pdf",
             r"Software\Classes\SystemFileAssociations\.pdf",
         ]:
             thumb_key = f"{assoc_base}\\ShellEx\\{IID_ITHUMBNAIL_PROVIDER}"
             delete_reg_tree(winreg.HKEY_CURRENT_USER, thumb_key)
-            # Eğer ShellEx altı boş kaldıysa ShellEx anahtarını da temizle
             try:
                 winreg.DeleteKey(winreg.HKEY_CURRENT_USER, f"{assoc_base}\\ShellEx")
             except Exception:
                 pass
+            delete_reg_val(winreg.HKEY_CURRENT_USER, assoc_base, "TypeOverlay")
 
-        # 4. Local AppData altındaki DLL ve kopyalanmış araçları temizle
+        # 4. ShowTypeOverlay değerini temizle
+        delete_reg_val(
+            winreg.HKEY_CURRENT_USER,
+            r"Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced",
+            "ShowTypeOverlay",
+        )
+
+        # 5. Local AppData altındaki DLL ve kopyalanmış araçları temizle
         try:
             local_appdata = os.path.expandvars(r"%LOCALAPPDATA%\AuraPDF")
-            for fname in ["PdfThumbnailProvider.dll", "PowerToys.PdfThumbnailProvider.exe", "app_icon.ico", "pdf_file.ico"]:
-                fpath = os.path.join(local_appdata, fname)
-                if os.path.isfile(fpath):
-                    try:
-                        os.remove(fpath)
-                    except Exception:
-                        pass
+            if os.path.isdir(local_appdata):
+                for fname in ["PdfThumbnailProvider.dll", "PowerToys.PdfThumbnailProvider.exe", "app_icon.ico", "pdf_file.ico"]:
+                    fpath = os.path.join(local_appdata, fname)
+                    if os.path.isfile(fpath):
+                        try:
+                            os.remove(fpath)
+                        except Exception:
+                            pass
+                try:
+                    os.rmdir(local_appdata)
+                except Exception:
+                    pass
         except Exception:
             pass
 
-        # 5. Shell değişikliğini Windows Gezgini'ne bildir
+        # 6. Shell değişikliğini Windows Gezgini'ne bildir
         try:
-            ctypes.windll.shell32.SHChangeNotify(0x08000000, 0, None, None)  # SHCNE_ASSOCCHANGED
+            ctypes.windll.shell32.SHChangeNotify(0x08000000, 0x1000, None, None)  # SHCNE_ASSOCCHANGED | SHCNF_FLUSH
         except Exception:
             pass
 
