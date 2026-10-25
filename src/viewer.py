@@ -343,6 +343,7 @@ class AuraPDFViewer(QMainWindow):
         QShortcut(QKeySequence("Ctrl+T"), self, activated=self.toggle_toolbar_visibility)
         QShortcut(QKeySequence("Ctrl+Shift+Z"), self, activated=self.redo)
         QShortcut(QKeySequence("Ctrl+S"), self, activated=self.save_pdf)
+        QShortcut(QKeySequence("Ctrl+Shift+S"), self, activated=self.save_as_pdf)
         QShortcut(QKeySequence("Ctrl+P"), self, activated=self.print_pdf)
         QShortcut(QKeySequence("Ctrl+W"), self, activated=lambda: self.close_tab(self.tab_widget.currentIndex()))
 
@@ -689,7 +690,27 @@ class AuraPDFViewer(QMainWindow):
                 sb = self.statusBar()
                 if sb:
                     sb.hide()
+        elif event.type() == QEvent.Type.DevicePixelRatioChange:
+            tab_doc = self.get_current_tab_doc()
+            if tab_doc and hasattr(tab_doc, 'rerender_visible_pages'):
+                tab_doc.rerender_timer.start(100)
         super().changeEvent(event)
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        if not getattr(self, '_screen_hooked', False):
+            wh = self.windowHandle()
+            if wh:
+                try:
+                    wh.screenChanged.connect(self._on_screen_changed)
+                    self._screen_hooked = True
+                except Exception:
+                    pass
+
+    def _on_screen_changed(self, screen):
+        tab_doc = self.get_current_tab_doc()
+        if tab_doc and hasattr(tab_doc, 'rerender_visible_pages'):
+            tab_doc.rerender_timer.start(100)
 
     def exit_to_select_mode(self):
         if self.isFullScreen():
@@ -716,14 +737,31 @@ class AuraPDFViewer(QMainWindow):
     def delete_selected_items(self):
         focus_w = QApplication.focusWidget()
         if focus_w:
+            # Ekler (attachments) paneli açıksa ve odak ekler listesindeyse, seçili eki sil
+            if hasattr(self, 'modern_right_sidebar') and self.modern_right_sidebar:
+                att_list = getattr(self.modern_right_sidebar, 'list_attachments', None)
+                if att_list and (focus_w == att_list or att_list.isAncestorOf(focus_w)):
+                    if hasattr(self.modern_right_sidebar, '_delete_selected_attachments'):
+                        self.modern_right_sidebar._delete_selected_attachments()
+                    return
+            if hasattr(self, 'thumbnails_dock') and self.thumbnails_dock:
+                dock_att = getattr(self.thumbnails_dock, 'list_attachments', None)
+                if dock_att and (focus_w == dock_att or dock_att.isAncestorOf(focus_w)):
+                    if hasattr(self.thumbnails_dock, '_delete_selected_attachments'):
+                        self.thumbnails_dock._delete_selected_attachments()
+                    return
             from PyQt6.QtWidgets import QLineEdit, QTextEdit, QPlainTextEdit, QSpinBox, QDoubleSpinBox, QComboBox
             if isinstance(focus_w, (QLineEdit, QTextEdit, QPlainTextEdit, QSpinBox, QDoubleSpinBox, QComboBox)):
                 return
             if getattr(focus_w, 'is_text_input', False):
                 return
         if doc := self.get_current_tab_doc():
-            if getattr(doc, 'direct_edit_editor', None) or getattr(doc, 'active_text_item', None):
+            if getattr(doc, 'direct_edit_editor', None):
                 return
+            if getattr(doc, 'active_text_item', None):
+                it = doc.active_text_item
+                if hasattr(it, 'textInteractionFlags') and (it.textInteractionFlags() & Qt.TextInteractionFlag.TextEditorInteraction) and it.hasFocus():
+                    return
             doc.delete_selected_items()
 
     def undo(self):
@@ -1520,7 +1558,7 @@ class AuraPDFViewer(QMainWindow):
         """Tüm Araçlar paneli ile Gezinme / Yardımcı Ray panellerinin ekran yerleşimini (Sol / Sağ) ayarlar."""
         if layout_mode is None:
             settings = QSettings("AuraPDF", "PDFViewer")
-            layout_mode = settings.value("sidebar_layout", "tools_left_nav_right", type=str)
+            layout_mode = settings.value("sidebar_layout", "tools_right_nav_left", type=str)
         self.sidebar_layout_mode = layout_mode
 
         if getattr(self, 'body_layout', None) is not None:
@@ -1649,13 +1687,25 @@ class AuraPDFViewer(QMainWindow):
     def _on_tab_hover_entered(self, index: int, pos: QPoint):
         if hasattr(self, '_tab_hide_timer'):
             self._tab_hide_timer.stop()
+
+        # 1. Kullanıcı tercihi kapalıysa önizleme kartı açma
+        settings = QSettings("AuraPDF", "PDFViewer")
+        if not settings.value("show_tab_preview", False, type=bool):
+            self._do_hide_tab_preview()
+            return
+
         self._pending_hover_tab = (index, pos)
         if hasattr(self, 'tab_hover_preview') and self.tab_hover_preview.isVisible():
             self._show_pending_tab_preview()
         elif hasattr(self, '_tab_hover_timer'):
-            self._tab_hover_timer.start(160)
+            # Hızlı ve akıcı kart belirmesi için 280ms bekleme
+            self._tab_hover_timer.start(280)
 
     def _show_pending_tab_preview(self):
+        settings = QSettings("AuraPDF", "PDFViewer")
+        if not settings.value("show_tab_preview", False, type=bool):
+            self._do_hide_tab_preview()
+            return
         if not getattr(self, '_pending_hover_tab', None):
             return
         index, pos = self._pending_hover_tab
@@ -1703,7 +1753,7 @@ class AuraPDFViewer(QMainWindow):
         if hasattr(self, '_tab_hover_timer'):
             self._tab_hover_timer.stop()
         if hasattr(self, '_tab_hide_timer'):
-            self._tab_hide_timer.start(80)
+            self._tab_hide_timer.start(120)
 
     def _do_hide_tab_preview(self):
         self._pending_hover_tab = None
@@ -4524,7 +4574,7 @@ class AuraPDFViewer(QMainWindow):
                 placement = cfg.get("placement", "after_current")
 
                 tab_doc = self.get_current_tab_doc()
-                if force_new_doc or placement == "new_doc" or not tab_doc or tab_doc.doc is None:
+                if force_new_doc or placement == "new_doc" or not tab_doc or tab_doc.doc is None or len(tab_doc.doc) == 0:
                     # Yeni belge oluştur
                     for i in range(count):
                         if i == 0:
@@ -4532,28 +4582,58 @@ class AuraPDFViewer(QMainWindow):
                         else:
                             curr_tab = self.get_current_tab_doc()
                             if curr_tab and curr_tab.doc is not None:
-                                curr_tab.insert_blank_page(after_page=len(curr_tab.doc) - 1, width=w, height=h, style=style)
+                                is_last = (i == count - 1)
+                                curr_tab.insert_blank_page(
+                                    after_page=len(curr_tab.doc) - 1,
+                                    width=w,
+                                    height=h,
+                                    style=style,
+                                    rerender=is_last,
+                                    notify_thumb=is_last
+                                )
                 else:
                     # Mevcut açık belgeye ekle
+                    curr_idx = getattr(tab_doc, 'current_page_idx', 0)
+                    if curr_idx is None or not isinstance(curr_idx, int):
+                        curr_idx = 0
                     if placement == "before_current":
-                        start_pos = max(-1, tab_doc.current_page_idx - 1)
+                        start_pos = max(-1, curr_idx - 1)
                     elif placement == "after_current":
-                        start_pos = tab_doc.current_page_idx
+                        start_pos = max(-1, min(curr_idx, len(tab_doc.doc) - 1))
                     else:  # "end"
                         start_pos = len(tab_doc.doc) - 1
 
                     for i in range(count):
-                        tab_doc.insert_blank_page(after_page=start_pos + i, width=w, height=h, style=style)
+                        is_last = (i == count - 1)
+                        tab_doc.insert_blank_page(
+                            after_page=start_pos + i,
+                            width=w,
+                            height=h,
+                            style=style,
+                            rerender=is_last,
+                            notify_thumb=is_last
+                        )
 
-                    target_page = min(start_pos + count, len(tab_doc.doc) - 1)
-                    tab_doc.go_to_page(target_page)
+                    target_page = max(0, min(start_pos + count, len(tab_doc.doc) - 1))
+                    try:
+                        tab_doc.go_to_page(target_page)
+                    except Exception:
+                        pass
                     if hasattr(self, 'lbl_total') and self.lbl_total:
-                        self.lbl_total.setText(LanguageManager.tr("page_of", total=len(tab_doc.doc)))
+                        try:
+                            self.lbl_total.setText(LanguageManager.tr("page_of", total=len(tab_doc.doc)))
+                        except Exception:
+                            pass
                     if hasattr(self, 'txt_page') and self.txt_page:
-                        self.txt_page.setText(str(target_page + 1))
+                        try:
+                            self.txt_page.setText(str(target_page + 1))
+                        except Exception:
+                            pass
                     if hasattr(self, 'modern_right_sidebar') and self.modern_right_sidebar:
-                        self.modern_right_sidebar.load_thumbnails()
-                        self.modern_right_sidebar.select_page(target_page)
+                        try:
+                            self.modern_right_sidebar.select_page(target_page)
+                        except Exception:
+                            pass
                     self.statusBar().showMessage(LanguageManager.tr("blank_page_added", page=target_page + 1), 3000)
         except Exception as e:
             QMessageBox.critical(self, LanguageManager.tr("error"), str(e))
@@ -4850,21 +4930,38 @@ class AuraPDFViewer(QMainWindow):
     open_file_dialog = open_pdf
 
     def save_pdf(self):
+        """Belgeyi mevcut dosyasının üzerine doğrudan ve atomik olarak kaydeder (Ctrl+S)."""
+        self._perform_save(save_as=False)
+
+    def save_as_pdf(self):
+        """Belgeyi yeni bir dosya adı/konumu seçerek kaydeder (Farklı Kaydet / Ctrl+Shift+S)."""
+        self._perform_save(save_as=True)
+
+    def _perform_save(self, save_as: bool = False):
         if not (tab_doc := self.get_current_tab_doc()) or tab_doc.doc is None or len(tab_doc.doc) == 0:
             return QMessageBox.warning(self, LanguageManager.tr("warning"), LanguageManager.tr("no_pdf_save"))
-        
-        default_name = f"duzenlenmis_{os.path.basename(tab_doc.file_path)}" if getattr(tab_doc, 'file_path', None) else "Yeni_Belge.pdf"
-        path, _ = QFileDialog.getSaveFileName(self, LanguageManager.tr("save_dialog_title"), default_name, "PDF (*.pdf)")
-        if not path:
-            return
+
+        existing_path = getattr(tab_doc, 'file_path', None)
+        if save_as or not existing_path or not os.path.isfile(existing_path):
+            default_name = existing_path if existing_path else "Yeni_Belge.pdf"
+            path, _ = QFileDialog.getSaveFileName(self, LanguageManager.tr("save_dialog_title"), default_name, "PDF (*.pdf)")
+            if not path:
+                return
+        else:
+            path = existing_path
 
         try:
-            # 1. Etkileşimli formları ve çizimleri PDF vektör akışına aktar
+            # 1. Etkileşimli formları senkronize et
             if hasattr(tab_doc, 'sync_form_fields'):
                 tab_doc.sync_form_fields()
-            tab_doc.export_drawings_to_pdf(tab_doc.doc)
 
-            # 2. Yazar üstverisi ayarlarını kontrol et ve gerekirse uygula
+            # 2. In-memory tab_doc.doc nesnesini KORUMAK için bağımsız export kopyası oluştur
+            # tab_doc.export_drawings_to_pdf hedef dokümana kalıcı vektörel çizimler, resimler ve tablolar ekler.
+            # Bağımsız export_doc kullanarak tab_doc.doc'u sahnede çift öğe oluşmaması için tertemiz tutuyoruz.
+            export_doc = fitz.open(stream=tab_doc.doc.tobytes(), filetype="pdf")
+            tab_doc.export_drawings_to_pdf(export_doc)
+
+            # 3. Yazar üstverisi ayarlarını kontrol et ve gerekirse uygula
             settings = QSettings("AuraPDF", "PDFViewer")
             save_author = settings.value("save_author_to_pdf", True, type=bool)
             if save_author:
@@ -4879,13 +4976,13 @@ class AuraPDFViewer(QMainWindow):
                         title = def_comp
                 if author:
                     try:
-                        meta = tab_doc.doc.metadata or {}
+                        meta = export_doc.metadata or {}
                         meta["author"] = f"{author} ({title})" if title else author
-                        tab_doc.doc.set_metadata(meta)
+                        export_doc.set_metadata(meta)
                     except Exception:
                         pass
 
-            # 3. Diske güvenli ve atomik kaydetme
+            # 4. Diske güvenli ve atomik kaydetme
             target_path = os.path.abspath(path)
             temp_path = target_path + ".tmp_save"
             if os.path.exists(temp_path):
@@ -4893,37 +4990,50 @@ class AuraPDFViewer(QMainWindow):
                     os.remove(temp_path)
                 except Exception:
                     pass
-            tab_doc.doc.save(temp_path, garbage=4, deflate=True)
-            if os.path.exists(target_path):
+            export_doc.save(temp_path, garbage=3, deflate=True)
+            export_doc.close()
+
+            # Kendi kaydımız sırasında dosya izleyicinin gereksiz harici bildirim tetiklemesini önle
+            watched = False
+            norm_target = os.path.abspath(target_path)
+            if hasattr(self, 'file_watcher') and hasattr(self.file_watcher, 'files'):
+                if norm_target in [os.path.abspath(f) for f in self.file_watcher.files()]:
+                    try:
+                        self.file_watcher.removePath(norm_target)
+                        watched = True
+                    except Exception:
+                        pass
+
+            try:
+                if os.path.exists(target_path):
+                    try:
+                        os.remove(target_path)
+                    except Exception:
+                        pass
+                os.replace(temp_path, target_path)
+            except Exception:
+                # Fallback: doğrudan taşı veya kopyala
+                if os.path.exists(temp_path):
+                    import shutil
+                    shutil.copy2(temp_path, target_path)
+                    try:
+                        os.remove(temp_path)
+                    except Exception:
+                        pass
+
+            if watched and hasattr(self, 'file_watcher'):
                 try:
-                    os.remove(target_path)
+                    self.file_watcher.addPath(norm_target)
                 except Exception:
                     pass
-            os.replace(temp_path, target_path)
 
             tab_doc.file_path = target_path
-            base_name = os.path.basename(target_path)
-            tab_idx = self.tab_widget.indexOf(tab_doc)
-            if tab_idx >= 0:
-                self.tab_widget.setTabText(tab_idx, base_name)
-                self.tab_widget.setTabToolTip(tab_idx, target_path)
-
-            # 4. Bellekteki (in-memory) PDF dokümanındaki ink açıklamalarını gizle (PDF_ANNOT_IS_HIDDEN)
-            # Böylece get_pixmap arka planında statik kopya çizilmez,
-            # tab_doc.drawings içindeki etkileşimli vektör çizimler sahnede silinebilir ve taşınabilir kalır!
-            MANAGED_TYPES = (fitz.PDF_ANNOT_INK, fitz.PDF_ANNOT_LINE, fitz.PDF_ANNOT_POLY_LINE, fitz.PDF_ANNOT_HIGHLIGHT, fitz.PDF_ANNOT_FREE_TEXT)
-            for p in tab_doc.doc:
-                try:
-                    for a in list(p.annots()):
-                        if a.type[0] in MANAGED_TYPES:
-                            a.set_flags(a.flags | fitz.PDF_ANNOT_IS_HIDDEN)
-                            a.update()
-                except Exception:
-                    pass
+            self.add_to_recent_files(target_path)
 
             tab_doc.clear_selection()
             tab_doc.save_undo_index = len(tab_doc.undo_stack)
             tab_doc.set_modified(False)
+            tab_doc.update_tab_title()
             if hasattr(self, 'update_undo_redo_state'):
                 self.update_undo_redo_state()
 
@@ -4942,14 +5052,14 @@ class AuraPDFViewer(QMainWindow):
             if hasattr(self, 'modern_right_sidebar') and self.modern_right_sidebar and self.modern_right_sidebar.isVisible():
                 self.modern_right_sidebar.load_thumbnails()
 
-            QMessageBox.information(self, LanguageManager.tr("success"), LanguageManager.tr("save_success"))
+            if save_as:
+                QMessageBox.information(self, LanguageManager.tr("success"), LanguageManager.tr("save_success"))
+            else:
+                if hasattr(self, 'statusBar') and self.statusBar():
+                    self.statusBar().showMessage(LanguageManager.tr("save_success"), 3500)
 
         except Exception as e:
             QMessageBox.critical(self, LanguageManager.tr("error"), f"{LanguageManager.tr('error')}: {str(e)}")
-
-    def save_as_pdf(self):
-        """Farklı Kaydet (Save As) işlemi."""
-        self.save_pdf()
 
     def print_pdf(self):
         if not (tab_doc := self.get_current_tab_doc()) or tab_doc.doc is None or len(tab_doc.doc) == 0:
@@ -4957,11 +5067,6 @@ class AuraPDFViewer(QMainWindow):
         if hasattr(tab_doc, 'sync_form_fields'):
             try:
                 tab_doc.sync_form_fields()
-            except Exception:
-                pass
-        if hasattr(tab_doc, 'export_drawings_to_pdf') and tab_doc.doc:
-            try:
-                tab_doc.export_drawings_to_pdf(tab_doc.doc)
             except Exception:
                 pass
         from src.ui.dialogs.print_dialog import ModernPrintDialog
@@ -4999,21 +5104,27 @@ class AuraPDFViewer(QMainWindow):
         if not tab_doc or not tab_doc.doc or len(tab_doc.doc) == 0:
             QMessageBox.warning(self, LanguageManager.tr("warning"), LanguageManager.tr("open_pdf_first_warning"))
             return
-        from src.ui.dialogs.media_dialogs import TableInsertDialog
-        dlg = TableInsertDialog(self)
-        if dlg.exec():
-            data = dlg.get_data()
-            tab_doc.add_table(
-                rows=data["rows"],
-                cols=data["cols"],
-                has_header=data["has_header"],
-                border_color=data["border_color"],
-                header_bg=data["header_bg"],
-                cell_bg=data["cell_bg"],
-                text_color=data.get("text_color", "#1e1b4b"),
-                header_text_color=data.get("header_text_color", "#ffffff"),
-                alt_cell_bg=data.get("alt_cell_bg", "#f5f3ff")
-            )
+        try:
+            from src.ui.dialogs.media_dialogs import TableInsertDialog
+            dlg = TableInsertDialog(self)
+            if dlg.exec():
+                data = dlg.get_data()
+                tab_doc.add_table(
+                    rows=data["rows"],
+                    cols=data["cols"],
+                    has_header=data["has_header"],
+                    border_color=data["border_color"],
+                    header_bg=data["header_bg"],
+                    cell_bg=data["cell_bg"],
+                    text_color=data.get("text_color", "#1e1b4b"),
+                    header_text_color=data.get("header_text_color", "#ffffff"),
+                    alt_cell_bg=data.get("alt_cell_bg", "#f5f3ff"),
+                    alignment=data.get("alignment", "center")
+                )
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            QMessageBox.warning(self, LanguageManager.tr("error", default="Hata"), f"{LanguageManager.tr('error', default='Hata')}: {e}")
 
     def show_insert_emoji_dialog(self):
         tab_doc = self.get_current_tab_doc()
@@ -5070,12 +5181,12 @@ class AuraPDFViewer(QMainWindow):
                 if target_tab and target_tab.doc and len(target_tab.doc) > 0:
                     target_tab.add_audio(
                         audio_bytes=dlg.audio_bytes,
-                        title=dlg.txt_title.text().strip() or "Ses Notu",
+                        title=dlg.txt_title.text().strip() or LanguageManager.tr("audio_record_title"),
                         duration_sec=dlg.duration_sec,
                         format=dlg.format
                     )
                 else:
-                    QMessageBox.warning(self, LanguageManager.tr("warning"), "Ses kaydını eklemek için açık bir PDF belgesi bulunamadı.")
+                    QMessageBox.warning(self, LanguageManager.tr("warning"), LanguageManager.tr("open_pdf_first_warning"))
 
         def on_finished(result):
             if hasattr(self, '_audio_record_dialog') and self._audio_record_dialog == dlg:

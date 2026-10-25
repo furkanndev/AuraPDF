@@ -14,6 +14,28 @@ CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
 if CURRENT_DIR not in sys.path:
     sys.path.insert(0, CURRENT_DIR)
 
+import faulthandler
+import traceback
+
+# C/C++ seviyesindeki sinyalleri stderr'a yazdır
+try:
+    faulthandler.enable()
+except Exception:
+    pass
+
+def _global_excepthook(exc_type, exc_val, exc_tb):
+    try:
+        log_path = os.path.join(CURRENT_DIR, "crash_debug.log")
+        with open(log_path, "a", encoding="utf-8") as f:
+            f.write("\n=== AuraPDF Unhandled Exception ===\n")
+            traceback.print_exception(exc_type, exc_val, exc_tb, file=f)
+            f.flush()
+    except Exception:
+        pass
+    sys.__excepthook__(exc_type, exc_val, exc_tb)
+
+sys.excepthook = _global_excepthook
+
 from PyQt6.QtWidgets import QApplication
 from PyQt6.QtGui import QPainterPath, QPen, QColor
 from PyQt6.QtCore import Qt
@@ -178,10 +200,70 @@ def activate_window(window):
         pass
 
 
+def _silence_system_sounds():
+    """Tüm Windows ve Qt sistem/uyarı/onay bip seslerini (MessageBeep/QApplication.beep) tamamen sessize alır."""
+    try:
+        from PyQt6.QtWidgets import QApplication
+        QApplication.beep = staticmethod(lambda: None)
+    except Exception:
+        pass
+
+    try:
+        import winsound
+        winsound.MessageBeep = lambda *args, **kwargs: None
+        winsound.PlaySound = lambda *args, **kwargs: None
+        winsound.Beep = lambda *args, **kwargs: None
+    except Exception:
+        pass
+
+    try:
+        import ctypes
+        from ctypes import wintypes
+        kernel32 = ctypes.windll.kernel32
+        user32 = ctypes.windll.user32
+        kernel32.GetProcAddress.argtypes = [wintypes.HMODULE, ctypes.c_char_p]
+        kernel32.GetProcAddress.restype = ctypes.c_void_p
+        kernel32.VirtualProtect.argtypes = [ctypes.c_void_p, ctypes.c_size_t, wintypes.DWORD, ctypes.POINTER(wintypes.DWORD)]
+        kernel32.VirtualProtect.restype = wintypes.BOOL
+        proc_addr = kernel32.GetProcAddress(user32._handle, b'MessageBeep')
+        if proc_addr:
+            PAGE_EXECUTE_READWRITE = 0x40
+            old_protect = wintypes.DWORD()
+            patch = bytes([0xB8, 0x01, 0x00, 0x00, 0x00, 0xC3])  # mov eax, 1; ret
+            if kernel32.VirtualProtect(proc_addr, len(patch), PAGE_EXECUTE_READWRITE, ctypes.byref(old_protect)):
+                ctypes.memmove(proc_addr, patch, len(patch))
+                kernel32.VirtualProtect(proc_addr, len(patch), old_protect.value, ctypes.byref(old_protect))
+    except Exception:
+        pass
+
+
 def main():
+    _silence_system_sounds()
     import ctypes
     try:
         ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("aurapdf.app")
+    except Exception:
+        pass
+
+    # Windows Per-Monitor V2 DPI Awareness ayarla
+    # Bu ayar, Windows'un uygulamayı bulanık bitmap ölçeklemesiyle (blurry bitmap stretching)
+    # bozmasını engeller ve tüm ekranlarda kristal netliğinde vektörel çizim sağlar.
+    try:
+        ctypes.windll.user32.SetProcessDpiAwarenessContext(-4)
+    except Exception:
+        try:
+            ctypes.windll.shcore.SetProcessDpiAwareness(2)
+        except Exception:
+            try:
+                ctypes.windll.user32.SetProcessDPIAware()
+            except Exception:
+                pass
+
+    os.environ["QT_ENABLE_HIGHDPI_SCALING"] = "1"
+    os.environ["QT_SCALE_FACTOR_ROUNDING_POLICY"] = "PassThrough"
+
+    try:
+        QApplication.setHighDpiScaleFactorRoundingPolicy(Qt.HighDpiScaleFactorRoundingPolicy.PassThrough)
     except Exception:
         pass
 
@@ -219,11 +301,13 @@ def main():
     app.setWindowIcon(app_icon)
 
     # Windows Dosya Gezgini PDF kucuk resim onizlemesi ve sag-alt AuraPDF rozeti
-    try:
-        from src.core.shell_integration import ensure_pdf_shell_integration
-        ensure_pdf_shell_integration()
-    except Exception:
-        pass
+    # Yalnızca paketlenmiş/kurulu sürümde çalıştırılır (geliştirme ortamında sisteme müdahale edilmez)
+    if getattr(sys, "frozen", False):
+        try:
+            from src.core.shell_integration import ensure_pdf_shell_integration
+            ensure_pdf_shell_integration()
+        except Exception:
+            pass
 
     # 1. Argümanlardan açılacak dosyaları tespit et (çift tıklanan PDF kitapları)
     files_to_open = get_pdf_paths_from_args(sys.argv[1:])

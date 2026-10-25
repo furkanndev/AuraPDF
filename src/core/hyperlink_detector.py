@@ -36,8 +36,8 @@ TC_DIGITS_REGEX = re.compile(r'\b[1-9]\d{10}\b')
 PHONE_REGEX = re.compile(
     r'(?:'
     r'(?:\+90|0090)\s*(?:\([1-9]\d{2}\)|[1-9]\d{2})[\s\.\-]?\d{3}[\s\.\-]?\d{2}[\s\.\-]?\d{2}'
-    r'|\(?0\s*[1-9]\d{2}\)?[\s\.\-]?\d{3}[\s\.\-]?\d{2}[\s\.\-]?\d{2}'
-    r'|\b5\d{2}[\s\.\-]?\d{3}[\s\.\-]?\d{2}[\s\.\-]?\d{2}\b'
+    r'|\(?0\s*[1-9]\d{2}\)?[\s\.\-]\d{3}[\s\.\-]?\d{2}[\s\.\-]?\d{2}'
+    r'|\b5\d{2}[\s\.\-]\d{3}[\s\.\-]?\d{2}[\s\.\-]?\d{2}\b'
     r'|\b444\s*\d{1}\s*\d{3}\b'
     r'|\b0?850\s*\d{3}[\s\.\-]?\d{2}[\s\.\-]?\d{2}\b'
     r'|\+\d{1,4}(?:[\s\.\-]?\(?\d{1,4}\)?){1,4}[\s\.\-]?\d{2,4}'
@@ -49,10 +49,18 @@ def detect_hyperlink(text: str) -> dict | None:
     """
     Verilen metin içindeki bağlantı / varlığı (URL, E-Posta, Telefon, TC Kimlik) tespit eder.
     Tespit edilen türe göre zengin metadata ve yönlendirme linki döndürür.
+    Dümdüz ardışık sayılar asla bağlantı olarak algılanmaz.
     """
     if not text:
         return None
     content = text.strip()
+
+    # 0. Düz ardışık sayılar (örn. 123456, 12345678901, 5551234567 vb.) asla link veya TC olarak algılanmamalıdır.
+    pure_digits = re.sub(r'[\s\.\,\-_/]+', '', content)
+    if pure_digits.isdigit() and not content.startswith('+'):
+        # Eğer açık bir "TC:" veya "TCKN" etiketi yoksa düz sayıyı yoksay
+        if not TC_LABEL_REGEX.search(content):
+            return None
 
     # 1. E-Posta Tespiti
     m_email = EMAIL_REGEX.search(content)
@@ -85,33 +93,18 @@ def detect_hyperlink(text: str) -> dict | None:
             'tooltip': f'Web Sitesi: {url}\n(Tıklayarak tarayıcıda açın, sağ tık ile kopyalayın)'
         }
 
-    # 3. T.C. Kimlik Numarası Tespiti (Herhangi bir siteye yönlendirme yapmaz, panoya kopyalar)
-    # Öncelik A: Etiketli (örn. "TC Kimlik No: 12345678901")
+    # 3. T.C. Kimlik Numarası Tespiti (Sadece açıkça TC etiketi varsa ve algoritması doğrulanmışsa)
     m_tc_lbl = TC_LABEL_REGEX.search(content)
     if m_tc_lbl:
         raw = m_tc_lbl.group(1)
-        valid = is_valid_tc(raw)
-        return {
-            'type': 'tc',
-            'url': '',
-            'raw': raw,
-            'title': 'T.C. Kimlik No' + ('' if valid else ' (Doğrulanmamış)'),
-            'icon': '',
-            'tooltip': f'T.C. Kimlik No: {raw}\n(Tıklayarak panoya kopyalayın)'
-        }
-
-    # Öncelik B: 11 Haneli Sayı (Algoritması geçerli veya tek başına sayı girilmiş)
-    for m in TC_DIGITS_REGEX.finditer(content):
-        num = m.group(0)
-        valid = is_valid_tc(num)
-        if valid or content == num:
+        if is_valid_tc(raw):
             return {
                 'type': 'tc',
                 'url': '',
-                'raw': num,
-                'title': 'T.C. Kimlik No' + ('' if valid else ' (Test No)'),
+                'raw': raw,
+                'title': 'T.C. Kimlik No',
                 'icon': '',
-                'tooltip': f'T.C. Kimlik No: {num}\n(Tıklayarak panoya kopyalayın)'
+                'tooltip': f'T.C. Kimlik No: {raw}\n(Tıklayarak panoya kopyalayın)'
             }
 
     # 4. Telefon Numarası Tespiti

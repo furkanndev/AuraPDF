@@ -7,7 +7,8 @@ from typing import Optional
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QLabel, 
                              QPushButton, QSlider, QFrame, QColorDialog, 
                              QFontComboBox, QComboBox, QCheckBox, QApplication, QInputDialog, QMessageBox,
-                             QStackedWidget, QScrollArea, QButtonGroup, QLineEdit, QToolButton, QGraphicsDropShadowEffect)
+                             QStackedWidget, QScrollArea, QButtonGroup, QLineEdit, QToolButton, QGraphicsDropShadowEffect,
+                             QMenu)
 from PyQt6.QtGui import (QColor, QFont, QPainter, QPen, QBrush, QLinearGradient, QRadialGradient, QPainterPath, QTextCursor, QFontMetricsF, QPixmap, QImage)
 from PyQt6.QtCore import Qt, QPoint, QPointF, QRect, QRectF, QTimer, QSettings, QEvent, QSize
 from src.core.i18n import LanguageManager
@@ -893,6 +894,7 @@ class TextSettingsPopup(BaseSettingsPopup):
         self.bold = False
         self.italic = False
         self.underline = False
+        self.alignment = "left"
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(14, 12, 14, 12)
@@ -980,6 +982,72 @@ class TextSettingsPopup(BaseSettingsPopup):
         fmt_box.addStretch()
         layout.addLayout(fmt_box)
 
+        # --- HİZALAMA BÖLÜMÜ (Sola / Ortala / Sağa / İki Yana Yasla) ---
+        self.lbl_sec_align = QLabel(LanguageManager.tr("text_sec_align"))
+        self.lbl_sec_align.setObjectName("SectionHeader")
+        layout.addWidget(self.lbl_sec_align)
+
+        align_box = QHBoxLayout()
+        align_box.setSpacing(6)
+
+        self.btn_group_align = QButtonGroup(self)
+        self.btn_group_align.setExclusive(True)
+
+        self.btn_align_left = QPushButton()
+        self.btn_align_left.setObjectName("FormatBtn")
+        self.btn_align_left.setCheckable(True)
+        self.btn_align_left.setFixedSize(36, 28)
+        self.btn_align_left.setIcon(ModernIconFactory.icon_align_left(16))
+        self.btn_align_left.setToolTip(LanguageManager.tr("align_left") + " (Ctrl+L)")
+        self.btn_group_align.addButton(self.btn_align_left)
+
+        self.btn_align_center = QPushButton()
+        self.btn_align_center.setObjectName("FormatBtn")
+        self.btn_align_center.setCheckable(True)
+        self.btn_align_center.setFixedSize(36, 28)
+        self.btn_align_center.setIcon(ModernIconFactory.icon_align_center(16))
+        self.btn_align_center.setToolTip(LanguageManager.tr("align_center") + " (Ctrl+E)")
+        self.btn_group_align.addButton(self.btn_align_center)
+
+        self.btn_align_right = QPushButton()
+        self.btn_align_right.setObjectName("FormatBtn")
+        self.btn_align_right.setCheckable(True)
+        self.btn_align_right.setFixedSize(36, 28)
+        self.btn_align_right.setIcon(ModernIconFactory.icon_align_right(16))
+        self.btn_align_right.setToolTip(LanguageManager.tr("align_right") + " (Ctrl+R)")
+        self.btn_group_align.addButton(self.btn_align_right)
+
+        self.btn_align_justify = QPushButton()
+        self.btn_align_justify.setObjectName("FormatBtn")
+        self.btn_align_justify.setCheckable(True)
+        self.btn_align_justify.setFixedSize(36, 28)
+        self.btn_align_justify.setIcon(ModernIconFactory.icon_align_justify(16))
+        self.btn_align_justify.setToolTip(LanguageManager.tr("align_justify") + " (Ctrl+J)")
+        self.btn_group_align.addButton(self.btn_align_justify)
+
+        self.btn_align_left.setChecked(True)
+
+        self.btn_align_left.clicked.connect(lambda: self._on_align_changed("left"))
+        self.btn_align_center.clicked.connect(lambda: self._on_align_changed("center"))
+        self.btn_align_right.clicked.connect(lambda: self._on_align_changed("right"))
+        self.btn_align_justify.clicked.connect(lambda: self._on_align_changed("justify"))
+
+        self.btn_snap_grid = QPushButton()
+        self.btn_snap_grid.setObjectName("FormatBtn")
+        self.btn_snap_grid.setFixedSize(36, 28)
+        self.btn_snap_grid.setIcon(ModernIconFactory.icon_all_grid(16))
+        self.btn_snap_grid.setToolTip(LanguageManager.tr("align_to_grid", default="Grid'e Hizala"))
+        self.btn_snap_grid.clicked.connect(self._on_snap_grid_clicked)
+
+        align_box.addWidget(self.btn_align_left)
+        align_box.addWidget(self.btn_align_center)
+        align_box.addWidget(self.btn_align_right)
+        align_box.addWidget(self.btn_align_justify)
+        align_box.addSpacing(6)
+        align_box.addWidget(self.btn_snap_grid)
+        align_box.addStretch()
+        layout.addLayout(align_box)
+
         # --- RENK BÖLÜMÜ ---
         lbl_sec_color = QLabel(LanguageManager.tr("text_sec_color"))
         lbl_sec_color.setObjectName("SectionHeader")
@@ -1007,6 +1075,46 @@ class TextSettingsPopup(BaseSettingsPopup):
         self.preview = TextPreviewWidget()
         layout.addWidget(self.preview)
         self.update_preview()
+        self._update_alignment_button_styles()
+
+    def apply_theme(self, theme_name="dark", spec=None):
+        if not spec:
+            spec = POPUP_THEME_SPECS.get(theme_name, POPUP_THEME_SPECS.get("dark", {}))
+        super().apply_theme(theme_name, spec)
+        self._update_alignment_button_styles()
+
+    def _update_alignment_button_styles(self):
+        spec = getattr(self, '_applied_spec', None)
+        if not spec:
+            settings = QSettings("AuraPDF", "PDFViewer")
+            th = settings.value("app_theme", "gray")
+            spec = POPUP_THEME_SPECS.get(th, POPUP_THEME_SPECS.get("dark", {}))
+
+        text_col = spec.get('tab_text', spec.get('main_text', '#cbd5e1'))
+        active_col = "#ffffff"
+
+        if hasattr(self, 'btn_align_left'):
+            c_l = active_col if self.btn_align_left.isChecked() else text_col
+            self.btn_align_left.setIcon(ModernIconFactory.icon_align_left(16, c_l))
+
+        if hasattr(self, 'btn_align_center'):
+            c_c = active_col if self.btn_align_center.isChecked() else text_col
+            self.btn_align_center.setIcon(ModernIconFactory.icon_align_center(16, c_c))
+
+        if hasattr(self, 'btn_align_right'):
+            c_r = active_col if self.btn_align_right.isChecked() else text_col
+            self.btn_align_right.setIcon(ModernIconFactory.icon_align_right(16, c_r))
+
+        if hasattr(self, 'btn_align_justify'):
+            c_j = active_col if self.btn_align_justify.isChecked() else text_col
+            self.btn_align_justify.setIcon(ModernIconFactory.icon_align_justify(16, c_j))
+
+        if hasattr(self, 'btn_snap_grid'):
+            self.btn_snap_grid.setIcon(ModernIconFactory.icon_all_grid(text_col))
+
+        if hasattr(self, 'btn_link'):
+            c_link = active_col if self.btn_link.isChecked() else text_col
+            self.btn_link.setIcon(ModernIconFactory.icon_link(c_link))
 
     def retranslate_ui(self):
         if hasattr(self, 'lbl_panel_title'):
@@ -1015,6 +1123,18 @@ class TextSettingsPopup(BaseSettingsPopup):
             self.lbl_size.setText(LanguageManager.tr("font_size"))
         if hasattr(self, 'lbl_family'):
             self.lbl_family.setText(LanguageManager.tr("font_family"))
+        if hasattr(self, 'lbl_sec_align'):
+            self.lbl_sec_align.setText(LanguageManager.tr("text_sec_align"))
+        if hasattr(self, 'btn_align_left'):
+            self.btn_align_left.setToolTip(LanguageManager.tr("align_left") + " (Ctrl+L)")
+        if hasattr(self, 'btn_align_center'):
+            self.btn_align_center.setToolTip(LanguageManager.tr("align_center") + " (Ctrl+E)")
+        if hasattr(self, 'btn_align_right'):
+            self.btn_align_right.setToolTip(LanguageManager.tr("align_right") + " (Ctrl+R)")
+        if hasattr(self, 'btn_align_justify'):
+            self.btn_align_justify.setToolTip(LanguageManager.tr("align_justify") + " (Ctrl+J)")
+        if hasattr(self, 'btn_snap_grid'):
+            self.btn_snap_grid.setToolTip(LanguageManager.tr("align_to_grid", default="Grid'e Hizala"))
         if hasattr(self, 'lbl_color'):
             self.lbl_color.setText(LanguageManager.tr("font_color"))
         if hasattr(self, 'lbl_preview'):
@@ -1037,7 +1157,19 @@ class TextSettingsPopup(BaseSettingsPopup):
         tab_doc = getattr(main_win, 'get_current_tab_doc', lambda: None)()
         if not tab_doc:
             return None
-        return getattr(tab_doc, 'active_text_item', None) or getattr(tab_doc, 'last_text_item', None)
+        it = getattr(tab_doc, 'active_text_item', None)
+        if it is None:
+            return None
+        try:
+            if not it.scene():
+                return None
+            flags_fn = getattr(it, 'textInteractionFlags', None)
+            is_editing = bool(flags_fn() & Qt.TextInteractionFlag.TextEditorInteraction) if callable(flags_fn) else False
+            if it.isSelected() or it.hasFocus() or is_editing:
+                return it
+        except RuntimeError:
+            return None
+        return None
 
     def _on_format_change(self):
         self.bold = self.btn_bold.isChecked()
@@ -1059,6 +1191,23 @@ class TextSettingsPopup(BaseSettingsPopup):
                 it.apply_format_to_selection(underline=self.underline)
             else:
                 it.apply_format_to_selection(bold=self.bold, italic=self.italic, underline=self.underline)
+
+    def _on_align_changed(self, align_val):
+        self.alignment = align_val
+        for btn in (self.btn_align_left, self.btn_align_center, self.btn_align_right, self.btn_align_justify):
+            btn.setProperty("checked", btn.isChecked())
+            btn.style().unpolish(btn)
+            btn.style().polish(btn)
+        self._update_alignment_button_styles()
+        it = self._get_target_text_item()
+        if it and hasattr(it, 'set_alignment'):
+            it.set_alignment(align_val)
+
+    def _on_snap_grid_clicked(self):
+        it = self._get_target_text_item()
+        if it and hasattr(it, 'tab_doc') and it.tab_doc:
+            if hasattr(it.tab_doc, 'snap_item_to_grid'):
+                it.tab_doc.snap_item_to_grid(it, getattr(it, 'page_idx', 0))
 
     def _on_palette_color_changed(self, col):
         if getattr(self, '_is_syncing', False):
@@ -1148,6 +1297,18 @@ class TextSettingsPopup(BaseSettingsPopup):
                     self.cmb_family.blockSignals(True)
                     self.cmb_family.setCurrentIndex(idx)
                     self.cmb_family.blockSignals(False)
+            if hasattr(self, 'btn_align_left'):
+                align = fmt.get("alignment", "left")
+                self.alignment = align
+                self.btn_align_left.setChecked(align == "left")
+                self.btn_align_center.setChecked(align == "center")
+                self.btn_align_right.setChecked(align == "right")
+                self.btn_align_justify.setChecked(align == "justify")
+                for btn in (self.btn_align_left, self.btn_align_center, self.btn_align_right, self.btn_align_justify):
+                    btn.setProperty("checked", btn.isChecked())
+                    btn.style().unpolish(btn)
+                    btn.style().polish(btn)
+                self._update_alignment_button_styles()
             self.update_preview()
         finally:
             self._is_syncing = False
@@ -1157,8 +1318,7 @@ class TextSettingsPopup(BaseSettingsPopup):
         tab_doc = None
         if hasattr(main_win, 'get_current_tab_doc'):
             tab_doc = main_win.get_current_tab_doc()
-        active_item = (getattr(tab_doc, 'active_text_item', None) or 
-                       getattr(tab_doc, 'last_text_item', None)) if tab_doc else None
+        active_item = self._get_target_text_item()
 
         if not active_item:
             QMessageBox.information(
@@ -1299,11 +1459,23 @@ class TextFloatingFormatHUD(QFrame):
         self.btn_link.clicked.connect(self._on_link_clicked)
         layout.addWidget(self.btn_link)
 
+        sep3 = QFrame()
+        sep3.setObjectName("Separator")
+        layout.addWidget(sep3)
+
+        # 9. ALIGNMENT MENU BUTTON
+        self.btn_align = QPushButton()
+        self.btn_align.setFixedSize(28, 26)
+        self.btn_align.setIcon(ModernIconFactory.icon_align_left(14))
+        self.btn_align.setToolTip(LanguageManager.tr("text_alignment"))
+        self.btn_align.clicked.connect(self._on_align_clicked)
+        layout.addWidget(self.btn_align)
+
         # Odak kaybını önle: Butonlara tıklandığında metin seçimi kaybolmasın
         self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating, True)
         self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         for btn in (self.btn_bold, self.btn_italic, self.btn_underline,
-                    self.btn_dec_size, self.btn_inc_size, self.btn_color, self.btn_link):
+                    self.btn_dec_size, self.btn_inc_size, self.btn_color, self.btn_link, self.btn_align):
             btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
 
         self.hide()
@@ -1317,6 +1489,15 @@ class TextFloatingFormatHUD(QFrame):
         main_text = spec.get("main_text", "#f4f4f5")
         btn_hover = spec.get("btn_hover", "#3f3f46")
         accent = spec.get("accent", "#0284c7")
+
+        self._current_theme_name = theme_name
+        self._current_spec = spec
+        if hasattr(self, 'btn_link'):
+            self.btn_link.setIcon(ModernIconFactory.icon_link(main_text))
+        if hasattr(self, 'btn_align') and hasattr(self, 'target_text_item') and self.target_text_item:
+            self._update_align_icon(getattr(self.target_text_item, 'alignment_str', 'left'))
+        elif hasattr(self, 'btn_align'):
+            self.btn_align.setIcon(ModernIconFactory.icon_align_left(14, main_text))
 
         self.setStyleSheet(f"""
             QFrame#TextFloatingFormatHUD {{
@@ -1408,6 +1589,9 @@ class TextFloatingFormatHUD(QFrame):
         if isinstance(col, QColor) and col.isValid():
             self.current_color = col
             self._update_color_button_style(col)
+
+        if hasattr(self, 'btn_align') and hasattr(self.target_text_item, 'alignment_str'):
+            self._update_align_icon(self.target_text_item.alignment_str)
 
     def reposition_above_selection(self):
         if not self.target_text_item or not self.tab_doc or not hasattr(self.tab_doc, 'view') or not self.tab_doc.view:
@@ -1564,6 +1748,83 @@ class TextFloatingFormatHUD(QFrame):
         else:
             self.btn_link.setChecked(False)
             self.target_text_item.open_link_dialog()
+
+    def _on_align_clicked(self):
+        if not self.target_text_item:
+            return
+        theme_name = getattr(self, '_current_theme_name', 'dark')
+        spec = getattr(self, '_current_spec', None) or POPUP_THEME_SPECS.get(theme_name, POPUP_THEME_SPECS.get("dark", {}))
+        bg_col = spec.get("tb_bg", "#242426")
+        text_col = spec.get("main_text", "#f1f5f9")
+        border_col = spec.get("tb_border", "rgba(255, 255, 255, 0.1)")
+        accent_col = spec.get("accent", "#0284c7")
+        icon_col = spec.get("tab_text", text_col)
+
+        menu = QMenu(self)
+        menu.setStyleSheet(f"""
+            QMenu {{
+                background-color: {bg_col};
+                color: {text_col};
+                border: 1px solid {border_col};
+                border-radius: 6px;
+                padding: 4px;
+            }}
+            QMenu::item {{
+                padding: 5px 16px;
+                border-radius: 4px;
+                font-size: 12px;
+            }}
+            QMenu::item:selected {{
+                background-color: {accent_col};
+                color: #ffffff;
+            }}
+            QMenu::separator {{
+                height: 1px;
+                background-color: {border_col};
+                margin: 4px 6px;
+            }}
+        """)
+        cur_align = getattr(self.target_text_item, "alignment_str", "left")
+
+        act_left = menu.addAction(ModernIconFactory.icon_align_left(16, "#ffffff" if cur_align == "left" else icon_col), f"{LanguageManager.tr('align_left')}{'  ✓' if cur_align == 'left' else ''}")
+        act_center = menu.addAction(ModernIconFactory.icon_align_center(16, "#ffffff" if cur_align == "center" else icon_col), f"{LanguageManager.tr('align_center')}{'  ✓' if cur_align == 'center' else ''}")
+        act_right = menu.addAction(ModernIconFactory.icon_align_right(16, "#ffffff" if cur_align == "right" else icon_col), f"{LanguageManager.tr('align_right')}{'  ✓' if cur_align == 'right' else ''}")
+        act_justify = menu.addAction(ModernIconFactory.icon_align_justify(16, "#ffffff" if cur_align == "justify" else icon_col), f"{LanguageManager.tr('align_justify')}{'  ✓' if cur_align == 'justify' else ''}")
+        menu.addSeparator()
+        act_grid = menu.addAction(ModernIconFactory.icon_all_grid(icon_col), LanguageManager.tr("align_to_grid", default="Grid'e Hizala"))
+
+        chosen = menu.exec(self.btn_align.mapToGlobal(QPoint(0, self.btn_align.height() + 2)))
+        if chosen == act_left:
+            self._set_alignment("left")
+        elif chosen == act_center:
+            self._set_alignment("center")
+        elif chosen == act_right:
+            self._set_alignment("right")
+        elif chosen == act_justify:
+            self._set_alignment("justify")
+        elif chosen == act_grid:
+            tab_doc = getattr(self.target_text_item, 'tab_doc', None)
+            if tab_doc and hasattr(tab_doc, 'snap_item_to_grid'):
+                tab_doc.snap_item_to_grid(self.target_text_item, getattr(self.target_text_item, 'page_idx', 0))
+
+    def _set_alignment(self, align_str):
+        if self.target_text_item and hasattr(self.target_text_item, 'set_alignment'):
+            self.target_text_item.set_alignment(align_str)
+            self._update_align_icon(align_str)
+
+    def _update_align_icon(self, align_str):
+        if not hasattr(self, 'btn_align'):
+            return
+        spec = getattr(self, '_current_spec', {}) or {}
+        col = spec.get('main_text', '#f1f5f9')
+        if align_str == "center":
+            self.btn_align.setIcon(ModernIconFactory.icon_align_center(14, col))
+        elif align_str == "right":
+            self.btn_align.setIcon(ModernIconFactory.icon_align_right(14, col))
+        elif align_str == "justify":
+            self.btn_align.setIcon(ModernIconFactory.icon_align_justify(14, col))
+        else:
+            self.btn_align.setIcon(ModernIconFactory.icon_align_left(14, col))
 
 
 # --- 7. ÇİZİM AYAR PENCERELERİ & FAVORİLER ---

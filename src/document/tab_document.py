@@ -3,8 +3,10 @@ import math
 import uuid
 import hashlib
 import random
+import json
+import base64
 import pymupdf as fitz
-from typing import List, Dict, Optional, Any
+from typing import List, Dict, Optional, Any, Tuple
 import urllib.parse
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QGraphicsView, QGraphicsScene, 
                              QGraphicsTextItem, QMessageBox, QGraphicsItem, QMenu, QInputDialog,
@@ -13,9 +15,9 @@ from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QGraphicsView, QGraphicsScene
                              QGraphicsPixmapItem)
 from PyQt6.QtGui import (QImage, QPixmap, QPen, QColor, QPainter, QPainterPath, QPainterPathStroker,
                          QBrush, QLinearGradient, QRadialGradient, QFont,
-                         QFontMetrics, QFontMetricsF, QTransform, QDesktopServices, QCursor)
+                         QFontMetrics, QFontMetricsF, QTransform, QDesktopServices, QCursor, QPolygonF)
 from PyQt6.QtCore import (Qt, QRectF, QPointF, QPoint, QTimer, QLineF, QEvent, QSettings, QUrl,
-                          QThread, pyqtSignal as _pyqtSignal, QMutex, QMutexLocker)
+                          QThread, pyqtSignal as _pyqtSignal, QMutex, QMutexLocker, QBuffer, QIODevice)
 
 from src.core.i18n import LanguageManager
 from src.ui.icons import ModernIconFactory
@@ -42,21 +44,31 @@ def apply_smart_dark_invert(pix: fitz.Pixmap, page: fitz.Page, mat: fitz.Matrix)
 
 
 # ---------------------------------------------------------------------------
+# PyMuPDF motorunu maksimum keskinlik ve anti-aliasing ile başlat
+try:
+    if hasattr(fitz, 'TOOLS'):
+        fitz.TOOLS.set_aa_level(8)
+        fitz.TOOLS.set_small_glyph_heights(True)
+except Exception:
+    pass
+
+
+# ---------------------------------------------------------------------------
 # Async PDF Render Worker - ana thread'i bloklamadan sayfaları render eder
 # ---------------------------------------------------------------------------
 class _PageRenderWorker(QThread):
-    """Arka planda PDF sayfalarını render edip QPixmap olarak ana thread'e gönderir."""
-    page_rendered = _pyqtSignal(int, object)  # (page_idx, QPixmap)
+    """Arka planda PDF sayfalarını yüksek hassasiyetle render edip thread-safe QImage olarak ana thread'e gönderir."""
+    page_rendered = _pyqtSignal(int, object, float, float)  # (page_idx, QImage, job_zoom, job_dpr)
     finished_all  = _pyqtSignal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self._mutex  = QMutex()
-        self._jobs: list = []   # [(page_idx, fitz.Matrix, str, fitz.Document)]
+        self._jobs: list = []
         self._abort = False
 
     def schedule(self, jobs: list):
-        """jobs: [(page_idx, matrix, color_mode, doc_ptr)] listesi."""
+        """jobs: [(page_idx, matrix, color_mode, doc_ptr, annots_flag, zoom, dpr)] listesi."""
         with QMutexLocker(self._mutex):
             self._jobs = list(jobs)
             self._abort = False
@@ -69,33 +81,80 @@ class _PageRenderWorker(QThread):
     def run(self):
         while True:
             with QMutexLocker(self._mutex):
-                if not self._jobs:
+                if not self._jobs or self._abort:
                     break
                 job = self._jobs.pop(0)
-                if len(job) >= 5:
-                    page_idx, mat, mode, doc, annots_flag = job[:5]
-                else:
-                    page_idx, mat, mode, doc = job[:4]
-                    annots_flag = True
-                if self._abort:
-                    break
+
+            page_idx = job[0]
+            mat = job[1]
+            mode = job[2]
+            doc = job[3]
+            annots_flag = job[4] if len(job) > 4 else True
+            job_zoom = float(job[5]) if len(job) > 5 else 1.0
+            job_dpr = float(job[6]) if len(job) > 6 else 1.0
+
             try:
-                pix = doc[page_idx].get_pixmap(matrix=mat, annots=annots_flag)
+                pix = doc[page_idx].get_pixmap(matrix=mat, annots=annots_flag, alpha=False)
                 if mode == 'dark':
                     apply_smart_dark_invert(pix, doc[page_idx], mat)
+                # Bellek güvenliği için tampon belleği kopyala (dangling pointer ve bozulma koruması)
                 qimg = QImage(pix.samples, pix.width, pix.height,
-                              pix.stride, QImage.Format.Format_RGB888)
+                              pix.stride, QImage.Format.Format_RGB888).copy()
                 if mode == 'sepia':
                     p_sepia = QPainter(qimg)
                     p_sepia.setCompositionMode(
                         QPainter.CompositionMode.CompositionMode_Multiply)
                     p_sepia.fillRect(qimg.rect(), QColor(246, 238, 220))
                     p_sepia.end()
-                qpix = QPixmap.fromImage(qimg)
-                self.page_rendered.emit(page_idx, qpix)
+
+                # GUI thread'ine thread-safe QImage nesnesi gönder
+                self.page_rendered.emit(page_idx, qimg, job_zoom, job_dpr)
             except Exception:
                 pass
         self.finished_all.emit()
+
+
+def build_smooth_path(pts: List[QPointF]) -> QPainterPath:
+    """Noktaları C1-sürekli quadratik Bezier eğrileriyle birleştirerek ultra pürüzsüz ve yüksek çözünürlüklü vektör çizim yolu üretir."""
+    path = QPainterPath()
+    if not pts:
+        return path
+    if len(pts) == 1:
+        path.moveTo(pts[0])
+        path.lineTo(pts[0].x() + 0.05, pts[0].y() + 0.05)
+        return path
+    if len(pts) == 2:
+        path.moveTo(pts[0])
+        path.lineTo(pts[1])
+        return path
+
+    path.moveTo(pts[0])
+    for i in range(len(pts) - 1):
+        p_curr = pts[i]
+        p_next = pts[i + 1]
+        mid = QPointF((p_curr.x() + p_next.x()) / 2.0, (p_curr.y() + p_next.y()) / 2.0)
+        path.quadTo(p_curr, mid)
+    path.lineTo(pts[-1])
+    return path
+
+
+def smooth_points_for_pdf(pts: List[List[float]]) -> List[List[float]]:
+    """PDF için polylineları Bezier ara noktalarıyla yumuşatarak köşeli piksel/merdiven görüntüsünü yok eder."""
+    if len(pts) <= 2:
+        return pts
+    smoothed = [pts[0]]
+    for i in range(len(pts) - 1):
+        p0 = pts[i]
+        p1 = pts[i + 1]
+        mid = [(p0[0] + p1[0]) / 2.0, (p0[1] + p1[1]) / 2.0]
+        prev_mid = smoothed[-1]
+        for t in (0.33, 0.66):
+            bx = (1.0 - t)**2 * prev_mid[0] + 2.0 * (1.0 - t) * t * p0[0] + (t**2) * mid[0]
+            by = (1.0 - t)**2 * prev_mid[1] + 2.0 * (1.0 - t) * t * p0[1] + (t**2) * mid[1]
+            smoothed.append([bx, by])
+        smoothed.append(mid)
+    smoothed.append(pts[-1])
+    return smoothed
 
 
 def build_fountain_pen_path(raw_pts: List[QPointF], base_width: float = 6.0, min_width: float = 1.8) -> QPainterPath:
@@ -307,22 +366,31 @@ class BookmarkRibbonItem(QGraphicsItem):
         self._update_tooltip()
 
     def _update_tooltip(self):
-        p_num = self.page_idx + 1
-        if self.is_bookmarked:
-            self.setToolTip(LanguageManager.tr("bookmark_ribbon_remove_tip", page=p_num))
-        else:
-            self.setToolTip(LanguageManager.tr("bookmark_ribbon_add_tip", page=p_num))
+        try:
+            p_num = self.page_idx + 1
+            if self.is_bookmarked:
+                self.setToolTip(LanguageManager.tr("bookmark_ribbon_remove_tip", page=p_num))
+            else:
+                self.setToolTip(LanguageManager.tr("bookmark_ribbon_add_tip", page=p_num))
+        except Exception:
+            pass
 
     def set_bookmarked(self, val: bool):
-        if self.is_bookmarked != val:
-            self.is_bookmarked = val
-            self._update_tooltip()
-            self.update()
+        try:
+            if self.is_bookmarked != val:
+                self.is_bookmarked = val
+                self._update_tooltip()
+                self.update()
+        except Exception:
+            pass
 
     def set_hovered(self, val: bool):
-        if self.is_hovered != val:
-            self.is_hovered = val
-            self.update()
+        try:
+            if self.is_hovered != val:
+                self.is_hovered = val
+                self.update()
+        except Exception:
+            pass
 
     def hoverEnterEvent(self, event):
         self.set_hovered(True)
@@ -1064,16 +1132,18 @@ class PDFTabDocument(QWidget):
         self.scene = QGraphicsScene(self)
         self.view = QGraphicsView(self.scene)
         self.view.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        # Antialiasing yalnızca vektörel çizimler için; pixmap render hint devre dışı
-        # → CPU yükünü azaltır, kasmayı önler
-        self.view.setRenderHint(QPainter.RenderHint.Antialiasing)
-        self.view.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform, False)
+        # Antialiasing, yüksek DPI pürüzsüz pixmap ve metin keskinliği render hint'leri
+        self.view.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        self.view.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform, True)
+        self.view.setRenderHint(QPainter.RenderHint.TextAntialiasing, True)
+        if hasattr(QPainter.RenderHint, 'LosslessImageRendering'):
+            self.view.setRenderHint(QPainter.RenderHint.LosslessImageRendering, True)
         # SmartViewportUpdate: Değişen bölgeleri ve hareketli öğeleri pürüzsüz günceller, yırtılma ve hayalet kalıntıları önler
         self.view.setViewportUpdateMode(QGraphicsView.ViewportUpdateMode.SmartViewportUpdate)
         # Sürükleme optimizasyonu
         self.view.setDragMode(QGraphicsView.DragMode.NoDrag)
-        # Optimal caching
-        self.view.setCacheMode(QGraphicsView.CacheModeFlag.CacheBackground)
+        # Hayalet kalıntıları (ghost artifacts) önlemek ve kristal netlik sağlamak için CacheNone kullanılır
+        self.view.setCacheMode(QGraphicsView.CacheModeFlag.CacheNone)
         self.view.setOptimizationFlag(
             QGraphicsView.OptimizationFlag.DontAdjustForAntialiasing, False)
         self.view.setStyleSheet("background-color: #181818; border: none;")
@@ -1157,6 +1227,48 @@ class PDFTabDocument(QWidget):
             fitz.PDF_ANNOT_FREE_TEXT,
             fitz.PDF_ANNOT_POLYGON
         )
+
+        has_aurapdf_drawings = (
+            self.doc is not None and
+            hasattr(self.doc, 'embfile_names') and
+            'aurapdf_drawings.json' in self.doc.embfile_names()
+        )
+
+        if has_aurapdf_drawings:
+            # 1. In-memory dokümanda AuraPDF çizim/medya akışlarını sustur (böylece get_pixmap temiz arka plan üretir)
+            for p in self.doc:
+                try:
+                    for x in p.get_contents():
+                        st = self.doc.xref_stream(x)
+                        if st and b'% AuraPDF Drawing Stream' in st:
+                            self.doc.update_stream(x, b"")
+                except Exception:
+                    pass
+
+            # 2. In-memory dokümanda standart ek açıklamaların get_pixmap ile çift çizilmesini önlemek için gizle
+            for p in self.doc:
+                try:
+                    for a in list(p.annots()):
+                        if a.type[0] in MANAGED_TYPES and not (a.flags & fitz.PDF_ANNOT_IS_HIDDEN):
+                            a.set_flags(a.flags | fitz.PDF_ANNOT_IS_HIDDEN)
+                            a.update()
+                except Exception:
+                    pass
+
+            # 3. aurapdf_drawings.json'dan tüm çizim, resim, tablo, metin kutusu ve medya nesnelerini geri yükle
+            try:
+                raw_bytes = self.doc.embfile_get('aurapdf_drawings.json')
+                payload = json.loads(raw_bytes.decode('utf-8'))
+                self.drawings.clear()
+                for s in payload.get("drawings", []):
+                    rec = self._deserialize_drawing_record(s)
+                    if rec:
+                        self.drawings.append(rec)
+            except Exception as e:
+                print("Error loading aurapdf_drawings.json:", e)
+
+            return
+
         for p_idx in range(len(self.doc)):
             try:
                 page = self.doc[p_idx]
@@ -1359,8 +1471,10 @@ class PDFTabDocument(QWidget):
 
                     for stroke_pts, ah in strokes_to_add:
                         pts_coords = [(pt.x, pt.y) for pt in stroke_pts]
+                        info = annot.info or {}
+                        is_pencil_annot = (info.get("subject") == "pencil" or info.get("title") == "AuraPencil")
                         new_item = {
-                            "type": "polyline",
+                            "type": "pencil" if is_pencil_annot else "polyline",
                             "page": p_idx,
                             "points": pts_coords,
                             "color": col,
@@ -1370,6 +1484,8 @@ class PDFTabDocument(QWidget):
                             "arrow_head": ah,
                             "source_annot": True
                         }
+                        if is_pencil_annot:
+                            new_item["pen_type"] = "pencil"
                         self.drawings.append(new_item)
 
                     # In-memory dokümanda ek açıklamayı gizle
@@ -1494,6 +1610,9 @@ class PDFTabDocument(QWidget):
                     except Exception:
                         pass
                 d['item_ref'] = None
+        if hasattr(self, 'bookmark_ribbon_items'):
+            self.bookmark_ribbon_items.clear()
+        self._last_hovered_ribbon = None
         if hasattr(self, 'scene') and self.scene:
             self.scene.clear()
         if hasattr(self, 'page_positions'):
@@ -1514,12 +1633,736 @@ class PDFTabDocument(QWidget):
                 if self.direct_edit_hover_item.scene() == self.scene:
                     self.scene.removeItem(self.direct_edit_hover_item)
                 self.direct_edit_hover_item = None
+            if hasattr(self, '_alignment_guide_item') and self._alignment_guide_item:
+                if self.scene and self._alignment_guide_item.scene() == self.scene:
+                    self.scene.removeItem(self._alignment_guide_item)
+                self._alignment_guide_item = None
             if hasattr(self, '_page_text_blocks_cache'):
                 self._page_text_blocks_cache.clear()
         except Exception:
             pass
         import gc
         gc.collect()
+
+    def show_alignment_guides(self, guides: list):
+        """Kullanıcı metin kutusunu taşırken oluşan hizalama kılavuzlarını sahnede gösterir."""
+        if not guides:
+            self.clear_alignment_guides()
+            return
+        if not hasattr(self, '_alignment_guide_item') or self._alignment_guide_item is None:
+            from src.ui.widgets import AlignmentGuideItem
+            self._alignment_guide_item = AlignmentGuideItem()
+            if self.scene:
+                self.scene.addItem(self._alignment_guide_item)
+        elif self.scene and self._alignment_guide_item.scene() != self.scene:
+            try:
+                self.scene.addItem(self._alignment_guide_item)
+            except Exception:
+                pass
+        self._alignment_guide_item.set_guides(guides)
+
+    def clear_alignment_guides(self):
+        """Sahnede aktif hizalama kılavuz çizgileri varsa gizler ve temizler."""
+        if hasattr(self, '_alignment_guide_item') and self._alignment_guide_item is not None:
+            self._alignment_guide_item.clear()
+
+    def compute_smart_snap(
+        self,
+        ignore_item: Any,
+        raw_pos: QPointF,
+        w: float,
+        h: float,
+        page_idx: int,
+        snap_to_grid: bool = True
+    ) -> Tuple[QPointF, List[Dict[str, Any]]]:
+        """
+        Metin kutuları ve görseller için gelişmiş akıllı hizalama ve manyetik yapışma (Smart Snapping & Guides).
+        - Aynı sayfadaki diğer metin kutuları ve resimlerle kenar ve merkez hizalama
+        - Sayfa merkez çizgileri (yatay & dikey) hizalama
+        - Sayfa kılavuz ızgarasına (Grid) akıllı yapışma
+        """
+        p_info = self.page_positions.get(page_idx)
+        margin = 8.0
+        if p_info:
+            page_left = float(p_info.get('left', 0.0))
+            page_right = float(p_info.get('right', page_left + p_info.get('width', 600.0)))
+            page_top = float(p_info.get('top', 0.0))
+            page_bottom = float(p_info.get('bottom', page_top + p_info.get('height', 800.0)))
+            page_w = float(p_info.get('width', page_right - page_left))
+            page_h = float(p_info.get('height', page_bottom - page_top))
+
+            max_x = max(page_left + margin, page_right - w - margin)
+            max_y = max(page_top + margin, page_bottom - h - margin)
+            clamped_x = max(page_left + margin, min(raw_pos.x(), max_x))
+            clamped_y = max(page_top + margin, min(raw_pos.y(), max_y))
+        else:
+            page_left = 0.0
+            page_right = 600.0
+            page_top = 0.0
+            page_bottom = 800.0
+            page_w = 600.0
+            page_h = 800.0
+            clamped_x = raw_pos.x()
+            clamped_y = raw_pos.y()
+
+        guides = []
+        SNAP_THRESHOLD = 8.0
+
+        cand_left = clamped_x
+        cand_cx = clamped_x + w / 2.0
+        cand_right = clamped_x + w
+
+        cand_top = clamped_y
+        cand_cy = clamped_y + h / 2.0
+        cand_bottom = clamped_y + h
+
+        best_snap_x = None
+        best_diff_x = SNAP_THRESHOLD + 1.0
+        snap_x_guide = None
+
+        best_snap_y = None
+        best_diff_y = SNAP_THRESHOLD + 1.0
+        snap_y_guide = None
+
+        # 1. Aynı sayfadaki diğer nesneleri topla (metin kutuları ve eklenen resimler)
+        other_items = []
+        if self.scene:
+            for it in self.scene.items():
+                if it is ignore_item:
+                    continue
+                parent_text = getattr(ignore_item, 'parent_text_item', None)
+                if parent_text and it is parent_text:
+                    continue
+                if getattr(it, 'parent_text_item', None) is ignore_item:
+                    continue
+
+                if it.__class__.__name__ == 'EditableInlineTextItem':
+                    if getattr(it, 'page_idx', None) == page_idx:
+                        other_items.append(it)
+                elif it.__class__.__name__ in ('PDFResizableImageItem', 'PDFTableItem', 'PDFAudioItem', 'PDFVideoItem'):
+                    p_num = getattr(it, 'page_idx', None)
+                    if p_num is None:
+                        rec = getattr(it, 'record', {})
+                        p_num = rec.get('page', 0)
+                    if p_num == page_idx:
+                        other_items.append(it)
+                elif getattr(it, 'page_idx', None) == page_idx:
+                    if hasattr(it, 'sceneBoundingRect'):
+                        other_items.append(it)
+
+        # 2. Diğer nesneler ile kenar ve merkez hizalama
+        for o_item in other_items:
+            cls_name = o_item.__class__.__name__
+            if cls_name in ('PDFResizableImageItem', 'PDFTableItem', 'PDFAudioItem', 'PDFVideoItem'):
+                o_w = float(getattr(o_item, 'w', 0.0))
+                o_h = float(getattr(o_item, 'h', 0.0))
+                o_pos = o_item.pos()
+                o_left = float(o_pos.x())
+                o_top = float(o_pos.y())
+                o_right = o_left + o_w
+                o_bottom = o_top + o_h
+                o_cx = o_left + o_w / 2.0
+                o_cy = o_top + o_h / 2.0
+            elif cls_name == 'EditableInlineTextItem':
+                br = o_item.boundingRect()
+                o_pos = o_item.pos()
+                o_left = float(o_pos.x())
+                o_top = float(o_pos.y())
+                o_w = float(br.width())
+                o_h = float(br.height())
+                o_right = o_left + o_w
+                o_bottom = o_top + o_h
+                o_cx = o_left + o_w / 2.0
+                o_cy = o_top + o_h / 2.0
+            else:
+                o_rect = o_item.sceneBoundingRect()
+                o_left = o_rect.left()
+                o_cx = o_rect.center().x()
+                o_right = o_rect.right()
+                o_top = o_rect.top()
+                o_cy = o_rect.center().y()
+                o_bottom = o_rect.bottom()
+
+            # --- Yatay Hizalama (Dikey Çizgi Üretir) ---
+            # Sol - Sol
+            diff = abs(cand_left - o_left)
+            if diff < best_diff_x:
+                best_diff_x = diff
+                best_snap_x = o_left
+                snap_x_guide = {
+                    "orientation": "vertical",
+                    "coord": o_left,
+                    "start": min(cand_top, o_top) - 15.0,
+                    "end": max(cand_bottom, o_bottom) + 15.0,
+                    "points": [QPointF(o_left, o_top), QPointF(o_left, o_bottom)]
+                }
+            # Merkez - Merkez
+            diff = abs(cand_cx - o_cx)
+            if diff < best_diff_x:
+                best_diff_x = diff
+                best_snap_x = o_cx - w / 2.0
+                snap_x_guide = {
+                    "orientation": "vertical",
+                    "coord": o_cx,
+                    "start": min(cand_top, o_top) - 15.0,
+                    "end": max(cand_bottom, o_bottom) + 15.0,
+                    "points": [QPointF(o_cx, o_cy)]
+                }
+            # Sağ - Sağ
+            diff = abs(cand_right - o_right)
+            if diff < best_diff_x:
+                best_diff_x = diff
+                best_snap_x = o_right - w
+                snap_x_guide = {
+                    "orientation": "vertical",
+                    "coord": o_right,
+                    "start": min(cand_top, o_top) - 15.0,
+                    "end": max(cand_bottom, o_bottom) + 15.0,
+                    "points": [QPointF(o_right, o_top), QPointF(o_right, o_bottom)]
+                }
+            # Sol - Sağ
+            diff = abs(cand_left - o_right)
+            if diff < best_diff_x:
+                best_diff_x = diff
+                best_snap_x = o_right
+                snap_x_guide = {
+                    "orientation": "vertical",
+                    "coord": o_right,
+                    "start": min(cand_top, o_top) - 15.0,
+                    "end": max(cand_bottom, o_bottom) + 15.0,
+                    "points": [QPointF(o_right, o_top)]
+                }
+            # Sağ - Sol
+            diff = abs(cand_right - o_left)
+            if diff < best_diff_x:
+                best_diff_x = diff
+                best_snap_x = o_left - w
+                snap_x_guide = {
+                    "orientation": "vertical",
+                    "coord": o_left,
+                    "start": min(cand_top, o_top) - 15.0,
+                    "end": max(cand_bottom, o_bottom) + 15.0,
+                    "points": [QPointF(o_left, o_top)]
+                }
+
+            # --- Dikey Hizalama (Yatay Çizgi Üretir) ---
+            # Üst - Üst
+            diff = abs(cand_top - o_top)
+            if diff < best_diff_y:
+                best_diff_y = diff
+                best_snap_y = o_top
+                snap_y_guide = {
+                    "orientation": "horizontal",
+                    "coord": o_top,
+                    "start": min(cand_left, o_left) - 15.0,
+                    "end": max(cand_right, o_right) + 15.0,
+                    "points": [QPointF(o_left, o_top), QPointF(o_right, o_top)]
+                }
+            # Merkez - Merkez
+            diff = abs(cand_cy - o_cy)
+            if diff < best_diff_y:
+                best_diff_y = diff
+                best_snap_y = o_cy - h / 2.0
+                snap_y_guide = {
+                    "orientation": "horizontal",
+                    "coord": o_cy,
+                    "start": min(cand_left, o_left) - 15.0,
+                    "end": max(cand_right, o_right) + 15.0,
+                    "points": [QPointF(o_cx, o_cy)]
+                }
+            # Alt - Alt
+            diff = abs(cand_bottom - o_bottom)
+            if diff < best_diff_y:
+                best_diff_y = diff
+                best_snap_y = o_bottom - h
+                snap_y_guide = {
+                    "orientation": "horizontal",
+                    "coord": o_bottom,
+                    "start": min(cand_left, o_left) - 15.0,
+                    "end": max(cand_right, o_right) + 15.0,
+                    "points": [QPointF(o_left, o_bottom), QPointF(o_right, o_bottom)]
+                }
+            # Üst - Alt
+            diff = abs(cand_top - o_bottom)
+            if diff < best_diff_y:
+                best_diff_y = diff
+                best_snap_y = o_bottom
+                snap_y_guide = {
+                    "orientation": "horizontal",
+                    "coord": o_bottom,
+                    "start": min(cand_left, o_left) - 15.0,
+                    "end": max(cand_right, o_right) + 15.0,
+                    "points": [QPointF(o_left, o_bottom)]
+                }
+            # Alt - Üst
+            diff = abs(cand_bottom - o_top)
+            if diff < best_diff_y:
+                best_diff_y = diff
+                best_snap_y = o_top - h
+                snap_y_guide = {
+                    "orientation": "horizontal",
+                    "coord": o_top,
+                    "start": min(cand_left, o_left) - 15.0,
+                    "end": max(cand_right, o_right) + 15.0,
+                    "points": [QPointF(o_left, o_top)]
+                }
+
+        # 3. Sayfa merkezine yapışma desteği
+        if p_info:
+            page_cx = page_left + page_w / 2.0
+            diff = abs(cand_cx - page_cx)
+            if diff < best_diff_x and diff <= SNAP_THRESHOLD:
+                best_diff_x = diff
+                best_snap_x = page_cx - w / 2.0
+                snap_x_guide = {
+                    "orientation": "vertical",
+                    "coord": page_cx,
+                    "start": page_top + 10.0,
+                    "end": page_bottom - 10.0,
+                    "points": []
+                }
+
+            page_cy = page_top + page_h / 2.0
+            diff = abs(cand_cy - page_cy)
+            if diff < best_diff_y and diff <= SNAP_THRESHOLD:
+                best_diff_y = diff
+                best_snap_y = page_cy - h / 2.0
+                snap_y_guide = {
+                    "orientation": "horizontal",
+                    "coord": page_cy,
+                    "start": page_left + 10.0,
+                    "end": page_right - 10.0,
+                    "points": []
+                }
+
+        # 4. Kılavuz Izgarasına (Grid) Akıllı Manyetik Yapışma Desteği
+        GRID_SNAP_THRESHOLD = 6.0
+        grid_step = 20.0 * getattr(self, 'base_render_dpi', 1.5)
+        if snap_to_grid:
+            if best_snap_x is None:
+                dist_x = cand_left - page_left
+                near_x = page_left + round(dist_x / grid_step) * grid_step
+                diff_gx = abs(cand_left - near_x)
+                if diff_gx <= GRID_SNAP_THRESHOLD:
+                    best_snap_x = near_x
+                    best_diff_x = diff_gx
+                    snap_x_guide = {
+                        "orientation": "vertical",
+                        "coord": near_x,
+                        "start": min(cand_top, page_top) - 10.0,
+                        "end": max(cand_bottom, page_bottom) + 10.0,
+                        "points": [QPointF(near_x, cand_top), QPointF(near_x, cand_bottom)]
+                    }
+
+            if best_snap_y is None:
+                dist_y = cand_top - page_top
+                near_y = page_top + round(dist_y / grid_step) * grid_step
+                diff_gy = abs(cand_top - near_y)
+                if diff_gy <= GRID_SNAP_THRESHOLD:
+                    best_snap_y = near_y
+                    best_diff_y = diff_gy
+                    snap_y_guide = {
+                        "orientation": "horizontal",
+                        "coord": near_y,
+                        "start": min(cand_left, page_left) - 10.0,
+                        "end": max(cand_right, page_right) + 10.0,
+                        "points": [QPointF(cand_left, near_y), QPointF(cand_right, near_y)]
+                    }
+
+        # 5. Manyetik yapışmayı uygula ve kılavuzları oluştur
+        if best_snap_x is not None and best_diff_x <= SNAP_THRESHOLD:
+            clamped_x = best_snap_x
+            if snap_x_guide:
+                snap_x_guide["points"].extend([
+                    QPointF(snap_x_guide["coord"], clamped_y),
+                    QPointF(snap_x_guide["coord"], clamped_y + h / 2.0),
+                    QPointF(snap_x_guide["coord"], clamped_y + h)
+                ])
+                guides.append(snap_x_guide)
+
+        if best_snap_y is not None and best_diff_y <= SNAP_THRESHOLD:
+            clamped_y = best_snap_y
+            if snap_y_guide:
+                snap_y_guide["points"].extend([
+                    QPointF(clamped_x, snap_y_guide["coord"]),
+                    QPointF(clamped_x + w / 2.0, snap_y_guide["coord"]),
+                    QPointF(clamped_x + w, snap_y_guide["coord"])
+                ])
+                guides.append(snap_y_guide)
+
+        return QPointF(clamped_x, clamped_y), guides
+
+    def compute_smart_snap_resize(
+        self,
+        ignore_item: Any,
+        handle: str,
+        cand_x: float,
+        cand_y: float,
+        cand_w: float,
+        cand_h: float,
+        orig_bounds: QRectF,
+        page_idx: int,
+        min_w: float = 40.0,
+        min_h: float = 24.0,
+        snap_to_grid: bool = True
+    ) -> Tuple[float, float, float, float, List[Dict[str, Any]]]:
+        """
+        Tablo, görsel veya şekil boyutlandırma sırasında akıllı hizalama kılavuzları ve manyetik yapışma.
+        Boyutlandırılan kenarlar (sağ, sol, üst, alt) sayfadaki diğer öğeler, sayfa sınırları ve grid ile hizalanır.
+        """
+        p_info = self.page_positions.get(page_idx) if hasattr(self, 'page_positions') else None
+        margin = 8.0
+        if p_info:
+            page_left = float(p_info.get('left', 0.0))
+            page_right = float(p_info.get('right', page_left + p_info.get('width', 600.0)))
+            page_top = float(p_info.get('top', 0.0))
+            page_bottom = float(p_info.get('bottom', page_top + p_info.get('height', 800.0)))
+            page_w = float(p_info.get('width', page_right - page_left))
+            page_h = float(p_info.get('height', page_bottom - page_top))
+        else:
+            page_left = 0.0
+            page_right = 600.0
+            page_top = 0.0
+            page_bottom = 800.0
+            page_w = 600.0
+            page_h = 800.0
+
+        guides = []
+        SNAP_THRESHOLD = 8.0
+
+        new_x = cand_x
+        new_y = cand_y
+        new_w = cand_w
+        new_h = cand_h
+
+        # 1. Aynı sayfadaki diğer nesneleri topla
+        other_items = []
+        if self.scene:
+            for it in self.scene.items():
+                if it is ignore_item:
+                    continue
+                parent_text = getattr(ignore_item, 'parent_text_item', None)
+                if parent_text and it is parent_text:
+                    continue
+                if getattr(it, 'parent_text_item', None) is ignore_item:
+                    continue
+                if it.__class__.__name__ == 'EditableInlineTextItem':
+                    if getattr(it, 'page_idx', None) == page_idx:
+                        other_items.append(it)
+                elif it.__class__.__name__ in ('PDFResizableImageItem', 'PDFTableItem', 'PDFAudioItem', 'PDFVideoItem'):
+                    p_num = getattr(it, 'page_idx', None)
+                    if p_num is None:
+                        rec = getattr(it, 'record', {})
+                        p_num = rec.get('page', 0)
+                    if p_num == page_idx:
+                        other_items.append(it)
+
+        # Diğer nesnelerin sınırlarını çıkar
+        other_rects = []
+        for o_item in other_items:
+            cls_name = o_item.__class__.__name__
+            if cls_name in ('PDFResizableImageItem', 'PDFTableItem', 'PDFAudioItem', 'PDFVideoItem'):
+                o_w = float(getattr(o_item, 'w', 0.0))
+                o_h = float(getattr(o_item, 'h', 0.0))
+                o_pos = o_item.pos()
+                o_l = float(o_pos.x())
+                o_t = float(o_pos.y())
+                other_rects.append((o_l, o_t, o_l + o_w, o_t + o_h, o_l + o_w / 2.0, o_t + o_h / 2.0))
+            elif cls_name == 'EditableInlineTextItem':
+                br = o_item.boundingRect()
+                o_pos = o_item.pos()
+                o_l = float(o_pos.x())
+                o_t = float(o_pos.y())
+                o_w = float(br.width())
+                o_h = float(br.height())
+                other_rects.append((o_l, o_t, o_l + o_w, o_t + o_h, o_l + o_w / 2.0, o_t + o_h / 2.0))
+
+        # --- YATAY BOYUTLANDIRMA SNAP (DİKEY ÇİZGİLER) ---
+        if "r" in handle:
+            cand_r = new_x + new_w
+            best_diff_r = SNAP_THRESHOLD + 1.0
+            best_snap_r = None
+            snap_r_guide = None
+
+            for o_l, o_t, o_r, o_b, o_cx, o_cy in other_rects:
+                for target_x, pts in ((o_l, [QPointF(o_l, o_t), QPointF(o_l, o_b)]),
+                                      (o_r, [QPointF(o_r, o_t), QPointF(o_r, o_b)]),
+                                      (o_cx, [QPointF(o_cx, o_cy)])):
+                    diff = abs(cand_r - target_x)
+                    if diff < best_diff_r:
+                        best_diff_r = diff
+                        best_snap_r = target_x
+                        snap_r_guide = {
+                            "orientation": "vertical",
+                            "coord": target_x,
+                            "start": min(new_y, o_t) - 15.0,
+                            "end": max(new_y + new_h, o_b) + 15.0,
+                            "points": pts
+                        }
+
+            if p_info:
+                page_cx = page_left + page_w / 2.0
+                diff = abs(cand_r - page_cx)
+                if diff < best_diff_r and diff <= SNAP_THRESHOLD:
+                    best_diff_r = diff
+                    best_snap_r = page_cx
+                    snap_r_guide = {
+                        "orientation": "vertical",
+                        "coord": page_cx,
+                        "start": page_top + 10.0,
+                        "end": page_bottom - 10.0,
+                        "points": []
+                    }
+
+            if snap_to_grid and best_snap_r is None:
+                grid_step = 20.0 * getattr(self, 'base_render_dpi', 1.5)
+                dist_r = cand_r - page_left
+                near_r = page_left + round(dist_r / grid_step) * grid_step
+                diff_gr = abs(cand_r - near_r)
+                if diff_gr <= 6.0:
+                    best_diff_r = diff_gr
+                    best_snap_r = near_r
+                    snap_r_guide = {
+                        "orientation": "vertical",
+                        "coord": near_r,
+                        "start": min(new_y, page_top) - 10.0,
+                        "end": max(new_y + new_h, page_bottom) + 10.0,
+                        "points": [QPointF(near_r, new_y), QPointF(near_r, new_y + new_h)]
+                    }
+
+            if best_snap_r is not None and best_diff_r <= SNAP_THRESHOLD:
+                new_w = max(min_w, best_snap_r - new_x)
+                if snap_r_guide:
+                    snap_r_guide["points"].extend([
+                        QPointF(best_snap_r, new_y),
+                        QPointF(best_snap_r, new_y + new_h / 2.0),
+                        QPointF(best_snap_r, new_y + new_h)
+                    ])
+                    guides.append(snap_r_guide)
+
+        elif "l" in handle:
+            cand_l = new_x
+            best_diff_l = SNAP_THRESHOLD + 1.0
+            best_snap_l = None
+            snap_l_guide = None
+
+            for o_l, o_t, o_r, o_b, o_cx, o_cy in other_rects:
+                for target_x, pts in ((o_l, [QPointF(o_l, o_t), QPointF(o_l, o_b)]),
+                                      (o_r, [QPointF(o_r, o_t), QPointF(o_r, o_b)]),
+                                      (o_cx, [QPointF(o_cx, o_cy)])):
+                    diff = abs(cand_l - target_x)
+                    if diff < best_diff_l:
+                        best_diff_l = diff
+                        best_snap_l = target_x
+                        snap_l_guide = {
+                            "orientation": "vertical",
+                            "coord": target_x,
+                            "start": min(new_y, o_t) - 15.0,
+                            "end": max(new_y + new_h, o_b) + 15.0,
+                            "points": pts
+                        }
+
+            if p_info:
+                page_cx = page_left + page_w / 2.0
+                diff = abs(cand_l - page_cx)
+                if diff < best_diff_l and diff <= SNAP_THRESHOLD:
+                    best_diff_l = diff
+                    best_snap_l = page_cx
+                    snap_l_guide = {
+                        "orientation": "vertical",
+                        "coord": page_cx,
+                        "start": page_top + 10.0,
+                        "end": page_bottom - 10.0,
+                        "points": []
+                    }
+
+            if snap_to_grid and best_snap_l is None:
+                grid_step = 20.0 * getattr(self, 'base_render_dpi', 1.5)
+                dist_l = cand_l - page_left
+                near_l = page_left + round(dist_l / grid_step) * grid_step
+                diff_gl = abs(cand_l - near_l)
+                if diff_gl <= 6.0:
+                    best_diff_l = diff_gl
+                    best_snap_l = near_l
+                    snap_l_guide = {
+                        "orientation": "vertical",
+                        "coord": near_l,
+                        "start": min(new_y, page_top) - 10.0,
+                        "end": max(new_y + new_h, page_bottom) + 10.0,
+                        "points": [QPointF(near_l, new_y), QPointF(near_l, new_y + new_h)]
+                    }
+
+            if best_snap_l is not None and best_diff_l <= SNAP_THRESHOLD:
+                orig_r = orig_bounds.x() + orig_bounds.width()
+                new_x = min(best_snap_l, orig_r - min_w)
+                new_w = orig_r - new_x
+                if snap_l_guide:
+                    snap_l_guide["points"].extend([
+                        QPointF(new_x, new_y),
+                        QPointF(new_x, new_y + new_h / 2.0),
+                        QPointF(new_x, new_y + new_h)
+                    ])
+                    guides.append(snap_l_guide)
+
+        # --- DİKEY BOYUTLANDIRMA SNAP (YATAY ÇİZGİLER) ---
+        if "b" in handle:
+            cand_b = new_y + new_h
+            best_diff_b = SNAP_THRESHOLD + 1.0
+            best_snap_b = None
+            snap_b_guide = None
+
+            for o_l, o_t, o_r, o_b, o_cx, o_cy in other_rects:
+                for target_y, pts in ((o_t, [QPointF(o_l, o_t), QPointF(o_r, o_t)]),
+                                      (o_b, [QPointF(o_l, o_b), QPointF(o_r, o_b)]),
+                                      (o_cy, [QPointF(o_cx, o_cy)])):
+                    diff = abs(cand_b - target_y)
+                    if diff < best_diff_b:
+                        best_diff_b = diff
+                        best_snap_b = target_y
+                        snap_b_guide = {
+                            "orientation": "horizontal",
+                            "coord": target_y,
+                            "start": min(new_x, o_l) - 15.0,
+                            "end": max(new_x + new_w, o_r) + 15.0,
+                            "points": pts
+                        }
+
+            if p_info:
+                page_cy = page_top + page_h / 2.0
+                diff = abs(cand_b - page_cy)
+                if diff < best_diff_b and diff <= SNAP_THRESHOLD:
+                    best_diff_b = diff
+                    best_snap_b = page_cy
+                    snap_b_guide = {
+                        "orientation": "horizontal",
+                        "coord": page_cy,
+                        "start": page_left + 10.0,
+                        "end": page_right - 10.0,
+                        "points": []
+                    }
+
+            if snap_to_grid and best_snap_b is None:
+                grid_step = 20.0 * getattr(self, 'base_render_dpi', 1.5)
+                dist_b = cand_b - page_top
+                near_b = page_top + round(dist_b / grid_step) * grid_step
+                diff_gb = abs(cand_b - near_b)
+                if diff_gb <= 6.0:
+                    best_diff_b = diff_gb
+                    best_snap_b = near_b
+                    snap_b_guide = {
+                        "orientation": "horizontal",
+                        "coord": near_b,
+                        "start": min(new_x, page_left) - 10.0,
+                        "end": max(new_x + new_w, page_right) + 10.0,
+                        "points": [QPointF(new_x, near_b), QPointF(new_x + new_w, near_b)]
+                    }
+
+            if best_snap_b is not None and best_diff_b <= SNAP_THRESHOLD:
+                new_h = max(min_h, best_snap_b - new_y)
+                if snap_b_guide:
+                    snap_b_guide["points"].extend([
+                        QPointF(new_x, best_snap_b),
+                        QPointF(new_x + new_w / 2.0, best_snap_b),
+                        QPointF(new_x + new_w, best_snap_b)
+                    ])
+                    guides.append(snap_b_guide)
+
+        elif "t" in handle:
+            cand_t = new_y
+            best_diff_t = SNAP_THRESHOLD + 1.0
+            best_snap_t = None
+            snap_t_guide = None
+
+            for o_l, o_t, o_r, o_b, o_cx, o_cy in other_rects:
+                for target_y, pts in ((o_t, [QPointF(o_l, o_t), QPointF(o_r, o_t)]),
+                                      (o_b, [QPointF(o_l, o_b), QPointF(o_r, o_b)]),
+                                      (o_cy, [QPointF(o_cx, o_cy)])):
+                    diff = abs(cand_t - target_y)
+                    if diff < best_diff_t:
+                        best_diff_t = diff
+                        best_snap_t = target_y
+                        snap_t_guide = {
+                            "orientation": "horizontal",
+                            "coord": target_y,
+                            "start": min(new_x, o_l) - 15.0,
+                            "end": max(new_x + new_w, o_r) + 15.0,
+                            "points": pts
+                        }
+
+            if p_info:
+                page_cy = page_top + page_h / 2.0
+                diff = abs(cand_t - page_cy)
+                if diff < best_diff_t and diff <= SNAP_THRESHOLD:
+                    best_diff_t = diff
+                    best_snap_t = page_cy
+                    snap_t_guide = {
+                        "orientation": "horizontal",
+                        "coord": page_cy,
+                        "start": page_left + 10.0,
+                        "end": page_right - 10.0,
+                        "points": []
+                    }
+
+            if snap_to_grid and best_snap_t is None:
+                grid_step = 20.0 * getattr(self, 'base_render_dpi', 1.5)
+                dist_t = cand_t - page_top
+                near_t = page_top + round(dist_t / grid_step) * grid_step
+                diff_gt = abs(cand_t - near_t)
+                if diff_gt <= 6.0:
+                    best_diff_t = diff_gt
+                    best_snap_t = near_t
+                    snap_t_guide = {
+                        "orientation": "horizontal",
+                        "coord": near_t,
+                        "start": min(new_x, page_left) - 10.0,
+                        "end": max(new_x + new_w, page_right) + 10.0,
+                        "points": [QPointF(new_x, near_t), QPointF(new_x + new_w, near_t)]
+                    }
+
+            if best_snap_t is not None and best_diff_t <= SNAP_THRESHOLD:
+                orig_b = orig_bounds.y() + orig_bounds.height()
+                new_y = min(best_snap_t, orig_b - min_h)
+                new_h = orig_b - new_y
+                if snap_t_guide:
+                    snap_t_guide["points"].extend([
+                        QPointF(new_x, new_y),
+                        QPointF(new_x + new_w / 2.0, new_y),
+                        QPointF(new_x + new_w, new_y)
+                    ])
+                    guides.append(snap_t_guide)
+
+        return new_x, new_y, new_w, new_h, guides
+
+    def snap_item_to_grid(self, item: Any, page_idx: int):
+        """Seçili metin kutusunu veya görseli en yakın ızgara çizgisine hizalar."""
+        p_info = self.page_positions.get(page_idx)
+        if not p_info:
+            return
+        page_left = float(p_info.get('left', 0.0))
+        page_top = float(p_info.get('top', 0.0))
+        grid_step = 20.0 * getattr(self, 'base_render_dpi', 1.5)
+        cur_pos = item.pos()
+        new_x = page_left + round((cur_pos.x() - page_left) / grid_step) * grid_step
+        new_y = page_top + round((cur_pos.y() - page_top) / grid_step) * grid_step
+        item.setPos(QPointF(new_x, new_y))
+
+        # PDFResizableImageItem veya görsel nesneleri güncelle
+        if hasattr(item, '_sync_record'):
+            item._sync_record()
+        elif hasattr(item, 'parent_text_item') and hasattr(item.parent_text_item, '_sync_record'):
+            item.parent_text_item._sync_record()
+
+        # EditableInlineTextItem veya TextMoveHandleItem için metni dokümana kaydet
+        target_text = item if item.__class__.__name__ == 'EditableInlineTextItem' else getattr(item, 'parent_text_item', None)
+        if target_text and hasattr(self, 'commit_inline_text'):
+            self.commit_inline_text(target_text)
+            if hasattr(target_text, 'update_move_handle_position'):
+                target_text.update_move_handle_position()
+
+        if hasattr(self, 'notify_drawings_changed'):
+            self.notify_drawings_changed(page_idx)
+        if hasattr(self, 'view') and self.view:
+            self.view.viewport().update()
 
     def closeEvent(self, event):
         self.close_document()
@@ -1563,6 +2406,331 @@ class PDFTabDocument(QWidget):
         except Exception:
             pass
 
+    def _serialize_drawing_record(self, d: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """Çizim veya medya kaydını JSON serileştirilebilir güvenli bir sözlüğe dönüştürür."""
+        if not d or not isinstance(d, dict):
+            return None
+        d_type = d.get("type")
+        if not d_type:
+            return None
+
+        orig_page = int(d.get("page", 0))
+        p_info = self.page_positions.get(orig_page) if hasattr(self, 'page_positions') else None
+        page_left = p_info.get('left', 0.0) if p_info else 0.0
+        page_top = p_info.get('top', 0.0) if p_info else 0.0
+
+        # Canlı sahnede aktifse güncel x, y, w, h konumlarını al
+        it = d.get("item_ref")
+        cur_x = float(d.get("x", 0.0))
+        cur_y = float(d.get("y", 0.0))
+        cur_w = float(d.get("w", 100.0))
+        cur_h = float(d.get("h", 100.0))
+
+        if it and hasattr(it, 'pos') and hasattr(it, 'scene') and it.scene() == self.scene:
+            try:
+                pos = it.pos()
+                cur_x = (pos.x() - page_left) / self.base_render_dpi
+                cur_y = (pos.y() - page_top) / self.base_render_dpi
+                if hasattr(it, 'w') and hasattr(it, 'h'):
+                    cur_w = it.w / self.base_render_dpi
+                    cur_h = it.h / self.base_render_dpi
+                elif hasattr(it, 'boundingRect'):
+                    br = it.boundingRect()
+                    cur_w = br.width() / self.base_render_dpi
+                    cur_h = br.height() / self.base_render_dpi
+            except Exception:
+                pass
+
+        def _col_to_list(col):
+            if isinstance(col, QColor):
+                return [round(col.redF(), 4), round(col.greenF(), 4), round(col.blueF(), 4)]
+            elif isinstance(col, (tuple, list)) and len(col) >= 3:
+                return [round(float(col[0]), 4), round(float(col[1]), 4), round(float(col[2]), 4)]
+            elif isinstance(col, str) and col.startswith("#"):
+                c = QColor(col)
+                if c.isValid():
+                    return [round(c.redF(), 4), round(c.greenF(), 4), round(c.blueF(), 4)]
+            return [0.0, 0.0, 0.0]
+
+        res = {
+            "type": d_type,
+            "page": orig_page,
+            "x": cur_x,
+            "y": cur_y,
+            "w": cur_w,
+            "h": cur_h
+        }
+        if "id" in d:
+            res["id"] = d["id"]
+
+        if d_type in ("polyline", "pencil"):
+            res["points"] = [[round(float(p[0]), 3), round(float(p[1]), 3)] for p in d.get("points", [])]
+            if d.get("arrow_head"):
+                res["arrow_head"] = [[round(float(p[0]), 3), round(float(p[1]), 3)] for p in d["arrow_head"]]
+            res["color"] = _col_to_list(d.get("color"))
+            res["width"] = float(d.get("width", 2.0))
+            res["alpha"] = float(d.get("alpha", 1.0))
+            res["line_style"] = str(d.get("line_style", "solid"))
+            res["pen_type"] = str(d.get("pen_type", "solid"))
+
+        elif d_type == "filled_path":
+            res["color"] = _col_to_list(d.get("color"))
+            res["alpha"] = float(d.get("alpha", 1.0))
+            res["line_style"] = str(d.get("line_style", "solid"))
+            polys = []
+            if d.get("rel_path"):
+                try:
+                    for poly in d["rel_path"].toFillPolygons():
+                        polys.append([[round(float(pt.x()), 3), round(float(pt.y()), 3)] for pt in poly])
+                except Exception:
+                    polys = []
+            res["polygons"] = polys
+
+        elif d_type == "text_markup":
+            res["markup_type"] = str(d.get("markup_type", "highlight"))
+            res["rects"] = [[round(float(coord), 3) for coord in r] for r in d.get("rects", [])]
+            res["color"] = _col_to_list(d.get("color"))
+            res["alpha"] = float(d.get("alpha", 0.38 if res["markup_type"] == "highlight" else 1.0))
+            res["width"] = float(d.get("width", 2.0))
+
+        elif d_type == "text":
+            text_str = str(d.get("text", ""))
+            html_str = str(d.get("html", ""))
+            if it and hasattr(it, 'scene') and it.scene() == self.scene:
+                try:
+                    if hasattr(it, 'toPlainText'):
+                        text_str = it.toPlainText()
+                    if hasattr(it, 'toHtml'):
+                        html_str = it.toHtml()
+                except Exception:
+                    pass
+            res["text"] = text_str
+            res["html"] = html_str
+            res["font_family"] = str(d.get("font_family", "Arial"))
+            res["font_size"] = float(d.get("font_size", 14.0))
+            res["color"] = _col_to_list(d.get("color"))
+            res["bold"] = bool(d.get("bold", False))
+            res["italic"] = bool(d.get("italic", False))
+            res["underline"] = bool(d.get("underline", False))
+            res["alignment"] = str(d.get("alignment", "left"))
+            res["link_url"] = str(d.get("link_url", ""))
+            res["link_type"] = str(d.get("link_type", "url"))
+            res["link_raw"] = str(d.get("link_raw", ""))
+            res["link_text"] = str(d.get("link_text", ""))
+            res["link_range"] = d.get("link_range")
+            res["manual_link"] = bool(d.get("manual_link", False))
+            if d.get("fragments"):
+                safe_fragments = []
+                for line in d["fragments"]:
+                    if isinstance(line, list):
+                        safe_line = []
+                        for frag in line:
+                            if isinstance(frag, dict):
+                                sf = dict(frag)
+                                if "color" in sf:
+                                    sf["color"] = _col_to_list(sf["color"])
+                                safe_line.append(sf)
+                            else:
+                                safe_line.append(frag)
+                        safe_fragments.append(safe_line)
+                    else:
+                        safe_fragments.append(line)
+                res["fragments"] = safe_fragments
+
+        elif d_type == "image":
+            raw_bytes = d.get("image_bytes")
+            if not raw_bytes and it and hasattr(it, 'pixmap') and not it.pixmap.isNull():
+                try:
+                    from PyQt6.QtCore import QBuffer, QIODevice
+                    buf = QBuffer()
+                    buf.open(QIODevice.OpenModeFlag.WriteOnly)
+                    it.pixmap.save(buf, "PNG")
+                    raw_bytes = bytes(buf.data())
+                except Exception:
+                    raw_bytes = None
+            if raw_bytes:
+                res["image_bytes"] = base64.b64encode(raw_bytes).decode('ascii')
+            res["title"] = str(d.get("title", "Görsel"))
+            res["keep_aspect"] = bool(d.get("keep_aspect", True))
+            res["orig_w"] = int(d.get("orig_w", 100))
+            res["orig_h"] = int(d.get("orig_h", 100))
+            res["init_pdf_w"] = float(d.get("init_pdf_w", cur_w))
+            res["init_pdf_h"] = float(d.get("init_pdf_h", cur_h))
+
+        elif d_type == "table":
+            c_data = d.get("cell_data", [])
+            if it and hasattr(it, 'cell_data') and hasattr(it, 'scene') and it.scene() == self.scene:
+                try:
+                    c_data = [list(row) for row in it.cell_data]
+                except Exception:
+                    pass
+            def _col_to_hex(val, default="#000000"):
+                if isinstance(val, QColor):
+                    return val.name()
+                if isinstance(val, str):
+                    return val
+                return default
+
+            res["rows"] = int(d.get("rows", 3))
+            res["cols"] = int(d.get("cols", 3))
+            res["has_header"] = bool(d.get("has_header", True))
+            res["border_color"] = _col_to_hex(d.get("border_color"), "#c4b5fd")
+            res["header_bg"] = _col_to_hex(d.get("header_bg"), "#7c3aed")
+            res["cell_bg"] = _col_to_hex(d.get("cell_bg"), "#ffffff")
+            res["alt_cell_bg"] = _col_to_hex(d.get("alt_cell_bg"), "")
+            res["text_color"] = _col_to_hex(d.get("text_color"), "#1e1b4b")
+            res["header_text_color"] = _col_to_hex(d.get("header_text_color"), "#ffffff")
+            res["font_size"] = float(d.get("font_size", 11.0))
+            res["font_family"] = str(d.get("font_family", "Arial"))
+            res["alignment"] = str(d.get("alignment", "center"))
+            res["cell_alignments"] = d.get("cell_alignments", [])
+            res["cell_data"] = c_data
+
+        elif d_type == "audio":
+            if d.get("audio_bytes"):
+                res["audio_bytes"] = base64.b64encode(d["audio_bytes"]).decode('ascii')
+            res["title"] = str(d.get("title", "Ses Notu"))
+            res["duration_sec"] = float(d.get("duration_sec", 0.0))
+            res["format"] = str(d.get("format", "wav"))
+
+        elif d_type == "video":
+            if d.get("video_bytes"):
+                res["video_bytes"] = base64.b64encode(d["video_bytes"]).decode('ascii')
+            res["title"] = str(d.get("title", "Video"))
+
+        return res
+
+    def _deserialize_drawing_record(self, d: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """Serileştirilmiş sözlükten canlı çalışma zamanı çizim kaydını yeniden kurar."""
+        if not d or not isinstance(d, dict):
+            return None
+        d_type = d.get("type")
+        if not d_type:
+            return None
+
+        col_list = d.get("color", [0.0, 0.0, 0.0])
+        r = max(0.0, min(1.0, float(col_list[0])))
+        g = max(0.0, min(1.0, float(col_list[1])))
+        b = max(0.0, min(1.0, float(col_list[2])))
+
+        rec = {
+            "type": d_type,
+            "page": int(d.get("page", 0)),
+            "x": float(d.get("x", 0.0)),
+            "y": float(d.get("y", 0.0)),
+            "w": float(d.get("w", 100.0)),
+            "h": float(d.get("h", 100.0)),
+        }
+        if "id" in d:
+            rec["id"] = d["id"]
+
+        if d_type in ("polyline", "pencil"):
+            rec["points"] = [list(pt) for pt in d.get("points", [])]
+            rec["arrow_head"] = [list(pt) for pt in d["arrow_head"]] if d.get("arrow_head") else None
+            rec["color"] = (r, g, b)
+            rec["width"] = float(d.get("width", 2.0))
+            rec["alpha"] = float(d.get("alpha", 1.0))
+            rec["line_style"] = str(d.get("line_style", "solid"))
+            rec["pen_type"] = str(d.get("pen_type", "solid"))
+
+        elif d_type == "filled_path":
+            rec["color"] = (r, g, b)
+            rec["alpha"] = float(d.get("alpha", 1.0))
+            rec["line_style"] = str(d.get("line_style", "solid"))
+            path = QPainterPath()
+            for poly in d.get("polygons", []):
+                if poly and len(poly) > 1:
+                    path.moveTo(float(poly[0][0]), float(poly[0][1]))
+                    for pt in poly[1:]:
+                        path.lineTo(float(pt[0]), float(pt[1]))
+                    path.closeSubpath()
+            rec["rel_path"] = path
+
+        elif d_type == "text_markup":
+            rec["markup_type"] = str(d.get("markup_type", "highlight"))
+            rec["rects"] = [[float(coord) for coord in r_box] for r_box in d.get("rects", [])]
+            rec["color"] = (r, g, b)
+            rec["alpha"] = float(d.get("alpha", 0.38 if rec["markup_type"] == "highlight" else 1.0))
+            rec["width"] = float(d.get("width", 2.0))
+
+        elif d_type == "text":
+            rec["text"] = str(d.get("text", ""))
+            rec["html"] = str(d.get("html", ""))
+            rec["font_family"] = str(d.get("font_family", "Arial"))
+            rec["font_size"] = int(d.get("font_size", 14))
+            rec["color"] = QColor.fromRgbF(r, g, b)
+            rec["bold"] = bool(d.get("bold", False))
+            rec["italic"] = bool(d.get("italic", False))
+            rec["underline"] = bool(d.get("underline", False))
+            rec["alignment"] = str(d.get("alignment", "left"))
+            rec["link_url"] = str(d.get("link_url", ""))
+            rec["link_type"] = str(d.get("link_type", "url"))
+            rec["link_raw"] = str(d.get("link_raw", ""))
+            rec["link_text"] = str(d.get("link_text", ""))
+            rec["link_range"] = d.get("link_range")
+            rec["manual_link"] = bool(d.get("manual_link", False))
+            if d.get("fragments"):
+                restored_fragments = []
+                for line in d["fragments"]:
+                    if isinstance(line, list):
+                        restored_line = []
+                        for frag in line:
+                            if isinstance(frag, dict):
+                                rf = dict(frag)
+                                if "color" in rf:
+                                    col_v = rf["color"]
+                                    if isinstance(col_v, (list, tuple)) and len(col_v) >= 3:
+                                        rf["color"] = QColor.fromRgbF(float(col_v[0]), float(col_v[1]), float(col_v[2]))
+                                    elif isinstance(col_v, str) and col_v.startswith("#"):
+                                        rf["color"] = QColor(col_v)
+                                restored_line.append(rf)
+                            else:
+                                restored_line.append(frag)
+                        restored_fragments.append(restored_line)
+                    else:
+                        restored_fragments.append(line)
+                rec["fragments"] = restored_fragments
+
+        elif d_type == "image":
+            raw_b64 = d.get("image_bytes")
+            rec["image_bytes"] = base64.b64decode(raw_b64.encode('ascii')) if raw_b64 else b""
+            rec["title"] = str(d.get("title", "Görsel"))
+            rec["keep_aspect"] = bool(d.get("keep_aspect", True))
+            rec["orig_w"] = int(d.get("orig_w", 100))
+            rec["orig_h"] = int(d.get("orig_h", 100))
+            rec["init_pdf_w"] = float(d.get("init_pdf_w", rec["w"]))
+            rec["init_pdf_h"] = float(d.get("init_pdf_h", rec["h"]))
+
+        elif d_type == "table":
+            rec["rows"] = int(d.get("rows", 3))
+            rec["cols"] = int(d.get("cols", 3))
+            rec["has_header"] = bool(d.get("has_header", True))
+            rec["border_color"] = str(d.get("border_color", "#c4b5fd"))
+            rec["header_bg"] = str(d.get("header_bg", "#7c3aed"))
+            rec["cell_bg"] = str(d.get("cell_bg", "#ffffff"))
+            rec["alt_cell_bg"] = str(d.get("alt_cell_bg", ""))
+            rec["text_color"] = str(d.get("text_color", "#1e1b4b"))
+            rec["header_text_color"] = str(d.get("header_text_color", "#ffffff"))
+            rec["font_size"] = float(d.get("font_size", 11.0))
+            rec["font_family"] = str(d.get("font_family", "Arial"))
+            rec["alignment"] = str(d.get("alignment", "center"))
+            rec["cell_alignments"] = d.get("cell_alignments", [])
+            rec["cell_data"] = d.get("cell_data", [])
+
+        elif d_type == "audio":
+            raw_b64 = d.get("audio_bytes")
+            rec["audio_bytes"] = base64.b64decode(raw_b64.encode('ascii')) if raw_b64 else b""
+            rec["title"] = str(d.get("title", "Ses Notu"))
+            rec["duration_sec"] = float(d.get("duration_sec", 0.0))
+            rec["format"] = str(d.get("format", "wav"))
+
+        elif d_type == "video":
+            raw_b64 = d.get("video_bytes")
+            rec["video_bytes"] = base64.b64decode(raw_b64.encode('ascii')) if raw_b64 else b""
+            rec["title"] = str(d.get("title", "Video"))
+
+        return rec
+
     # --- DRY (Don't Repeat Yourself) Uygulaması: PDF'e aktarım mantığı ---
     def export_drawings_to_pdf(self, target_doc: fitz.Document, page_mapping: Optional[List[int]] = None):
         """
@@ -1571,6 +2739,48 @@ class PDFTabDocument(QWidget):
         çizimleri tanır ve silebilir.
         Eğer page_mapping verilirse, orijinal sayfaları hedef dokümanın yeni indekslerine eşler.
         """
+        # Aktif metin kutusu veya hücre düzenleme varsa kaydetmeden önce tamamla
+        if hasattr(self, 'active_text_item') and self.active_text_item:
+            try:
+                self.commit_inline_text(self.active_text_item)
+            except Exception:
+                pass
+        if hasattr(self, 'scene') and self.scene:
+            for it in self.scene.items():
+                if hasattr(it, 'finish_cell_editing'):
+                    try:
+                        it.finish_cell_editing()
+                    except Exception:
+                        pass
+
+        # Canlı sahnede taşınmış veya boyutlandırılmış nesnelerin self.drawings içindeki konumlarını senkronize et
+        for d in self.drawings:
+            it = d.get("item_ref")
+            orig_p = d.get("page", 0)
+            p_info = self.page_positions.get(orig_p) if hasattr(self, 'page_positions') else None
+            if p_info and it and hasattr(it, 'pos') and hasattr(it, 'scene') and it.scene() == self.scene:
+                try:
+                    pos = it.pos()
+                    page_left = p_info.get('left', 0.0)
+                    page_top = p_info['top']
+                    d["x"] = (pos.x() - page_left) / self.base_render_dpi
+                    d["y"] = (pos.y() - page_top) / self.base_render_dpi
+                    if hasattr(it, 'w') and hasattr(it, 'h'):
+                        d["w"] = it.w / self.base_render_dpi
+                        d["h"] = it.h / self.base_render_dpi
+                    elif hasattr(it, 'boundingRect'):
+                        br = it.boundingRect()
+                        d["w"] = br.width() / self.base_render_dpi
+                        d["h"] = br.height() / self.base_render_dpi
+                    if hasattr(it, 'cell_data'):
+                        d["cell_data"] = [list(row) for row in it.cell_data]
+                    if hasattr(it, 'toPlainText'):
+                        d["text"] = it.toPlainText()
+                    if hasattr(it, 'toHtml'):
+                        d["html"] = it.toHtml()
+                except Exception:
+                    pass
+
         # 1. Hedef sayfalardaki mevcut ink ek açıklamalarını temizle (self.drawings tek doğru kaynaktır)
         pages_to_clean = set()
         if page_mapping is not None:
@@ -1600,6 +2810,31 @@ class PDFTabDocument(QWidget):
             except Exception:
                 pass
 
+        # Hedef belgede daha önceden kalmış eski AuraPDF çizim akışlarını ve üstverisini temizle
+        if hasattr(target_doc, 'embfile_names') and 'aurapdf_drawings.json' in target_doc.embfile_names():
+            try:
+                target_doc.embfile_del('aurapdf_drawings.json')
+            except Exception:
+                pass
+
+        for p_idx in pages_to_clean:
+            try:
+                page = target_doc[p_idx]
+                for x in page.get_contents():
+                    st = target_doc.xref_stream(x)
+                    if st and b'% AuraPDF Drawing Stream' in st:
+                        target_doc.update_stream(x, b"")
+            except Exception:
+                pass
+
+        # Çizimler eklenmeden önce mevcut içerik akışlarını kaydet
+        before_xrefs = {}
+        for p_idx in range(len(target_doc)):
+            try:
+                before_xrefs[p_idx] = list(target_doc[p_idx].get_contents())
+            except Exception:
+                before_xrefs[p_idx] = []
+
         # 2. self.drawings içerisindeki çizimleri PDF Ink ek açıklaması olarak kaydet
         for d in self.drawings:
             orig_page = d.get("page", 0)
@@ -1625,7 +2860,7 @@ class PDFTabDocument(QWidget):
                 pts = [[(fitz.Point(x, y) * page.derotation_matrix).x, (fitz.Point(x, y) * page.derotation_matrix).y] for x, y in raw_pts]
                 if len(pts) == 1:
                     pts.append([pts[0][0] + 0.1, pts[0][1] + 0.1])
-                strokes = [pts]
+                strokes = [smooth_points_for_pdf(pts)]
 
                 line_style = d.get("line_style", "solid")
                 if line_style == "arrow" and d.get("arrow_head"):
@@ -1662,6 +2897,8 @@ class PDFTabDocument(QWidget):
                     annot.set_colors(stroke=stroke_col)
                     annot.set_border(width=pdf_width, dashes=dashes if dashes else (), style="D" if dashes else "S")
                     annot.set_opacity(alpha_val)
+                    if is_pencil:
+                        annot.set_info(title="AuraPencil", subject="pencil")
                     annot.update()
                 except Exception as e:
                     import traceback
@@ -1672,7 +2909,7 @@ class PDFTabDocument(QWidget):
                 if not rel_path or rel_path.isEmpty():
                     continue
                 polys = rel_path.toFillPolygons()
-                
+
                 col = d.get("color", (0.0, 0.0, 0.0))
                 if isinstance(col, (tuple, list)) and len(col) >= 3:
                     stroke_col = (float(col[0]), float(col[1]), float(col[2]))
@@ -1680,6 +2917,10 @@ class PDFTabDocument(QWidget):
                     stroke_col = (col.redF(), col.greenF(), col.blueF())
                 else:
                     stroke_col = (0.0, 0.0, 0.0)
+
+                alpha_val = float(d.get("alpha", 1.0))
+                if d.get("line_style") == "pencil":
+                    alpha_val = min(1.0, alpha_val * 0.78)
 
                 for poly in polys:
                     pts = []
@@ -1691,9 +2932,6 @@ class PDFTabDocument(QWidget):
                             annot = page.add_polygon_annot(pts)
                             annot.set_colors(stroke=stroke_col, fill=stroke_col)
                             annot.set_border(width=0)
-                            alpha_val = float(d.get("alpha", 1.0))
-                            if d.get("line_style") == "pencil":
-                                alpha_val = min(1.0, alpha_val * 0.78)
                             annot.set_opacity(alpha_val)
                             annot.update()
                         except Exception:
@@ -1733,6 +2971,7 @@ class PDFTabDocument(QWidget):
 
                     annot.set_colors(stroke=stroke_col)
                     annot.set_opacity(alpha_val)
+                    annot.set_flags(fitz.PDF_ANNOT_IS_PRINT)
                     annot.update()
                 except Exception as e:
                     import traceback
@@ -1775,166 +3014,190 @@ class PDFTabDocument(QWidget):
                 pdf_rect.normalize()
 
                 try:
-                    frags = d.get("fragments")
-                    if not frags and it and hasattr(it, 'get_fragments'):
+                    from src.ui.direct_text_editor import get_unicode_font_path
+
+                    frags = None
+                    if it and hasattr(it, 'get_fragments'):
                         frags = it.get_fragments()
+                    if not frags:
+                        frags = d.get("fragments")
 
-                    flat_frags = [f for blk in (frags or []) for f in blk if f.get("text")]
-                    has_multi_style = False
-                    if len(flat_frags) > 1:
-                        f0 = flat_frags[0]
-                        c0 = f0.get("color")
-                        c0_rgb = (c0.redF(), c0.greenF(), c0.blueF()) if isinstance(c0, QColor) else (c0 if isinstance(c0, (tuple, list)) and len(c0) >= 3 else (0.0, 0.0, 0.0))
-                        for f in flat_frags[1:]:
-                            c = f.get("color")
-                            c_rgb = (c.redF(), c.greenF(), c.blueF()) if isinstance(c, QColor) else (c if isinstance(c, (tuple, list)) and len(c) >= 3 else (0.0, 0.0, 0.0))
-                            if (abs(float(f.get("font_size", 14)) - float(f0.get("font_size", 14))) > 0.5 or
-                                bool(f.get("bold")) != bool(f0.get("bold")) or
-                                bool(f.get("italic")) != bool(f0.get("italic")) or
-                                c_rgb != c0_rgb or
-                                bool(f.get("underline")) != bool(f0.get("underline")) or
-                                bool(f.get("href")) != bool(f0.get("href"))):
-                                has_multi_style = True
-                                break
+                    # Eğer zengin metin fragment'ları yoksa, metni satırlara ve gerekirse kutu genişliğine böl
+                    if not frags:
+                        lines = content.split("\n")
+                        frags = []
+                        for raw_line in lines:
+                            if w_pt > 20 and len(raw_line) > 1:
+                                words = raw_line.split(" ")
+                                cur_l = ""
+                                for w in words:
+                                    test_l = (cur_l + " " + w).strip()
+                                    w_test = len(test_l) * fs * 0.55
+                                    if w_test > (w_pt - 6.0) and cur_l:
+                                        frags.append([{
+                                            "text": cur_l,
+                                            "font_size": fs,
+                                            "bold": bool(d.get("bold", False)),
+                                            "italic": bool(d.get("italic", False)),
+                                            "underline": bool(d.get("underline", False)),
+                                            "color": rgb,
+                                            "href": d.get("link_url", "")
+                                        }])
+                                        cur_l = w
+                                    else:
+                                        cur_l = test_l
+                                if cur_l:
+                                    frags.append([{
+                                        "text": cur_l,
+                                        "font_size": fs,
+                                        "bold": bool(d.get("bold", False)),
+                                        "italic": bool(d.get("italic", False)),
+                                        "underline": bool(d.get("underline", False)),
+                                        "color": rgb,
+                                        "href": d.get("link_url", "")
+                                    }])
+                            else:
+                                frags.append([{
+                                    "text": raw_line,
+                                    "font_size": fs,
+                                    "bold": bool(d.get("bold", False)),
+                                    "italic": bool(d.get("italic", False)),
+                                    "underline": bool(d.get("underline", False)),
+                                    "color": rgb,
+                                    "href": d.get("link_url", "")
+                                }])
 
-                    if has_multi_style:
-                        # Harf düzeyinde farklı renk/kalınlık/boyut içeren zengin metinleri vektörel olarak aktar
-                        font_reg = fitz.Font("Helvetica")
-                        font_bold = fitz.Font("Helvetica-Bold")
-                        font_it = fitz.Font("Helvetica-Oblique")
-                        font_bi = fitz.Font("Helvetica-BoldOblique")
+                    font_fam = d.get("font_family") or "Arial"
+                    f_reg_path = get_unicode_font_path(font_fam, bold=False, italic=False)
+                    f_bold_path = get_unicode_font_path(font_fam, bold=True, italic=False)
+                    f_it_path = get_unicode_font_path(font_fam, bold=False, italic=True)
+                    f_bi_path = get_unicode_font_path(font_fam, bold=True, italic=True)
 
-                        if getattr(font_reg, "buffer", None):
-                            page.insert_font(fontname="F_AURA_REG", fontbuffer=font_reg.buffer)
-                        if getattr(font_bold, "buffer", None):
-                            page.insert_font(fontname="F_AURA_BOLD", fontbuffer=font_bold.buffer)
-                        if getattr(font_it, "buffer", None):
-                            page.insert_font(fontname="F_AURA_ITALIC", fontbuffer=font_it.buffer)
-                        if getattr(font_bi, "buffer", None):
-                            page.insert_font(fontname="F_AURA_BI", fontbuffer=font_bi.buffer)
+                    if f_reg_path and os.path.isfile(f_reg_path):
+                        try:
+                            page.insert_font(fontname="F_AURA_REG", fontfile=f_reg_path)
+                        except Exception:
+                            pass
+                    if f_bold_path and os.path.isfile(f_bold_path):
+                        try:
+                            page.insert_font(fontname="F_AURA_BOLD", fontfile=f_bold_path)
+                        except Exception:
+                            pass
+                    if f_it_path and os.path.isfile(f_it_path):
+                        try:
+                            page.insert_font(fontname="F_AURA_ITALIC", fontfile=f_it_path)
+                        except Exception:
+                            pass
+                    if f_bi_path and os.path.isfile(f_bi_path):
+                        try:
+                            page.insert_font(fontname="F_AURA_BI", fontfile=f_bi_path)
+                        except Exception:
+                            pass
 
-                        curr_y = rel_y + (4.0 / self.base_render_dpi)
-                        rot = page.rotation
+                    font_reg = fitz.Font(fontfile=f_reg_path) if (f_reg_path and os.path.isfile(f_reg_path)) else fitz.Font("helv")
+                    font_bold = fitz.Font(fontfile=f_bold_path) if (f_bold_path and os.path.isfile(f_bold_path)) else fitz.Font("hebo")
+                    font_it = fitz.Font(fontfile=f_it_path) if (f_it_path and os.path.isfile(f_it_path)) else fitz.Font("heit")
+                    font_bi = fitz.Font(fontfile=f_bi_path) if (f_bi_path and os.path.isfile(f_bi_path)) else fitz.Font("hebi")
 
-                        for blk in frags:
-                            blk_frags = [f for f in blk if f.get("text")]
-                            if not blk_frags:
-                                curr_y += float(d.get("font_size", 14)) * 1.25
-                                continue
+                    curr_y = rel_y + (4.0 / self.base_render_dpi)
+                    rot = page.rotation
 
-                            blk_max_fs = max((float(f.get("font_size", 14)) for f in blk_frags), default=float(d.get("font_size", 14)))
-                            line_baseline_y = curr_y + blk_max_fs * 0.85
+                    for blk in frags:
+                        blk_frags = [f for f in blk if f.get("text")]
+                        if not blk_frags:
+                            curr_y += float(d.get("font_size", 14)) * 1.25
+                            continue
+
+                        blk_max_fs = max((float(f.get("font_size", 14)) for f in blk_frags), default=float(d.get("font_size", 14)))
+                        line_baseline_y = curr_y + blk_max_fs * 0.85
+                        align_val = str(d.get("alignment", "left")).lower()
+                        if align_val in ("center", "right", "hcenter"):
+                            blk_total_w = 0.0
+                            for frag in blk_frags:
+                                f_txt = frag["text"]
+                                f_s = float(frag.get("font_size", blk_max_fs))
+                                f_b = frag.get("bold", False)
+                                f_i = frag.get("italic", False)
+                                f_fnt = (font_bi if (f_b and f_i) else font_bold if f_b else font_it if f_i else font_reg)
+                                try:
+                                    blk_total_w += f_fnt.text_length(f_txt, fontsize=f_s)
+                                except Exception:
+                                    blk_total_w += len(f_txt) * f_s * 0.55
+                            if align_val in ("center", "hcenter"):
+                                curr_x = rel_x + max(0.0, (w_pt - blk_total_w) / 2.0)
+                            else:
+                                curr_x = rel_x + max(0.0, w_pt - blk_total_w - (4.0 / self.base_render_dpi))
+                        else:
                             curr_x = rel_x + (4.0 / self.base_render_dpi)
 
-                            for frag in blk_frags:
-                                frag_txt = frag["text"]
-                                f_sz = float(frag.get("font_size", blk_max_fs))
-                                f_bold = frag.get("bold", False)
-                                f_italic = frag.get("italic", False)
-                                f_under = frag.get("underline", False)
-                                f_href = frag.get("href", "")
+                        for frag in blk_frags:
+                            frag_txt = frag["text"]
+                            f_sz = float(frag.get("font_size", blk_max_fs))
+                            f_bold = frag.get("bold", False)
+                            f_italic = frag.get("italic", False)
+                            f_under = frag.get("underline", False)
+                            f_href = frag.get("href", "")
 
-                                f_col = frag.get("color")
-                                if isinstance(f_col, QColor):
-                                    f_rgb = (f_col.redF(), f_col.greenF(), f_col.blueF())
-                                elif isinstance(f_col, (tuple, list)) and len(f_col) >= 3:
-                                    f_rgb = (float(f_col[0]), float(f_col[1]), float(f_col[2]))
-                                else:
-                                    f_rgb = (0.0, 0.0, 0.0)
+                            f_col = frag.get("color")
+                            if isinstance(f_col, QColor):
+                                f_rgb = (f_col.redF(), f_col.greenF(), f_col.blueF())
+                            elif isinstance(f_col, (tuple, list)) and len(f_col) >= 3:
+                                f_rgb = (float(f_col[0]), float(f_col[1]), float(f_col[2]))
+                            else:
+                                f_rgb = (0.0, 0.0, 0.0)
 
-                                if f_bold and f_italic:
-                                    fname = "F_AURA_BI"
-                                    ffont = font_bi
-                                elif f_bold:
-                                    fname = "F_AURA_BOLD"
-                                    ffont = font_bold
-                                elif f_italic:
-                                    fname = "F_AURA_ITALIC"
-                                    ffont = font_it
-                                else:
-                                    fname = "F_AURA_REG"
-                                    ffont = font_reg
+                            if f_bold and f_italic:
+                                fname = "F_AURA_BI"
+                                ffont = font_bi
+                                fpath_cur = f_bi_path
+                            elif f_bold:
+                                fname = "F_AURA_BOLD"
+                                ffont = font_bold
+                                fpath_cur = f_bold_path
+                            elif f_italic:
+                                fname = "F_AURA_ITALIC"
+                                ffont = font_it
+                                fpath_cur = f_it_path
+                            else:
+                                fname = "F_AURA_REG"
+                                ffont = font_reg
+                                fpath_cur = f_reg_path
 
-                                try:
-                                    frag_w = ffont.text_length(frag_txt, fontsize=f_sz)
-                                except Exception:
-                                    frag_w = fitz.get_text_length(frag_txt, fontsize=f_sz)
+                            try:
+                                frag_w = ffont.text_length(frag_txt, fontsize=f_sz)
+                            except Exception:
+                                frag_w = len(frag_txt) * f_sz * 0.55
 
-                                vis_pt = fitz.Point(curr_x, line_baseline_y)
-                                pdf_pt = vis_pt * page.derotation_matrix
+                            vis_pt = fitz.Point(curr_x, line_baseline_y)
+                            pdf_pt = vis_pt * page.derotation_matrix
+                            try:
+                                page.insert_text(pdf_pt, frag_txt, fontname=fname, fontfile=fpath_cur, fontsize=f_sz, color=f_rgb, rotate=rot)
+                            except Exception:
                                 try:
                                     page.insert_text(pdf_pt, frag_txt, fontname=fname, fontsize=f_sz, color=f_rgb, rotate=rot)
                                 except Exception:
                                     page.insert_text(pdf_pt, frag_txt, fontname="helv", fontsize=f_sz, color=f_rgb, rotate=rot)
 
-                                if f_under or f_href:
-                                    try:
-                                        u_col = (0.10, 0.45, 0.91) if f_href else f_rgb
-                                        u_p1 = fitz.Point(curr_x, line_baseline_y + 1.5) * page.derotation_matrix
-                                        u_p2 = fitz.Point(curr_x + frag_w, line_baseline_y + 1.5) * page.derotation_matrix
-                                        page.draw_line(u_p1, u_p2, color=u_col, width=max(0.7, f_sz * 0.05))
-                                    except Exception:
-                                        pass
+                            if f_under or f_href:
+                                try:
+                                    u_col = (0.10, 0.45, 0.91) if f_href else f_rgb
+                                    u_p1 = fitz.Point(curr_x, line_baseline_y + 1.5) * page.derotation_matrix
+                                    u_p2 = fitz.Point(curr_x + frag_w, line_baseline_y + 1.5) * page.derotation_matrix
+                                    page.draw_line(u_p1, u_p2, color=u_col, width=max(0.7, f_sz * 0.05))
+                                except Exception:
+                                    pass
 
-                                if f_href:
-                                    try:
-                                        link_vrect = fitz.Rect(curr_x, line_baseline_y - f_sz * 0.85, curr_x + frag_w, line_baseline_y + f_sz * 0.2)
-                                        link_prect = (link_vrect * page.derotation_matrix).normalize()
-                                        page.insert_link({"kind": fitz.LINK_URI, "from": link_prect, "uri": f_href})
-                                    except Exception:
-                                        pass
+                            if f_href:
+                                try:
+                                    link_vrect = fitz.Rect(curr_x, line_baseline_y - f_sz * 0.85, curr_x + frag_w, line_baseline_y + f_sz * 0.2)
+                                    link_prect = (link_vrect * page.derotation_matrix).normalize()
+                                    page.insert_link({"kind": fitz.LINK_URI, "from": link_prect, "uri": f_href})
+                                except Exception:
+                                    pass
 
-                                curr_x += frag_w
+                            curr_x += frag_w
 
-                            curr_y += blk_max_fs * 1.25
-                    else:
-                        is_bold = d.get("bold", False)
-                        is_italic = d.get("italic", False)
-                        if is_bold and is_italic:
-                            fname = "hebo"   # Helvetica Bold — closest available; pymupdf FreeText limited
-                        elif is_bold:
-                            fname = "hebo"
-                        elif is_italic:
-                            fname = "heit"
-                        else:
-                            fname = "helv"
-                        annot = page.add_freetext_annot(
-                            pdf_rect,
-                            content,
-                            fontsize=fs,
-                            fontname=fname,
-                            text_color=rgb,
-                            fill_color=None
-                        )
-                        annot.set_border(width=0)
-                        annot.update()
-                        
-                        link_url = d.get("link_url", "")
-                        link_text = d.get("link_text", "")
-                        link_range = d.get("link_range", None)
-                        if link_url:
-                            try:
-                                target_rect = pdf_rect
-                                if link_text:
-                                    matches = page.search_for(link_text, clip=pdf_rect)
-                                    if matches:
-                                        match_idx = 0
-                                        if link_range and isinstance(link_range, (list, tuple)) and len(link_range) == 2:
-                                            full_content = d.get("text", "")
-                                            match_idx = full_content[:int(link_range[0])].count(link_text)
-                                        if match_idx < len(matches):
-                                            target_rect = matches[match_idx]
-                                        else:
-                                            target_rect = matches[0]
-                                        try:
-                                            p1 = fitz.Point(target_rect.x0, target_rect.y1 - 0.5)
-                                            p2 = fitz.Point(target_rect.x1, target_rect.y1 - 0.5)
-                                            page.draw_line(p1, p2, color=(0.10, 0.45, 0.91), width=1.0)
-                                        except Exception:
-                                            pass
-                                page.insert_link({"kind": fitz.LINK_URI, "from": target_rect, "uri": link_url})
-                            except Exception as elink:
-                                pass
+                        curr_y += blk_max_fs * 1.25
 
                 except Exception as e:
                     import traceback
@@ -1964,10 +3227,45 @@ class PDFTabDocument(QWidget):
                 img_y = max(0.0, min(img_y, max(0.0, page_pdf_h - img_h)))
 
                 img_rect = (fitz.Rect(img_x, img_y, img_x + img_w, img_y + img_h) * page.derotation_matrix).normalize()
+
+                # Harici PDF okuyucularda (Adobe Acrobat, Edge vb.) resmin görünmeme sorununu önlemek için:
+                # WebP, SVG, GIF, BMP vb. formatları PyMuPDF'in %100 desteklediği standart PNG baytlarına dönüştür
+                clean_png = None
+                raw_bytes = d.get("image_bytes")
                 try:
-                    page.insert_image(img_rect, stream=d["image_bytes"], rotate=page.rotation, overlay=True)
+                    q_img = QImage()
+                    if raw_bytes:
+                        q_img.loadFromData(raw_bytes)
+                    if q_img.isNull() and d.get("item_ref") and hasattr(d["item_ref"], "pixmap") and not d["item_ref"].pixmap.isNull():
+                        q_img = d["item_ref"].pixmap.toImage()
+                    if not q_img.isNull():
+                        from PyQt6.QtCore import QBuffer, QIODevice
+                        buf = QBuffer()
+                        buf.open(QIODevice.OpenModeFlag.WriteOnly)
+                        if q_img.save(buf, "PNG"):
+                            clean_png = bytes(buf.data())
                 except Exception:
-                    pass
+                    clean_png = None
+
+                target_stream = clean_png if clean_png else raw_bytes
+                if target_stream and img_rect.is_valid and not img_rect.is_empty:
+                    inserted = False
+                    try:
+                        page.insert_image(img_rect, stream=target_stream, rotate=page.rotation, overlay=True)
+                        inserted = True
+                    except Exception:
+                        pass
+                    if not inserted:
+                        try:
+                            page.insert_image(img_rect, stream=target_stream, overlay=True)
+                            inserted = True
+                        except Exception:
+                            pass
+                    if not inserted and clean_png and raw_bytes and target_stream != raw_bytes:
+                        try:
+                            page.insert_image(img_rect, stream=raw_bytes, overlay=True)
+                        except Exception:
+                            pass
 
             elif d.get("type") == "table":
                 t_x = d["x"]
@@ -2014,9 +3312,81 @@ class PDFTabDocument(QWidget):
                 text_rgb = _parse_rgb(d.get("text_color"), (0.12, 0.11, 0.29))
                 hdr_text_rgb = _parse_rgb(d.get("header_text_color"), (1.0, 1.0, 1.0))
 
+                from src.ui.direct_text_editor import get_unicode_font_path
+                font_fam = d.get("font_family") or "Arial"
+                tbl_hdr_font_path = get_unicode_font_path(font_fam, bold=True, italic=False)
+                tbl_reg_font_path = get_unicode_font_path(font_fam, bold=False, italic=False)
+
+                # Standart sistem TrueType fontlarına güvenli fallback
+                windir = os.environ.get("WINDIR", r"C:\Windows")
+                fonts_dir = os.path.join(windir, "Fonts")
+                if not (tbl_hdr_font_path and os.path.isfile(tbl_hdr_font_path)):
+                    f_cand = os.path.join(fonts_dir, "arialbd.ttf")
+                    if os.path.isfile(f_cand):
+                        tbl_hdr_font_path = f_cand
+                if not (tbl_reg_font_path and os.path.isfile(tbl_reg_font_path)):
+                    f_cand = os.path.join(fonts_dir, "arial.ttf")
+                    if os.path.isfile(f_cand):
+                        tbl_reg_font_path = f_cand
+
+                tbl_hdr_fname = "F_AURA_TBL_HDR"
+                tbl_reg_fname = "F_AURA_TBL_REG"
+                if tbl_hdr_font_path and os.path.isfile(tbl_hdr_font_path):
+                    try:
+                        page.insert_font(fontname=tbl_hdr_fname, fontfile=tbl_hdr_font_path)
+                    except Exception:
+                        pass
+                if tbl_reg_font_path and os.path.isfile(tbl_reg_font_path):
+                    try:
+                        page.insert_font(fontname=tbl_reg_fname, fontfile=tbl_reg_font_path)
+                    except Exception:
+                        pass
+
+                hdr_font_obj = None
+                reg_font_obj = None
+                if tbl_hdr_font_path and os.path.isfile(tbl_hdr_font_path):
+                    try:
+                        hdr_font_obj = fitz.Font(fontfile=tbl_hdr_font_path)
+                    except Exception:
+                        hdr_font_obj = None
+                if tbl_reg_font_path and os.path.isfile(tbl_reg_font_path):
+                    try:
+                        reg_font_obj = fitz.Font(fontfile=tbl_reg_font_path)
+                    except Exception:
+                        reg_font_obj = None
+
                 cell_w = t_w / cols
                 cell_h = t_h / rows
-                fs = max(6.0, float(d.get("font_size", 10.0)))
+                base_fs = max(6.0, float(d.get("font_size", 10.0)))
+
+                def _calc_text_w(s: str, fobj, fs: float) -> float:
+                    if not s:
+                        return 0.0
+                    if fobj:
+                        try:
+                            return fobj.text_length(s, fontsize=fs)
+                        except Exception:
+                            pass
+                    return len(s) * fs * 0.55
+
+                def _elide_line(s: str, fobj, fs: float, max_w: float) -> str:
+                    if _calc_text_w(s, fobj, fs) <= max_w:
+                        return s
+                    ellipsis = "..."
+                    if _calc_text_w(ellipsis, fobj, fs) > max_w:
+                        return ""
+                    low = 0
+                    high = len(s)
+                    best = ""
+                    while low <= high:
+                        mid = (low + high) // 2
+                        cand = s[:mid].rstrip() + ellipsis
+                        if _calc_text_w(cand, fobj, fs) <= max_w:
+                            best = cand
+                            low = mid + 1
+                        else:
+                            high = mid - 1
+                    return best if best else ellipsis
 
                 for r in range(rows):
                     is_hdr = (r == 0 and has_header)
@@ -2037,10 +3407,105 @@ class PDFTabDocument(QWidget):
                             txt = str(cell_data[r][c] or "").strip()
                         if txt:
                             try:
-                                txt_rect = fitz.Rect(cx + 2, cy + 2, cx + cell_w - 2, cy + cell_h - 2)
-                                txt_pdf_rect = (txt_rect * page.derotation_matrix).normalize()
-                                page.insert_textbox(txt_pdf_rect, txt, fontsize=fs, align=fitz.TEXT_ALIGN_CENTER,
-                                                    color=hdr_text_rgb if is_hdr else text_rgb)
+                                cur_fname = tbl_hdr_fname if is_hdr else tbl_reg_fname
+                                cur_fpath = tbl_hdr_font_path if is_hdr else tbl_reg_font_path
+                                cur_fobj = hdr_font_obj if is_hdr else reg_font_obj
+                                cur_col = hdr_text_rgb if is_hdr else text_rgb
+
+                                avail_w = max(6.0, cell_w - 7.0)
+                                avail_h = max(6.0, cell_h - 4.0)
+                                fit_fs = base_fs
+
+                                raw_lines = [l.strip() for l in txt.split("\n") if l.strip()]
+                                if not raw_lines:
+                                    continue
+
+                                # Font boyutunu hücreye uyacak şekilde dinamik ölçeklendir (min 4.0 pt)
+                                max_len = max((_calc_text_w(l, cur_fobj, fit_fs) for l in raw_lines), default=0.0)
+                                if max_len > avail_w:
+                                    fit_fs = max(4.0, fit_fs * (avail_w / max_len))
+
+                                total_text_h = len(raw_lines) * (fit_fs * 1.25)
+                                if total_text_h > avail_h:
+                                    fit_fs = max(4.0, fit_fs * (avail_h / total_text_h))
+
+                                line_h = fit_fs * 1.25
+                                max_lines = max(1, int(avail_h // line_h))
+
+                                # Tek satır metin hücreye sığmıyor ve dikey alan yetiyorsa akıllı sözcük sarma (word wrap)
+                                lines = []
+                                if len(raw_lines) == 1 and max_lines > 1 and _calc_text_w(raw_lines[0], cur_fobj, fit_fs) > avail_w:
+                                    words = raw_lines[0].split()
+                                    cur_line = ""
+                                    for w in words:
+                                        cand = f"{cur_line} {w}".strip() if cur_line else w
+                                        if _calc_text_w(cand, cur_fobj, fit_fs) <= avail_w:
+                                            cur_line = cand
+                                        else:
+                                            if cur_line:
+                                                lines.append(cur_line)
+                                                cur_line = w
+                                            else:
+                                                lines.append(w)
+                                                cur_line = ""
+                                            if len(lines) >= max_lines:
+                                                break
+                                    if cur_line and len(lines) < max_lines:
+                                        lines.append(cur_line)
+                                    if not lines:
+                                        lines = raw_lines[:max_lines]
+                                else:
+                                    lines = raw_lines[:max_lines]
+
+                                # Satır genişliği sınırı aşıyorsa AuraPDF UI'daki gibi elide et (...)
+                                final_lines = []
+                                for idx, l in enumerate(lines):
+                                    if _calc_text_w(l, cur_fobj, fit_fs) > avail_w:
+                                        elided = _elide_line(l, cur_fobj, fit_fs, avail_w)
+                                        final_lines.append(elided)
+                                    else:
+                                        final_lines.append(l)
+
+                                total_block_h = len(final_lines) * line_h
+                                start_y = cy + (cell_h - total_block_h) / 2.0 + fit_fs * 0.85
+
+                                tbl_align = str(d.get("alignment", "center")).lower()
+                                cell_alignments = d.get("cell_alignments", [])
+                                cell_align = tbl_align
+                                if isinstance(cell_alignments, list) and r < len(cell_alignments) and c < len(cell_alignments[r]) and cell_alignments[r][c]:
+                                    cell_align = str(cell_alignments[r][c]).lower()
+
+                                for idx, l in enumerate(final_lines):
+                                    calc_len = _calc_text_w(l, cur_fobj, fit_fs)
+
+                                    if cell_align == "left":
+                                        lx = cx + 3.5
+                                    elif cell_align == "right":
+                                        lx = cx + max(3.5, cell_w - calc_len - 3.5)
+                                    else:
+                                        lx = cx + (cell_w - calc_len) / 2.0
+
+                                    # Sınır dışına taşmayı önlemek için güvenli kenar sınırlaması
+                                    lx = max(cx + 1.5, min(lx, cx + max(1.5, cell_w - calc_len - 1.5)))
+                                    ly = start_y + idx * line_h
+
+                                    # Dikeyde aşırı taşmayı engelle
+                                    if ly > (cy + cell_h + fit_fs * 0.5):
+                                        continue
+
+                                    vis_pt = fitz.Point(lx, ly)
+                                    pdf_pt = vis_pt * page.derotation_matrix
+
+                                    try:
+                                        page.insert_text(pdf_pt, l, fontname=cur_fname, fontfile=cur_fpath,
+                                                         fontsize=fit_fs, color=cur_col, rotate=page.rotation)
+                                    except Exception:
+                                        try:
+                                            page.insert_text(pdf_pt, l, fontname=cur_fname, fontsize=fit_fs,
+                                                             color=cur_col, rotate=page.rotation)
+                                        except Exception:
+                                            page.insert_text(pdf_pt, l, fontname="helv", fontsize=fit_fs,
+                                                             color=cur_col, rotate=page.rotation)
                             except Exception:
                                 pass
 
@@ -2068,22 +3533,76 @@ class PDFTabDocument(QWidget):
                 a_x = max(0.0, min(a_x, max(0.0, page_pdf_w - a_w)))
                 a_y = max(0.0, min(a_y, max(0.0, page_pdf_h - a_h)))
 
-                badge_pix = QPixmap(int(a_w * 2), int(a_h * 2))
+                scale = 3.0
+                bw = int(round(a_w * scale))
+                bh = int(round(a_h * scale))
+                badge_pix = QPixmap(bw, bh)
                 badge_pix.fill(Qt.GlobalColor.transparent)
                 bp = QPainter(badge_pix)
                 bp.setRenderHint(QPainter.RenderHint.Antialiasing, True)
-                bp.setBrush(QBrush(QColor("#1e1b4b")))
-                bp.setPen(QPen(QColor("#6366f1"), 2.0))
-                bp.drawRoundedRect(QRectF(1, 1, badge_pix.width() - 2, badge_pix.height() - 2), 12.0, 12.0)
-                bp.setBrush(QBrush(QColor("#6366f1")))
+                bp.setRenderHint(QPainter.RenderHint.TextAntialiasing, True)
+
+                # 1. Koyu cam / degrade arka plan
+                grad = QLinearGradient(0, 0, bw, bh)
+                grad.setColorAt(0.0, QColor("#1e1b4b"))
+                grad.setColorAt(1.0, QColor("#0f172a"))
+                bp.setPen(QPen(QColor("#6366f1"), 1.8 * scale))
+                bp.setBrush(QBrush(grad))
+                bp.drawRoundedRect(QRectF(1.0 * scale, 1.0 * scale, bw - 2.0 * scale, bh - 2.0 * scale), 8.0 * scale, 8.0 * scale)
+
+                # 2. Oynat (Play) butonu
+                btn_d = min(32.0 * scale, max(20.0 * scale, bh - 12.0 * scale))
+                btn_y = (bh - btn_d) / 2.0
+                btn_x = 8.0 * scale
+                btn_r = QRectF(btn_x, btn_y, btn_d, btn_d)
                 bp.setPen(Qt.PenStyle.NoPen)
-                bp.drawEllipse(QRectF(14, 14, 60, 60))
-                bp.setPen(QColor("#f8fafc"))
-                bp.setFont(QFont("Arial", 16, QFont.Weight.Bold))
-                bp.drawText(QRectF(90, 14, badge_pix.width() - 100, 32), Qt.AlignmentFlag.AlignVCenter, d.get("title", "Ses Kaydı"))
-                bp.setPen(QColor("#94a3b8"))
-                bp.setFont(QFont("Arial", 13))
-                bp.drawText(QRectF(90, 48, badge_pix.width() - 100, 30), Qt.AlignmentFlag.AlignVCenter, "AuraPDF Ses Kaydı")
+                bp.setBrush(QBrush(QColor("#6366f1")))
+                bp.drawEllipse(btn_r)
+
+                # Beyaz üçgen oynat simgesi
+                poly = QPainterPath()
+                cx_btn = btn_r.center().x()
+                cy_btn = btn_r.center().y()
+                s_icon = btn_d * 0.35
+                poly.moveTo(cx_btn - s_icon * 0.5, cy_btn - s_icon * 0.8)
+                poly.lineTo(cx_btn + s_icon * 0.8, cy_btn)
+                poly.lineTo(cx_btn - s_icon * 0.5, cy_btn + s_icon * 0.8)
+                poly.closeSubpath()
+                bp.fillPath(poly, QBrush(QColor("#ffffff")))
+
+                # 3. Dinamik başlık ve süre metinleri (Taşma korumalı)
+                text_x = btn_r.right() + 8.0 * scale
+                avail_w = max(20.0 * scale, bw - text_x - 8.0 * scale)
+                title_txt = str(d.get("title", "Ses Kaydı"))
+                dur_sec = float(d.get("duration_sec", 0.0))
+                mins = int(dur_sec // 60)
+                secs = int(dur_sec % 60)
+                dur_str = f"{mins:02d}:{secs:02d}" if dur_sec > 0 else LanguageManager.tr("audio_record_title", default="Ses Kaydı")
+
+                title_font = QFont("Arial", int(round(10 * scale)), QFont.Weight.Bold)
+                fm_title = QFontMetrics(title_font)
+                elided_title = fm_title.elidedText(title_txt, Qt.TextElideMode.ElideRight, int(avail_w))
+
+                dur_font = QFont("Arial", int(round(8 * scale)))
+                fm_dur = QFontMetrics(dur_font)
+                elided_dur = fm_dur.elidedText(dur_str, Qt.TextElideMode.ElideRight, int(avail_w))
+
+                if bh >= 40.0 * scale:
+                    bp.setFont(title_font)
+                    bp.setPen(QColor("#f8fafc"))
+                    bp.drawText(QRectF(text_x, btn_r.top(), avail_w, btn_r.height() * 0.55),
+                                Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft, elided_title)
+
+                    bp.setFont(dur_font)
+                    bp.setPen(QColor("#94a3b8"))
+                    bp.drawText(QRectF(text_x, btn_r.top() + btn_r.height() * 0.5, avail_w, btn_r.height() * 0.5),
+                                Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft, elided_dur)
+                else:
+                    bp.setFont(QFont("Arial", int(round(9 * scale)), QFont.Weight.Bold))
+                    bp.setPen(QColor("#f8fafc"))
+                    comb = f"{elided_title} ({dur_str})"
+                    bp.drawText(QRectF(text_x, 0, avail_w, bh),
+                                Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft, comb)
                 bp.end()
 
                 from PyQt6.QtCore import QBuffer, QIODevice
@@ -2101,7 +3620,11 @@ class PDFTabDocument(QWidget):
                 if d.get("audio_bytes"):
                     try:
                         filename = f"{d.get('title', 'ses')}.{d.get('format', 'wav')}"
-                        page.add_file_annot(card_rect.tl, d["audio_bytes"], filename=filename, desc=d.get("title", "Ses Kaydı"))
+                        annot = page.add_file_annot(card_rect.tl, d["audio_bytes"], filename=filename, desc=d.get("title", "Ses Kaydı"))
+                        if annot:
+                            annot.set_opacity(0.0)
+                            annot.set_flags(annot.flags | fitz.PDF_ANNOT_NO_VIEW)
+                            annot.update()
                     except Exception:
                         pass
 
@@ -2137,34 +3660,52 @@ class PDFTabDocument(QWidget):
                     except Exception:
                         pass
 
-                v_url = d.get("video_url", "")
-                if v_url:
-                    try:
-                        page.insert_link({"kind": fitz.LINK_URI, "from": v_rect, "uri": v_url})
-                    except Exception:
-                        pass
+        # 3. Yeni eklenen içerik akışlarını AuraPDF Çizim Akışı olarak etiketle
+        for p_idx in range(len(target_doc)):
+            try:
+                current_xrefs = target_doc[p_idx].get_contents()
+                old_xrefs = set(before_xrefs.get(p_idx, []))
+                for x in current_xrefs:
+                    if x not in old_xrefs:
+                        st = target_doc.xref_stream(x)
+                        if st and not st.startswith(b'% AuraPDF Drawing Stream'):
+                            target_doc.update_stream(x, b'% AuraPDF Drawing Stream\n' + st)
+            except Exception:
+                pass
 
-        # Hedef doküman self.doc ise, get_pixmap arka planında statik kopya çizilmesini önlemek
-        # ve çizimlerin sahnede iki defa görünmesini engellemek için açıklamaları gizle
-        if target_doc is self.doc:
-            MANAGED_TYPES = (
-                fitz.PDF_ANNOT_INK,
-                fitz.PDF_ANNOT_LINE,
-                fitz.PDF_ANNOT_POLY_LINE,
-                fitz.PDF_ANNOT_HIGHLIGHT,
-                fitz.PDF_ANNOT_UNDERLINE,
-                fitz.PDF_ANNOT_STRIKE_OUT,
-                fitz.PDF_ANNOT_FREE_TEXT,
-                fitz.PDF_ANNOT_POLYGON
-            )
-            for p in self.doc:
-                try:
-                    for a in list(p.annots()):
-                        if a.type[0] in MANAGED_TYPES and not (a.flags & fitz.PDF_ANNOT_IS_HIDDEN):
-                            a.set_flags(a.flags | fitz.PDF_ANNOT_IS_HIDDEN)
-                            a.update()
-                except Exception:
-                    pass
+        # 4. Tüm çizim, resim, tablo ve medya nesnelerini aurapdf_drawings.json olarak belgeye göm
+        try:
+            serialized_list = []
+            for d in self.drawings:
+                s = self._serialize_drawing_record(d)
+                if s:
+                    if page_mapping is not None:
+                        orig_p = s.get("page", 0)
+                        if orig_p in page_mapping:
+                            s["page"] = page_mapping.index(orig_p)
+                        else:
+                            continue
+                    serialized_list.append(s)
+            def _json_safe(obj):
+                if isinstance(obj, QColor):
+                    return [round(obj.redF(), 4), round(obj.greenF(), 4), round(obj.blueF(), 4)]
+                if hasattr(obj, 'toTuple'):
+                    return obj.toTuple()
+                if hasattr(obj, 'x') and hasattr(obj, 'y'):
+                    return [obj.x(), obj.y()]
+                return str(obj)
+
+            raw_data = json.dumps({"version": 1, "drawings": serialized_list}, ensure_ascii=False, default=_json_safe).encode('utf-8')
+            if hasattr(target_doc, 'embfile_add'):
+                target_doc.embfile_add(
+                    "aurapdf_drawings.json",
+                    raw_data,
+                    filename="aurapdf_drawings.json",
+                    ufilename="aurapdf_drawings.json",
+                    desc="AuraPDF Drawings and Media Metadata"
+                )
+        except Exception as e:
+            print("Error embedding aurapdf_drawings.json:", e)
 
     # --- Sahne Yönetimi ve Silme İşlemleri ---
     def clear_selection_highlights(self):
@@ -2179,6 +3720,11 @@ class PDFTabDocument(QWidget):
         self.selection_item = None
         self.clear_selection_highlights()
         self.selected_drawings.clear()
+        if getattr(self, 'active_text_item', None):
+            try:
+                self.active_text_item.finish_editing()
+            except Exception:
+                pass
 
     def highlight_selected_items(self):
         self.clear_selection_highlights()
@@ -2264,24 +3810,59 @@ class PDFTabDocument(QWidget):
                     pass
                 self.measurements.remove(m)
                 deleted_measurements.append(m)
-        if deleted_measurements:
+        if deleted_measurements and hasattr(self, 'view') and self.view:
             self.view.viewport().update()
 
-        # 2. Seçili çizim ve notları sil
-        if not self.selected_drawings:
-            return
-        deleted = []
-        for item_data in list(self.selected_drawings):
-            if item_data in self.drawings:
-                self.drawings.remove(item_data)
-                deleted.append(item_data)
-                if item_data.get("item_ref"):
-                    self.scene.removeItem(item_data["item_ref"])
+        # 2. Sahnedeki seçili tüm nesneleri (Resim, GIF, Tablo, Ses/Video, Metin Kutusu vb.) sil
+        scene_selected = list(self.scene.selectedItems()) if self.scene else []
+        handled_items = set()
+        for item in scene_selected:
+            if item in handled_items:
+                continue
+            handled_items.add(item)
+            if hasattr(item, 'delete_self'):
+                try:
+                    item.delete_self()
+                except Exception:
+                    pass
+            elif hasattr(item, 'parent_text_item') and hasattr(item.parent_text_item, 'delete_self'):
+                try:
+                    item.parent_text_item.delete_self()
+                    handled_items.add(item.parent_text_item)
+                except Exception:
+                    pass
 
-        self.clear_selection()
-        if deleted:
-            self.push_undo_action({"type": "erase", "deleted_items": deleted})
-            self.notify_drawings_changed()
+        # 3. Eğer aktif seçili metin kutusu varsa ve kullanıcı içinde harf yazmıyorsa sil
+        active_txt = getattr(self, 'active_text_item', None)
+        if active_txt and active_txt not in handled_items:
+            flags = getattr(active_txt, 'textInteractionFlags', lambda: Qt.TextInteractionFlag.NoTextInteraction)()
+            if not (flags & Qt.TextInteractionFlag.TextEditorInteraction) or active_txt.isSelected():
+                try:
+                    active_txt.delete_self()
+                    handled_items.add(active_txt)
+                except Exception:
+                    pass
+
+        # 4. Seçili çizim ve serbest el notlarını sil (Lasso seçimleri)
+        if self.selected_drawings:
+            deleted = []
+            for item_data in list(self.selected_drawings):
+                if item_data in self.drawings:
+                    self.drawings.remove(item_data)
+                    deleted.append(item_data)
+                    if item_data.get("item_ref"):
+                        try:
+                            self.scene.removeItem(item_data["item_ref"])
+                        except Exception:
+                            pass
+
+            self.clear_selection()
+            if deleted:
+                self.push_undo_action({"type": "erase", "deleted_items": deleted})
+                self.notify_drawings_changed()
+
+        if hasattr(self, 'view') and self.view:
+            self.view.viewport().update()
 
     def notify_drawings_changed_throttled(self, page_idx: Optional[int] = None):
         if not hasattr(self, '_thumb_throttle_timer'):
@@ -2531,6 +4112,13 @@ class PDFTabDocument(QWidget):
             self.redo_stack.append(action)
 
         elif action["type"] in ("reorder_pages", "insert_blank_page", "watermark", "change_page_style"):
+            if hasattr(self, '_render_worker') and self._render_worker:
+                try:
+                    if self._render_worker.isRunning():
+                        self._render_worker.abort()
+                        self._render_worker.wait()
+                except Exception:
+                    pass
             if "old_bytes" in action:
                 self.doc.close()
                 if action["old_bytes"]:
@@ -2642,6 +4230,13 @@ class PDFTabDocument(QWidget):
             self.undo_stack.append(action)
 
         elif action["type"] in ("reorder_pages", "insert_blank_page", "watermark", "change_page_style"):
+            if hasattr(self, '_render_worker') and self._render_worker:
+                try:
+                    if self._render_worker.isRunning():
+                        self._render_worker.abort()
+                        self._render_worker.wait()
+                except Exception:
+                    pass
             if "new_bytes" in action:
                 self.doc.close()
                 if action["new_bytes"]:
@@ -2745,6 +4340,11 @@ class PDFTabDocument(QWidget):
         if not (0 <= page_idx < len(self.doc)):
             return
 
+        if hasattr(self, 'rerender_timer') and self.rerender_timer:
+            try:
+                self.rerender_timer.stop()
+            except Exception:
+                pass
         if hasattr(self, '_render_worker') and self._render_worker:
             try:
                 if self._render_worker.isRunning():
@@ -2762,6 +4362,13 @@ class PDFTabDocument(QWidget):
             self._page_text_blocks_cache.clear()
         self.direct_edit_hover_item = None
         self.direct_edit_editor = None
+
+        new_bytes = b""
+        try:
+            if len(self.doc) > 0:
+                new_bytes = self.doc.tobytes()
+        except Exception:
+            new_bytes = b""
 
         new_drawings = []
         for d in self.drawings:
@@ -2786,13 +4393,6 @@ class PDFTabDocument(QWidget):
             self.main_window.txt_page.setText(str(self.current_page_idx + 1 if len(self.doc) > 0 else 0))
         self.notify_thumbnails_updated(self.current_page_idx if len(self.doc) > 0 else None)
 
-        new_bytes = b""
-        try:
-            if len(self.doc) > 0:
-                new_bytes = self.doc.tobytes()
-        except Exception:
-            new_bytes = b""
-
         action = {
             "type": "reorder_pages",
             "old_bytes": old_bytes,
@@ -2806,139 +4406,196 @@ class PDFTabDocument(QWidget):
         self.push_undo_action(action)
         self.set_modified(True)
 
-    def insert_pdf_at(self, file_path: str, after_page: Optional[int] = None):
-        if self.doc is None:
+    def _draw_page_template(self, new_p, width: Optional[float] = None, height: Optional[float] = None, style: str = "blank"):
+        if not style or style == "blank" or new_p is None:
             return
-        try:
-            src_doc = fitz.open(file_path)
-            if after_page is None or after_page < 0:
-                insert_idx = len(self.doc)
-            else:
-                insert_idx = max(0, min(after_page + 1, len(self.doc)))
 
-            old_bytes = self.doc.tobytes() if len(self.doc) > 0 else b""
-            old_drawings = [dict(d) for d in self.drawings]
-            old_page = self.current_page_idx
+        # Sayfanın gerçek görünür boyutlarını doğrudan new_p.rect üzerinden al
+        # Bu sayede dikey, yatay (landscape) veya rotasyonlu sayfalarda (90, 270 vb.) şablon asla taşmaz veya kesilmez
+        if hasattr(new_p, 'rect') and new_p.rect.width > 0 and new_p.rect.height > 0:
+            w = float(new_p.rect.width)
+            h = float(new_p.rect.height)
+        else:
+            w = float(width) if (width and width > 0) else 595.32
+            h = float(height) if (height and height > 0) else 841.92
 
-            self.doc.insert_pdf(src_doc, start_at=insert_idx)
-            num_inserted = len(src_doc)
-
-            for d in self.drawings:
-                if d.get("page", 0) >= insert_idx:
-                    d["page"] += num_inserted
-
-            self.render_pages_init()
-            self.rerender_visible_pages()
-            self.go_to_page(insert_idx)
-
-            if hasattr(self.main_window, 'lbl_total') and self.main_window.lbl_total:
-                self.main_window.lbl_total.setText(LanguageManager.tr("page_of", total=len(self.doc)))
-            if hasattr(self.main_window, 'txt_page') and self.main_window.txt_page:
-                self.main_window.txt_page.setText(str(insert_idx + 1))
-            self.notify_thumbnails_updated(insert_idx)
-
-            action = {
-                "type": "reorder_pages",
-                "old_bytes": old_bytes,
-                "old_drawings": old_drawings,
-                "old_page": old_page,
-                "new_bytes": self.doc.tobytes(),
-                "new_drawings": [dict(d) for d in self.drawings],
-                "new_page": self.current_page_idx,
-                "new_order": list(range(len(self.doc)))
-            }
-            self.push_undo_action(action)
-            self.set_modified(True)
-        except Exception as e:
-            raise e
-
-    def _draw_page_template(self, new_p, width: float, height: float, style: str):
-        if not style or style == "blank":
-            return
-        shape = new_p.new_shape()
         if style in ("lined", "lines"):
-            y = 50
-            while y < height - 50:
-                shape.draw_line(fitz.Point(50, y), fitz.Point(width - 50, y))
-                y += 25
-            shape.finish(color=(0.8, 0.8, 0.8), width=1)
+            margin_x = 36.0
+            top_margin = 54.0
+            bottom_margin = 42.0
+            step = 24.0
+            num_lines = max(1, int((h - top_margin - bottom_margin) / step))
+            start_y = top_margin
+            
+            shape = new_p.new_shape()
+            for i in range(num_lines):
+                y = start_y + i * step
+                shape.draw_line(fitz.Point(margin_x, y), fitz.Point(w - margin_x, y))
+            shape.finish(color=(0.80, 0.82, 0.85), width=0.75)
+            shape.commit()
+
         elif style == "grid":
-            x = 50
-            while x < width - 50:
-                shape.draw_line(fitz.Point(x, 50), fitz.Point(x, height - 50))
-                x += 20
-            y = 50
-            while y < height - 50:
-                shape.draw_line(fitz.Point(50, y), fitz.Point(width - 50, y))
-                y += 20
-            shape.finish(color=(0.85, 0.85, 0.85), width=1)
+            step = 20.0
+            min_margin_x = 32.0
+            min_margin_y = 32.0
+            num_x = max(1, int((w - 2 * min_margin_x) / step))
+            num_y = max(1, int((h - 2 * min_margin_y) / step))
+            grid_w = num_x * step
+            grid_h = num_y * step
+            start_x = (w - grid_w) / 2.0
+            start_y = (h - grid_h) / 2.0
+            end_x = start_x + grid_w
+            end_y = start_y + grid_h
+
+            shape = new_p.new_shape()
+            # Dikey çizgiler (tam sınırlar arasında)
+            for i in range(num_x + 1):
+                x = start_x + i * step
+                shape.draw_line(fitz.Point(x, start_y), fitz.Point(x, end_y))
+            # Yatay çizgiler (tam sınırlar arasında)
+            for j in range(num_y + 1):
+                y = start_y + j * step
+                shape.draw_line(fitz.Point(start_x, y), fitz.Point(end_x, y))
+            shape.finish(color=(0.85, 0.86, 0.88), width=0.65)
+            shape.commit()
+
         elif style == "dotted":
-            x = 50
-            while x < width - 50:
-                y = 50
-                while y < height - 50:
-                    shape.draw_circle(fitz.Point(x, y), 0.8)
-                    y += 20
-                x += 20
-            shape.finish(color=(0.7, 0.7, 0.7), fill=(0.7, 0.7, 0.7))
+            step = 20.0
+            min_margin_x = 32.0
+            min_margin_y = 32.0
+            num_x = max(1, int((w - 2 * min_margin_x) / step))
+            num_y = max(1, int((h - 2 * min_margin_y) / step))
+            grid_w = num_x * step
+            grid_h = num_y * step
+            start_x = (w - grid_w) / 2.0
+            start_y = (h - grid_h) / 2.0
+
+            shape = new_p.new_shape()
+            for i in range(num_x + 1):
+                x = start_x + i * step
+                for j in range(num_y + 1):
+                    y = start_y + j * step
+                    shape.draw_circle(fitz.Point(x, y), 0.75)
+            # Yalnızca dolgu (stroke yok); böylece Edge, Chrome ve Acrobat'ta kenarlık/hale oluşmaz
+            shape.finish(color=None, fill=(0.60, 0.62, 0.66))
+            shape.commit()
+
         elif style == "cornell":
-            shape.draw_line(fitz.Point(150, 100), fitz.Point(150, height - 50))
-            shape.draw_line(fitz.Point(50, 100), fitz.Point(width - 50, 100))
-            shape.finish(color=(0.9, 0.6, 0.6), width=2)
+            margin_x = 36.0
+            cue_w = max(110.0, min(180.0, w * 0.28))
+            cue_x = margin_x + cue_w
+            header_y = 65.0
+            footer_y = h - 75.0
+            step = 22.0
+
+            shape = new_p.new_shape()
+            # Dikey ipucu sütunu çizgisi
+            shape.draw_line(fitz.Point(cue_x, header_y), fitz.Point(cue_x, footer_y))
+            # Üst başlık çizgisi
+            shape.draw_line(fitz.Point(margin_x, header_y), fitz.Point(w - margin_x, header_y))
+            # Alt özet çizgisi
+            shape.draw_line(fitz.Point(margin_x, footer_y), fitz.Point(w - margin_x, footer_y))
+            shape.finish(color=(0.88, 0.52, 0.52), width=1.5)
+            shape.commit()
+
+            # Sağ gövde çizgileri
             shape2 = new_p.new_shape()
-            y = 125
-            while y < height - 50:
-                shape2.draw_line(fitz.Point(155, y), fitz.Point(width - 50, y))
-                y += 25
-            shape2.finish(color=(0.85, 0.85, 0.85), width=1)
+            num_lines = max(1, int((footer_y - header_y - 10) / step))
+            for i in range(1, num_lines + 1):
+                y = header_y + i * step
+                if y < footer_y - 4:
+                    shape2.draw_line(fitz.Point(cue_x + 4, y), fitz.Point(w - margin_x, y))
+            shape2.finish(color=(0.85, 0.86, 0.88), width=0.65)
             shape2.commit()
+
         elif style in ("music", "staff"):
-            y = 70
-            while y < height - 70:
-                for line_idx in range(5):
-                    ly = y + line_idx * 7
-                    shape.draw_line(fitz.Point(50, ly), fitz.Point(width - 50, ly))
-                y += 65
-            shape.finish(color=(0.35, 0.35, 0.35), width=0.8)
+            margin_x = 36.0
+            staff_h = 4 * 7.5  # 30 pt
+            gap = 48.0
+            total_block = staff_h + gap
+            margin_y = 50.0
+            available_h = h - 2 * margin_y
+            num_staves = max(1, int((available_h + gap) / total_block))
+            total_music_h = num_staves * staff_h + (num_staves - 1) * gap
+            start_y = (h - total_music_h) / 2.0
+
+            shape = new_p.new_shape()
+            for s_idx in range(num_staves):
+                top_y = start_y + s_idx * total_block
+                for l_idx in range(5):
+                    ly = top_y + l_idx * 7.5
+                    shape.draw_line(fitz.Point(margin_x, ly), fitz.Point(w - margin_x, ly))
+            shape.finish(color=(0.32, 0.34, 0.38), width=0.75)
+            shape.commit()
+
         elif style in ("dark", "black"):
-            shape.draw_rect(new_p.rect)
-            shape.finish(color=(0.08, 0.09, 0.11), fill=(0.08, 0.09, 0.11))
-            shape2 = new_p.new_shape()
-            y = 50
-            while y < height - 50:
-                shape2.draw_line(fitz.Point(50, y), fitz.Point(width - 50, y))
-                y += 25
-            shape2.finish(color=(0.18, 0.20, 0.24), width=0.7)
-            shape2.commit()
+            # 1. Tam sayfa koyu arka plan
+            bg_shape = new_p.new_shape()
+            bg_shape.draw_rect(fitz.Rect(0, 0, w, h))
+            bg_shape.finish(color=None, fill=(0.09, 0.10, 0.12))
+            bg_shape.commit()
+
+            # 2. Gövde çizgileri
+            margin_x = 36.0
+            top_margin = 54.0
+            bottom_margin = 42.0
+            step = 24.0
+            num_lines = max(1, int((h - top_margin - bottom_margin) / step))
+            start_y = top_margin
+            lines_shape = new_p.new_shape()
+            for i in range(num_lines):
+                y = start_y + i * step
+                lines_shape.draw_line(fitz.Point(margin_x, y), fitz.Point(w - margin_x, y))
+            lines_shape.finish(color=(0.20, 0.22, 0.26), width=0.75)
+            lines_shape.commit()
+
         elif style == "cover":
-            shape.draw_rect(new_p.rect)
-            shape.finish(color=(0.12, 0.16, 0.22), fill=(0.12, 0.16, 0.22))
-            shape2 = new_p.new_shape()
-            shape2.draw_rect(fitz.Rect(40, 40, width - 40, height - 40))
-            shape2.finish(color=(0.9, 0.8, 0.6), width=3)
-            shape2.commit()
-        shape.commit()
+            # 1. Kapak arka planı
+            bg_shape = new_p.new_shape()
+            bg_shape.draw_rect(fitz.Rect(0, 0, w, h))
+            bg_shape.finish(color=None, fill=(0.12, 0.15, 0.20))
+            bg_shape.commit()
+
+            # 2. Zarif çift çerçeve
+            frame_margin = 32.0
+            frame_shape = new_p.new_shape()
+            frame_shape.draw_rect(fitz.Rect(frame_margin, frame_margin, w - frame_margin, h - frame_margin))
+            frame_shape.finish(color=(0.88, 0.76, 0.48), width=2.0)
+            frame_shape.commit()
+
+            inner_m = frame_margin + 6.0
+            frame2 = new_p.new_shape()
+            frame2.draw_rect(fitz.Rect(inner_m, inner_m, w - inner_m, h - inner_m))
+            frame2.finish(color=(0.88, 0.76, 0.48), width=0.6)
+            frame2.commit()
 
     def notify_thumbnails_updated(self, target_page: Optional[int] = None):
         """Sağ çekmecedeki modern sayfa önizlemelerini ve varsa kenetlenmiş dock'u günceller."""
         if hasattr(self.main_window, 'modern_right_sidebar') and self.main_window.modern_right_sidebar:
             try:
-                self.main_window.modern_right_sidebar.load_thumbnails()
-                if target_page is not None and self.doc and len(self.doc) > 0 and 0 <= target_page < len(self.doc):
-                    self.main_window.modern_right_sidebar.select_page(target_page)
+                sidebar = self.main_window.modern_right_sidebar
+                if sidebar.isVisible() and getattr(sidebar, 'current_panel', '') == 'thumbnails':
+                    sidebar.load_thumbnails()
+                    if target_page is not None and self.doc and len(self.doc) > 0 and 0 <= target_page < len(self.doc):
+                        sidebar.select_page(target_page)
+                else:
+                    sidebar.is_loaded = False
             except Exception:
                 pass
 
         if hasattr(self.main_window, 'thumbnails_dock') and self.main_window.thumbnails_dock:
             try:
-                if self.main_window.thumbnails_dock.isVisible():
-                    self.main_window.thumbnails_dock.load_thumbnails_lazy()
+                dock = self.main_window.thumbnails_dock
+                if dock.isVisible():
+                    dock.load_thumbnails_lazy()
                     if target_page is not None and self.doc and len(self.doc) > 0 and 0 <= target_page < len(self.doc):
-                        self.main_window.thumbnails_dock.select_page(target_page)
+                        dock.select_page(target_page)
+                else:
+                    dock.is_loaded = False
             except Exception:
                 pass
 
-        if hasattr(self.main_window, 'organize_workspace') and self.main_window.organize_workspace:
+        if hasattr(self.main_window, 'organize_workspace') and self.main_window.organize_workspace and self.main_window.organize_workspace.isVisible():
             try:
                 self.main_window.organize_workspace.load_document(force=True)
             except Exception:
@@ -2948,6 +4605,27 @@ class PDFTabDocument(QWidget):
         """Belirtilen sayfayı kopyalar ve ardına ekler (tüm çizimler ve ek açıklamalar dahil)."""
         if self.doc is None or not (0 <= page_idx < len(self.doc)):
             return False
+
+        if hasattr(self, 'rerender_timer') and self.rerender_timer:
+            try:
+                self.rerender_timer.stop()
+            except Exception:
+                pass
+        if hasattr(self, '_render_worker') and self._render_worker:
+            try:
+                if self._render_worker.isRunning():
+                    self._render_worker.abort()
+                    self._render_worker.wait()
+            except Exception:
+                pass
+
+        if getattr(self, 'active_text_item', None):
+            try:
+                if hasattr(self.active_text_item, 'finish_editing'):
+                    self.active_text_item.finish_editing()
+            except Exception:
+                pass
+
         try:
             old_bytes = self.doc.tobytes() if len(self.doc) > 0 else b""
             old_drawings = [dict(d) for d in self.drawings]
@@ -2981,6 +4659,11 @@ class PDFTabDocument(QWidget):
 
                 self.drawings.extend(duplicated_drawings)
 
+            try:
+                new_doc_bytes = self.doc.tobytes()
+            except Exception:
+                new_doc_bytes = b""
+
             self.set_modified(True)
             self.render_all_pages()
             self.go_to_page(insert_idx)
@@ -2997,7 +4680,7 @@ class PDFTabDocument(QWidget):
                 "old_bytes": old_bytes,
                 "old_drawings": old_drawings,
                 "old_page": old_page,
-                "new_bytes": self.doc.tobytes(),
+                "new_bytes": new_doc_bytes,
                 "new_drawings": [dict(d) for d in self.drawings],
                 "new_page": insert_idx,
                 "insert_idx": insert_idx
@@ -3008,48 +4691,125 @@ class PDFTabDocument(QWidget):
             traceback.print_exc()
             return False
 
-    def insert_pdf_at(self, pdf_path: str, after_page: Optional[int] = None) -> int:
-        """Harici bir PDF dosyasının tüm sayfalarını belirtilen sayfanın ardına ekler."""
-        if self.doc is None or not os.path.exists(pdf_path):
+    def insert_pdf_at(self, pdf_path: str, after_page: Optional[int] = None, rerender: bool = True, notify_thumb: bool = True) -> int:
+        """Harici bir PDF dosyasının tüm sayfalarını belirtilen sayfanın ardına güvenle ekler."""
+        if self.doc is None or getattr(self.doc, 'is_closed', False) or not os.path.exists(pdf_path):
             return 0
-        if after_page is None:
-            after_page = self.current_page_idx
+
+        # Arka plan render worker'i ve render zamanlayicisini once durdur ve bekle (MuPDF islem guvenligi)
+        if hasattr(self, 'rerender_timer') and self.rerender_timer:
+            try:
+                self.rerender_timer.stop()
+            except Exception:
+                pass
+        if hasattr(self, '_render_worker') and self._render_worker:
+            try:
+                if self._render_worker.isRunning():
+                    self._render_worker.abort()
+                    self._render_worker.wait()
+            except Exception:
+                pass
+
+        # Aktif duzenleme veya metin kutusu varsa guvenle sonlandir
+        if getattr(self, 'active_text_item', None):
+            try:
+                if hasattr(self.active_text_item, 'finish_editing'):
+                    self.active_text_item.finish_editing()
+                elif hasattr(self.active_text_item, 'toPlainText'):
+                    if self.active_text_item.toPlainText().strip():
+                        self.commit_inline_text(self.active_text_item)
+                    else:
+                        self.scene.removeItem(self.active_text_item)
+                        self.active_text_item = None
+                elif hasattr(self.active_text_item, 'clearFocus'):
+                    self.active_text_item.clearFocus()
+                    self.active_text_item = None
+            except Exception:
+                self.active_text_item = None
+
+        if hasattr(self, '_page_text_blocks_cache'):
+            try:
+                self._page_text_blocks_cache.clear()
+            except Exception:
+                pass
+
+        if after_page is None or after_page < 0:
+            if after_page is None:
+                curr_idx = getattr(self, 'current_page_idx', 0)
+                after_page = curr_idx if (curr_idx is not None and curr_idx >= 0) else (len(self.doc) - 1)
+            else:
+                after_page = -1
+
         insert_idx = max(0, min(after_page + 1, len(self.doc)))
 
-        old_bytes = self.doc.tobytes() if len(self.doc) > 0 else b""
+        try:
+            old_bytes = self.doc.tobytes() if len(self.doc) > 0 else b""
+        except Exception:
+            old_bytes = b""
         old_drawings = [dict(d) for d in self.drawings]
-        old_page = self.current_page_idx
+        old_page = getattr(self, 'current_page_idx', 0)
 
-        ext_doc = fitz.open(pdf_path)
-        page_count = len(ext_doc)
-        if page_count == 0:
+        try:
+            ext_doc = fitz.open(pdf_path)
+            if ext_doc.is_encrypted:
+                from src.ui.dialogs.toolbox_dialogs import extract_pdf_hint, PDFPasswordDialog
+                from PyQt6.QtWidgets import QDialog
+                hint = extract_pdf_hint(pdf_path)
+                authenticated = False
+                while ext_doc.is_encrypted and not authenticated:
+                    dlg = PDFPasswordDialog(self.main_window, pdf_path, hint)
+                    if dlg.exec() != QDialog.DialogCode.Accepted:
+                        ext_doc.close()
+                        return 0
+                    pw = dlg.get_password()
+                    if ext_doc.authenticate(pw) > 0:
+                        authenticated = True
+                    else:
+                        if hasattr(self.main_window, 'statusBar') and self.main_window.statusBar():
+                            self.main_window.statusBar().showMessage(LanguageManager.tr("wrong_password"), 3000)
+
+            page_count = len(ext_doc)
+            if page_count == 0:
+                ext_doc.close()
+                return 0
+
+            self.doc.insert_pdf(ext_doc, start_at=insert_idx)
             ext_doc.close()
+        except Exception as e:
+            print(f"[Warning] Error opening or inserting PDF '{pdf_path}': {e}")
             return 0
-
-        self.doc.insert_pdf(ext_doc, start_at=insert_idx)
-        ext_doc.close()
 
         for d in self.drawings:
             if d.get("page", 0) >= insert_idx:
                 d["page"] += page_count
 
-        self.render_pages_init()
-        self.rerender_visible_pages()
-        self.go_to_page(insert_idx)
+        self.pre_watermark_bytes = None
 
-        if hasattr(self.main_window, 'lbl_total') and self.main_window.lbl_total:
-            self.main_window.lbl_total.setText(LanguageManager.tr("page_of", total=len(self.doc)))
-        if hasattr(self.main_window, 'txt_page') and self.main_window.txt_page:
-            self.main_window.txt_page.setText(str(insert_idx + 1))
+        # Doküman baytlarını render worker başlamadan hemen önce, arka plan iş parçacığı çakışması olmadan güvenle al
+        try:
+            new_doc_bytes = self.doc.tobytes()
+        except Exception:
+            new_doc_bytes = b""
 
-        self.notify_thumbnails_updated(insert_idx)
+        if rerender:
+            self.render_pages_init()
+            self.rerender_visible_pages()
+            self.go_to_page(insert_idx)
+
+            if hasattr(self.main_window, 'lbl_total') and self.main_window.lbl_total:
+                self.main_window.lbl_total.setText(LanguageManager.tr("page_of", total=len(self.doc)))
+            if hasattr(self.main_window, 'txt_page') and self.main_window.txt_page:
+                self.main_window.txt_page.setText(str(insert_idx + 1))
+
+            if notify_thumb:
+                self.notify_thumbnails_updated(insert_idx)
 
         self.push_undo_action({
             "type": "reorder_pages",
             "old_bytes": old_bytes,
             "old_drawings": old_drawings,
             "old_page": old_page,
-            "new_bytes": self.doc.tobytes(),
+            "new_bytes": new_doc_bytes,
             "new_drawings": [dict(d) for d in self.drawings],
             "new_page": insert_idx,
             "new_order": list(range(len(self.doc)))
@@ -3057,67 +4817,135 @@ class PDFTabDocument(QWidget):
         self.set_modified(True)
         return page_count
 
-    def insert_blank_page(self, after_page: Optional[int] = None, width: Optional[float] = None, height: Optional[float] = None, style: str = "blank"):
+    def insert_blank_page(self, after_page: Optional[int] = None, width: Optional[float] = None, height: Optional[float] = None, style: str = "blank", rerender: bool = True, notify_thumb: bool = True):
         """Mevcut dokümana belirtilen sayfanın ardına boş bir sayfa ekler.
         Mevcut sayfa boyut ve rotasyonuyla birebir uyumlu sayfa oluşturur."""
-        if self.doc is None:
+        if self.doc is None or getattr(self.doc, 'is_closed', False):
             return
         if after_page is None:
             after_page = self.current_page_idx
         insert_idx = max(0, min(after_page + 1, len(self.doc)))
 
-        # Mevcut sayfalarla uyumlu boyut ve rotasyon belirle
+        # Arka plan render worker'i ve render zamanlayicisini once durdur ve bekle (MuPDF islem guvenligi)
+        if hasattr(self, 'rerender_timer') and self.rerender_timer:
+            try:
+                self.rerender_timer.stop()
+            except Exception:
+                pass
+        if hasattr(self, '_render_worker') and self._render_worker:
+            try:
+                if self._render_worker.isRunning():
+                    self._render_worker.abort()
+                    self._render_worker.wait()
+            except Exception:
+                pass
+
+        # Aktif duzenleme veya metin kutusu varsa guvenle sonlandir
+        if getattr(self, 'active_text_item', None):
+            try:
+                if hasattr(self.active_text_item, 'finish_editing'):
+                    self.active_text_item.finish_editing()
+                elif hasattr(self.active_text_item, 'toPlainText'):
+                    if self.active_text_item.toPlainText().strip():
+                        self.commit_inline_text(self.active_text_item)
+                    else:
+                        self.scene.removeItem(self.active_text_item)
+                        self.active_text_item = None
+                elif hasattr(self.active_text_item, 'clearFocus'):
+                    self.active_text_item.clearFocus()
+                    self.active_text_item = None
+            except Exception:
+                self.active_text_item = None
+
+        if hasattr(self, 'drawings') and self.drawings:
+            for d in self.drawings:
+                it = d.get('item_ref')
+                if it and hasattr(it, 'finish_cell_editing'):
+                    try:
+                        it.finish_cell_editing()
+                    except Exception:
+                        pass
+
+        if hasattr(self, '_page_text_blocks_cache'):
+            try:
+                self._page_text_blocks_cache.clear()
+            except Exception:
+                pass
+
+        # Mevcut sayfalarla uyumlu boyut ve gorsel yonu belirle
         ref_rot = 0
         if len(self.doc) > 0:
             ref_idx = max(0, min(after_page, len(self.doc) - 1))
-            ref_page = self.doc[ref_idx]
-            if width is None:
-                width = ref_page.mediabox.width
-            if height is None:
-                height = ref_page.mediabox.height
-            ref_rot = ref_page.rotation
+            try:
+                ref_page = self.doc[ref_idx]
+                if width is None or height is None:
+                    # Referans sayfanin gercek mediabox ve rotasyonunu birebir al (tam uyumlu sayfa)
+                    width = float(ref_page.mediabox.width)
+                    height = float(ref_page.mediabox.height)
+                    ref_rot = ref_page.rotation
+                else:
+                    ref_rot = 0
+            except Exception:
+                ref_rot = 0
 
-        if width is None:
+        if width is None or width <= 0:
             width = 595.32
-        if height is None:
+        if height is None or height <= 0:
             height = 841.92
 
-        old_bytes = self.doc.tobytes() if len(self.doc) > 0 else b""
+        try:
+            old_bytes = self.doc.tobytes() if len(self.doc) > 0 else b""
+        except Exception:
+            old_bytes = b""
         old_drawings = [dict(d) for d in self.drawings]
         old_page = self.current_page_idx
 
-        # Yeni boş sayfa ekle
+        # Yeni bos sayfa ekle
         new_p = self.doc.new_page(pno=insert_idx, width=width, height=height)
         if ref_rot:
-            new_p.set_rotation(ref_rot)
+            try:
+                new_p.set_rotation(ref_rot)
+            except Exception:
+                pass
 
-        if style != "blank":
-            self._draw_page_template(new_p, width, height, style)
+        if style and style != "blank":
+            try:
+                self._draw_page_template(new_p, width, height, style)
+            except Exception as e:
+                print(f"[Warning] Error drawing page template: {e}")
 
-        # Çizim indekslerini güncelle
+        # Cizim indekslerini guncelle
         for d in self.drawings:
             if d.get("page", 0) >= insert_idx:
                 d["page"] += 1
 
         self.pre_watermark_bytes = None
 
-        self.render_pages_init()
-        self.rerender_visible_pages()
-        self.go_to_page(insert_idx)
+        # Doküman baytlarını render worker başlamadan hemen önce, arka plan iş parçacığı çakışması olmadan güvenle al
+        try:
+            new_doc_bytes = self.doc.tobytes()
+        except Exception:
+            new_doc_bytes = b""
 
-        if hasattr(self.main_window, 'lbl_total') and self.main_window.lbl_total:
-            self.main_window.lbl_total.setText(LanguageManager.tr("page_of", total=len(self.doc)))
-        if hasattr(self.main_window, 'txt_page') and self.main_window.txt_page:
-            self.main_window.txt_page.setText(str(insert_idx + 1))
+        if rerender:
+            self.render_pages_init()
+            self.rerender_visible_pages()
+            self.go_to_page(insert_idx)
 
-        self.notify_thumbnails_updated(insert_idx)
+            if hasattr(self.main_window, 'lbl_total') and self.main_window.lbl_total:
+                self.main_window.lbl_total.setText(LanguageManager.tr("page_of", total=len(self.doc)))
+            if hasattr(self.main_window, 'txt_page') and self.main_window.txt_page:
+                self.main_window.txt_page.setText(str(insert_idx + 1))
+
+            if notify_thumb:
+                self.notify_thumbnails_updated(insert_idx)
 
         self.push_undo_action({
             "type": "insert_blank_page",
             "old_bytes": old_bytes,
             "old_drawings": old_drawings,
             "old_page": old_page,
-            "new_bytes": self.doc.tobytes(),
+            "new_bytes": new_doc_bytes,
             "new_drawings": [dict(d) for d in self.drawings],
             "new_page": insert_idx,
             "insert_idx": insert_idx
@@ -3130,7 +4958,31 @@ class PDFTabDocument(QWidget):
         if self.doc is None or len(self.doc) == 0:
             return
 
-        old_bytes = self.doc.tobytes()
+        # Arka plan render worker'i ve render zamanlayicisini once durdur ve bekle (MuPDF islem guvenligi)
+        if hasattr(self, 'rerender_timer') and self.rerender_timer:
+            try:
+                self.rerender_timer.stop()
+            except Exception:
+                pass
+        if hasattr(self, '_render_worker') and self._render_worker:
+            try:
+                if self._render_worker.isRunning():
+                    self._render_worker.abort()
+                    self._render_worker.wait()
+            except Exception:
+                pass
+
+        if getattr(self, 'active_text_item', None):
+            try:
+                if hasattr(self.active_text_item, 'finish_editing'):
+                    self.active_text_item.finish_editing()
+            except Exception:
+                pass
+
+        try:
+            old_bytes = self.doc.tobytes()
+        except Exception:
+            old_bytes = b""
         old_drawings = [dict(d) for d in self.drawings]
         old_page = self.current_page_idx
 
@@ -3147,12 +4999,23 @@ class PDFTabDocument(QWidget):
             # Yeni şablonlu sayfayı p+1 konumuna ekle
             new_p = self.doc.new_page(pno=p + 1, width=w, height=h)
             if rot:
-                new_p.set_rotation(rot)
+                try:
+                    new_p.set_rotation(rot)
+                except Exception:
+                    pass
             if new_style and new_style != "blank":
-                self._draw_page_template(new_p, w, h, new_style)
+                try:
+                    self._draw_page_template(new_p, w, h, new_style)
+                except Exception:
+                    pass
 
             # Eski sayfayı sil (böylece new_p sayfa indeksini p yapar)
             self.doc.delete_page(p)
+
+        try:
+            new_bytes = self.doc.tobytes()
+        except Exception:
+            new_bytes = b""
 
         self.hide_managed_annotations()
         self.render_pages_init()
@@ -3166,7 +5029,7 @@ class PDFTabDocument(QWidget):
             "old_bytes": old_bytes,
             "old_drawings": old_drawings,
             "old_page": old_page,
-            "new_bytes": self.doc.tobytes(),
+            "new_bytes": new_bytes,
             "new_drawings": [dict(d) for d in self.drawings],
             "new_page": curr_p,
             "style": new_style,
@@ -3248,23 +5111,12 @@ class PDFTabDocument(QWidget):
         alpha_base = float(d.get("alpha", 1.0))
         base_col.setAlphaF(alpha_base)
 
-        tex = get_graphite_lead_texture(base_col)
-        tex_fringe = get_graphite_fringe_texture(base_col)
         line_style = d.get("line_style", "solid")
 
-        # 1. Main textured graphite lead path with micro-jitter
-        p_lead = QPainterPath()
-        p_lead.moveTo(pts[0])
-        if line_style in ("solid", "pencil") and len(pts) > 2:
-            for i, pt in enumerate(pts[1:]):
-                jx = ((i * 17) % 7 - 3) * 0.05 * base_w
-                jy = ((i * 23) % 7 - 3) * 0.05 * base_w
-                p_lead.lineTo(pt.x() + jx, pt.y() + jy)
-        else:
-            for pt in pts[1:]:
-                p_lead.lineTo(pt)
+        # Pürüzsüz yüksek çözünürlüklü quadratik Bezier vektör yolu
+        p_lead = build_smooth_path(pts)
 
-        # 2. Arrow head support for pencil
+        # 2. Ok ucu desteği (Arrow head)
         if line_style == "arrow":
             ah_pts = []
             raw_ah = d.get("arrow_head")
@@ -3293,44 +5145,42 @@ class PDFTabDocument(QWidget):
                 p_lead.lineTo(ah_pts[1])
                 p_lead.lineTo(ah_pts[2])
 
-            pen_fringe = QPen(QBrush(tex_fringe), base_w * 1.28, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin)
-            item_fringe = self.scene.addPath(p_lead, pen_fringe)
-            group.addToGroup(item_fringe)
+        pen_style = Qt.PenStyle.SolidLine
+        dash_pattern = None
+        if line_style == "dash":
+            pen_style = Qt.PenStyle.CustomDashLine
+            dash_pattern = [2.2, 1.5]
+        elif line_style == "dot":
+            pen_style = Qt.PenStyle.CustomDashLine
+            dash_pattern = [0.01, 1.9]
+        elif line_style == "dashdot":
+            pen_style = Qt.PenStyle.CustomDashLine
+            dash_pattern = [2.2, 1.4, 0.01, 1.4]
 
-            pen_tex = QPen(QBrush(tex), base_w, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin)
-            item_lead = self.scene.addPath(p_lead, pen_tex)
-            group.addToGroup(item_lead)
-            group.setCacheMode(QGraphicsItemGroup.CacheMode.DeviceCoordinateCache)
-            return group
-
-        # 3. Dashed, Dotted, DashDot lines (clean textured graphite with compact handwriting scale)
-        if line_style in ("dash", "dot", "dashdot"):
-            pen_tex = QPen(QBrush(tex), base_w, Qt.PenStyle.CustomDashLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin)
-            if line_style == "dash":
-                pen_tex.setDashPattern([2.2, 1.5])
-            elif line_style == "dot":
-                pen_tex.setDashPattern([0.01, 1.9])
-            elif line_style == "dashdot":
-                pen_tex.setDashPattern([2.2, 1.4, 0.01, 1.4])
-            item_lead = self.scene.addPath(p_lead, pen_tex)
-            group.addToGroup(item_lead)
-            group.setCacheMode(QGraphicsItemGroup.CacheMode.DeviceCoordinateCache)
-            return group
-
-        # 4. Solid pencil line: Soft dusty fringe + Rich textured lead + Concentrated core
-        pen_fringe = QPen(QBrush(tex_fringe), base_w * 1.28, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin)
+        # 3 katmanlı zengin kurşun kalem grafit dokusu (vektörel ve kristal netlikte, pikselleşme yapmaz)
+        col_fringe = QColor(base_col)
+        col_fringe.setAlphaF(min(1.0, alpha_base * 0.28))
+        pen_fringe = QPen(col_fringe, base_w * 1.35, pen_style, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin)
+        if dash_pattern: pen_fringe.setDashPattern(dash_pattern)
         item_fringe = self.scene.addPath(p_lead, pen_fringe)
         group.addToGroup(item_fringe)
 
-        pen_tex = QPen(QBrush(tex), base_w, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin)
-        item_lead = self.scene.addPath(p_lead, pen_tex)
+        col_lead = QColor(base_col)
+        col_lead.setAlphaF(min(1.0, alpha_base * 0.72))
+        pen_lead = QPen(col_lead, base_w, pen_style, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin)
+        if dash_pattern: pen_lead.setDashPattern(dash_pattern)
+        item_lead = self.scene.addPath(p_lead, pen_lead)
         group.addToGroup(item_lead)
 
-        pen_core = QPen(QBrush(tex), max(0.6, base_w * 0.58), Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin)
+        col_core = QColor(base_col)
+        col_core.setAlphaF(min(1.0, alpha_base * 0.96))
+        pen_core = QPen(col_core, max(0.6, base_w * 0.52), pen_style, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin)
+        if dash_pattern: pen_core.setDashPattern(dash_pattern)
         item_core = self.scene.addPath(p_lead, pen_core)
         group.addToGroup(item_core)
-        group.setCacheMode(QGraphicsItemGroup.CacheMode.DeviceCoordinateCache)
 
+        # Caching kapalı tutulur - böylece zoom yapıldığında pikseller esnemez, vektörel render edilir
+        group.setCacheMode(QGraphicsItemGroup.CacheMode.NoCache)
         return group
 
     def restore_drawing_item(self, d):
@@ -3373,8 +5223,7 @@ class PDFTabDocument(QWidget):
                 d["item_ref"] = item
                 return
 
-            path = QPainterPath(pts[0])
-            for pt in pts[1:]: path.lineTo(pt)
+            path = build_smooth_path(pts)
 
             if line_style == "arrow" and d.get("arrow_head"):
                 ah = [QPointF(x * self.base_render_dpi + page_left, y * self.base_render_dpi + page_top) for x, y in d["arrow_head"]]
@@ -3490,6 +5339,21 @@ class PDFTabDocument(QWidget):
     # --- Render & Zoom ---
     def render_pages_init(self):
         if self.doc is None: return
+
+        # 1. Once arka plan render zamanlayici ve iscisini kesinlikle durdur ve bekle (MuPDF islem guvenligi)
+        if hasattr(self, 'rerender_timer') and self.rerender_timer:
+            try:
+                self.rerender_timer.stop()
+            except Exception:
+                pass
+        if hasattr(self, '_render_worker') and self._render_worker:
+            try:
+                if self._render_worker.isRunning():
+                    self._render_worker.abort()
+                    self._render_worker.wait()
+            except Exception:
+                pass
+
         # In-memory dokümanda ek açıklamaların get_pixmap ile çift çizilmesini önle
         MANAGED_TYPES = (
             fitz.PDF_ANNOT_INK,
@@ -3509,18 +5373,93 @@ class PDFTabDocument(QWidget):
                         a.update()
             except Exception:
                 pass
+
+        # In-memory dokümanda etiketli AuraPDF çizim/medya akışlarını sustur (temiz taban pixmap'i)
+        for p in self.doc:
+            try:
+                for x in p.get_contents():
+                    st = self.doc.xref_stream(x)
+                    if st and b'% AuraPDF Drawing Stream' in st:
+                        self.doc.update_stream(x, b"")
+            except Exception:
+                pass
+
+        if getattr(self, 'active_text_item', None):
+            try:
+                if hasattr(self.active_text_item, 'finish_editing'):
+                    self.active_text_item.finish_editing()
+                elif hasattr(self.active_text_item, 'toPlainText'):
+                    if self.active_text_item.toPlainText().strip():
+                        self.commit_inline_text(self.active_text_item)
+                    else:
+                        self.scene.removeItem(self.active_text_item)
+                        self.active_text_item = None
+            except Exception:
+                self.active_text_item = None
+
         self.laser_pointer_item = None
         self.direct_edit_hover_item = None
         self.direct_edit_editor = None
         if hasattr(self, 'drawings') and self.drawings:
             for d in self.drawings:
                 it = d.get('item_ref')
-                if it and hasattr(it, 'stop_movie'):
-                    try:
-                        it.stop_movie()
-                    except Exception:
-                        pass
+                if it:
+                    if hasattr(it, 'finish_cell_editing'):
+                        try:
+                            it.finish_cell_editing()
+                        except Exception:
+                            pass
+                    if hasattr(it, 'stop_movie'):
+                        try:
+                            it.stop_movie()
+                        except Exception:
+                            pass
                 d['item_ref'] = None
+
+        # Sahne temizlenmeden once proxy widget'lari ve secim vurgularini guvenle temizle
+        if hasattr(self, 'interactive_form_proxies'):
+            for p in list(self.interactive_form_proxies):
+                try:
+                    if p.scene() == self.scene:
+                        self.scene.removeItem(p)
+                except Exception:
+                    pass
+            self.interactive_form_proxies.clear()
+        if hasattr(self, '_interactive_field_widgets'):
+            self._interactive_field_widgets.clear()
+
+        if hasattr(self, 'selection_highlight_items'):
+            for itm in list(self.selection_highlight_items):
+                try:
+                    if itm.scene() == self.scene:
+                        self.scene.removeItem(itm)
+                except Exception:
+                    pass
+            self.selection_highlight_items.clear()
+
+        if hasattr(self, 'search_highlight_items'):
+            for sitm in list(self.search_highlight_items):
+                try:
+                    if sitm.scene() == self.scene:
+                        self.scene.removeItem(sitm)
+                except Exception:
+                    pass
+            self.search_highlight_items.clear()
+
+        if hasattr(self, 'bookmark_ribbon_items'):
+            self.bookmark_ribbon_items.clear()
+        self._last_hovered_ribbon = None
+        self.selection_item = None
+        self.current_path_item = None
+        self.pointer_last_pos = None
+        self.pointer_trail_items = []
+        self._stamp_ghost_item = None
+        self._form_ghost_item = None
+        self._comment_drag_ghost_item = None
+        self.search_active_item = None
+        self.selected_text_items = []
+        self.text_selection_hud = None
+        self._alignment_guide_item = None
         self.scene.clear()
         self.page_positions.clear()
 
@@ -3572,6 +5511,7 @@ class PDFTabDocument(QWidget):
                     bg_rect1.setFlag(QGraphicsItem.GraphicsItemFlag.ItemClipsChildrenToShape, True)
 
                     pix_item1 = self.scene.addPixmap(QPixmap())
+                    pix_item1.setTransformationMode(Qt.TransformationMode.SmoothTransformation)
                     pix_item1.setPos(x1, y_offset)
                     pix_item1.setZValue(-1)
 
@@ -3587,6 +5527,7 @@ class PDFTabDocument(QWidget):
                     bg_rect2.setFlag(QGraphicsItem.GraphicsItemFlag.ItemClipsChildrenToShape, True)
 
                     pix_item2 = self.scene.addPixmap(QPixmap())
+                    pix_item2.setTransformationMode(Qt.TransformationMode.SmoothTransformation)
                     pix_item2.setPos(x2, y_offset)
                     pix_item2.setZValue(-1)
 
@@ -3605,6 +5546,7 @@ class PDFTabDocument(QWidget):
                     bg_rect1.setFlag(QGraphicsItem.GraphicsItemFlag.ItemClipsChildrenToShape, True)
 
                     pix_item1 = self.scene.addPixmap(QPixmap())
+                    pix_item1.setTransformationMode(Qt.TransformationMode.SmoothTransformation)
                     pix_item1.setPos(row_x_offset, y_offset)
                     pix_item1.setZValue(-1)
 
@@ -3630,6 +5572,7 @@ class PDFTabDocument(QWidget):
                 bg_rect.setFlag(QGraphicsItem.GraphicsItemFlag.ItemClipsChildrenToShape, True)
 
                 pix_item = self.scene.addPixmap(QPixmap())
+                pix_item.setTransformationMode(Qt.TransformationMode.SmoothTransformation)
                 pix_item.setPos(x_offset, y_offset)
                 pix_item.setZValue(-1)
 
@@ -3641,8 +5584,12 @@ class PDFTabDocument(QWidget):
                 }
                 y_offset += h + self.PAGE_MARGIN
 
-        for record in self.drawings:
-            self.restore_drawing_item(record)
+        self._is_restoring_drawings = True
+        try:
+            for record in list(self.drawings):
+                self.restore_drawing_item(record)
+        finally:
+            self._is_restoring_drawings = False
         self.init_bookmark_ribbons()
         self._load_interactive_form_widgets()
         if self.page_positions:
@@ -3653,7 +5600,9 @@ class PDFTabDocument(QWidget):
             self.scene.setSceneRect(self.scene.itemsBoundingRect().adjusted(-20, -10, 20, 20))
 
     def init_bookmark_ribbons(self):
-        self.bookmark_ribbon_items = {}
+        if hasattr(self, 'bookmark_ribbon_items'):
+            self.bookmark_ribbon_items.clear()
+        self._last_hovered_ribbon = None
         if not self.doc or not self.page_positions:
             return
 
@@ -3692,8 +5641,11 @@ class PDFTabDocument(QWidget):
         except Exception:
             bookmarked_pages = set()
 
-        for idx, ribbon in self.bookmark_ribbon_items.items():
-            ribbon.set_bookmarked(idx in bookmarked_pages)
+        for idx, ribbon in list(self.bookmark_ribbon_items.items()):
+            try:
+                ribbon.set_bookmarked(idx in bookmarked_pages)
+            except Exception:
+                pass
 
         if hasattr(self.main_window, 'modern_right_sidebar') and self.main_window.modern_right_sidebar:
             if hasattr(self.main_window.modern_right_sidebar, 'refresh_bookmark_indicators'):
@@ -3853,7 +5805,30 @@ class PDFTabDocument(QWidget):
         # Uzak sayfaları temizleme eşiği
         unload_dist   = max(3000, vp_h * 2.5)
 
-        target_scale = self.base_render_dpi * self.zoom_level
+        # Viewport ekran piksel yoğunluğunu (High-DPI / Retina / Windows %125, %150, %200) tespit et
+        dpr = 1.0
+        try:
+            if hasattr(self.view, 'devicePixelRatioF') and self.view.devicePixelRatioF() > 0:
+                dpr = float(self.view.devicePixelRatioF())
+            elif hasattr(self, 'devicePixelRatioF') and self.devicePixelRatioF() > 0:
+                dpr = float(self.devicePixelRatioF())
+            # Pencere veya ekran DPR'ını da kontrol et (özellikle ilk yüklemede unmapped view durumunda)
+            win = self.window()
+            if win and win.windowHandle() and win.windowHandle().screen():
+                win_dpr = float(win.windowHandle().screen().devicePixelRatio())
+                if win_dpr > dpr:
+                    dpr = win_dpr
+            elif QApplication.primaryScreen():
+                prim_dpr = float(QApplication.primaryScreen().devicePixelRatio())
+                if prim_dpr > dpr:
+                    dpr = prim_dpr
+        except Exception:
+            dpr = 1.0
+        if dpr < 1.0:
+            dpr = 1.0
+        self._current_dpr = dpr
+
+        target_scale = self.base_render_dpi * self.zoom_level * dpr
         mat  = fitz.Matrix(target_scale, target_scale)
         mode = getattr(self, 'reading_color_mode', 'normal')
         zoom = self.zoom_level
@@ -3870,10 +5845,11 @@ class PDFTabDocument(QWidget):
                     force
                     or pinfo['item'].pixmap().isNull()
                     or abs(pinfo.get('rendered_zoom', 0.0) - zoom) > 0.05
+                    or abs(pinfo.get('rendered_dpr', 1.0) - dpr) > 0.05
                 )
                 if needs_render:
                     render_annots = not getattr(self, 'is_form_design_mode', False)
-                    jobs_needed.append((idx, mat, mode, self.doc, render_annots))
+                    jobs_needed.append((idx, mat, mode, self.doc, render_annots, zoom, dpr))
             else:
                 # Uzak sayfaların pixmap'ini serbest bırak (bellek tasarrufu)
                 if pinfo.get('rendered_zoom', 0.0) > 0.0:
@@ -3894,12 +5870,14 @@ class PDFTabDocument(QWidget):
             for job in jobs_needed:
                 idx, mat2, mode2, doc2 = job[0], job[1], job[2], job[3]
                 annots_flag = job[4] if len(job) > 4 else not getattr(self, 'is_form_design_mode', False)
+                job_zoom = job[5] if len(job) > 5 else zoom
+                job_dpr = job[6] if len(job) > 6 else dpr
                 try:
-                    pix = doc2[idx].get_pixmap(matrix=mat2, annots=annots_flag)
+                    pix = doc2[idx].get_pixmap(matrix=mat2, annots=annots_flag, alpha=False)
                     if mode2 == 'dark':
                         apply_smart_dark_invert(pix, doc2[idx], mat2)
                     qimg = QImage(pix.samples, pix.width, pix.height,
-                                  pix.stride, QImage.Format.Format_RGB888)
+                                  pix.stride, QImage.Format.Format_RGB888).copy()
                     if mode2 == 'sepia':
                         p_sepia = QPainter(qimg)
                         p_sepia.setCompositionMode(
@@ -3907,37 +5885,123 @@ class PDFTabDocument(QWidget):
                         p_sepia.fillRect(qimg.rect(), QColor(246, 238, 220))
                         p_sepia.end()
                     qpix = QPixmap.fromImage(qimg)
+                    if job_dpr > 1.0:
+                        qpix.setDevicePixelRatio(job_dpr)
                     pinfo2 = self.page_positions.get(idx)
                     if pinfo2:
                         pinfo2['item'].setPixmap(qpix)
-                        pinfo2['item'].setScale(1.0 / zoom)
-                        pinfo2['rendered_zoom'] = zoom
+                        pinfo2['item'].setScale(1.0 / job_zoom)
+                        pinfo2['rendered_zoom'] = job_zoom
+                        pinfo2['rendered_dpr'] = job_dpr
                 except Exception:
                     pass
         else:
             # Çok sayfalı render: async worker
             if hasattr(self, '_render_worker') and self._render_worker:
                 try:
-                    if self._render_worker.isRunning():
-                        self._render_worker.abort()
-                        self._render_worker.wait(200)
                     self._render_worker.schedule(jobs_needed)
-                    self._render_worker.start(QThread.Priority.LowPriority)
+                    if not self._render_worker.isRunning():
+                        self._render_worker.start(QThread.Priority.LowPriority)
                 except Exception:
                     pass
 
-    def _on_page_rendered(self, idx: int, qpix):
+    def _on_page_rendered(self, idx: int, qimg, job_zoom: float = 1.0, job_dpr: float = 1.0):
         """Async worker'dan gelen render sonuçlarını UI thread'inde uygular."""
-        if self.doc is None:
+        if self.doc is None or getattr(self.doc, 'is_closed', False):
             return
         pinfo = self.page_positions.get(idx)
-        if pinfo:
+        if pinfo and pinfo.get('item'):
             try:
-                pinfo['item'].setPixmap(qpix)
-                pinfo['item'].setScale(1.0 / self.zoom_level)
-                pinfo['rendered_zoom'] = self.zoom_level
-            except RuntimeError:
+                item = pinfo['item']
+                if item.scene() != self.scene:
+                    return
+                qpix = QPixmap.fromImage(qimg)
+                if job_dpr > 1.0:
+                    qpix.setDevicePixelRatio(job_dpr)
+                item.setPixmap(qpix)
+                item.setScale(1.0 / job_zoom)
+                pinfo['rendered_zoom'] = job_zoom
+                pinfo['rendered_dpr'] = job_dpr
+
+                # Kullanıcı render sırasında zoom seviyesini veya DPI'ı değiştirdiyse yeniden tetikle
+                if abs(self.zoom_level - job_zoom) > 0.05 or abs(getattr(self, '_current_dpr', 1.0) - job_dpr) > 0.05:
+                    self.rerender_timer.start(80)
+            except Exception:
                 pass
+
+    def rerender_page(self, page_idx: int):
+        """Yalnızca belirtilen sayfayı hemen ve gecikmesiz senkron render eder."""
+        if not self.doc or not hasattr(self, 'page_positions') or not self.page_positions or page_idx not in self.page_positions:
+            return
+        pinfo = self.page_positions[page_idx]
+        dpr = getattr(self, '_current_dpr', 1.0)
+        target_scale = self.base_render_dpi * self.zoom_level * dpr
+        mat = fitz.Matrix(target_scale, target_scale)
+        mode = getattr(self, 'reading_color_mode', 'normal')
+        zoom = self.zoom_level
+        render_annots = not getattr(self, 'is_form_design_mode', False)
+        try:
+            pix = self.doc[page_idx].get_pixmap(matrix=mat, annots=render_annots, alpha=False)
+            if mode == 'dark':
+                apply_smart_dark_invert(pix, self.doc[page_idx], mat)
+            qimg = QImage(pix.samples, pix.width, pix.height, pix.stride, QImage.Format.Format_RGB888).copy()
+            if mode == 'sepia':
+                p_sepia = QPainter(qimg)
+                p_sepia.setCompositionMode(QPainter.CompositionMode.CompositionMode_Multiply)
+                p_sepia.fillRect(qimg.rect(), QColor(246, 238, 220))
+                p_sepia.end()
+            qpix = QPixmap.fromImage(qimg)
+            if dpr > 1.0:
+                qpix.setDevicePixelRatio(dpr)
+            pinfo['item'].setPixmap(qpix)
+            pinfo['item'].setScale(1.0 / zoom)
+            pinfo['rendered_zoom'] = zoom
+            pinfo['rendered_dpr'] = dpr
+            if hasattr(self, 'view') and self.view:
+                self.view.viewport().update()
+        except Exception:
+            pass
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        # Sekme ilk kez görünür olduğunda veya başka bir monitöre taşındığında netliği garanti et
+        QTimer.singleShot(60, self._check_dpr_and_rerender)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._check_dpr_and_rerender()
+
+    def _check_dpr_and_rerender(self):
+        """Mevcut ekranın gerçek DPI değerini kontrol eder; değişiklik varsa sayfaları kristal netlikte yeniden render eder."""
+        if not self.doc or not self.page_positions:
+            return
+        dpr = 1.0
+        try:
+            if hasattr(self.view, 'devicePixelRatioF') and self.view.devicePixelRatioF() > 0:
+                dpr = float(self.view.devicePixelRatioF())
+            elif hasattr(self, 'devicePixelRatioF') and self.devicePixelRatioF() > 0:
+                dpr = float(self.devicePixelRatioF())
+            win = self.window()
+            if win and win.windowHandle() and win.windowHandle().screen():
+                win_dpr = float(win.windowHandle().screen().devicePixelRatio())
+                if win_dpr > dpr:
+                    dpr = win_dpr
+            elif QApplication.primaryScreen():
+                prim_dpr = float(QApplication.primaryScreen().devicePixelRatio())
+                if prim_dpr > dpr:
+                    dpr = prim_dpr
+        except Exception:
+            pass
+        if dpr < 1.0:
+            dpr = 1.0
+        if abs(getattr(self, '_current_dpr', 1.0) - dpr) > 0.05:
+            self._current_dpr = dpr
+            self.rerender_visible_pages(force=True)
+
+    def changeEvent(self, event):
+        super().changeEvent(event)
+        if event.type() == QEvent.Type.DevicePixelRatioChange:
+            self._check_dpr_and_rerender()
 
     def set_reading_color_mode(self, mode: str):
         if mode not in ("normal", "dark", "sepia"):
@@ -4197,7 +6261,10 @@ class PDFTabDocument(QWidget):
 
     # --- Metin İşlemleri ---
     def create_inline_text(self, scene_pos, page_idx):
-        if self.active_text_item: self.active_text_item.clearFocus()
+        if self.active_text_item:
+            if hasattr(self.active_text_item, 'clearFocus'):
+                self.active_text_item.clearFocus()
+            self.active_text_item = None
         p_info = self.page_positions.get(page_idx)
         if not p_info: return
         page_left = p_info.get('left', 0.0)
@@ -4223,6 +6290,10 @@ class PDFTabDocument(QWidget):
         self.active_text_item = item
 
     def commit_inline_text(self, item):
+        if not item or not hasattr(item, 'toPlainText'):
+            return
+        if getattr(self, '_is_restoring_drawings', False) or getattr(item, '_is_initializing', False):
+            return
         content = item.toPlainText().strip()
         
         # Manuel atanmış bağlantı kontrolü (Kullanıcı metne veya kelimeye özel bir URL bağlamışsa)
@@ -4309,6 +6380,7 @@ class PDFTabDocument(QWidget):
                 record.get("bold") != getattr(item, 'bold', False) or
                 record.get("italic") != getattr(item, 'italic', False) or
                 record.get("underline") != getattr(item, 'underline', False) or
+                record.get("alignment") != getattr(item, 'alignment_str', 'left') or
                 record.get("font_size") != item.font_size or
                 record.get("color") != item.text_color
             )
@@ -4327,6 +6399,7 @@ class PDFTabDocument(QWidget):
                 record["bold"] = getattr(item, 'bold', False)
                 record["italic"] = getattr(item, 'italic', False)
                 record["underline"] = getattr(item, 'underline', False)
+                record["alignment"] = getattr(item, 'alignment_str', 'left')
                 record["link_url"] = getattr(item, 'link_url', "")
                 record["link_type"] = getattr(item, 'link_type', "")
                 record["link_raw"] = getattr(item, 'link_raw', "")
@@ -4356,6 +6429,7 @@ class PDFTabDocument(QWidget):
                 "bold": getattr(item, 'bold', False),
                 "italic": getattr(item, 'italic', False),
                 "underline": getattr(item, 'underline', False),
+                "alignment": getattr(item, 'alignment_str', 'left'),
                 "link_url": getattr(item, 'link_url', ""),
                 "link_type": getattr(item, 'link_type', ""),
                 "link_raw": getattr(item, 'link_raw', ""),
@@ -4856,9 +6930,12 @@ class PDFTabDocument(QWidget):
             bold=record.get("bold", False),
             italic=record.get("italic", False),
             underline=record.get("underline", False),
+            alignment=record.get("alignment", "left"),
         )
+        record["item_ref"] = item
         if record.get("html"):
             item.setHtml(record["html"])
+        item.set_alignment(record.get("alignment", "left"), commit=False)
 
         from src.core.hyperlink_detector import detect_hyperlink
         if record.get("link_url") or record.get("manual_link"):
@@ -4954,7 +7031,8 @@ class PDFTabDocument(QWidget):
                   border_color: str = "#c4b5fd", header_bg: str = "#7c3aed",
                   cell_bg: str = "#ffffff", text_color: str = "#1e1b4b",
                   header_text_color: str = "#ffffff", alt_cell_bg: Optional[str] = None,
-                  page_idx: Optional[int] = None, pos: Optional[QPointF] = None):
+                  page_idx: Optional[int] = None, pos: Optional[QPointF] = None,
+                  alignment: str = "center"):
         """Belgeye boyutlandırılabilir ve düzenlenebilir tablo ekler."""
         if self.doc is None or len(self.doc) == 0:
             return
@@ -4975,6 +7053,9 @@ class PDFTabDocument(QWidget):
             page_left = p_info.get('left', 0.0)
             page_pdf_w = p_info['width'] / self.base_render_dpi
             page_pdf_h = p_info['height'] / self.base_render_dpi
+
+            rows = max(1, int(rows))
+            cols = max(1, int(cols))
 
             table_pdf_w = min(max(20.0, page_pdf_w - 40.0), max(180.0, cols * 70.0))
             table_pdf_w = max(40.0, min(table_pdf_w, page_pdf_w))
@@ -5021,6 +7102,8 @@ class PDFTabDocument(QWidget):
                 "header_text_color": header_text_color,
                 "font_size": 11.0,
                 "font_family": "Arial",
+                "alignment": str(alignment).lower(),
+                "cell_alignments": [[str(alignment).lower() for _ in range(cols)] for _ in range(rows)],
                 "cell_data": cell_data
             }
 
@@ -5032,7 +7115,13 @@ class PDFTabDocument(QWidget):
             it = item_data.get("item_ref")
             if it:
                 it.setSelected(True)
-                self.active_text_item = it
+                if hasattr(self, 'active_text_item') and self.active_text_item:
+                    if hasattr(self.active_text_item, 'finish_editing'):
+                        try:
+                            self.active_text_item.finish_editing()
+                        except Exception:
+                            pass
+                    self.active_text_item = None
                 self.last_text_item = it
                 if hasattr(self.main_window, 'text_popup') and self.main_window.text_popup:
                     self.main_window.text_popup.sync_with_item_selection(it)
@@ -5689,24 +7778,41 @@ class PDFTabDocument(QWidget):
         # 1. Canlı çizimler, notlar ve ek açıklamalarla sahneden (QGraphicsScene) render et
         if pinfo and hasattr(self, 'scene') and self.scene:
             laser = getattr(self, 'laser_pointer_item', None)
-            was_laser_vis = laser.isVisible() if laser else False
-            if laser and was_laser_vis:
-                laser.setVisible(False)
+            was_laser_vis = False
+            try:
+                if laser and laser.isVisible():
+                    was_laser_vis = True
+                    laser.setVisible(False)
+            except Exception:
+                laser = None
 
             sel_item = getattr(self, 'selection_item', None)
-            was_sel_vis = sel_item.isVisible() if sel_item else False
-            if sel_item and was_sel_vis:
-                sel_item.setVisible(False)
+            was_sel_vis = False
+            try:
+                if sel_item and sel_item.isVisible():
+                    was_sel_vis = True
+                    sel_item.setVisible(False)
+            except Exception:
+                sel_item = None
 
-            ribbon = getattr(self, 'bookmark_ribbon_items', {}).get(page_idx, None)
-            was_ribbon_vis = ribbon.isVisible() if ribbon else False
-            if ribbon and was_ribbon_vis:
-                ribbon.setVisible(False)
+            ribbon = None
+            was_ribbon_vis = False
+            try:
+                ribbon = getattr(self, 'bookmark_ribbon_items', {}).get(page_idx, None)
+                if ribbon and ribbon.isVisible():
+                    was_ribbon_vis = True
+                    ribbon.setVisible(False)
+            except Exception:
+                ribbon = None
 
             hover_item = getattr(self, 'direct_edit_hover_item', None)
-            was_hover_vis = hover_item.isVisible() if hover_item else False
-            if hover_item and was_hover_vis:
-                hover_item.setVisible(False)
+            was_hover_vis = False
+            try:
+                if hover_item and hover_item.isVisible():
+                    was_hover_vis = True
+                    hover_item.setVisible(False)
+            except Exception:
+                hover_item = None
 
             sel_highlights = list(getattr(self, 'selection_highlight_items', []))
             vis_highlights = []
@@ -5720,13 +7826,23 @@ class PDFTabDocument(QWidget):
 
             selected_items = self.scene.selectedItems() if self.scene else []
             for sit in selected_items:
-                sit.setSelected(False)
+                try:
+                    sit.setSelected(False)
+                except Exception:
+                    pass
 
             src_rect = QRectF(pinfo.get('left', 0.0), pinfo['top'], pinfo['width'], pinfo['height'])
 
             try:
                 pix_item = pinfo.get('item')
-                if pix_item and not pix_item.pixmap().isNull():
+                has_valid_item_pix = False
+                if pix_item:
+                    try:
+                        has_valid_item_pix = not pix_item.pixmap().isNull()
+                    except (RuntimeError, AttributeError):
+                        has_valid_item_pix = False
+
+                if has_valid_item_pix:
                     # Sayfa sahnede aktif ve çizilmiş: Doğrudan sahneyi render et
                     img = QImage(thumb_w, thumb_h, QImage.Format.Format_ARGB32_Premultiplied)
                     img.fill(QColor(255, 255, 255))
@@ -5744,12 +7860,21 @@ class PDFTabDocument(QWidget):
                     img = base_img.convertToFormat(QImage.Format.Format_ARGB32_Premultiplied)
 
                     bg_rect = pinfo.get('bg_rect')
-                    was_bg_vis = bg_rect.isVisible() if bg_rect else False
-                    if bg_rect and was_bg_vis:
-                        bg_rect.setVisible(False)
-                    was_pix_vis = pix_item.isVisible() if pix_item else False
-                    if pix_item and was_pix_vis:
-                        pix_item.setVisible(False)
+                    was_bg_vis = False
+                    try:
+                        if bg_rect and bg_rect.isVisible():
+                            was_bg_vis = True
+                            bg_rect.setVisible(False)
+                    except Exception:
+                        bg_rect = None
+
+                    was_pix_vis = False
+                    try:
+                        if pix_item and pix_item.isVisible():
+                            was_pix_vis = True
+                            pix_item.setVisible(False)
+                    except Exception:
+                        pix_item = None
 
                     painter = QPainter(img)
                     painter.setRenderHint(QPainter.RenderHint.Antialiasing)
@@ -5759,27 +7884,48 @@ class PDFTabDocument(QWidget):
                     finally:
                         painter.end()
                         if bg_rect and was_bg_vis:
-                            bg_rect.setVisible(True)
+                            try:
+                                bg_rect.setVisible(True)
+                            except Exception:
+                                pass
                         if pix_item and was_pix_vis:
-                            pix_item.setVisible(True)
+                            try:
+                                pix_item.setVisible(True)
+                            except Exception:
+                                pass
             except Exception:
                 img = None
             finally:
                 if laser and was_laser_vis:
-                    laser.setVisible(True)
+                    try:
+                        laser.setVisible(True)
+                    except Exception:
+                        pass
                 if sel_item and was_sel_vis:
-                    sel_item.setVisible(True)
+                    try:
+                        sel_item.setVisible(True)
+                    except Exception:
+                        pass
                 if ribbon and was_ribbon_vis:
-                    ribbon.setVisible(True)
+                    try:
+                        ribbon.setVisible(True)
+                    except Exception:
+                        pass
                 if hover_item and was_hover_vis:
-                    hover_item.setVisible(True)
+                    try:
+                        hover_item.setVisible(True)
+                    except Exception:
+                        pass
                 for h_item in vis_highlights:
                     try:
                         h_item.setVisible(True)
                     except Exception:
                         pass
                 for sit in selected_items:
-                    sit.setSelected(True)
+                    try:
+                        sit.setSelected(True)
+                    except Exception:
+                        pass
 
         # 2. Eğer sahneden render alınamadıysa PyMuPDF ile taban sayfayı render et
         if img is None:
@@ -5809,6 +7955,90 @@ class PDFTabDocument(QWidget):
                     return idx
             return None
 
+    def auto_scroll_during_drag(self, scene_pos, page_idx=None):
+        """
+        Kullanıcı bir öğeyi (görsel, tablo, metin kutusu vb.) sürüklerken,
+        fare imleci viewport sınırlarına (kenarlara 50px kala) yaklaştığında
+        görünümü otomatik olarak o yönde kademeli ve yavaşça kaydırır.
+        Özellikle yüksek zoom seviyelerinde veya sayfa sınırlarında kusursuz,
+        kontrollü ve yavaş kaydırma deneyimi sağlar. İlgili sayfanın dışına taşmayı engeller.
+        """
+        if not hasattr(self, 'view') or not self.view:
+            return
+        vp = self.view.viewport()
+        if not vp:
+            return
+        try:
+            import time
+            now = time.time()
+            if now - getattr(self, '_last_drag_scroll_time', 0.0) < 0.025:
+                return
+            self._last_drag_scroll_time = now
+
+            vp_pt = self.view.mapFromScene(scene_pos)
+            vp_w = vp.width()
+            vp_h = vp.height()
+            margin = 50
+
+            h_bar = self.view.horizontalScrollBar()
+            v_bar = self.view.verticalScrollBar()
+
+            page_bounds = None
+            if page_idx is not None and hasattr(self, 'page_positions') and page_idx in self.page_positions:
+                page_bounds = self.page_positions[page_idx]
+
+            # Dikey kaydırma (Aşağı / Yukarı)
+            if vp_pt.y() > vp_h - margin:
+                can_scroll_down = True
+                if page_bounds:
+                    bottom_scene_y = self.view.mapToScene(QPoint(0, vp_h)).y()
+                    page_bottom = page_bounds.get('bottom', page_bounds.get('top', 0) + page_bounds.get('height', 0))
+                    if bottom_scene_y >= page_bottom + 20:
+                        can_scroll_down = False
+                if can_scroll_down:
+                    depth = min(1.0, max(0.0, (vp_pt.y() - (vp_h - margin)) / float(margin)))
+                    step = int(round(3 + depth * 7))
+                    v_bar.setValue(v_bar.value() + step)
+
+            elif vp_pt.y() < margin:
+                can_scroll_up = True
+                if page_bounds:
+                    top_scene_y = self.view.mapToScene(QPoint(0, 0)).y()
+                    page_top = page_bounds.get('top', 0)
+                    if top_scene_y <= page_top - 20:
+                        can_scroll_up = False
+                if can_scroll_up:
+                    depth = min(1.0, max(0.0, (margin - vp_pt.y()) / float(margin)))
+                    step = int(round(3 + depth * 7))
+                    v_bar.setValue(v_bar.value() - step)
+
+            # Yatay kaydırma (Sağ / Sol)
+            if vp_pt.x() > vp_w - margin:
+                can_scroll_right = True
+                if page_bounds:
+                    right_scene_x = self.view.mapToScene(QPoint(vp_w, 0)).x()
+                    page_right = page_bounds.get('right', page_bounds.get('left', 0) + page_bounds.get('width', 0))
+                    if right_scene_x >= page_right + 20:
+                        can_scroll_right = False
+                if can_scroll_right:
+                    depth = min(1.0, max(0.0, (vp_pt.x() - (vp_w - margin)) / float(margin)))
+                    step = int(round(3 + depth * 7))
+                    h_bar.setValue(h_bar.value() + step)
+
+            elif vp_pt.x() < margin:
+                can_scroll_left = True
+                if page_bounds:
+                    left_scene_x = self.view.mapToScene(QPoint(0, 0)).x()
+                    page_left = page_bounds.get('left', 0)
+                    if left_scene_x <= page_left - 20:
+                        can_scroll_left = False
+                if can_scroll_left:
+                    depth = min(1.0, max(0.0, (margin - vp_pt.x()) / float(margin)))
+                    step = int(round(3 + depth * 7))
+                    h_bar.setValue(h_bar.value() - step)
+        except Exception:
+            pass
+
     def update_current_page_indicator(self):
         if self.doc is None or not self.page_positions: return
         center_y = self.view.mapToScene(self.view.viewport().rect().center()).y()
@@ -5823,7 +8053,7 @@ class PDFTabDocument(QWidget):
             return
         self.current_page_idx = new_page_idx
 
-        if self == self.main_window.get_current_tab_doc():
+        if self.main_window and hasattr(self.main_window, 'get_current_tab_doc') and self == self.main_window.get_current_tab_doc():
             if getattr(self.main_window, 'txt_page', None) and not self.main_window.txt_page.hasFocus():
                 self.main_window.txt_page.setText(str(self.current_page_idx + 1))
             if getattr(self.main_window, 'thumbnails_dock', None) and hasattr(self.main_window.thumbnails_dock, 'select_page'):
@@ -5833,7 +8063,7 @@ class PDFTabDocument(QWidget):
             total_p = len(self.doc) if self.doc is not None else 1
             if getattr(self.main_window, 'modern_header_bar', None):
                 self.main_window.modern_header_bar.update_page_info(self.current_page_idx + 1, total_p)
-            if self.main_window.isFullScreen():
+            if hasattr(self.main_window, 'isFullScreen') and self.main_window.isFullScreen():
                 lbl_str = None
                 try:
                     if self.doc and hasattr(self.doc[self.current_page_idx], 'get_label'):
@@ -6372,14 +8602,24 @@ class PDFTabDocument(QWidget):
                 if event.mimeData().hasUrls():
                     pdf_urls = [u for u in event.mimeData().urls() if u.toLocalFile().lower().endswith('.pdf')]
                     if pdf_urls:
-                        self.main_window.handle_dropped_urls(pdf_urls)
+                        if self.main_window and hasattr(self.main_window, 'handle_dropped_urls'):
+                            self.main_window.handle_dropped_urls(pdf_urls)
                         event.acceptProposedAction()
                         return True
             elif event.type() == QEvent.Type.KeyPress:
                 if event.key() == Qt.Key.Key_Space and not event.isAutoRepeat():
                     fw = QApplication.focusWidget()
+                    focus_item = self.scene.focusItem() if hasattr(self, 'scene') and self.scene else None
+                    is_scene_text_editing = False
+                    if focus_item is not None:
+                        if isinstance(focus_item, QGraphicsTextItem):
+                            is_scene_text_editing = bool(focus_item.textInteractionFlags() & Qt.TextInteractionFlag.TextEditorInteraction)
+                    if not is_scene_text_editing and hasattr(self, 'active_text_item') and self.active_text_item is not None:
+                        is_scene_text_editing = bool(getattr(self.active_text_item, 'textInteractionFlags', lambda: Qt.TextInteractionFlag.NoTextInteraction)() & Qt.TextInteractionFlag.TextEditorInteraction)
+
                     is_text_edit = (
                         isinstance(fw, (QLineEdit, QTextEdit, QPlainTextEdit, QSpinBox, QComboBox)) or
+                        is_scene_text_editing or
                         (getattr(self, 'direct_edit_editor', None) is not None and getattr(self.direct_edit_editor, 'isVisible', lambda: False)())
                     )
                     if not is_text_edit:
@@ -6392,19 +8632,20 @@ class PDFTabDocument(QWidget):
                         self.space_pan_active = False
                         self.is_panning = False
                         self.pan_last_viewport_pos = None
-                        self.main_window.update_viewport_cursor()
+                        if self.main_window and hasattr(self.main_window, 'update_viewport_cursor'):
+                            self.main_window.update_viewport_cursor()
                         return True
             elif event.type() in (QEvent.Type.FocusOut, QEvent.Type.WindowDeactivate):
                 if getattr(self, 'space_pan_active', False):
                     self.space_pan_active = False
                     self.is_panning = False
                     self.pan_last_viewport_pos = None
-                    self.main_window.update_viewport_cursor()
+                    if self.main_window and hasattr(self.main_window, 'update_viewport_cursor'):
+                        self.main_window.update_viewport_cursor()
 
         if source != self.view.viewport() or self.doc is None:
             return super().eventFilter(source, event)
-
-        tool = self.main_window.current_tool
+        tool = getattr(self.main_window, 'current_tool', 'hand') if self.main_window else 'hand'
 
         # Zoom & Tool adjustments via mouse wheel
         if event.type() == event.Type.Wheel:
@@ -6435,8 +8676,20 @@ class PDFTabDocument(QWidget):
                 self.zoom_in() if event.angleDelta().y() > 0 else self.zoom_out()
                 return True
 
-        # Klavyeden Escape tuşu ile bekleyen damga veya yorum sürüklemeyi iptal et
+        # Klavyeden Escape tuşu ile bekleyen damga, metin kutusu veya yorum sürüklemeyi iptal et
         if event.type() == QEvent.Type.KeyPress and event.key() == Qt.Key.Key_Escape:
+            if getattr(self, 'active_text_item', None):
+                act_item = self.active_text_item
+                act_item.clearFocus()
+                act_item.setSelected(False)
+                if hasattr(act_item, 'move_handle') and act_item.move_handle:
+                    act_item.move_handle.hide()
+                if hasattr(self, 'text_floating_hud') and self.text_floating_hud:
+                    self.text_floating_hud.hide()
+                self.active_text_item = None
+                if hasattr(self, 'view') and self.view:
+                    self.view.viewport().update()
+                return True
             if getattr(self, 'pending_form_field_type', None):
                 self.cancel_form_field_placement()
                 return True
@@ -6495,6 +8748,22 @@ class PDFTabDocument(QWidget):
                 if sel:
                     for it in sel:
                         self.delete_form_field(it.page_idx, it.field_name)
+                    return True
+
+        # Seçili nesneleri (Resim, Metin Kutusu, Tablo, GIF, Ses/Video, Çizim) Delete / Backspace ile silme
+        if event.type() == QEvent.Type.KeyPress and event.key() in (Qt.Key.Key_Delete, Qt.Key.Key_Backspace):
+            active_txt = getattr(self, 'active_text_item', None)
+            is_typing = False
+            if active_txt:
+                flags = getattr(active_txt, 'textInteractionFlags', lambda: Qt.TextInteractionFlag.NoTextInteraction)()
+                if (flags != Qt.TextInteractionFlag.NoTextInteraction):
+                    is_typing = True
+            if not is_typing:
+                has_scene_sel = bool(self.scene and self.scene.selectedItems())
+                has_drawings_sel = bool(getattr(self, 'selected_drawings', None))
+                has_measure_sel = any(getattr(m, 'isSelected', lambda: False)() for m in getattr(self, 'measurements', []))
+                if has_scene_sel or has_drawings_sel or has_measure_sel:
+                    self.delete_selected_items()
                     return True
 
         # Bekleyen Damga (Stamp) yerleştirme modu aktifse fare olaylarını yakala
@@ -6605,7 +8874,10 @@ class PDFTabDocument(QWidget):
                         return super().eventFilter(source, event)
                     is_on_handle = bool(self.active_text_item and hasattr(self.active_text_item, 'move_handle') and self.active_text_item.move_handle in items)
                     if self.active_text_item and self.active_text_item not in items and not is_on_handle:
-                        self.active_text_item.clearFocus()
+                        if hasattr(self.active_text_item, 'finish_editing'):
+                            self.active_text_item.finish_editing()
+                        else:
+                            self.active_text_item.clearFocus()
                     # Metin seçimini başlat
                     self._start_text_selection(pos)
                     return True
@@ -6696,7 +8968,10 @@ class PDFTabDocument(QWidget):
                 self.hide_laser_pointer()
                 self.pointer_last_pos = None
                 if getattr(self, '_last_hovered_ribbon', None):
-                    self._last_hovered_ribbon.set_hovered(False)
+                    try:
+                        self._last_hovered_ribbon.set_hovered(False)
+                    except Exception:
+                        pass
                     self._last_hovered_ribbon = None
                 return False
 
@@ -6708,17 +8983,23 @@ class PDFTabDocument(QWidget):
             if event.button() == Qt.MouseButton.LeftButton:
                 pos = self.view.mapToScene(event.pos())
                 from src.ui.widgets import TextMoveHandleItem
-                hit_items = self.scene.items(pos)
-                if any(isinstance(it, (BookmarkRibbonItem, TextMoveHandleItem)) or hasattr(it, 'parent_text_item') for it in hit_items):
-                    return super().eventFilter(source, event)
+                try:
+                    hit_items = self.scene.items(pos)
+                    if any(isinstance(it, (BookmarkRibbonItem, TextMoveHandleItem)) or hasattr(it, 'parent_text_item') for it in hit_items):
+                        return super().eventFilter(source, event)
+                except Exception:
+                    pass
                 return self._handle_mouse_press(event, tool, source=source)
             elif event.button() == Qt.MouseButton.RightButton:
                 pos = self.view.mapToScene(event.pos())
-                for it in self.scene.items(pos):
-                    if isinstance(it, BookmarkRibbonItem):
-                        g_pos = self.view.viewport().mapToGlobal(event.pos())
-                        it.show_context_menu(g_pos)
-                        return True
+                try:
+                    for it in self.scene.items(pos):
+                        if isinstance(it, BookmarkRibbonItem):
+                            g_pos = self.view.viewport().mapToGlobal(event.pos())
+                            it.show_context_menu(g_pos)
+                            return True
+                except Exception:
+                    pass
                 g_pos = self.view.viewport().mapToGlobal(event.pos())
                 if self.show_tool_quick_menu(g_pos, tool):
                     return True
@@ -6729,8 +9010,11 @@ class PDFTabDocument(QWidget):
                 if self.current_path_item is not None:
                     return self._handle_mouse_move(event, tool)
                 pos = self.view.mapToScene(event.pos())
-                if self.bookmark_ribbon_items and any(isinstance(it, BookmarkRibbonItem) for it in self.scene.items(pos)):
-                    return super().eventFilter(source, event)
+                try:
+                    if self.bookmark_ribbon_items and any(isinstance(it, BookmarkRibbonItem) for it in self.scene.items(pos)):
+                        return super().eventFilter(source, event)
+                except Exception:
+                    pass
                 return self._handle_mouse_move(event, tool)
             else:
                 self._handle_mouse_hover(event, tool)
@@ -6740,8 +9024,11 @@ class PDFTabDocument(QWidget):
             if self.current_path_item is not None:
                 return self._handle_mouse_release(event, tool)
             pos = self.view.mapToScene(event.pos())
-            if self.bookmark_ribbon_items and any(isinstance(it, BookmarkRibbonItem) for it in self.scene.items(pos)):
-                return super().eventFilter(source, event)
+            try:
+                if self.bookmark_ribbon_items and any(isinstance(it, BookmarkRibbonItem) for it in self.scene.items(pos)):
+                    return super().eventFilter(source, event)
+            except Exception:
+                pass
             return self._handle_mouse_release(event, tool)
 
         return super().eventFilter(source, event)
@@ -7601,18 +9888,27 @@ class PDFTabDocument(QWidget):
     def _handle_mouse_hover(self, event, tool):
         pos = self.view.mapToScene(event.pos())
         hovered_ribbon = None
-        for it in self.scene.items(pos):
-            if isinstance(it, BookmarkRibbonItem):
-                hovered_ribbon = it
-                break
+        try:
+            for it in self.scene.items(pos):
+                if isinstance(it, BookmarkRibbonItem):
+                    hovered_ribbon = it
+                    break
+        except Exception:
+            hovered_ribbon = None
 
         last_hov = getattr(self, '_last_hovered_ribbon', None)
         if last_hov != hovered_ribbon:
             if last_hov:
-                last_hov.set_hovered(False)
+                try:
+                    last_hov.set_hovered(False)
+                except Exception:
+                    pass
             self._last_hovered_ribbon = hovered_ribbon
             if hovered_ribbon:
-                hovered_ribbon.set_hovered(True)
+                try:
+                    hovered_ribbon.set_hovered(True)
+                except Exception:
+                    pass
             elif hasattr(self, 'main_window') and hasattr(self.main_window, 'update_viewport_cursor'):
                 self.main_window.update_viewport_cursor()
 
@@ -7759,6 +10055,23 @@ class PDFTabDocument(QWidget):
                     self.move_initial_states = [self._snapshot_drawing_state(d) for d in self.selected_drawings]
                     return True
 
+            # Doğrudan çizim/metin/tablo öğesine tıklandıysa öğeyi anında seç
+            hit_drawing = None
+            for d in reversed(self.drawings):
+                it = d.get("item_ref")
+                if it and it.sceneBoundingRect().adjusted(-6, -6, 6, 6).contains(pos):
+                    hit_drawing = d
+                    break
+
+            if hit_drawing:
+                self.selected_drawings = [hit_drawing]
+                self.highlight_selected_items()
+                self.is_moving_selection = True
+                self.move_start_pos = pos
+                self.move_last_pos = pos
+                self.move_initial_states = [self._snapshot_drawing_state(d) for d in self.selected_drawings]
+                return True
+
             self.clear_selection()
             self.selection_start_pt = pos
             pen = QPen(QColor("#388bfd"), 1.5, Qt.PenStyle.DashLine)
@@ -7777,9 +10090,42 @@ class PDFTabDocument(QWidget):
             if any(isinstance(it, TextMoveHandleItem) or hasattr(it, 'parent_text_item') for it in hit_items):
                 return False
             text_items = [it for it in hit_items if isinstance(it, EditableInlineTextItem)]
+            if not text_items:
+                # Uzun ve çok satırlı metin kutularında satır araları ve kenarlık tıklamalarını kaçırmamak için
+                for it in self.scene.items():
+                    if isinstance(it, EditableInlineTextItem) and it.sceneBoundingRect().adjusted(-3, -3, 3, 3).contains(pos):
+                        text_items = [it]
+                        break
             if text_items:
-                text_items[0].enable_editing()
+                hit_txt = text_items[0]
+                if self.active_text_item and self.active_text_item != hit_txt:
+                    if hasattr(self.active_text_item, 'finish_editing'):
+                        self.active_text_item.finish_editing()
+                    else:
+                        self.active_text_item.clearFocus()
+                self.active_text_item = hit_txt
+                self.last_text_item = hit_txt
                 return False
+
+            # Kullanıcı boş bir alana tıkladı:
+            # Eğer aktif olarak düzenlenen bir metin kutusu varsa, önce düzenleme modunu temizce sonlandır!
+            # Adobe Acrobat standardı: Dışarıya tek tıklama düzenlemeyi bitirir, kutu boşsa siler, hemen üzerine yeni bir metin kutusu açmaz!
+            if self.active_text_item:
+                act_item = self.active_text_item
+                flags_fn = getattr(act_item, 'textInteractionFlags', None)
+                is_editing = bool(flags_fn() & Qt.TextInteractionFlag.TextEditorInteraction) if callable(flags_fn) else False
+                if hasattr(act_item, 'finish_editing'):
+                    act_item.finish_editing()
+                else:
+                    if hasattr(act_item, 'clearFocus'):
+                        act_item.clearFocus()
+                    if hasattr(act_item, 'setSelected'):
+                        act_item.setSelected(False)
+                    self.active_text_item = None
+                if is_editing:
+                    # Kullanıcı metin kutusundan dışarı çıkmak için boş alana tıkladı;
+                    # yeni bir kutu açılmasını engelle ve olayı tüket!
+                    return True
 
         # Sayfa dışına tıklandıysa çizim veya metin başlatma!
         if page_idx is None:
@@ -7788,7 +10134,8 @@ class PDFTabDocument(QWidget):
             self.current_path_item = None
             self.stroke_start_pos = None
             if self.active_text_item:
-                self.active_text_item.clearFocus()
+                if hasattr(self.active_text_item, 'clearFocus'):
+                    self.active_text_item.clearFocus()
             if tool == 'eraser':
                 self.eraser_last_pos = pos
                 if getattr(self.main_window.eraser_popup, 'eraser_mode', 'stroke') == 'area':
@@ -7826,8 +10173,10 @@ class PDFTabDocument(QWidget):
                         annot.update()
 
                         self.set_modified(True)
-                        if hasattr(self, 'render_all_pages'):
-                            self.render_all_pages()
+                        if hasattr(self, 'rerender_page'):
+                            self.rerender_page(page_idx)
+                        elif hasattr(self, 'rerender_visible_pages'):
+                            self.rerender_visible_pages(force=True)
                         if hasattr(self.main_window, 'modern_right_sidebar') and self.main_window.modern_right_sidebar:
                             self.main_window.modern_right_sidebar.load_comments()
                         if hasattr(self.main_window, 'statusBar') and self.main_window.statusBar():
@@ -7848,18 +10197,28 @@ class PDFTabDocument(QWidget):
             self.erase_at(pos, prev_pos=None)
         elif tool in ['pen', 'highlighter']:
             self.active_drawing_page = page_idx
-            self.stroke_start_pos = pos
             pen = self.main_window.get_current_pen()
             should_snap = (tool == 'highlighter' and self.main_window.hl_popup.snap_straight) or (tool == 'pen' and getattr(self.main_window.pen_popup, 'snap_straight', False)) or bool(event.modifiers() & Qt.KeyboardModifier.ShiftModifier)
             
             p_info = self.page_positions[page_idx]
             page_left = p_info.get('left', 0.0)
+            page_right = page_left + p_info['width']
             top_y = p_info['top']
+            bottom_y = p_info['bottom']
 
             popup = self.main_window.pen_popup if tool == 'pen' else self.main_window.hl_popup
             line_style = getattr(popup, 'line_style', 'solid')
             p_type = getattr(popup, 'current_pen_type', 'solid') if tool == 'pen' else 'highlighter'
             is_pencil = (tool == 'pen' and (p_type == 'pencil' or line_style == 'pencil'))
+
+            # Belgeden taşmaları kesin olarak engellemek için fosforlu kalemde yarım kalınlık payı bırakılır
+            if tool == 'highlighter':
+                half_t = max(1.0, float(popup.thickness) / 2.0)
+                pos = QPointF(
+                    max(page_left + half_t, min(pos.x(), page_right - half_t)),
+                    max(top_y + half_t, min(pos.y(), bottom_y - half_t))
+                )
+            self.stroke_start_pos = pos
 
             rel_x = (pos.x() - page_left) / self.base_render_dpi
             rel_y = (pos.y() - top_y) / self.base_render_dpi
@@ -7962,18 +10321,23 @@ class PDFTabDocument(QWidget):
             page_left = p_info.get('left', 0.0)
             width = p_info['width']
 
+            popup = self.main_window.pen_popup if tool == 'pen' else self.main_window.hl_popup
+            line_style = getattr(popup, 'line_style', 'solid')
+
             # Sayfa sınırları dışına taşmayı engelle (Clamp)
-            clamped_x = max(page_left, min(pos.x(), page_left + width))
-            clamped_y = max(top_y, min(pos.y(), bottom_y))
+            if tool == 'highlighter':
+                half_t = max(1.0, float(popup.thickness) / 2.0)
+                clamped_x = max(page_left + half_t, min(pos.x(), page_left + width - half_t))
+                clamped_y = max(top_y + half_t, min(pos.y(), bottom_y - half_t))
+            else:
+                clamped_x = max(page_left, min(pos.x(), page_left + width))
+                clamped_y = max(top_y, min(pos.y(), bottom_y))
             clamped_pos = QPointF(clamped_x, clamped_y)
 
             is_hl_snap = (tool == 'highlighter' and self.main_window.hl_popup.snap_straight)
             is_pen_snap = (tool == 'pen' and getattr(self.main_window.pen_popup, 'snap_straight', False))
             has_shift = bool(event.modifiers() & Qt.KeyboardModifier.ShiftModifier)
             should_snap = is_hl_snap or is_pen_snap or has_shift
-
-            popup = self.main_window.pen_popup if tool == 'pen' else self.main_window.hl_popup
-            line_style = getattr(popup, 'line_style', 'solid')
 
             if should_snap and self.stroke_start_pos:
                 snap_path = QPainterPath()
@@ -8023,7 +10387,8 @@ class PDFTabDocument(QWidget):
                         self.current_path = transform.map(rel_path)
                         self.current_path_item.setPath(self.current_path)
                     else:
-                        self.current_path.lineTo(clamped_pos)
+                        scene_pts = [QPointF(rx * self.base_render_dpi + page_left, ry * self.base_render_dpi + top_y) for rx, ry in self.current_stroke_pts]
+                        self.current_path = build_smooth_path(scene_pts)
                         self.current_path_item.setPath(self.current_path)
         return True
 
@@ -8244,9 +10609,17 @@ class PDFTabDocument(QWidget):
                                 if sel_poly.containsPoint(pt, Qt.FillRule.OddEvenFill):
                                     is_selected = True
                                     break
-                        elif d.get("type") in ("text", "image"):
-                            if sel_poly.containsPoint(it.sceneBoundingRect().center(), Qt.FillRule.OddEvenFill):
+                        elif d.get("type") in ("text", "image", "table"):
+                            box_rect = it.sceneBoundingRect()
+                            if sel_poly.containsPoint(box_rect.center(), Qt.FillRule.OddEvenFill) or sel_rect.intersects(box_rect):
                                 is_selected = True
+                            else:
+                                try:
+                                    box_poly = QPolygonF(box_rect)
+                                    if sel_poly.intersects(box_poly):
+                                        is_selected = True
+                                except Exception:
+                                    pass
 
                     if is_selected:
                         self.selected_drawings.append(d)
@@ -8300,12 +10673,30 @@ class PDFTabDocument(QWidget):
                 has_shift = bool(event.modifiers() & Qt.KeyboardModifier.ShiftModifier)
                 should_snap = is_hl_snap or is_pen_snap or has_shift
                 if should_snap and self.stroke_start_pos:
-                    start_pt = QPointF(self.current_stroke_pts[0][0] * self.base_render_dpi + page_left, self.current_stroke_pts[0][1] * self.base_render_dpi + top_y)
-                    if tool == 'highlighter' and not has_shift:
-                        end_y = self.current_stroke_pts[0][1] * self.base_render_dpi + top_y
+                    if tool == 'highlighter':
+                        half_t = max(1.0, float(popup.thickness) / 2.0)
+                        page_w = p_info['width']
+                        bottom_y = p_info['bottom']
+                        s_x = max(page_left + half_t, min(self.current_stroke_pts[0][0] * self.base_render_dpi + page_left, page_left + page_w - half_t))
+                        s_y = max(top_y + half_t, min(self.current_stroke_pts[0][1] * self.base_render_dpi + top_y, bottom_y - half_t))
+                        start_pt = QPointF(s_x, s_y)
+                        if not has_shift:
+                            end_y = s_y
+                        else:
+                            end_y = max(top_y + half_t, min(self.current_stroke_pts[1][1] * self.base_render_dpi + top_y, bottom_y - half_t))
+                        e_x = max(page_left + half_t, min(self.current_stroke_pts[1][0] * self.base_render_dpi + page_left, page_left + page_w - half_t))
+                        end_pt = QPointF(e_x, end_y)
+                        self.current_stroke_pts = [
+                            ((s_x - page_left) / self.base_render_dpi, (s_y - top_y) / self.base_render_dpi),
+                            ((e_x - page_left) / self.base_render_dpi, (end_y - top_y) / self.base_render_dpi)
+                        ]
                     else:
-                        end_y = self.current_stroke_pts[1][1] * self.base_render_dpi + top_y
-                    end_pt = QPointF(self.current_stroke_pts[1][0] * self.base_render_dpi + page_left, end_y)
+                        start_pt = QPointF(self.current_stroke_pts[0][0] * self.base_render_dpi + page_left, self.current_stroke_pts[0][1] * self.base_render_dpi + top_y)
+                        if tool == 'highlighter' and not has_shift:
+                            end_y = self.current_stroke_pts[0][1] * self.base_render_dpi + top_y
+                        else:
+                            end_y = self.current_stroke_pts[1][1] * self.base_render_dpi + top_y
+                        end_pt = QPointF(self.current_stroke_pts[1][0] * self.base_render_dpi + page_left, end_y)
 
                     if tool == 'pen' and line_style == 'calligraphy':
                         rel_pts = [QPointF(self.current_stroke_pts[0][0], self.current_stroke_pts[0][1]),

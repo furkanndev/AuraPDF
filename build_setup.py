@@ -16,9 +16,19 @@ ICON_PATH = os.path.join(BASE_DIR, "app_icon.ico")
 MAIN_SCRIPT = os.path.join(BASE_DIR, "main.py")
 ISS_SCRIPT = os.path.join(BASE_DIR, "installer.iss")
 KURULUM_DIR = os.path.join(BASE_DIR, "Kurulum")
-DESKTOP_DIR = r"C:\Users\MRF4 ROG\Desktop"
+
+# Masaüstü dizinini dinamik ve güvenli belirle
+_desktop_candidates = [
+    os.path.join(os.environ.get("USERPROFILE", ""), "Desktop"),
+    os.path.expanduser("~/Desktop"),
+    r"C:\Users\MRF4 ROG\Desktop",
+    r"C:\Users\MRF4\Desktop",
+]
+DESKTOP_DIR = next((d for d in _desktop_candidates if os.path.isdir(d)), _desktop_candidates[0])
 
 ISCC_CANDIDATES = [
+    os.path.join(os.environ.get("LOCALAPPDATA", ""), r"Programs\Inno Setup 6\ISCC.exe"),
+    r"C:\Users\MRF4\AppData\Local\Programs\Inno Setup 6\ISCC.exe",
     r"C:\Users\MRF4 ROG\AppData\Local\Programs\Inno Setup 6\ISCC.exe",
     r"C:\Program Files (x86)\Inno Setup 6\ISCC.exe",
     r"C:\Program Files\Inno Setup 6\ISCC.exe",
@@ -51,9 +61,9 @@ def get_setup_target_info() -> tuple[str, str, str]:
     branch = get_current_git_branch().lower()
     raw_ver = str(CURRENT_VERSION).strip()
 
-    # Surum numarasini yakala (orn: '2.2.1', '1.1')
+    # Surum numarasini yakala (orn: '2.2.3', '1.1')
     digits = re.findall(r'\d+(?:\.\d+)*', raw_ver)
-    ver_num = digits[0] if digits else "2.2.1"
+    ver_num = digits[0] if digits else "2.2.3"
     formatted_ver = f"v{ver_num}" if not ver_num.startswith("v") else ver_num
 
     if "basic" in branch or "basic" in raw_ver.lower():

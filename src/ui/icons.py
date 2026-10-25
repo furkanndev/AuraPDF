@@ -258,6 +258,54 @@ class ModernIconFactory:
         p.end()
         return QIcon(pix)
 
+    @classmethod
+    def icon_align_left(cls, color="#e2e8f0") -> QIcon:
+        pix, p = cls._base()
+        pen = QPen(QColor(color), 2.0, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap)
+        p.setPen(pen)
+        p.drawLine(QPointF(5, 6), QPointF(21, 6))
+        p.drawLine(QPointF(5, 11), QPointF(15, 11))
+        p.drawLine(QPointF(5, 16), QPointF(21, 16))
+        p.drawLine(QPointF(5, 21), QPointF(13, 21))
+        p.end()
+        return QIcon(pix)
+
+    @classmethod
+    def icon_align_center(cls, color="#e2e8f0") -> QIcon:
+        pix, p = cls._base()
+        pen = QPen(QColor(color), 2.0, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap)
+        p.setPen(pen)
+        p.drawLine(QPointF(5, 6), QPointF(21, 6))
+        p.drawLine(QPointF(8, 11), QPointF(18, 11))
+        p.drawLine(QPointF(5, 16), QPointF(21, 16))
+        p.drawLine(QPointF(9, 21), QPointF(17, 21))
+        p.end()
+        return QIcon(pix)
+
+    @classmethod
+    def icon_align_right(cls, color="#e2e8f0") -> QIcon:
+        pix, p = cls._base()
+        pen = QPen(QColor(color), 2.0, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap)
+        p.setPen(pen)
+        p.drawLine(QPointF(5, 6), QPointF(21, 6))
+        p.drawLine(QPointF(11, 11), QPointF(21, 11))
+        p.drawLine(QPointF(5, 16), QPointF(21, 16))
+        p.drawLine(QPointF(13, 21), QPointF(21, 21))
+        p.end()
+        return QIcon(pix)
+
+    @classmethod
+    def icon_align_justify(cls, color="#e2e8f0") -> QIcon:
+        pix, p = cls._base()
+        pen = QPen(QColor(color), 2.0, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap)
+        p.setPen(pen)
+        p.drawLine(QPointF(5, 6), QPointF(21, 6))
+        p.drawLine(QPointF(5, 11), QPointF(21, 11))
+        p.drawLine(QPointF(5, 16), QPointF(21, 16))
+        p.drawLine(QPointF(5, 21), QPointF(21, 21))
+        p.end()
+        return QIcon(pix)
+
     @staticmethod
     def icon_select_pan(color=None):
         pix, p = ModernIconFactory._base()

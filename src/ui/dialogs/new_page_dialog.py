@@ -442,7 +442,26 @@ class NewPageDialog(QDialog):
         orient_box = QHBoxLayout()
         self.rb_portrait = QRadioButton(LanguageManager.tr("page_orientation_portrait"))
         self.rb_landscape = QRadioButton(LanguageManager.tr("page_orientation_landscape"))
-        self.rb_portrait.setChecked(True)
+
+        # Aktif açık belgenin yönünü akıllıca algıla (Landscape ise doğrudan Yatay seçilsin)
+        is_landscape_doc = False
+        try:
+            curr_tab = self._get_tab_doc()
+            if curr_tab and curr_tab.doc and len(curr_tab.doc) > 0:
+                p_idx = max(0, min(getattr(curr_tab, 'current_page_idx', 0), len(curr_tab.doc) - 1))
+                pr = curr_tab.doc[p_idx].rect
+                if pr.width > pr.height:
+                    is_landscape_doc = True
+        except Exception:
+            pass
+
+        if is_landscape_doc:
+            self.rb_landscape.setChecked(True)
+            for card in self._style_cards.values():
+                card.set_orientation("landscape")
+        else:
+            self.rb_portrait.setChecked(True)
+
         self.rb_portrait.toggled.connect(self._on_orientation_changed)
         self.rb_landscape.toggled.connect(self._on_orientation_changed)
         orient_box.addWidget(self.rb_portrait)
@@ -463,12 +482,12 @@ class NewPageDialog(QDialog):
         
         # Açık belge varsa mevcut sayfa boyutuna uyma seçeneği ekle
         has_active_doc = False
-        if self.main_window and hasattr(self.main_window, 'get_current_tab_doc'):
-            tab_doc = self.main_window.get_current_tab_doc()
-            if tab_doc and tab_doc.doc is not None and len(tab_doc.doc) > 0:
-                has_active_doc = True
-                self.cmb_size.insertItem(0, LanguageManager.tr("page_size_match"), "match")
-                self.cmb_size.setCurrentIndex(0)
+        tab_doc = self._get_tab_doc()
+        if tab_doc and tab_doc.doc is not None and len(tab_doc.doc) > 0:
+            has_active_doc = True
+            self.cmb_size.insertItem(0, LanguageManager.tr("page_size_match"), "match")
+            self.cmb_size.setCurrentIndex(0)
+        self.cmb_size.currentIndexChanged.connect(self._on_size_changed)
         
         opts_layout.addWidget(self.cmb_size, 1, 1)
 
@@ -566,6 +585,31 @@ class NewPageDialog(QDialog):
 
         root_layout.addLayout(bottom_bar)
 
+    def _get_tab_doc(self):
+        tab_doc = None
+        if self.main_window:
+            if hasattr(self.main_window, 'get_current_tab_doc'):
+                tab_doc = self.main_window.get_current_tab_doc()
+            elif hasattr(self.main_window, 'doc'):
+                tab_doc = self.main_window
+        if not tab_doc and self.parent():
+            if hasattr(self.parent(), 'get_current_tab_doc'):
+                tab_doc = self.parent().get_current_tab_doc()
+            elif hasattr(self.parent(), 'doc'):
+                tab_doc = self.parent()
+        return tab_doc
+
+    def _on_size_changed(self, idx: int):
+        if self.cmb_size.currentData() == "match":
+            tab_doc = self._get_tab_doc()
+            if tab_doc and tab_doc.doc and len(tab_doc.doc) > 0:
+                p_idx = max(0, min(getattr(tab_doc, 'current_page_idx', 0), len(tab_doc.doc) - 1))
+                pr = tab_doc.doc[p_idx].rect
+                if pr.width > pr.height:
+                    self.rb_landscape.setChecked(True)
+                else:
+                    self.rb_portrait.setChecked(True)
+
     def _on_orientation_changed(self):
         """Kullanıcı Dikey veya Yatay seçtiğinde tüm şablon önizleme kartlarını günceller."""
         orientation = "landscape" if self.rb_landscape.isChecked() else "portrait"
@@ -586,12 +630,12 @@ class NewPageDialog(QDialog):
         placement = self.cmb_placement.currentData()
 
         # Boyut hesabı (pt)
-        if size_code == "match" and self.main_window and hasattr(self.main_window, 'get_current_tab_doc'):
-            tab_doc = self.main_window.get_current_tab_doc()
+        if size_code == "match":
+            tab_doc = self._get_tab_doc()
             if tab_doc and tab_doc.doc is not None and len(tab_doc.doc) > 0:
                 p_idx = max(0, min(getattr(tab_doc, 'current_page_idx', 0), len(tab_doc.doc) - 1))
                 page = tab_doc.doc[p_idx]
-                base_w, base_h = float(page.mediabox.width), float(page.mediabox.height)
+                base_w, base_h = float(page.rect.width), float(page.rect.height)
             else:
                 base_w, base_h = PAGE_SIZES_PT["A4"]
         elif size_code in PAGE_SIZES_PT:

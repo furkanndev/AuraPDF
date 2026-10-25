@@ -7300,6 +7300,11 @@ class OrganizePagesWorkspace(QWidget):
         if not tab_doc or not tab_doc.doc:
             return
 
+        if getattr(tab_doc, '_render_worker', None) and tab_doc._render_worker.isRunning():
+            if self._render_queue and self.isVisible():
+                self._render_timer.start(50)
+            return
+
         batch_size = 12
         current_batch = self._render_queue[:batch_size]
         self._render_queue = self._render_queue[batch_size:]
@@ -7309,48 +7314,67 @@ class OrganizePagesWorkspace(QWidget):
                 continue
 
             item = self.list_widget.item(idx)
+            if not item:
+                continue
             page_index = item.data(Qt.ItemDataRole.UserRole)
+            if not isinstance(page_index, int) or page_index < 0 or not tab_doc.doc or page_index >= len(tab_doc.doc):
+                continue
 
-            if page_index < len(tab_doc.doc):
-                try:
-                    page = tab_doc.doc[page_index]
-                    rect = page.rect
-                    scale = min(148.0 / max(rect.width, 1), 194.0 / max(rect.height, 1))
-                    mat = fitz.Matrix(scale, scale)
-                    pix = page.get_pixmap(matrix=mat, alpha=False)
-                    base_img = QImage(pix.samples, pix.width, pix.height, pix.stride, QImage.Format.Format_RGB888)
-                    qimg = base_img.convertToFormat(QImage.Format.Format_ARGB32_Premultiplied)
+            try:
+                page = tab_doc.doc[page_index]
+                rect = page.rect
+                scale = min(148.0 / max(rect.width, 1), 194.0 / max(rect.height, 1))
+                mat = fitz.Matrix(scale, scale)
+                pix = page.get_pixmap(matrix=mat, alpha=False)
+                base_img = QImage(pix.samples, pix.width, pix.height, pix.stride, QImage.Format.Format_RGB888).copy()
+                qimg = base_img.convertToFormat(QImage.Format.Format_ARGB32_Premultiplied)
 
-                    # Sayfa üzerindeki canlı çizimleri ve nesneleri doğrudan sahneden küçük resme aktar
-                    pinfo = tab_doc.page_positions.get(page_index) if hasattr(tab_doc, 'page_positions') else None
-                    if pinfo and hasattr(tab_doc, 'scene') and tab_doc.scene:
-                        src_rect = QRectF(pinfo.get('left', 0.0), pinfo['top'], pinfo['width'], pinfo['height'])
-                        
-                        bg_rect = pinfo.get('bg_rect')
-                        was_bg_vis = bg_rect.isVisible() if bg_rect else False
-                        if bg_rect and was_bg_vis:
+                # Sayfa üzerindeki canlı çizimleri ve nesneleri doğrudan sahneden küçük resme aktar
+                page_drawings = [d for d in getattr(tab_doc, 'drawings', []) if d.get('page') == page_index]
+                pinfo = tab_doc.page_positions.get(page_index) if hasattr(tab_doc, 'page_positions') else None
+                if page_drawings and pinfo and hasattr(tab_doc, 'scene') and tab_doc.scene:
+                    src_rect = QRectF(pinfo.get('left', 0.0), pinfo['top'], pinfo['width'], pinfo['height'])
+                    
+                    bg_rect = pinfo.get('bg_rect')
+                    was_bg_vis = False
+                    try:
+                        if bg_rect and bg_rect.isVisible():
+                            was_bg_vis = True
                             bg_rect.setVisible(False)
-                        pix_item = pinfo.get('item')
-                        was_pix_vis = pix_item.isVisible() if pix_item else False
-                        if pix_item and was_pix_vis:
+                    except (RuntimeError, AttributeError):
+                        bg_rect = None
+
+                    pix_item = pinfo.get('item')
+                    was_pix_vis = False
+                    try:
+                        if pix_item and pix_item.isVisible():
+                            was_pix_vis = True
                             pix_item.setVisible(False)
+                    except (RuntimeError, AttributeError):
+                        pix_item = None
 
-                        painter = QPainter(qimg)
-                        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-                        try:
-                            tab_doc.scene.render(painter, QRectF(0, 0, qimg.width(), qimg.height()), src_rect)
-                        finally:
-                            painter.end()
-                            if bg_rect and was_bg_vis:
+                    painter = QPainter(qimg)
+                    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+                    try:
+                        tab_doc.scene.render(painter, QRectF(0, 0, qimg.width(), qimg.height()), src_rect)
+                    finally:
+                        painter.end()
+                        if bg_rect and was_bg_vis:
+                            try:
                                 bg_rect.setVisible(True)
-                            if pix_item and was_pix_vis:
+                            except (RuntimeError, AttributeError):
+                                pass
+                        if pix_item and was_pix_vis:
+                            try:
                                 pix_item.setVisible(True)
+                            except (RuntimeError, AttributeError):
+                                pass
 
-                    icon = QIcon(QPixmap.fromImage(qimg))
-                    item.setIcon(icon)
-                    self._rendered_pages.add(idx)
-                except Exception:
-                    pass
+                icon = QIcon(QPixmap.fromImage(qimg))
+                item.setIcon(icon)
+                self._rendered_pages.add(idx)
+            except Exception:
+                pass
 
         if self._render_queue and self.isVisible():
             self._render_timer.start(5)
@@ -7546,17 +7570,19 @@ class OrganizePagesWorkspace(QWidget):
         if not file_paths:
             return
 
-        if self.selected_pages:
-            target_after = max(self.selected_pages)
+        valid_sel = [p for p in self.selected_pages if isinstance(p, int)]
+        if valid_sel:
+            target_after = max(valid_sel)
         else:
             row = self.list_widget.currentRow()
             target_after = row if (0 <= row < len(tab_doc.doc)) else (len(tab_doc.doc) - 1)
 
         total_inserted = 0
         try:
-            for path in file_paths:
+            for idx, path in enumerate(file_paths):
+                is_last = (idx == len(file_paths) - 1)
                 prev_len = len(tab_doc.doc)
-                tab_doc.insert_pdf_at(path, after_page=target_after + total_inserted)
+                tab_doc.insert_pdf_at(path, after_page=target_after + total_inserted, rerender=is_last, notify_thumb=is_last)
                 new_len = len(tab_doc.doc)
                 total_inserted += (new_len - prev_len)
 
@@ -7640,7 +7666,9 @@ class OrganizePagesWorkspace(QWidget):
     def _on_selection_changed(self):
         self.selected_pages = set()
         for item in self.list_widget.selectedItems():
-            self.selected_pages.add(item.data(Qt.ItemDataRole.UserRole))
+            val = item.data(Qt.ItemDataRole.UserRole)
+            if isinstance(val, int):
+                self.selected_pages.add(val)
         self._update_selection_info()
 
     def _on_item_double_clicked(self, item):
@@ -7725,11 +7753,12 @@ class OrganizePagesWorkspace(QWidget):
 
     def _update_selection_info(self):
         total = self.list_widget.count()
-        sel_count = len(self.selected_pages)
+        valid_pages = [p for p in self.selected_pages if isinstance(p, int)]
+        sel_count = len(valid_pages)
         if sel_count > 1:
             self.lbl_page_info.setText(LanguageManager.tr("organize_pages_selected", count=sel_count))
         elif sel_count == 1:
-            p = next(iter(self.selected_pages))
+            p = valid_pages[0]
             self.lbl_page_info.setText(LanguageManager.tr("organize_page_of", curr=p + 1, total=total))
         else:
             self.lbl_page_info.setText(LanguageManager.tr("page_of", total=total))
@@ -7835,6 +7864,15 @@ class OrganizePagesWorkspace(QWidget):
         self.documentModified.emit()
 
     def insert_page_action(self):
+        tab_doc = self.main_window.get_current_tab_doc() if self.main_window else None
+        if tab_doc and tab_doc.doc:
+            valid_sel = [p for p in self.selected_pages if isinstance(p, int)]
+            if valid_sel:
+                tab_doc.current_page_idx = max(valid_sel)
+            else:
+                row = self.list_widget.currentRow()
+                if 0 <= row < len(tab_doc.doc):
+                    tab_doc.current_page_idx = row
         if hasattr(self.main_window, 'show_new_page_dialog'):
             self.main_window.show_new_page_dialog()
             QTimer.singleShot(300, lambda: self.load_document(force=True))
@@ -9224,6 +9262,24 @@ class ModernAccessibilityPanel(QWidget):
         self._refresh_audio_devices()
 
 
+class ModernAttachmentsListWidget(QListWidget):
+    """
+    Ekler (Attachments) paneli liste bileşeni.
+    Delete ve Backspace tuşları ile seçili eki doğrudan silmeyi destekler.
+    """
+    def __init__(self, sidebar=None, parent=None):
+        super().__init__(parent)
+        self.sidebar = sidebar
+
+    def keyPressEvent(self, event):
+        if event.key() in (Qt.Key.Key_Delete, Qt.Key.Key_Backspace):
+            if self.sidebar and hasattr(self.sidebar, '_delete_selected_attachments'):
+                self.sidebar._delete_selected_attachments()
+                event.accept()
+                return
+        super().keyPressEvent(event)
+
+
 class ModernRightSidebar(QWidget):
     """
     Ekranın sağındaki çekmece panel (Yer İmleri ve Adobe benzeri Yorumlar paneli):
@@ -9245,9 +9301,11 @@ class ModernRightSidebar(QWidget):
         self._thumb_render_queue = []
         self._rendered_pages = set()
         self._raw_thumb_images = {}
+        self._bookmarked_pages_cache = None
         self.is_loaded = False
         self._thumb_timer = QTimer(self)
         self._thumb_timer.setSingleShot(True)
+        self._thumb_timer.timeout.connect(self._process_thumb_render_queue)
         self.MIN_WIDTH = 180
         self.MAX_WIDTH = 550
         self.DEFAULT_WIDTH = 250
@@ -9607,7 +9665,7 @@ class ModernRightSidebar(QWidget):
         self.stack_attachments.addWidget(self.empty_att_widget)
 
         # Görünüm 1: Ekler Listesi
-        self.list_attachments = QListWidget()
+        self.list_attachments = ModernAttachmentsListWidget(self)
         self.list_attachments.setObjectName("RightRailAttachmentsList")
         self.list_attachments.setSpacing(4)
         self.list_attachments.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
@@ -9867,6 +9925,7 @@ class ModernRightSidebar(QWidget):
         self._thumb_render_queue.clear()
         self._rendered_pages.clear()
         self._raw_thumb_images.clear()
+        self._bookmarked_pages_cache = None
         self._current_thumb_doc = tab_doc
         self.stack_thumbnails.setCurrentIndex(1)
 
@@ -9909,7 +9968,7 @@ class ModernRightSidebar(QWidget):
         self._thumb_render_queue = remaining
 
         if self._thumb_render_queue:
-            self._thumb_timer.start(10)
+            self._thumb_timer.start(35)
 
     def load_thumbnails_lazy(self):
         """ThumbnailsDock ile tam uyumluluk sağlayan takma ad."""
@@ -9939,13 +9998,16 @@ class ModernRightSidebar(QWidget):
         self._current_thumb_doc = None
         self._rendered_pages.clear()
         self._raw_thumb_images.clear()
+        self._bookmarked_pages_cache = None
         self.is_loaded = False
         if hasattr(self, 'list_thumbnails'):
             self.list_thumbnails.clear()
         if hasattr(self, 'stack_thumbnails'):
             self.stack_thumbnails.setCurrentIndex(0)
 
-    def get_bookmarked_pages(self) -> set:
+    def get_bookmarked_pages(self, force_refresh: bool = False) -> set:
+        if not force_refresh and self._bookmarked_pages_cache is not None:
+            return self._bookmarked_pages_cache
         if not self.main_window:
             return set()
         tab_doc = self.main_window.get_current_tab_doc()
@@ -9953,12 +10015,14 @@ class ModernRightSidebar(QWidget):
             return set()
         try:
             toc = tab_doc.doc.get_toc(simple=False)
-            return {
+            self._bookmarked_pages_cache = {
                 entry[2] - 1 for entry in toc
                 if len(entry) > 2 and isinstance(entry[2], int) and entry[2] >= 1
             }
+            return self._bookmarked_pages_cache
         except Exception:
-            return set()
+            self._bookmarked_pages_cache = set()
+            return self._bookmarked_pages_cache
 
     def _draw_bookmark_ribbon_badge(self, base_pixmap: QPixmap) -> QPixmap:
         pix = base_pixmap.copy()
@@ -10023,6 +10087,10 @@ class ModernRightSidebar(QWidget):
     def _render_thumbnail_page(self, tab_doc, page_idx: int):
         if not tab_doc or not tab_doc.doc or getattr(tab_doc.doc, 'is_closed', False):
             return
+        if hasattr(tab_doc, '_render_worker') and tab_doc._render_worker and tab_doc._render_worker.isRunning():
+            if hasattr(self, '_thumb_timer') and not self._thumb_timer.isActive():
+                self._thumb_timer.start(50)
+            return
         if page_idx < 0 or page_idx >= len(tab_doc.doc):
             return
         if page_idx >= self.list_thumbnails.count():
@@ -10034,102 +10102,212 @@ class ModernRightSidebar(QWidget):
         thumb_w = 140
         img = None
 
-        # 1. Canlı çizimlerle (çizim, not, vurgulayıcı, şekiller vb.) render et
-        if hasattr(tab_doc, 'page_positions') and page_idx in tab_doc.page_positions:
-            pinfo = tab_doc.page_positions[page_idx]
-            thumb_h = max(20, int(thumb_w * (pinfo['height'] / max(1.0, pinfo['width']))))
+        page_drawings = [d for d in getattr(tab_doc, 'drawings', []) if d.get('page') == page_idx]
+        pinfo = tab_doc.page_positions.get(page_idx) if hasattr(tab_doc, 'page_positions') else None
 
-            laser = getattr(tab_doc, 'laser_pointer_item', None)
-            was_laser_vis = laser.isVisible() if laser else False
-            if laser and was_laser_vis:
-                laser.setVisible(False)
-
-            sel_item = getattr(tab_doc, 'selection_item', None)
-            was_sel_vis = sel_item.isVisible() if sel_item else False
-            if sel_item and was_sel_vis:
-                sel_item.setVisible(False)
-
-            ribbon = getattr(tab_doc, 'bookmark_ribbon_items', {}).get(page_idx, None)
-            was_ribbon_vis = ribbon.isVisible() if ribbon else False
-            if ribbon and was_ribbon_vis:
-                ribbon.setVisible(False)
-
-            hover_item = getattr(tab_doc, 'direct_edit_hover_item', None)
-            was_hover_vis = hover_item.isVisible() if hover_item else False
-            if hover_item and was_hover_vis:
-                hover_item.setVisible(False)
-
-            sel_highlights = list(getattr(tab_doc, 'selection_highlight_items', []))
-            vis_highlights = []
-            for h_item in sel_highlights:
-                try:
-                    if h_item and h_item.isVisible():
-                        h_item.setVisible(False)
-                        vis_highlights.append(h_item)
-                except Exception:
-                    pass
-
-            selected_items = tab_doc.scene.selectedItems() if hasattr(tab_doc, 'scene') and tab_doc.scene else []
-            for sit in selected_items:
-                sit.setSelected(False)
-
-            src_rect = QRectF(pinfo.get('left', 0), pinfo['top'], pinfo['width'], pinfo['height'])
-
+        if not page_drawings:
+            # Temiz sayfa (canlı çizim/şekil yok): Doğrudan sahnede aktif pixmap'i SmoothTransformation ile küçült (0.05ms)
+            has_valid_item_pix = False
             try:
-                if pinfo.get('item') and not pinfo['item'].pixmap().isNull():
-                    img = QImage(thumb_w, thumb_h, QImage.Format.Format_ARGB32_Premultiplied)
-                    img.fill(QColor(255, 255, 255))
-                    painter = QPainter(img)
-                    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-                    painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
-                    tab_doc.scene.render(painter, QRectF(0, 0, thumb_w, thumb_h), src_rect)
-                    painter.end()
-                else:
-                    page = tab_doc.doc[page_idx]
-                    pw = max(1.0, page.rect.width)
-                    scale = float(thumb_w) / pw
-                    mat = fitz.Matrix(scale, scale)
-                    pix = page.get_pixmap(matrix=mat, alpha=False)
-                    base_img = QImage(pix.samples, pix.width, pix.height, pix.stride, QImage.Format.Format_RGB888).copy()
-                    img = base_img.convertToFormat(QImage.Format.Format_ARGB32_Premultiplied)
+                if pinfo and pinfo.get('item') and not pinfo['item'].pixmap().isNull():
+                    has_valid_item_pix = True
+            except (RuntimeError, AttributeError):
+                has_valid_item_pix = False
 
-                    bg_rect = pinfo.get('bg_rect')
-                    was_bg_vis = bg_rect.isVisible() if bg_rect else False
-                    if bg_rect and was_bg_vis:
-                        bg_rect.setVisible(False)
-                    pix_item = pinfo.get('item')
-                    was_pix_vis = pix_item.isVisible() if pix_item else False
-                    if pix_item and was_pix_vis:
-                        pix_item.setVisible(False)
+            if has_valid_item_pix:
+                thumb_h = max(20, int(thumb_w * (pinfo['height'] / max(1.0, pinfo['width']))))
+                try:
+                    pix = pinfo['item'].pixmap().scaled(thumb_w, thumb_h, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
+                    img = pix.toImage().convertToFormat(QImage.Format.Format_ARGB32_Premultiplied)
+                except Exception:
+                    img = None
+            else:
+                # Ekranda çizilmemişse PyMuPDF get_pixmap ile hafif render (~1ms)
+                try:
+                    if tab_doc.doc and 0 <= page_idx < len(tab_doc.doc):
+                        page = tab_doc.doc[page_idx]
+                        pw = max(1.0, page.rect.width)
+                        ph = max(1.0, page.rect.height)
+                        thumb_h = max(20, int(thumb_w * (ph / pw)))
+                        scale = float(thumb_w) / pw
+                        mat = fitz.Matrix(scale, scale)
+                        pix = page.get_pixmap(matrix=mat, alpha=False)
+                        base_img = QImage(pix.samples, pix.width, pix.height, pix.stride, QImage.Format.Format_RGB888).copy()
+                        img = base_img.convertToFormat(QImage.Format.Format_ARGB32_Premultiplied)
+                except Exception:
+                    img = None
+        else:
+            # Sahnede canlı çizim veya şekiller varsa: scene.render ile kompozit et
+            if pinfo:
+                thumb_h = max(20, int(thumb_w * (pinfo['height'] / max(1.0, pinfo['width']))))
 
-                    painter = QPainter(img)
-                    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+                laser = getattr(tab_doc, 'laser_pointer_item', None)
+                was_laser_vis = False
+                try:
+                    if laser and laser.isVisible():
+                        was_laser_vis = True
+                        laser.setVisible(False)
+                except Exception:
+                    laser = None
+
+                sel_item = getattr(tab_doc, 'selection_item', None)
+                was_sel_vis = False
+                try:
+                    if sel_item and sel_item.isVisible():
+                        was_sel_vis = True
+                        sel_item.setVisible(False)
+                except Exception:
+                    sel_item = None
+
+                ribbon = None
+                was_ribbon_vis = False
+                try:
+                    ribbon = getattr(tab_doc, 'bookmark_ribbon_items', {}).get(page_idx, None)
+                    if ribbon and ribbon.isVisible():
+                        was_ribbon_vis = True
+                        ribbon.setVisible(False)
+                except Exception:
+                    ribbon = None
+
+                hover_item = getattr(tab_doc, 'direct_edit_hover_item', None)
+                was_hover_vis = False
+                try:
+                    if hover_item and hover_item.isVisible():
+                        was_hover_vis = True
+                        hover_item.setVisible(False)
+                except Exception:
+                    hover_item = None
+
+                sel_highlights = list(getattr(tab_doc, 'selection_highlight_items', []))
+                vis_highlights = []
+                for h_item in sel_highlights:
                     try:
-                        tab_doc.scene.render(painter, QRectF(0, 0, thumb_w, thumb_h), src_rect)
-                    finally:
-                        painter.end()
-                        if bg_rect and was_bg_vis:
-                            bg_rect.setVisible(True)
-                        if pix_item and was_pix_vis:
-                            pix_item.setVisible(True)
-            except Exception:
-                img = None
-            finally:
-                if laser and was_laser_vis:
-                    laser.setVisible(True)
-                if sel_item and was_sel_vis:
-                    sel_item.setVisible(True)
-                if ribbon and was_ribbon_vis:
-                    ribbon.setVisible(True)
-                if hover_item and was_hover_vis:
-                    hover_item.setVisible(True)
-                for h_item in vis_highlights:
-                    try:
-                        h_item.setVisible(True)
+                        if h_item and h_item.isVisible():
+                            h_item.setVisible(False)
+                            vis_highlights.append(h_item)
                     except Exception:
                         pass
-                for sit in selected_items:
-                    sit.setSelected(True)
+
+                selected_items = []
+                try:
+                    if hasattr(tab_doc, 'scene') and tab_doc.scene:
+                        selected_items = tab_doc.scene.selectedItems()
+                        for sit in selected_items:
+                            sit.setSelected(False)
+                except Exception:
+                    selected_items = []
+
+                hidden_proxies = []
+                for prx in list(getattr(tab_doc, 'interactive_form_proxies', [])):
+                    try:
+                        if prx and prx.isVisible():
+                            prx.setVisible(False)
+                            hidden_proxies.append(prx)
+                    except Exception:
+                        pass
+
+                src_rect = QRectF(pinfo.get('left', 0), pinfo['top'], pinfo['width'], pinfo['height'])
+
+                try:
+                    has_valid_item_pix = False
+                    try:
+                        if pinfo.get('item') and not pinfo['item'].pixmap().isNull():
+                            has_valid_item_pix = True
+                    except (RuntimeError, AttributeError):
+                        has_valid_item_pix = False
+
+                    if has_valid_item_pix:
+                        img = QImage(thumb_w, thumb_h, QImage.Format.Format_ARGB32_Premultiplied)
+                        img.fill(QColor(255, 255, 255))
+                        painter = QPainter(img)
+                        if painter.isActive():
+                            painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+                            painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
+                            tab_doc.scene.render(painter, QRectF(0, 0, thumb_w, thumb_h), src_rect)
+                            painter.end()
+                    else:
+                        if tab_doc.doc and 0 <= page_idx < len(tab_doc.doc):
+                            page = tab_doc.doc[page_idx]
+                            pw = max(1.0, page.rect.width)
+                            scale = float(thumb_w) / pw
+                            mat = fitz.Matrix(scale, scale)
+                            pix = page.get_pixmap(matrix=mat, alpha=False)
+                            base_img = QImage(pix.samples, pix.width, pix.height, pix.stride, QImage.Format.Format_RGB888).copy()
+                            img = base_img.convertToFormat(QImage.Format.Format_ARGB32_Premultiplied)
+
+                        bg_rect = pinfo.get('bg_rect')
+                        was_bg_vis = False
+                        try:
+                            if bg_rect and bg_rect.isVisible():
+                                was_bg_vis = True
+                                bg_rect.setVisible(False)
+                        except Exception:
+                            bg_rect = None
+
+                        pix_item = pinfo.get('item')
+                        was_pix_vis = False
+                        try:
+                            if pix_item and pix_item.isVisible():
+                                was_pix_vis = True
+                                pix_item.setVisible(False)
+                        except Exception:
+                            pix_item = None
+
+                        painter = QPainter(img)
+                        if painter.isActive():
+                            painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+                            try:
+                                tab_doc.scene.render(painter, QRectF(0, 0, thumb_w, thumb_h), src_rect)
+                            finally:
+                                painter.end()
+                        if bg_rect and was_bg_vis:
+                            try:
+                                bg_rect.setVisible(True)
+                            except Exception:
+                                pass
+                        if pix_item and was_pix_vis:
+                            try:
+                                pix_item.setVisible(True)
+                            except Exception:
+                                pass
+                except Exception:
+                    img = None
+                finally:
+                    for prx in hidden_proxies:
+                        try:
+                            prx.setVisible(True)
+                        except Exception:
+                            pass
+                    if laser and was_laser_vis:
+                        try:
+                            laser.setVisible(True)
+                        except Exception:
+                            pass
+                    if sel_item and was_sel_vis:
+                        try:
+                            sel_item.setVisible(True)
+                        except Exception:
+                            pass
+                    if ribbon and was_ribbon_vis:
+                        try:
+                            ribbon.setVisible(True)
+                        except Exception:
+                            pass
+                    if hover_item and was_hover_vis:
+                        try:
+                            hover_item.setVisible(True)
+                        except Exception:
+                            pass
+                    for h_item in vis_highlights:
+                        try:
+                            h_item.setVisible(True)
+                        except Exception:
+                            pass
+                    for sit in selected_items:
+                        try:
+                            sit.setSelected(True)
+                        except Exception:
+                            pass
 
         if img is None:
             try:
@@ -10168,6 +10346,13 @@ class ModernRightSidebar(QWidget):
             self._thumb_render_queue.clear()
             return
 
+        if hasattr(tab_doc, '_render_worker') and tab_doc._render_worker and tab_doc._render_worker.isRunning():
+            try:
+                self._thumb_timer.start(50)
+            except Exception:
+                pass
+            return
+
         for _ in range(3):
             if not self._thumb_render_queue:
                 break
@@ -10176,7 +10361,7 @@ class ModernRightSidebar(QWidget):
 
         if self._thumb_render_queue:
             try:
-                self._thumb_timer.start(10)
+                self._thumb_timer.start(35)
             except Exception:
                 pass
 
@@ -10353,15 +10538,24 @@ class ModernRightSidebar(QWidget):
             self._on_add_pdf_clicked()
 
     def _on_add_blank_page_clicked(self, after_page: Optional[int] = None):
-        if self.main_window and hasattr(self.main_window, 'show_new_page_dialog'):
-            self.main_window.show_new_page_dialog()
-            return
-
         tab_doc = self.main_window.get_current_tab_doc() if self.main_window else None
         target_after = after_page
         if target_after is None and tab_doc:
             curr_item = self.list_thumbnails.currentItem()
-            target_after = curr_item.data(Qt.ItemDataRole.UserRole) if curr_item else getattr(tab_doc, 'current_page_idx', None)
+            val = curr_item.data(Qt.ItemDataRole.UserRole) if curr_item else None
+            if isinstance(val, int):
+                target_after = val
+            else:
+                curr_idx = getattr(tab_doc, 'current_page_idx', 0)
+                target_after = curr_idx if isinstance(curr_idx, int) else 0
+
+        if isinstance(target_after, int) and tab_doc and tab_doc.doc:
+            target_after = max(0, min(target_after, len(tab_doc.doc) - 1))
+            tab_doc.current_page_idx = target_after
+
+        if self.main_window and hasattr(self.main_window, 'show_new_page_dialog'):
+            self.main_window.show_new_page_dialog()
+            return
 
         menu = QMenu(self)
         apply_dialog_theme(menu, self)
@@ -10382,7 +10576,6 @@ class ModernRightSidebar(QWidget):
             style = chosen.data()
             if tab_doc and tab_doc.doc is not None:
                 tab_doc.insert_blank_page(after_page=target_after, style=style)
-                self.load_thumbnails()
                 if target_after is not None:
                     tab_doc.go_to_page(target_after + 1)
             elif self.main_window and hasattr(self.main_window, 'new_blank_document'):
@@ -10393,7 +10586,15 @@ class ModernRightSidebar(QWidget):
         target_after = after_page
         if target_after is None and tab_doc:
             curr_item = self.list_thumbnails.currentItem()
-            target_after = curr_item.data(Qt.ItemDataRole.UserRole) if curr_item else getattr(tab_doc, 'current_page_idx', None)
+            val = curr_item.data(Qt.ItemDataRole.UserRole) if curr_item else None
+            if isinstance(val, int):
+                target_after = val
+            else:
+                curr_idx = getattr(tab_doc, 'current_page_idx', 0)
+                target_after = curr_idx if isinstance(curr_idx, int) else 0
+
+        if isinstance(target_after, int) and tab_doc and tab_doc.doc:
+            target_after = max(0, min(target_after, len(tab_doc.doc) - 1))
 
         if tab_doc and tab_doc.doc is not None:
             path, _ = QFileDialog.getOpenFileName(
@@ -10403,8 +10604,10 @@ class ModernRightSidebar(QWidget):
                 LanguageManager.tr("sidebar_pdf_filter")
             )
             if path:
-                tab_doc.insert_pdf_at(path, after_page=target_after)
-                self.load_thumbnails()
+                try:
+                    tab_doc.insert_pdf_at(path, after_page=target_after)
+                except Exception as e:
+                    QMessageBox.warning(self, LanguageManager.tr("app_title"), str(e))
         elif self.main_window:
             paths, _ = QFileDialog.getOpenFileNames(
                 self,
@@ -10608,15 +10811,15 @@ class ModernRightSidebar(QWidget):
             except Exception:
                 pass
 
-        # 2. TabDocument Serbest Not Çizimleri
+        # 2. TabDocument Serbest Yorum Nesneleri (Metin kutuları yorum DEĞİLDİR)
         for d in getattr(tab_doc, 'drawings', []):
-            if d.get("text"):
+            if d.get("type") == "comment" and d.get("text"):
                 p_idx = d.get("page", 0)
                 pages_dict.setdefault(p_idx, []).append({
-                    "author": d.get("author", "Not"),
+                    "author": d.get("author", "Yorum"),
                     "content": d.get("text", ""),
                     "date": "",
-                    "type": "Not",
+                    "type": "Yorum",
                     "page": p_idx,
                     "drawing_ref": d
                 })
@@ -10663,10 +10866,10 @@ class ModernRightSidebar(QWidget):
             annot.set_info(title=author, content=text)
             annot.update()
             tab_doc.set_modified(True)
-            if hasattr(tab_doc, 'render_all_pages'):
-                tab_doc.render_all_pages()
-            if hasattr(tab_doc, 'rerender_visible_pages'):
-                tab_doc.rerender_visible_pages()
+            if hasattr(tab_doc, 'rerender_page'):
+                tab_doc.rerender_page(p_idx)
+            elif hasattr(tab_doc, 'rerender_visible_pages'):
+                tab_doc.rerender_visible_pages(force=True)
             self.txt_new_comment.clear()
             self.load_comments()
         except Exception as e:
@@ -10926,6 +11129,29 @@ class ModernRightSidebar(QWidget):
         except Exception as e:
             QMessageBox.warning(self, LanguageManager.tr("error"), f"{e}")
 
+    def _delete_selected_attachments(self):
+        items = self.list_attachments.selectedItems()
+        if not items:
+            cur = self.list_attachments.currentItem()
+            items = [cur] if cur else []
+        if not items or not self.main_window:
+            return
+        tab_doc = self.main_window.get_current_tab_doc()
+        if not tab_doc or not tab_doc.doc:
+            return
+        deleted_any = False
+        for it in items:
+            name = it.data(Qt.ItemDataRole.UserRole)
+            if name:
+                try:
+                    tab_doc.doc.embfile_del(name)
+                    deleted_any = True
+                except Exception as e:
+                    print(f"Error deleting attachment {name}: {e}")
+        if deleted_any:
+            tab_doc.set_modified(True)
+            self.load_attachments()
+
     def _delete_attachment(self, name: str):
         if not self.main_window:
             return
@@ -10950,13 +11176,15 @@ class ModernRightSidebar(QWidget):
         act_open = menu.addAction(ModernIconFactory.icon_attachment(), LanguageManager.tr("sidebar_open_attachment"))
         act_save = menu.addAction(ModernIconFactory.icon_save(), LanguageManager.tr("sidebar_save_attachment"))
         menu.addSeparator()
-        act_del = menu.addAction(ModernIconFactory.icon_close(), LanguageManager.tr("sidebar_delete_attachment"))
+        act_del = menu.addAction(ModernIconFactory.icon_trash("#ef4444"), LanguageManager.tr("sidebar_delete_attachment"))
 
         action = menu.exec(self.list_attachments.mapToGlobal(pos))
         if action == act_open:
             self._open_attachment(name)
         elif action == act_save:
             self._save_attachment(name)
+        elif action == act_del:
+            self._delete_attachment(name)
     def set_dock_side(self, side: str = "right"):
         self.dock_side = side
         self.apply_theme(self.theme_name)

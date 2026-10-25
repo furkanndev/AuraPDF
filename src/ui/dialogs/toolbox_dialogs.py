@@ -1262,8 +1262,17 @@ def apply_numbering_to_doc(doc, format_func, get_font_func, font_size: float, op
     font_code = get_font_func()
     base_col = (num_color.redF(), num_color.greenF(), num_color.blueF())
 
+    import os
+    from src.ui.direct_text_editor import get_unicode_font_path
+    num_font_file = get_unicode_font_path(font_code, bold=False, italic=False)
+    if not num_font_file or not os.path.isfile(num_font_file):
+        num_font_file = get_unicode_font_path("Arial", bold=False, italic=False)
+
     try:
-        fitz_font = fitz.Font(font_code)
+        if num_font_file and os.path.isfile(num_font_file):
+            fitz_font = fitz.Font(fontfile=num_font_file)
+        else:
+            fitz_font = fitz.Font(font_code)
     except Exception:
         fitz_font = None
 
@@ -1356,20 +1365,22 @@ def apply_numbering_to_doc(doc, format_func, get_font_func, font_size: float, op
             page.draw_line(p1, p2, color=(0.15, 0.45, 0.90), width=1.8, stroke_opacity=opacity, overlay=True)
 
         actual_fontname = font_code
-        if fitz_font is not None and hasattr(fitz_font, 'buffer') and fitz_font.buffer:
+        if num_font_file and os.path.isfile(num_font_file):
             try:
-                page.insert_font(fontname="F_AuraPDF_NUM", fontbuffer=fitz_font.buffer)
+                page.insert_font(fontname="F_AuraPDF_NUM", fontfile=num_font_file)
                 actual_fontname = "F_AuraPDF_NUM"
             except Exception:
                 actual_fontname = font_code
 
         rc = page.insert_textbox(text_rect_page, text, fontsize=font_size, fontname=actual_fontname,
+                                 fontfile=num_font_file if actual_fontname == "F_AuraPDF_NUM" else None,
                                  color=cur_text_col, fill_opacity=opacity, align=align, rotate=rot)
         if rc < 0:
             cx = (badge_rect.x0 + badge_rect.x1) / 2.0
             cy = (badge_rect.y0 + badge_rect.y1) / 2.0 + font_size * 0.35
             page_pt = fitz.Point(cx - tw / 2.0, cy) * derot
             page.insert_text(page_pt, text, fontsize=font_size, fontname=actual_fontname,
+                             fontfile=num_font_file if actual_fontname == "F_AuraPDF_NUM" else None,
                              color=cur_text_col, fill_opacity=opacity, rotate=rot)
 
     try:
@@ -2410,7 +2421,15 @@ class PDFOrganizePagesDialog(QDialog):
                 tab_doc = self.main_window.get_current_tab_doc()
                 if tab_doc and tab_doc.doc is not None:
                     for i in range(count):
-                        tab_doc.insert_blank_page(after_page=(row + i) if row >= 0 else len(tab_doc.doc) - 1, width=width, height=height, style=style)
+                        is_last = (i == count - 1)
+                        tab_doc.insert_blank_page(
+                            after_page=(row + i) if row >= 0 else len(tab_doc.doc) - 1,
+                            width=width,
+                            height=height,
+                            style=style,
+                            rerender=is_last,
+                            notify_thumb=is_last
+                        )
                     self.load_from_tab_doc(tab_doc)
                     self.list_widget.setCurrentRow(min(insert_idx, self.list_widget.count() - 1))
                     return
@@ -2440,52 +2459,9 @@ class PDFOrganizePagesDialog(QDialog):
                 if rot:
                     new_p.set_rotation(rot)
 
-                if style != "blank":
-                    shape = new_p.new_shape()
-                    if style == "lined":
-                        y = 50
-                        while y < height - 50:
-                            shape.draw_line(fitz.Point(50, y), fitz.Point(width - 50, y))
-                            y += 25
-                        shape.finish(color=(0.8, 0.8, 0.8), width=1)
-                    elif style == "grid":
-                        x = 50
-                        while x < width - 50:
-                            shape.draw_line(fitz.Point(x, 50), fitz.Point(x, height - 50))
-                            x += 20
-                        y = 50
-                        while y < height - 50:
-                            shape.draw_line(fitz.Point(50, y), fitz.Point(width - 50, y))
-                            y += 20
-                        shape.finish(color=(0.85, 0.85, 0.85), width=1)
-                    elif style == "dotted":
-                        x = 50
-                        while x < width - 50:
-                            y = 50
-                            while y < height - 50:
-                                shape.draw_circle(fitz.Point(x, y), 0.8)
-                                y += 20
-                            x += 20
-                        shape.finish(color=(0.7, 0.7, 0.7), fill=(0.7, 0.7, 0.7))
-                    elif style == "cornell":
-                        shape.draw_line(fitz.Point(150, 100), fitz.Point(150, height - 50))
-                        shape.draw_line(fitz.Point(50, 100), fitz.Point(width - 50, 100))
-                        shape.finish(color=(0.9, 0.6, 0.6), width=2)
-                        shape2 = new_p.new_shape()
-                        y = 125
-                        while y < height - 50:
-                            shape2.draw_line(fitz.Point(155, y), fitz.Point(width - 50, y))
-                            y += 25
-                        shape2.finish(color=(0.85, 0.85, 0.85), width=1)
-                        shape2.commit()
-                    elif style == "cover":
-                        shape.draw_rect(new_p.rect)
-                        shape.finish(color=(0.12, 0.16, 0.22), fill=(0.12, 0.16, 0.22))
-                        shape2 = new_p.new_shape()
-                        shape2.draw_rect(fitz.Rect(40, 40, width - 40, height - 40))
-                        shape2.finish(color=(0.9, 0.8, 0.6), width=3)
-                        shape2.commit()
-                    shape.commit()
+                if style and style != "blank":
+                    from src.document.tab_document import PDFTabDocument
+                    PDFTabDocument._draw_page_template(None, new_p, width, height, style)
                 import tempfile
                 with tempfile.NamedTemporaryFile(suffix="_blank.pdf", delete=False) as tf:
                     temp_p = tf.name
@@ -5188,28 +5164,27 @@ class InteractiveWatermarkPreviewLabel(QLabel):
 def get_watermark_fitz_font(font_key: str = "helv") -> fitz.Font:
     """
     Filigran için Türkçe karakterleri %100 destekleyen font nesnesini döndürür.
-    PyMuPDF'in dahili Base14 TrueType fontlarını (Helvetica-Bold, Times-Bold, Courier-Bold)
-    kullanarak CID-keyed Unicode font sağlar.
+    Sistemdeki TrueType fontları (Arial, Times New Roman vb.) kullanarak
+    CIDFontType2 Unicode font sağlar ve Adobe Acrobat CFF font ayıklama hatalarını önler.
     """
-    key = (font_key or "helv").lower()
-    if any(k in key for k in ("time", "tiro", "serif")):
-        candidates = ["Times-Bold", "Times-Roman"]
-    elif any(k in key for k in ("couri", "mono")):
-        candidates = ["Courier-Bold", "Courier"]
-    else:
-        candidates = ["Helvetica-Bold", "Helvetica"]
-
-    for name in candidates:
+    import os
+    from src.ui.direct_text_editor import get_unicode_font_path
+    fpath = get_unicode_font_path(font_key, bold=True, italic=False)
+    if fpath and os.path.isfile(fpath):
         try:
-            f = fitz.Font(name)
-            if hasattr(f, "buffer") and f.buffer:
-                return f
+            return fitz.Font(fontfile=fpath)
         except Exception:
-            continue
+            pass
     try:
-        return fitz.Font("Helvetica-Bold")
+        fpath_arial = get_unicode_font_path("Arial", bold=True, italic=False)
+        if fpath_arial and os.path.isfile(fpath_arial):
+            return fitz.Font(fontfile=fpath_arial)
     except Exception:
+        pass
+    try:
         return fitz.Font("helv")
+    except Exception:
+        return None
 
 
 def calculate_safe_watermark_fontsize(text: str, angle_deg: float, page_w: float, page_h: float, margin: float = 35.0, font_key: str = "helv") -> float:
@@ -5218,9 +5193,15 @@ def calculate_safe_watermark_fontsize(text: str, angle_deg: float, page_w: float
     rad = math.radians(abs(angle_deg))
     avail_w = max(20.0, page_w - 2 * margin)
     avail_h = max(20.0, page_h - 2 * margin)
-    fitz_font = get_watermark_fitz_font(font_key)
+    import os
+    from src.ui.direct_text_editor import get_unicode_font_path
+    wm_font_file = get_unicode_font_path(font_key, bold=True, italic=False)
     try:
-        len100 = fitz_font.text_length(text, fontsize=100.0)
+        if wm_font_file and os.path.isfile(wm_font_file):
+            len100 = fitz.Font(fontfile=wm_font_file).text_length(text, fontsize=100.0)
+        else:
+            fitz_font = get_watermark_fitz_font(font_key)
+            len100 = fitz_font.text_length(text, fontsize=100.0) if fitz_font else fitz.get_text_length(text, fontsize=100.0)
     except Exception:
         len100 = fitz.get_text_length(text, fontsize=100.0)
     unit_w = max(1.0, len100 / 100.0)
@@ -5367,8 +5348,11 @@ def apply_watermark_to_doc(doc: fitz.Document, settings: dict):
         autofit = bool(settings.get("autofit", True))
 
         font_key = settings.get("font_family", "helv")
-        fitz_font = get_watermark_fitz_font(font_key)
-        font_buf = fitz_font.buffer if hasattr(fitz_font, "buffer") else None
+        import os
+        from src.ui.direct_text_editor import get_unicode_font_path
+        wm_font_file = get_unicode_font_path(font_key, bold=True, italic=False)
+        if not wm_font_file or not os.path.isfile(wm_font_file):
+            wm_font_file = get_unicode_font_path("Arial", bold=True, italic=False)
 
         for page_idx in pages_to_process:
             if page_idx < 0 or page_idx >= total_pages:
@@ -5388,16 +5372,19 @@ def apply_watermark_to_doc(doc: fitz.Document, settings: dict):
                 eff_fs = min(raw_fs, hard_max_fs)
 
             wm_font_name = "F_AuraPDF_WM"
-            if font_buf:
+            if wm_font_file and os.path.isfile(wm_font_file):
                 try:
-                    page.insert_font(fontname=wm_font_name, fontbuffer=font_buf)
+                    page.insert_font(fontname=wm_font_name, fontfile=wm_font_file)
                 except Exception:
                     wm_font_name = "helv"
             else:
                 wm_font_name = "helv"
 
             try:
-                text_len = fitz_font.text_length(text, fontsize=eff_fs)
+                if wm_font_file and os.path.isfile(wm_font_file):
+                    text_len = fitz.Font(fontfile=wm_font_file).text_length(text, fontsize=eff_fs)
+                else:
+                    text_len = fitz.get_text_length(text, fontsize=eff_fs)
             except Exception:
                 text_len = fitz.get_text_length(text, fontsize=eff_fs)
             pt = fitz.Point(cx - text_len / 2.0, cy + eff_fs / 3.0)
@@ -5407,6 +5394,7 @@ def apply_watermark_to_doc(doc: fitz.Document, settings: dict):
                 pt,
                 text,
                 fontname=wm_font_name,
+                fontfile=wm_font_file if wm_font_name == "F_AuraPDF_WM" else None,
                 fontsize=eff_fs,
                 color=(r_norm, g_norm, b_norm),
                 fill_opacity=opacity,

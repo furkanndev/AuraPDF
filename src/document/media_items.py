@@ -5,11 +5,14 @@ from typing import Optional, List, Dict, Any, Tuple
 from PyQt6.QtWidgets import (QGraphicsItem, QMenu, QInputDialog,
                              QLineEdit, QMessageBox, QDialog, QVBoxLayout,
                              QHBoxLayout, QPushButton, QSlider, QLabel, QStyle)
-from PyQt6.QtGui import (QPainter, QColor, QPen, QBrush, QFont, QFontMetrics,
+from PyQt6.QtGui import (QPainter, QColor, QPen, QBrush, QFont, QFontMetrics, QFontMetricsF,
                          QPixmap, QImage, QPainterPath, QLinearGradient)
 from PyQt6.QtCore import (Qt, QRectF, QPointF, QUrl)
 from PyQt6.QtMultimedia import QMediaPlayer, QAudioOutput
 from PyQt6.QtMultimediaWidgets import QVideoWidget
+
+from src.core.i18n import LanguageManager
+from src.ui.icons import ModernIconFactory
 
 
 class ResizeHandle:
@@ -93,11 +96,29 @@ class PDFTableItem(QGraphicsItem):
         self.italic = bool(record.get("italic", False))
         self.underline = bool(record.get("underline", False))
         self.has_header = bool(record.get("has_header", True))
+        self.alignment = str(record.get("alignment", "center")).lower()
+        if self.alignment not in ("left", "center", "right"):
+            self.alignment = "center"
+
+        raw_alignments = record.get("cell_alignments")
+        if isinstance(raw_alignments, list):
+            self.cell_alignments: List[List[str]] = []
+            for r in range(self.rows):
+                row_aligns = []
+                for c in range(self.cols):
+                    if r < len(raw_alignments) and c < len(raw_alignments[r]) and raw_alignments[r][c] in ("left", "center", "right"):
+                        row_aligns.append(str(raw_alignments[r][c]).lower())
+                    else:
+                        row_aligns.append(self.alignment)
+                self.cell_alignments.append(row_aligns)
+        else:
+            self.cell_alignments = [[self.alignment for _ in range(self.cols)] for _ in range(self.rows)]
 
         self.setZValue(15)
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, True)
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemSendsGeometryChanges, True)
+        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsFocusable, True)
         self.setAcceptHoverEvents(True)
 
         self._active_handle: Optional[str] = None
@@ -105,6 +126,105 @@ class PDFTableItem(QGraphicsItem):
         self._drag_start_bounds: Optional[QRectF] = None
         self._inline_editor: Optional[QLineEdit] = None
         self._editing_cell: Optional[Tuple[int, int]] = None
+        self._is_moving: bool = False
+        self._drag_move_start_scene: Optional[QPointF] = None
+        self._item_start_pos: Optional[QPointF] = None
+        self._overflow_cells: set = set()
+
+    @property
+    def page_idx(self) -> int:
+        return int(self.record.get("page", 0))
+
+    def get_cell_alignment(self, r: int, c: int) -> str:
+        if 0 <= r < len(self.cell_alignments) and 0 <= c < len(self.cell_alignments[r]):
+            return self.cell_alignments[r][c]
+        return self.alignment
+
+    def set_cell_alignment(self, r: int, c: int, align_val: str):
+        align_clean = str(align_val).lower()
+        if align_clean in ("left", "center", "right"):
+            if 0 <= r < len(self.cell_alignments) and 0 <= c < len(self.cell_alignments[r]):
+                self.cell_alignments[r][c] = align_clean
+                self._sync_record()
+                self.update()
+                if hasattr(self.tab_doc, 'notify_drawings_changed'):
+                    self.tab_doc.notify_drawings_changed(self.page_idx)
+
+    def set_row_alignment(self, r: int, align_val: str):
+        align_clean = str(align_val).lower()
+        if align_clean in ("left", "center", "right"):
+            if 0 <= r < len(self.cell_alignments):
+                for c in range(len(self.cell_alignments[r])):
+                    self.cell_alignments[r][c] = align_clean
+                self._sync_record()
+                self.update()
+                if hasattr(self.tab_doc, 'notify_drawings_changed'):
+                    self.tab_doc.notify_drawings_changed(self.page_idx)
+
+    def set_col_alignment(self, c: int, align_val: str):
+        align_clean = str(align_val).lower()
+        if align_clean in ("left", "center", "right"):
+            for r in range(len(self.cell_alignments)):
+                if c < len(self.cell_alignments[r]):
+                    self.cell_alignments[r][c] = align_clean
+            self._sync_record()
+            self.update()
+            if hasattr(self.tab_doc, 'notify_drawings_changed'):
+                self.tab_doc.notify_drawings_changed(self.page_idx)
+
+    def set_all_cells_alignment(self, align_val: str):
+        align_clean = str(align_val).lower()
+        if align_clean in ("left", "center", "right"):
+            self.alignment = align_clean
+            self.record["alignment"] = align_clean
+            for r in range(self.rows):
+                for c in range(self.cols):
+                    if r < len(self.cell_alignments) and c < len(self.cell_alignments[r]):
+                        self.cell_alignments[r][c] = align_clean
+            self._sync_record()
+            self.update()
+            if hasattr(self.tab_doc, 'notify_drawings_changed'):
+                self.tab_doc.notify_drawings_changed(self.page_idx)
+
+    def set_alignment(self, align_val: str):
+        self.set_all_cells_alignment(align_val)
+
+    def align_to_page(self, mode: str):
+        """Tabloyu sayfada yatayda ortalar, sol veya sağ kenara yaslar."""
+        p_info = getattr(self.tab_doc, 'page_positions', {}).get(self.page_idx) if self.tab_doc else None
+        if not p_info:
+            return
+        page_left = p_info.get('left', 0.0)
+        page_top = p_info.get('top', 0.0)
+        page_w = p_info.get('width', 600.0)
+        page_h = p_info.get('height', 800.0)
+        margin = 20.0
+
+        cur_x = self.pos().x()
+        cur_y = self.pos().y()
+
+        if mode == "center":
+            new_x = page_left + max(0.0, (page_w - self.w) / 2.0)
+            new_y = cur_y
+        elif mode == "left":
+            new_x = page_left + margin
+            new_y = cur_y
+        elif mode == "right":
+            new_x = page_left + max(margin, page_w - self.w - margin)
+            new_y = cur_y
+        elif mode == "top":
+            new_x = cur_x
+            new_y = page_top + margin
+        else:
+            return
+
+        self.setPos(QPointF(new_x, new_y))
+        self._sync_record()
+        self.update()
+        if hasattr(self.tab_doc, 'notify_drawings_changed'):
+            self.tab_doc.notify_drawings_changed(self.page_idx)
+        if hasattr(self.tab_doc, 'view') and self.tab_doc.view:
+            self.tab_doc.view.viewport().update()
 
     def boundingRect(self) -> QRectF:
         pad = 8.0
@@ -196,8 +316,72 @@ class PDFTableItem(QGraphicsItem):
                     continue  # Düzenlenen hücreyi editor çiziyor
                 txt = self.cell_data[r][c]
                 if txt:
-                    rect = QRectF(c * col_w + 4, r * row_h + 2, col_w - 8, row_h - 4)
-                    painter.drawText(rect, Qt.AlignmentFlag.AlignCenter | Qt.TextFlag.TextWordWrap, txt)
+                    rx = round(c * col_w)
+                    ry = round(r * row_h)
+                    rw = round((c + 1) * col_w) - rx
+                    rh = round((r + 1) * row_h) - ry
+                    cell_rect = QRectF(rx, ry, rw, rh)
+
+                    # Hücre dışına taşmayı kesin olarak engelle (Hard clipping)
+                    painter.save()
+                    painter.setClipRect(cell_rect)
+
+                    avail_w = rw - 8
+                    avail_h = rh - 4
+                    is_cell_overflow = False
+
+                    if avail_w > 2 and avail_h > 2:
+                        cell_align = self.get_cell_alignment(r, c)
+                        align_flag = Qt.AlignmentFlag.AlignVCenter
+                        if cell_align == "left":
+                            align_flag |= Qt.AlignmentFlag.AlignLeft
+                        elif cell_align == "right":
+                            align_flag |= Qt.AlignmentFlag.AlignRight
+                        else:
+                            align_flag |= Qt.AlignmentFlag.AlignHCenter
+
+                        fm = QFontMetricsF(painter.font())
+                        line_h = fm.height()
+                        if txt:
+                            if line_h > avail_h + 1:
+                                is_cell_overflow = True
+                            else:
+                                lines = txt.split('\n')
+                                max_lines = max(1, int(avail_h // line_h))
+                                if len(lines) > max_lines:
+                                    is_cell_overflow = True
+
+                                drawable_lines = []
+                                for line in lines[:max_lines]:
+                                    if fm.horizontalAdvance(line) > avail_w + 1:
+                                        is_cell_overflow = True
+                                        elided = fm.elidedText(line, Qt.TextElideMode.ElideRight, avail_w)
+                                        drawable_lines.append(elided)
+                                    else:
+                                        drawable_lines.append(line)
+
+                                if drawable_lines:
+                                    fit_txt = "\n".join(drawable_lines)
+                                    rect = QRectF(rx + 4, ry + 2, avail_w, avail_h)
+                                    painter.drawText(rect, align_flag, fit_txt)
+
+                    if is_cell_overflow:
+                        if widget is not None:
+                            if not hasattr(self, '_overflow_cells'):
+                                self._overflow_cells = set()
+                            self._overflow_cells.add((r, c))
+                        # Hücre sağ üst köşesinde zarif ve net kehribar uyarı üçgeni çiz
+                        warn_path = QPainterPath()
+                        warn_path.moveTo(rx + rw, ry)
+                        warn_path.lineTo(rx + rw - 8, ry)
+                        warn_path.lineTo(rx + rw, ry + 8)
+                        warn_path.closeSubpath()
+                        painter.fillPath(warn_path, QColor("#f59e0b"))
+                    else:
+                        if widget is not None and hasattr(self, '_overflow_cells'):
+                            self._overflow_cells.discard((r, c))
+
+                    painter.restore()
 
         # 4. Seçim ve Boyutlandırma Tutamaçları
         if self.isSelected():
@@ -218,9 +402,11 @@ class PDFTableItem(QGraphicsItem):
 
         painter.restore()
 
-    def _get_handle_at(self, pos: QPointF) -> Optional[str]:
+    def _get_handle_at(self, pos) -> Optional[str]:
         if not self.isSelected():
             return None
+        if not isinstance(pos, QPointF):
+            pos = QPointF(pos)
         bounds = self.tableRect()
         for h in HANDLES:
             if h.rect(bounds).contains(pos):
@@ -228,38 +414,71 @@ class PDFTableItem(QGraphicsItem):
         return None
 
     def hoverMoveEvent(self, event):
-        h_name = self._get_handle_at(event.pos())
+        pos = event.pos()
+        if not isinstance(pos, QPointF):
+            pos = QPointF(pos)
+        h_name = self._get_handle_at(pos)
         if h_name:
             for h in HANDLES:
                 if h.name == h_name:
                     self.setCursor(h.cursor_shape)
+                    self.setToolTip("")
                     return
-        elif self.tableRect().contains(event.pos()):
+        elif self.tableRect().contains(pos):
             self.setCursor(Qt.CursorShape.SizeAllCursor if self.isSelected() else Qt.CursorShape.PointingHandCursor)
+            row_h = self.h / max(1, self.rows)
+            col_w = self.w / max(1, self.cols)
+            cr = int(pos.y() // row_h) if row_h > 0 else 0
+            cc = int(pos.x() // col_w) if col_w > 0 else 0
+            if 0 <= cr < self.rows and 0 <= cc < self.cols and (cr, cc) in getattr(self, '_overflow_cells', set()):
+                cell_txt = self.cell_data[cr][cc]
+                warn_tip = LanguageManager.tr("table_cell_text_overflow_tip")
+                warn_lbl = LanguageManager.tr("warning")
+                self.setToolTip(f"{cell_txt}\n\n[{warn_lbl}]: {warn_tip}")
+            else:
+                self.setToolTip("")
         else:
             self.setCursor(Qt.CursorShape.ArrowCursor)
-        super().hoverMoveEvent(event)
+            self.setToolTip("")
+        try:
+            super().hoverMoveEvent(event)
+        except Exception:
+            pass
+
+    def hoverLeaveEvent(self, event):
+        self.setToolTip("")
+        try:
+            super().hoverLeaveEvent(event)
+        except Exception:
+            pass
 
     def itemChange(self, change, value):
-        if change == QGraphicsItem.GraphicsItemChange.ItemSelectedChange and value:
-            if hasattr(self.tab_doc, 'active_text_item'):
-                self.tab_doc.active_text_item = self
-            if hasattr(self.tab_doc, 'last_text_item'):
-                self.tab_doc.last_text_item = self
-            main_win = getattr(self.tab_doc, 'main_window', None)
-            if main_win and hasattr(main_win, 'text_popup') and main_win.text_popup.isVisible():
-                main_win.text_popup.sync_with_item_selection(self)
+        if change == QGraphicsItem.GraphicsItemChange.ItemSelectedChange:
+            if value:
+                if hasattr(self.tab_doc, 'active_text_item') and self.tab_doc.active_text_item:
+                    if hasattr(self.tab_doc.active_text_item, 'finish_editing'):
+                        try:
+                            self.tab_doc.active_text_item.finish_editing()
+                        except Exception:
+                            pass
+                    self.tab_doc.active_text_item = None
+                if hasattr(self.tab_doc, 'last_text_item'):
+                    self.tab_doc.last_text_item = self
+                main_win = getattr(self.tab_doc, 'main_window', None)
+                if main_win and hasattr(main_win, 'text_popup') and main_win.text_popup.isVisible():
+                    main_win.text_popup.sync_with_item_selection(self)
+            else:
+                if getattr(self.tab_doc, 'active_text_item', None) is self:
+                    self.tab_doc.active_text_item = None
         if change == QGraphicsItem.GraphicsItemChange.ItemPositionChange and self.tab_doc:
-            p_info = getattr(self.tab_doc, 'page_positions', {}).get(self.record.get("page", 0))
-            if p_info:
-                page_left = p_info.get('left', 0.0)
-                page_top = p_info['top']
-                page_w = p_info['width']
-                page_h = p_info['height']
-                min_x = page_left
-                max_x = page_left + max(0.0, page_w - self.w)
-                min_y = page_top
-                max_y = page_top + max(0.0, page_h - self.h)
+            page_idx = self.record.get("page", 0)
+            page_positions = getattr(self.tab_doc, 'page_positions', {})
+            if page_positions and page_idx in page_positions:
+                p = page_positions[page_idx]
+                min_x = p.get('left', 0.0)
+                max_x = min_x + max(0.0, p.get('width', 0.0) - self.w)
+                min_y = p.get('top', 0.0)
+                max_y = min_y + max(0.0, p.get('height', 0.0) - self.h)
                 clamped_x = max(min_x, min(value.x(), max_x))
                 clamped_y = max(min_y, min(value.y(), max_y))
                 return QPointF(clamped_x, clamped_y)
@@ -312,34 +531,66 @@ class PDFTableItem(QGraphicsItem):
                 self.tab_doc.notify_drawings_changed(self.record.get("page"))
 
     def mousePressEvent(self, event):
-        if hasattr(self.tab_doc, 'active_text_item'):
-            self.tab_doc.active_text_item = self
+        if hasattr(self.tab_doc, 'active_text_item') and self.tab_doc.active_text_item:
+            if hasattr(self.tab_doc.active_text_item, 'finish_editing'):
+                try:
+                    self.tab_doc.active_text_item.finish_editing()
+                except Exception:
+                    pass
+            self.tab_doc.active_text_item = None
         if hasattr(self.tab_doc, 'last_text_item'):
             self.tab_doc.last_text_item = self
         main_win = getattr(self.tab_doc, 'main_window', None)
         if main_win and hasattr(main_win, 'text_popup') and main_win.text_popup.isVisible():
             main_win.text_popup.sync_with_item_selection(self)
 
+        pos = event.pos()
+        if not isinstance(pos, QPointF):
+            pos = QPointF(pos)
+
         if event.button() == Qt.MouseButton.LeftButton:
-            h_name = self._get_handle_at(event.pos())
+            h_name = self._get_handle_at(pos)
             if h_name:
                 self._active_handle = h_name
                 self._drag_start_pos = event.scenePos()
                 self._drag_start_bounds = QRectF(self.pos().x(), self.pos().y(), self.w, self.h)
                 event.accept()
                 return
+            elif self.tableRect().contains(pos):
+                self._is_moving = True
+                self._drag_move_start_scene = event.scenePos()
+                self._item_start_pos = self.pos()
+                self.setSelected(True)
+                self.setFocus()
+                event.accept()
+                return
         super().mousePressEvent(event)
+        self.setFocus()
+
+    def keyPressEvent(self, event):
+        if not getattr(self, '_inline_editor', None):
+            if event.key() in (Qt.Key.Key_Delete, Qt.Key.Key_Backspace):
+                self.delete_self()
+                event.accept()
+                return
+        super().keyPressEvent(event)
 
     def mouseMoveEvent(self, event):
         if self._active_handle and self._drag_start_pos and self._drag_start_bounds:
+            if self.tab_doc and hasattr(self.tab_doc, 'auto_scroll_during_drag'):
+                self.tab_doc.auto_scroll_during_drag(event.scenePos())
             delta = event.scenePos() - self._drag_start_pos
             orig = self._drag_start_bounds
 
-            p_info = getattr(self.tab_doc, 'page_positions', {}).get(self.record.get("page", 0)) if self.tab_doc else None
-            page_left = p_info.get('left', 0.0) if p_info else 0.0
-            page_top = p_info['top'] if p_info else 0.0
-            page_w = p_info['width'] if p_info else 10000.0
-            page_h = p_info['height'] if p_info else 10000.0
+            page_positions = getattr(self.tab_doc, 'page_positions', {}) if self.tab_doc else {}
+            if page_positions:
+                margin = 200.0
+                min_x = min(p.get('left', 0.0) for p in page_positions.values()) - margin
+                max_x = max(p.get('right', p.get('left', 0.0) + p.get('width', 0.0)) for p in page_positions.values()) + margin
+                min_y = min(p.get('top', 0.0) for p in page_positions.values()) - margin
+                max_y = max(p.get('bottom', p.get('top', 0.0) + p.get('height', 0.0)) for p in page_positions.values()) + margin
+            else:
+                min_x, max_x, min_y, max_y = -500.0, 50000.0, -500.0, 50000.0
 
             new_x = orig.x()
             new_y = orig.y()
@@ -363,11 +614,27 @@ class PDFTableItem(QGraphicsItem):
                 new_y = orig.y() + diff
                 new_h = orig.height() - diff
 
-            # PDF Sayfa sınırları dışına taşmayı engelle
-            new_x = max(page_left, min(new_x, page_left + max(0.0, page_w - min_w)))
-            new_y = max(page_top, min(new_y, page_top + max(0.0, page_h - min_h)))
-            new_w = max(min_w, min(new_w, max(min_w, page_left + page_w - new_x)))
-            new_h = max(min_h, min(new_h, max(min_h, page_top + page_h - new_y)))
+            new_x = max(min_x, min(new_x, max_x - min_w))
+            new_y = max(min_y, min(new_y, max_y - min_h))
+            new_w = max(min_w, min(new_w, max_x - new_x))
+            new_h = max(min_h, min(new_h, max_y - new_y))
+
+            if self.tab_doc and hasattr(self.tab_doc, 'compute_smart_snap_resize'):
+                new_x, new_y, new_w, new_h, guides = self.tab_doc.compute_smart_snap_resize(
+                    ignore_item=self,
+                    handle=h,
+                    cand_x=new_x,
+                    cand_y=new_y,
+                    cand_w=new_w,
+                    cand_h=new_h,
+                    orig_bounds=orig,
+                    page_idx=self.record.get("page", 0),
+                    min_w=min_w,
+                    min_h=min_h,
+                    snap_to_grid=True
+                )
+                if hasattr(self.tab_doc, 'show_alignment_guides'):
+                    self.tab_doc.show_alignment_guides(guides)
 
             self.prepareGeometryChange()
             self.setPos(new_x, new_y)
@@ -377,8 +644,49 @@ class PDFTableItem(QGraphicsItem):
             self._sync_record()
             if hasattr(self.tab_doc, 'notify_drawings_changed_throttled'):
                 self.tab_doc.notify_drawings_changed_throttled(self.record.get("page"))
+            if hasattr(self.tab_doc, 'view') and self.tab_doc.view:
+                self.tab_doc.view.viewport().update()
             event.accept()
             return
+        elif getattr(self, '_is_moving', False) and hasattr(self, '_drag_move_start_scene') and self._drag_move_start_scene is not None:
+            page_idx = self.page_idx
+            if self.tab_doc and hasattr(self.tab_doc, 'auto_scroll_during_drag'):
+                self.tab_doc.auto_scroll_during_drag(event.scenePos(), page_idx=page_idx)
+            delta = event.scenePos() - self._drag_move_start_scene
+            raw_pos = self._item_start_pos + delta
+
+            page_positions = getattr(self.tab_doc, 'page_positions', {}) if self.tab_doc else {}
+            if page_positions and page_idx in page_positions:
+                p = page_positions[page_idx]
+                min_x = p.get('left', 0.0)
+                max_x = min_x + max(0.0, p.get('width', 0.0) - self.w)
+                min_y = p.get('top', 0.0)
+                max_y = min_y + max(0.0, p.get('height', 0.0) - self.h)
+                raw_pos = QPointF(max(min_x, min(raw_pos.x(), max_x)), max(min_y, min(raw_pos.y(), max_y)))
+
+            if self.tab_doc and hasattr(self.tab_doc, 'compute_smart_snap'):
+                new_pos, guides = self.tab_doc.compute_smart_snap(
+                    ignore_item=self,
+                    raw_pos=raw_pos,
+                    w=self.w,
+                    h=self.h,
+                    page_idx=page_idx,
+                    snap_to_grid=True
+                )
+                self.setPos(new_pos)
+                if hasattr(self.tab_doc, 'show_alignment_guides'):
+                    self.tab_doc.show_alignment_guides(guides)
+            else:
+                self.setPos(raw_pos)
+
+            self._sync_record()
+            if hasattr(self.tab_doc, 'notify_drawings_changed_throttled'):
+                self.tab_doc.notify_drawings_changed_throttled(page_idx)
+            if hasattr(self.tab_doc, 'view') and self.tab_doc.view:
+                self.tab_doc.view.viewport().update()
+            event.accept()
+            return
+
         super().mouseMoveEvent(event)
 
     def mouseReleaseEvent(self, event):
@@ -386,11 +694,23 @@ class PDFTableItem(QGraphicsItem):
             self._active_handle = None
             self._drag_start_pos = None
             self._drag_start_bounds = None
+            if self.tab_doc and hasattr(self.tab_doc, 'clear_alignment_guides'):
+                self.tab_doc.clear_alignment_guides()
+            if hasattr(self.tab_doc, 'view') and self.tab_doc.view:
+                self.tab_doc.view.viewport().update()
             self._sync_record()
             if hasattr(self.tab_doc, 'notify_drawings_changed'):
                 self.tab_doc.notify_drawings_changed(self.record.get("page"))
             event.accept()
             return
+        if getattr(self, '_is_moving', False):
+            self._is_moving = False
+            self._drag_move_start_scene = None
+            self._item_start_pos = None
+            if self.tab_doc and hasattr(self.tab_doc, 'clear_alignment_guides'):
+                self.tab_doc.clear_alignment_guides()
+            if hasattr(self.tab_doc, 'view') and self.tab_doc.view:
+                self.tab_doc.view.viewport().update()
         super().mouseReleaseEvent(event)
         self._sync_record()
         if hasattr(self.tab_doc, 'notify_drawings_changed'):
@@ -440,10 +760,49 @@ class PDFTableItem(QGraphicsItem):
             }
         """)
         editor.setText(self.cell_data[r][c])
+        cell_align = self.get_cell_alignment(r, c)
+        if cell_align == "left":
+            editor.setAlignment(Qt.AlignmentFlag.AlignLeft)
+        elif cell_align == "right":
+            editor.setAlignment(Qt.AlignmentFlag.AlignRight)
+        else:
+            editor.setAlignment(Qt.AlignmentFlag.AlignCenter)
         editor.setGeometry(view_rect.adjusted(1, 1, -1, -1))
         editor.selectAll()
         editor.setFocus()
 
+        def _on_editor_text_edited(new_text):
+            fm = QFontMetrics(editor.font())
+            max_w = view_rect.width() - 8
+            if max_w > 10 and fm.horizontalAdvance(new_text) > max_w:
+                editor.setStyleSheet("""
+                    QLineEdit {
+                        background-color: #1e1b4b;
+                        color: #ffffff;
+                        border: 2px solid #f59e0b;
+                        border-radius: 3px;
+                        padding: 2px 4px;
+                        font-family: Arial;
+                        font-size: 12px;
+                    }
+                """)
+                editor.setToolTip(LanguageManager.tr("table_cell_text_overflow_tip"))
+            else:
+                editor.setStyleSheet("""
+                    QLineEdit {
+                        background-color: #0f172a;
+                        color: #ffffff;
+                        border: 2px solid #38bdf8;
+                        border-radius: 3px;
+                        padding: 2px 4px;
+                        font-family: Arial;
+                        font-size: 12px;
+                    }
+                """)
+                editor.setToolTip("")
+
+        editor.textEdited.connect(_on_editor_text_edited)
+        _on_editor_text_edited(editor.text())
         editor.returnPressed.connect(self.finish_cell_editing)
         editor.editingFinished.connect(self.finish_cell_editing)
 
@@ -453,15 +812,29 @@ class PDFTableItem(QGraphicsItem):
     def finish_cell_editing(self):
         if self._inline_editor and self._editing_cell:
             r, c = self._editing_cell
-            new_text = self._inline_editor.text().strip()
-            self.cell_data[r][c] = new_text
-            self._inline_editor.deleteLater()
+            editor = self._inline_editor
             self._inline_editor = None
             self._editing_cell = None
+            try:
+                new_text = editor.text().strip()
+                if 0 <= r < len(self.cell_data) and 0 <= c < len(self.cell_data[r]):
+                    self.cell_data[r][c] = new_text
+            except Exception:
+                pass
+            try:
+                editor.deleteLater()
+            except Exception:
+                pass
             self._sync_record()
-            self.update()
+            try:
+                self.update()
+            except Exception:
+                pass
             if hasattr(self.tab_doc, 'notify_drawings_changed'):
-                self.tab_doc.notify_drawings_changed(self.record.get("page"))
+                try:
+                    self.tab_doc.notify_drawings_changed(self.record.get("page"))
+                except Exception:
+                    pass
 
     def contextMenuEvent(self, event):
         pos = event.pos()
@@ -469,6 +842,8 @@ class PDFTableItem(QGraphicsItem):
         col_w = self.w / max(1, self.cols)
         click_r = int(pos.y() // row_h) if self.h > 0 else 0
         click_c = int(pos.x() // col_w) if self.w > 0 else 0
+        click_r = max(0, min(click_r, self.rows - 1))
+        click_c = max(0, min(click_c, self.cols - 1))
 
         menu = QMenu()
         menu.setStyleSheet("""
@@ -477,23 +852,94 @@ class PDFTableItem(QGraphicsItem):
             QMenu::item:selected { background-color: #2563eb; }
         """)
 
-        act_style = menu.addAction("Metin ve Renk Ayarları...")
-        act_edit = menu.addAction("Hücreyi Düzenle")
+        act_style = menu.addAction(LanguageManager.tr("table_style_menu"))
+        act_edit = menu.addAction(LanguageManager.tr("table_edit_cell"))
+
+        # 1. Seçili Hücreyi Hizala
+        cur_cell_align = self.get_cell_alignment(click_r, click_c)
+        cell_align_menu = menu.addMenu(LanguageManager.tr("table_selected_cell_alignment", row=click_r + 1, col=click_c + 1))
+        act_cell_left = cell_align_menu.addAction(ModernIconFactory.icon_align_left(16), LanguageManager.tr("table_align_left"))
+        act_cell_left.setCheckable(True)
+        act_cell_left.setChecked(cur_cell_align == "left")
+
+        act_cell_center = cell_align_menu.addAction(ModernIconFactory.icon_align_center(16), LanguageManager.tr("table_align_center"))
+        act_cell_center.setCheckable(True)
+        act_cell_center.setChecked(cur_cell_align == "center")
+
+        act_cell_right = cell_align_menu.addAction(ModernIconFactory.icon_align_right(16), LanguageManager.tr("table_align_right"))
+        act_cell_right.setCheckable(True)
+        act_cell_right.setChecked(cur_cell_align == "right")
+
+        # 2. Sütunu Hizala
+        col_align_menu = menu.addMenu(LanguageManager.tr("table_column_alignment", col=click_c + 1))
+        act_col_left = col_align_menu.addAction(ModernIconFactory.icon_align_left(16), LanguageManager.tr("table_align_left"))
+        act_col_center = col_align_menu.addAction(ModernIconFactory.icon_align_center(16), LanguageManager.tr("table_align_center"))
+        act_col_right = col_align_menu.addAction(ModernIconFactory.icon_align_right(16), LanguageManager.tr("table_align_right"))
+
+        # 3. Tüm Tabloyu Hizala
+        all_align_menu = menu.addMenu(LanguageManager.tr("table_all_cells_alignment"))
+        act_all_left = all_align_menu.addAction(ModernIconFactory.icon_align_left(16), LanguageManager.tr("table_align_left"))
+        act_all_left.setCheckable(True)
+        act_all_left.setChecked(self.alignment == "left")
+
+        act_all_center = all_align_menu.addAction(ModernIconFactory.icon_align_center(16), LanguageManager.tr("table_align_center"))
+        act_all_center.setCheckable(True)
+        act_all_center.setChecked(self.alignment == "center")
+
+        act_all_right = all_align_menu.addAction(ModernIconFactory.icon_align_right(16), LanguageManager.tr("table_align_right"))
+        act_all_right.setCheckable(True)
+        act_all_right.setChecked(self.alignment == "right")
+
+        page_align_menu = menu.addMenu(LanguageManager.tr("table_align_to_page"))
+        act_page_center = page_align_menu.addAction(LanguageManager.tr("table_align_page_center"))
+        act_page_left = page_align_menu.addAction(LanguageManager.tr("table_align_page_left"))
+        act_page_right = page_align_menu.addAction(LanguageManager.tr("table_align_page_right"))
+
         menu.addSeparator()
-        act_add_row = menu.addAction("Satır Ekle (Aşağıya)")
-        act_del_row = menu.addAction("Satır Sil")
-        act_add_col = menu.addAction("Sütun Ekle (Sağa)")
-        act_del_col = menu.addAction("Sütun Sil")
+        act_grid = menu.addAction(ModernIconFactory.icon_all_grid(), LanguageManager.tr("align_to_grid"))
+
         menu.addSeparator()
-        act_del_table = menu.addAction("Tabloyu Sil")
+        act_add_row = menu.addAction(LanguageManager.tr("table_add_row"))
+        act_del_row = menu.addAction(LanguageManager.tr("table_del_row"))
+        act_add_col = menu.addAction(LanguageManager.tr("table_add_col"))
+        act_del_col = menu.addAction(LanguageManager.tr("table_del_col"))
+        menu.addSeparator()
+        act_del_table = menu.addAction(ModernIconFactory.icon_trash("#ef4444"), LanguageManager.tr("table_delete"))
 
         action = menu.exec(event.screenPos())
         if action == act_style:
             from src.ui.dialogs.media_dialogs import TableStyleDialog
-            dlg = TableStyleDialog(self, parent=None)
+            dlg = TableStyleDialog(self, parent=None, initial_cell=(click_r, click_c))
             dlg.exec()
         elif action == act_edit:
-            self.start_cell_editing(max(0, min(click_r, self.rows - 1)), max(0, min(click_c, self.cols - 1)))
+            self.start_cell_editing(click_r, click_c)
+        elif action == act_cell_left:
+            self.set_cell_alignment(click_r, click_c, "left")
+        elif action == act_cell_center:
+            self.set_cell_alignment(click_r, click_c, "center")
+        elif action == act_cell_right:
+            self.set_cell_alignment(click_r, click_c, "right")
+        elif action == act_col_left:
+            self.set_col_alignment(click_c, "left")
+        elif action == act_col_center:
+            self.set_col_alignment(click_c, "center")
+        elif action == act_col_right:
+            self.set_col_alignment(click_c, "right")
+        elif action == act_all_left:
+            self.set_all_cells_alignment("left")
+        elif action == act_all_center:
+            self.set_all_cells_alignment("center")
+        elif action == act_all_right:
+            self.set_all_cells_alignment("right")
+        elif action == act_page_center:
+            self.align_to_page("center")
+        elif action == act_page_left:
+            self.align_to_page("left")
+        elif action == act_page_right:
+            self.align_to_page("right")
+        elif action == act_grid:
+            if self.tab_doc and hasattr(self.tab_doc, 'snap_item_to_grid'):
+                self.tab_doc.snap_item_to_grid(self, self.page_idx)
         elif action == act_add_row:
             self.add_row(click_r + 1)
         elif action == act_del_row:
@@ -510,6 +956,7 @@ class PDFTableItem(QGraphicsItem):
         self.prepareGeometryChange()
         self.rows += 1
         self.cell_data.insert(at_idx, ["" for _ in range(self.cols)])
+        self.cell_alignments.insert(at_idx, [self.alignment for _ in range(self.cols)])
         added_h = max(20.0, self.h / (self.rows - 1))
         p_info = getattr(self.tab_doc, 'page_positions', {}).get(self.record.get("page", 0)) if self.tab_doc else None
         if p_info:
@@ -537,6 +984,8 @@ class PDFTableItem(QGraphicsItem):
         row_h = self.h / self.rows
         self.rows -= 1
         self.cell_data.pop(at_idx)
+        if at_idx < len(self.cell_alignments):
+            self.cell_alignments.pop(at_idx)
         self.h = max(24.0, self.h - row_h)
         self._sync_record()
         self.update()
@@ -549,6 +998,8 @@ class PDFTableItem(QGraphicsItem):
         self.cols += 1
         for r in range(self.rows):
             self.cell_data[r].insert(at_idx, "")
+            if r < len(self.cell_alignments):
+                self.cell_alignments[r].insert(at_idx, self.alignment)
         added_w = max(40.0, self.w / (self.cols - 1))
         p_info = getattr(self.tab_doc, 'page_positions', {}).get(self.record.get("page", 0)) if self.tab_doc else None
         if p_info:
@@ -577,6 +1028,8 @@ class PDFTableItem(QGraphicsItem):
         self.cols -= 1
         for r in range(self.rows):
             self.cell_data[r].pop(at_idx)
+            if r < len(self.cell_alignments) and at_idx < len(self.cell_alignments[r]):
+                self.cell_alignments[r].pop(at_idx)
         self.w = max(40.0, self.w - col_w)
         self._sync_record()
         self.update()
@@ -612,6 +1065,8 @@ class PDFTableItem(QGraphicsItem):
         self.record["rows"] = self.rows
         self.record["cols"] = self.cols
         self.record["cell_data"] = [list(row) for row in self.cell_data]
+        self.record["alignment"] = self.alignment
+        self.record["cell_alignments"] = [list(row) for row in self.cell_alignments]
         self.record["font_size"] = self.font_size
         self.record["font_family"] = self.font_family
         self.record["bold"] = self.bold
@@ -675,11 +1130,15 @@ class PDFResizableImageItem(QGraphicsItem):
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, True)
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemSendsGeometryChanges, True)
+        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsFocusable, True)
         self.setAcceptHoverEvents(True)
 
         self._active_handle: Optional[str] = None
         self._drag_start_pos: Optional[QPointF] = None
         self._drag_start_bounds: Optional[QRectF] = None
+        self._is_moving: bool = False
+        self._drag_move_start_scene: Optional[QPointF] = None
+        self._item_start_pos: Optional[QPointF] = None
 
     def boundingRect(self) -> QRectF:
         pad = 8.0
@@ -741,16 +1200,14 @@ class PDFResizableImageItem(QGraphicsItem):
 
     def itemChange(self, change, value):
         if change == QGraphicsItem.GraphicsItemChange.ItemPositionChange and self.tab_doc:
-            p_info = getattr(self.tab_doc, 'page_positions', {}).get(self.record.get("page", 0))
-            if p_info:
-                page_left = p_info.get('left', 0.0)
-                page_top = p_info.get('top', 0.0)
-                page_w = p_info.get('width', 10000.0)
-                page_h = p_info.get('height', 10000.0)
-                min_x = page_left
-                max_x = page_left + max(0.0, page_w - self.w)
-                min_y = page_top
-                max_y = page_top + max(0.0, page_h - self.h)
+            page_idx = self.record.get("page", 0)
+            page_positions = getattr(self.tab_doc, 'page_positions', {})
+            if page_positions and page_idx in page_positions:
+                p = page_positions[page_idx]
+                min_x = p.get('left', 0.0)
+                max_x = min_x + max(0.0, p.get('width', 0.0) - self.w)
+                min_y = p.get('top', 0.0)
+                max_y = min_y + max(0.0, p.get('height', 0.0) - self.h)
                 clamped_x = max(min_x, min(value.x(), max_x))
                 clamped_y = max(min_y, min(value.y(), max_y))
                 return QPointF(clamped_x, clamped_y)
@@ -769,7 +1226,23 @@ class PDFResizableImageItem(QGraphicsItem):
                 self._drag_start_bounds = QRectF(self.pos().x(), self.pos().y(), self.w, self.h)
                 event.accept()
                 return
+            elif self.imageRect().contains(event.pos()):
+                self._is_moving = True
+                self._drag_move_start_scene = event.scenePos()
+                self._item_start_pos = self.pos()
+                self.setSelected(True)
+                self.setFocus()
+                event.accept()
+                return
         super().mousePressEvent(event)
+        self.setFocus()
+
+    def keyPressEvent(self, event):
+        if event.key() in (Qt.Key.Key_Delete, Qt.Key.Key_Backspace):
+            self.delete_self()
+            event.accept()
+            return
+        super().keyPressEvent(event)
 
     def wheelEvent(self, event):
         event.ignore()
@@ -837,33 +1310,38 @@ class PDFResizableImageItem(QGraphicsItem):
                 if new_h > 0:
                     self.aspect_ratio = new_w / new_h
 
-            # PDF Sayfa sınırları dışına taşmayı engelle
-            if new_x < page_left:
-                excess = page_left - new_x
-                new_x = page_left
-                new_w = max(min_s, new_w - excess)
-                if keep_aspect and self.aspect_ratio > 0:
-                    new_h = new_w / self.aspect_ratio
-            if new_y < page_top:
-                excess = page_top - new_y
-                new_y = page_top
-                new_h = max(min_s, new_h - excess)
-                if keep_aspect and self.aspect_ratio > 0:
-                    new_w = new_h * self.aspect_ratio
-
-            if keep_aspect and self.aspect_ratio > 0:
-                if new_x + new_w > page_left + page_w:
-                    new_w = max(min_s, page_left + page_w - new_x)
-                    new_h = new_w / self.aspect_ratio
-                if new_y + new_h > page_top + page_h:
-                    new_h = max(min_s, page_top + page_h - new_y)
-                    new_w = new_h * self.aspect_ratio
+            # Belge ve sayfa sınırları kontrolü
+            page_positions = getattr(self.tab_doc, 'page_positions', {}) if self.tab_doc else {}
+            if page_positions:
+                margin = 250.0
+                min_x = min(p.get('left', 0.0) for p in page_positions.values()) - margin
+                max_x = max(p.get('right', p.get('left', 0.0) + p.get('width', 0.0)) for p in page_positions.values()) + margin
+                min_y = min(p.get('top', 0.0) for p in page_positions.values()) - margin
+                max_y = max(p.get('bottom', p.get('top', 0.0) + p.get('height', 0.0)) for p in page_positions.values()) + margin
             else:
-                new_w = max(min_s, min(new_w, max(min_s, page_left + page_w - new_x)))
-                new_h = max(min_s, min(new_h, max(min_s, page_top + page_h - new_y)))
+                min_x, max_x, min_y, max_y = -500.0, 50000.0, -500.0, 50000.0
 
-            new_x = max(page_left, min(new_x, page_left + max(0.0, page_w - min_s)))
-            new_y = max(page_top, min(new_y, page_top + max(0.0, page_h - min_s)))
+            new_x = max(min_x, min(new_x, max_x - min_s))
+            new_y = max(min_y, min(new_y, max_y - min_s))
+            new_w = max(min_s, min(new_w, max_x - new_x))
+            new_h = max(min_s, min(new_h, max_y - new_y))
+
+            if self.tab_doc and hasattr(self.tab_doc, 'compute_smart_snap_resize') and not keep_aspect:
+                new_x, new_y, new_w, new_h, guides = self.tab_doc.compute_smart_snap_resize(
+                    ignore_item=self,
+                    handle=h,
+                    cand_x=new_x,
+                    cand_y=new_y,
+                    cand_w=new_w,
+                    cand_h=new_h,
+                    orig_bounds=orig,
+                    page_idx=self.record.get("page", 0),
+                    min_w=min_s,
+                    min_h=min_s,
+                    snap_to_grid=True
+                )
+                if hasattr(self.tab_doc, 'show_alignment_guides'):
+                    self.tab_doc.show_alignment_guides(guides)
 
             self.prepareGeometryChange()
             self.setPos(new_x, new_y)
@@ -873,15 +1351,76 @@ class PDFResizableImageItem(QGraphicsItem):
             self._sync_record()
             if hasattr(self.tab_doc, 'notify_drawings_changed_throttled'):
                 self.tab_doc.notify_drawings_changed_throttled(self.record.get("page"))
+            if hasattr(self.tab_doc, 'view') and self.tab_doc.view:
+                self.tab_doc.view.viewport().update()
+            event.accept()
+            return
+        elif getattr(self, '_is_moving', False) and hasattr(self, '_drag_move_start_scene') and self._drag_move_start_scene is not None:
+            page_idx = self.record.get("page", 0)
+            if self.tab_doc and hasattr(self.tab_doc, 'auto_scroll_during_drag'):
+                self.tab_doc.auto_scroll_during_drag(event.scenePos(), page_idx=page_idx)
+            delta = event.scenePos() - self._drag_move_start_scene
+            raw_pos = self._item_start_pos + delta
+
+            # Yalnızca eklenen sayfa sınırları içerisinde kalması için sınırla
+            page_positions = getattr(self.tab_doc, 'page_positions', {}) if self.tab_doc else {}
+            if page_positions and page_idx in page_positions:
+                p = page_positions[page_idx]
+                min_x = p.get('left', 0.0)
+                max_x = min_x + max(0.0, p.get('width', 0.0) - self.w)
+                min_y = p.get('top', 0.0)
+                max_y = min_y + max(0.0, p.get('height', 0.0) - self.h)
+                raw_pos = QPointF(max(min_x, min(raw_pos.x(), max_x)), max(min_y, min(raw_pos.y(), max_y)))
+
+            if self.tab_doc and hasattr(self.tab_doc, 'compute_smart_snap'):
+                new_pos, guides = self.tab_doc.compute_smart_snap(
+                    ignore_item=self,
+                    raw_pos=raw_pos,
+                    w=self.w,
+                    h=self.h,
+                    page_idx=page_idx,
+                    snap_to_grid=True
+                )
+                if page_positions and page_idx in page_positions:
+                    p = page_positions[page_idx]
+                    min_x = p.get('left', 0.0)
+                    max_x = min_x + max(0.0, p.get('width', 0.0) - self.w)
+                    min_y = p.get('top', 0.0)
+                    max_y = min_y + max(0.0, p.get('height', 0.0) - self.h)
+                    new_pos = QPointF(max(min_x, min(new_pos.x(), max_x)), max(min_y, min(new_pos.y(), max_y)))
+                self.setPos(new_pos)
+                if hasattr(self.tab_doc, 'show_alignment_guides'):
+                    self.tab_doc.show_alignment_guides(guides)
+            else:
+                self.setPos(raw_pos)
+
+            self._sync_record()
+            if hasattr(self.tab_doc, 'notify_drawings_changed_throttled'):
+                self.tab_doc.notify_drawings_changed_throttled(page_idx)
             event.accept()
             return
         super().mouseMoveEvent(event)
 
     def mouseReleaseEvent(self, event):
+        if getattr(self, '_is_moving', False):
+            self._is_moving = False
+            self._drag_move_start_scene = None
+            if self.tab_doc and hasattr(self.tab_doc, 'clear_alignment_guides'):
+                self.tab_doc.clear_alignment_guides()
+
+            self._sync_record()
+            if hasattr(self.tab_doc, 'notify_drawings_changed'):
+                self.tab_doc.notify_drawings_changed(self.record.get("page", 0))
+            event.accept()
+            return
         if self._active_handle:
             self._active_handle = None
             self._drag_start_pos = None
             self._drag_start_bounds = None
+            if self.tab_doc and hasattr(self.tab_doc, 'clear_alignment_guides'):
+                self.tab_doc.clear_alignment_guides()
+            if hasattr(self.tab_doc, 'view') and self.tab_doc.view:
+                self.tab_doc.view.viewport().update()
             self._sync_record()
             if hasattr(self.tab_doc, 'notify_drawings_changed'):
                 self.tab_doc.notify_drawings_changed(self.record.get("page"))
@@ -899,13 +1438,15 @@ class PDFResizableImageItem(QGraphicsItem):
             QMenu::item { padding: 6px 20px; border-radius: 4px; }
             QMenu::item:selected { background-color: #2563eb; }
         """)
-        act_aspect = menu.addAction("En-Boy Oranını Koru")
+        act_aspect = menu.addAction(LanguageManager.tr("keep_aspect_ratio", default="En-Boy Oranını Koru"))
         act_aspect.setCheckable(True)
         act_aspect.setChecked(self.keep_aspect_ratio)
 
         menu.addSeparator()
-        act_reset = menu.addAction("Orijinal Boyuta Dön")
-        act_del = menu.addAction("Görseli Sil")
+        act_grid = menu.addAction(ModernIconFactory.icon_all_grid(), LanguageManager.tr("align_to_grid", default="Grid'e Hizala"))
+        act_reset = menu.addAction(ModernIconFactory.icon_refresh(), LanguageManager.tr("reset_size", default="Orijinal Boyuta Dön"))
+        menu.addSeparator()
+        act_del = menu.addAction(ModernIconFactory.icon_trash("#ef4444"), LanguageManager.tr("content_btn_delete_img", default="Görseli Sil"))
 
         action = menu.exec(event.screenPos())
         if action == act_aspect:
@@ -913,6 +1454,9 @@ class PDFResizableImageItem(QGraphicsItem):
             self._sync_record()
             if hasattr(self.tab_doc, 'notify_drawings_changed'):
                 self.tab_doc.notify_drawings_changed(self.record.get("page"))
+        elif action == act_grid:
+            if self.tab_doc and hasattr(self.tab_doc, 'snap_item_to_grid'):
+                self.tab_doc.snap_item_to_grid(self, self.record.get("page", 0))
         elif action == act_reset:
             if not self.pixmap.isNull():
                 self.prepareGeometryChange()
@@ -1048,6 +1592,7 @@ class PDFAudioItem(QGraphicsItem):
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, True)
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemSendsGeometryChanges, True)
+        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsFocusable, True)
         self.setAcceptHoverEvents(True)
 
     def boundingRect(self) -> QRectF:
@@ -1211,6 +1756,14 @@ class PDFAudioItem(QGraphicsItem):
                 event.accept()
                 return
         super().mousePressEvent(event)
+        self.setFocus()
+
+    def keyPressEvent(self, event):
+        if event.key() in (Qt.Key.Key_Delete, Qt.Key.Key_Backspace):
+            self.delete_self()
+            event.accept()
+            return
+        super().keyPressEvent(event)
 
     def mouseMoveEvent(self, event):
         if self._active_handle and self._drag_start_pos and self._drag_start_bounds:
@@ -1645,6 +2198,7 @@ class PDFVideoItem(QGraphicsItem):
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, True)
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemSendsGeometryChanges, True)
+        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsFocusable, True)
         self.setAcceptHoverEvents(True)
 
     def boundingRect(self) -> QRectF:
@@ -1797,6 +2351,14 @@ class PDFVideoItem(QGraphicsItem):
                 event.accept()
                 return
         super().mousePressEvent(event)
+        self.setFocus()
+
+    def keyPressEvent(self, event):
+        if event.key() in (Qt.Key.Key_Delete, Qt.Key.Key_Backspace):
+            self.delete_self()
+            event.accept()
+            return
+        super().keyPressEvent(event)
 
     def mouseDoubleClickEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:

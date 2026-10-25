@@ -8,10 +8,10 @@ import urllib.request
 import urllib.parse
 import tempfile
 from typing import Optional, Tuple, Dict, Any, List
-from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
+from PyQt6.QtWidgets import (QApplication, QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
                              QSpinBox, QCheckBox, QColorDialog, QTabWidget, QWidget,
                              QLineEdit, QFileDialog, QScrollArea, QGridLayout,
-                             QFrame, QMessageBox, QProgressBar, QComboBox, QSlider, QSizePolicy, QStackedWidget)
+                             QFrame, QMessageBox, QProgressBar, QComboBox, QSlider, QSizePolicy, QStackedWidget, QButtonGroup)
 from PyQt6.QtGui import (QPixmap, QImage, QColor, QFont, QIcon, QPainter,
                          QLinearGradient, QPainterPath, QBrush, QPen, QMovie)
 from PyQt6.QtCore import (Qt, QSize, QTimer, QUrl, QThread, pyqtSignal,
@@ -96,13 +96,15 @@ class TablePreviewWidget(QWidget):
         self.alt_cell_bg = QColor("#f5f3ff")
         self.border_color = QColor("#7c3aed")
         self.text_color = QColor("#1e1b4b")
+        self.alignment = "center"
         self.setMinimumSize(250, 200)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.setStyleSheet("border: 1px solid rgba(255, 255, 255, 0.12); border-radius: 8px; background: rgba(0, 0, 0, 0.2);")
 
     def update_table(self, rows: int, cols: int, has_header: bool,
                      header_bg: QColor, cell_bg: QColor, border_color: QColor, text_color: QColor,
-                     header_text_color: Optional[QColor] = None, alt_cell_bg: Optional[QColor] = None):
+                     header_text_color: Optional[QColor] = None, alt_cell_bg: Optional[QColor] = None,
+                     alignment: str = "center"):
         self.rows = max(1, min(rows, 10))
         self.cols = max(1, min(cols, 10))
         self.has_header = has_header
@@ -115,6 +117,7 @@ class TablePreviewWidget(QWidget):
         self.border_color = QColor(border_color)
         self.text_color = QColor(text_color)
         self.header_text_color = QColor(header_text_color) if header_text_color else QColor("#ffffff")
+        self.alignment = str(alignment).lower()
         self.update()
 
     def paintEvent(self, event):
@@ -182,7 +185,17 @@ class TablePreviewWidget(QWidget):
                 rh = round(rect.y() + (r + 1) * row_h) - ry
                 txt_rect = QRectF(rx + 2, ry + 1, rw - 4, rh - 2)
                 txt = f"Başlık {c+1}" if is_hdr else f"Hücre {r},{c+1}"
-                painter.drawText(txt_rect, Qt.AlignmentFlag.AlignCenter, txt)
+                pad_x = 4.0
+                if self.alignment == "left":
+                    align_flag = Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
+                    txt_rect = QRectF(rx + pad_x, ry + 1, rw - pad_x * 2, rh - 2)
+                elif self.alignment == "right":
+                    align_flag = Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
+                    txt_rect = QRectF(rx + pad_x, ry + 1, rw - pad_x * 2, rh - 2)
+                else:
+                    align_flag = Qt.AlignmentFlag.AlignCenter
+                    txt_rect = QRectF(rx + 2, ry + 1, rw - 4, rh - 2)
+                painter.drawText(txt_rect, align_flag, txt)
 
 
 def make_color_icon(color: QColor) -> QIcon:
@@ -339,17 +352,18 @@ class TableInsertDialog(QDialog):
         self.alt_cell_bg = QColor("#f5f3ff")
         self.text_color = QColor("#1e1b4b")
         self.font_size = 11
+        self.alignment = "center"
 
         root_layout = QVBoxLayout(self)
         root_layout.setSpacing(12)
         root_layout.setContentsMargins(18, 18, 18, 18)
 
         # Üst başlık
-        hdr = QLabel("Tablo Ekle")
+        hdr = QLabel(LanguageManager.tr("insert_table"))
         hdr.setStyleSheet("font-size: 16px; font-weight: bold; ")
         root_layout.addWidget(hdr)
 
-        desc = QLabel("PDF sayfasına eklenecek tablonun satır, sütun ve stil şablonunu belirleyin (Maks. 10x10). Sağdaki panelden canlı olarak önizleyebilirsiniz.")
+        desc = QLabel(LanguageManager.tr("table_resize_hint", default="PDF sayfasına eklenecek tablonun satır, sütun ve stil şablonunu belirleyin. Sağdaki panelden canlı olarak önizleyebilirsiniz."))
         desc.setWordWrap(True)
         desc.setStyleSheet(" font-size: 11px;")
         root_layout.addWidget(desc)
@@ -377,12 +391,12 @@ class TableInsertDialog(QDialog):
         form_layout.setHorizontalSpacing(10)
         form_layout.setVerticalSpacing(8)
 
-        lbl_rows = QLabel("Satır:")
+        lbl_rows = QLabel(LanguageManager.tr("table_add_row", default="Satır") + ":")
         lbl_rows.setStyleSheet(" font-weight: 600; font-size: 13px; border: none; background: transparent;")
         self.spin_rows = ModernStepperWidget(3, 1, 10)
         self.spin_rows.valueChanged.connect(self._on_params_changed)
 
-        lbl_cols = QLabel("Sütun:")
+        lbl_cols = QLabel(LanguageManager.tr("table_add_col", default="Sütun") + ":")
         lbl_cols.setStyleSheet(" font-weight: 600; font-size: 13px; border: none; background: transparent;")
         self.spin_cols = ModernStepperWidget(3, 1, 10)
         self.spin_cols.valueChanged.connect(self._on_params_changed)
@@ -392,7 +406,7 @@ class TableInsertDialog(QDialog):
         form_layout.addWidget(lbl_cols, 0, 2)
         form_layout.addWidget(self.spin_cols, 0, 3)
 
-        self.chk_header = QCheckBox("İlk satırı başlık olarak vurgula")
+        self.chk_header = QCheckBox(LanguageManager.tr("table_header_chk", default="İlk satırı başlık olarak vurgula"))
         self.chk_header.setChecked(True)
         self.chk_header.setStyleSheet("""
             QCheckBox {
@@ -420,6 +434,71 @@ class TableInsertDialog(QDialog):
         """)
         self.chk_header.toggled.connect(self._on_params_changed)
         form_layout.addWidget(self.chk_header, 1, 0, 1, 4)
+
+        # Hizalama kontrolleri
+        lbl_align = QLabel(LanguageManager.tr("table_align") + ":")
+        lbl_align.setStyleSheet("font-weight: 600; font-size: 13px; border: none; background: transparent;")
+
+        align_btn_layout = QHBoxLayout()
+        align_btn_layout.setSpacing(6)
+
+        self.btn_align_left = QPushButton()
+        self.btn_align_left.setIcon(ModernIconFactory.icon_align_left())
+        self.btn_align_left.setToolTip(LanguageManager.tr("align_left"))
+        self.btn_align_left.setCheckable(True)
+        self.btn_align_left.setCursor(Qt.CursorShape.PointingHandCursor)
+
+        self.btn_align_center = QPushButton()
+        self.btn_align_center.setIcon(ModernIconFactory.icon_align_center())
+        self.btn_align_center.setToolTip(LanguageManager.tr("align_center"))
+        self.btn_align_center.setCheckable(True)
+        self.btn_align_center.setChecked(True)
+        self.btn_align_center.setCursor(Qt.CursorShape.PointingHandCursor)
+
+        self.btn_align_right = QPushButton()
+        self.btn_align_right.setIcon(ModernIconFactory.icon_align_right())
+        self.btn_align_right.setToolTip(LanguageManager.tr("align_right"))
+        self.btn_align_right.setCheckable(True)
+        self.btn_align_right.setCursor(Qt.CursorShape.PointingHandCursor)
+
+        self.align_group = QButtonGroup(self)
+        self.align_group.setExclusive(True)
+        self.align_group.addButton(self.btn_align_left)
+        self.align_group.addButton(self.btn_align_center)
+        self.align_group.addButton(self.btn_align_right)
+
+        align_btn_style = """
+            QPushButton {
+                background-color: rgba(255, 255, 255, 0.06);
+                border: 1px solid rgba(255, 255, 255, 0.15);
+                border-radius: 6px;
+                padding: 4px 12px;
+                min-width: 32px;
+                min-height: 24px;
+            }
+            QPushButton:hover {
+                background-color: rgba(255, 255, 255, 0.12);
+                border-color: #38bdf8;
+            }
+            QPushButton:checked {
+                background-color: rgba(56, 189, 248, 0.25);
+                border: 1.5px solid #38bdf8;
+            }
+        """
+        for b in (self.btn_align_left, self.btn_align_center, self.btn_align_right):
+            b.setStyleSheet(align_btn_style)
+
+        self.btn_align_left.clicked.connect(lambda: self._set_alignment("left"))
+        self.btn_align_center.clicked.connect(lambda: self._set_alignment("center"))
+        self.btn_align_right.clicked.connect(lambda: self._set_alignment("right"))
+
+        align_btn_layout.addWidget(self.btn_align_left)
+        align_btn_layout.addWidget(self.btn_align_center)
+        align_btn_layout.addWidget(self.btn_align_right)
+        align_btn_layout.addStretch()
+
+        form_layout.addWidget(lbl_align, 2, 0)
+        form_layout.addLayout(align_btn_layout, 2, 1, 1, 3)
 
         left_col.addWidget(form_frame)
 
@@ -613,6 +692,10 @@ class TableInsertDialog(QDialog):
 
         self._update_preview()
 
+    def _set_alignment(self, align: str):
+        self.alignment = align
+        self._update_preview()
+
     def _on_params_changed(self):
         self._update_preview()
 
@@ -627,7 +710,8 @@ class TableInsertDialog(QDialog):
                 border_color=self.border_color,
                 text_color=self.text_color,
                 header_text_color=self.header_text_color,
-                alt_cell_bg=self.alt_cell_bg
+                alt_cell_bg=self.alt_cell_bg,
+                alignment=self.alignment
             )
 
     def _pick_text_color(self):
@@ -660,9 +744,12 @@ class TableInsertDialog(QDialog):
             self._update_preview()
 
     def get_data(self) -> Dict[str, Any]:
+        rows = self.spin_rows.value()
+        cols = self.spin_cols.value()
+        align = str(self.alignment).lower()
         return {
-            "rows": self.spin_rows.value(),
-            "cols": self.spin_cols.value(),
+            "rows": rows,
+            "cols": cols,
             "has_header": self.chk_header.isChecked(),
             "border_color": self.border_color.name(),
             "header_bg": self.header_bg.name(),
@@ -670,6 +757,8 @@ class TableInsertDialog(QDialog):
             "cell_bg": self.cell_bg.name(),
             "alt_cell_bg": self.alt_cell_bg.name(),
             "text_color": self.text_color.name(),
+            "alignment": align,
+            "cell_alignments": [[align for _ in range(cols)] for _ in range(rows)]
         }
 
 
@@ -678,12 +767,13 @@ class TableStyleDialog(QDialog):
     Eklenmiş bir tablonun metin tipi, punto boyutu, metin rengi ve hücre renklerini
     ayarlamayı sağlayan stil penceresi (Metin kutusu ayarları gibi).
     """
-    def __init__(self, table_item, parent=None):
+    def __init__(self, table_item, parent=None, initial_cell: Optional[Tuple[int, int]] = None):
         super().__init__(parent)
         self.table_item = table_item
+        self.initial_cell = initial_cell
         self.setWindowTitle(LanguageManager.tr("table_style_title", default="Tablo Metin ve Renk Ayarları"))
-        self.setMinimumSize(480, 590)
-        self.resize(500, 610)
+        self.setMinimumSize(480, 620)
+        self.resize(510, 640)
 
         self.text_color = QColor(table_item.text_color)
         self.header_text_color = QColor(table_item.header_text_color)
@@ -824,7 +914,119 @@ class TableStyleDialog(QDialog):
 
         btn_row.addWidget(self.btn_bold)
         btn_row.addWidget(self.btn_italic)
+        btn_row.addStretch()
         ff_layout.addLayout(btn_row, 2, 0, 1, 3)
+
+        # Hizalama Hedefi (Tüm Hücreler veya Belirli Hücre)
+        lbl_target = QLabel(LanguageManager.tr("table_align_target") + ":")
+        lbl_target.setStyleSheet("font-weight: 600; border: none; background: transparent;")
+
+        self.cmb_align_target = QComboBox()
+        self.cmb_align_target.setStyleSheet("""
+            QComboBox {
+                background-color: #0f172a;
+                color: #e2e8f0;
+                border: 1.5px solid #334155;
+                border-radius: 6px;
+                padding: 5px 10px;
+                font-size: 12px;
+            }
+            QComboBox:hover {
+                border-color: #38bdf8;
+            }
+        """)
+        self.cmb_align_target.addItem(LanguageManager.tr("table_all_cells"), (-1, -1))
+        initial_idx = 0
+        target_idx = 1
+        for r in range(self.table_item.rows):
+            for c in range(self.table_item.cols):
+                preview = ""
+                if r < len(self.table_item.cell_data) and c < len(self.table_item.cell_data[r]):
+                    preview = str(self.table_item.cell_data[r][c] or "").strip()
+                if preview:
+                    if len(preview) > 16:
+                        preview = preview[:13] + "..."
+                    txt_label = f"{LanguageManager.tr('table_cell_label', row=r+1, col=c+1)}: \"{preview}\""
+                else:
+                    txt_label = LanguageManager.tr('table_cell_label', row=r+1, col=c+1)
+                self.cmb_align_target.addItem(txt_label, (r, c))
+                if getattr(self, 'initial_cell', None) == (r, c):
+                    initial_idx = target_idx
+                target_idx += 1
+
+        if initial_idx > 0:
+            self.cmb_align_target.setCurrentIndex(initial_idx)
+
+        ff_layout.addWidget(lbl_target, 3, 0)
+        ff_layout.addWidget(self.cmb_align_target, 3, 1, 1, 2)
+
+        # Hizalama Butonları ve Tümüne Uygula
+        lbl_align = QLabel(LanguageManager.tr("table_align") + ":")
+        lbl_align.setStyleSheet("font-weight: 600; border: none; background: transparent;")
+
+        align_btn_layout = QHBoxLayout()
+        align_btn_layout.setSpacing(6)
+
+        self.btn_al_left = QPushButton()
+        self.btn_al_left.setIcon(ModernIconFactory.icon_align_left())
+        self.btn_al_left.setToolTip(LanguageManager.tr("align_left"))
+        self.btn_al_left.setCheckable(True)
+        self.btn_al_left.setStyleSheet(toggle_btn_style)
+
+        self.btn_al_center = QPushButton()
+        self.btn_al_center.setIcon(ModernIconFactory.icon_align_center())
+        self.btn_al_center.setToolTip(LanguageManager.tr("align_center"))
+        self.btn_al_center.setCheckable(True)
+        self.btn_al_center.setStyleSheet(toggle_btn_style)
+
+        self.btn_al_right = QPushButton()
+        self.btn_al_right.setIcon(ModernIconFactory.icon_align_right())
+        self.btn_al_right.setToolTip(LanguageManager.tr("align_right"))
+        self.btn_al_right.setCheckable(True)
+        self.btn_al_right.setStyleSheet(toggle_btn_style)
+
+        self.style_align_grp = QButtonGroup(self)
+        self.style_align_grp.setExclusive(True)
+        self.style_align_grp.addButton(self.btn_al_left)
+        self.style_align_grp.addButton(self.btn_al_center)
+        self.style_align_grp.addButton(self.btn_al_right)
+
+        self.btn_al_left.clicked.connect(lambda: self._apply_alignment("left"))
+        self.btn_al_center.clicked.connect(lambda: self._apply_alignment("center"))
+        self.btn_al_right.clicked.connect(lambda: self._apply_alignment("right"))
+
+        self.btn_apply_all = QPushButton(LanguageManager.tr("table_apply_to_all"))
+        self.btn_apply_all.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_apply_all.setToolTip(LanguageManager.tr("table_all_cells_alignment"))
+        self.btn_apply_all.setStyleSheet("""
+            QPushButton {
+                background-color: rgba(56, 189, 248, 0.15);
+                color: #38bdf8;
+                border: 1px solid rgba(56, 189, 248, 0.35);
+                border-radius: 6px;
+                padding: 5px 12px;
+                font-size: 11px;
+                font-weight: 600;
+            }
+            QPushButton:hover {
+                background-color: rgba(56, 189, 248, 0.25);
+                border-color: #38bdf8;
+            }
+        """)
+        self.btn_apply_all.clicked.connect(self._apply_to_all_cells)
+
+        align_btn_layout.addWidget(self.btn_al_left)
+        align_btn_layout.addWidget(self.btn_al_center)
+        align_btn_layout.addWidget(self.btn_al_right)
+        align_btn_layout.addSpacing(6)
+        align_btn_layout.addWidget(self.btn_apply_all)
+        align_btn_layout.addStretch()
+
+        ff_layout.addWidget(lbl_align, 4, 0)
+        ff_layout.addLayout(align_btn_layout, 4, 1, 1, 2)
+
+        self.cmb_align_target.currentIndexChanged.connect(self._on_target_changed)
+        self._sync_align_buttons_from_target()
 
         layout.addWidget(font_frame)
 
@@ -1026,6 +1228,39 @@ class TableStyleDialog(QDialog):
         t.update()
         if hasattr(t.tab_doc, 'notify_drawings_changed'):
             t.tab_doc.notify_drawings_changed(t.record.get("page"))
+
+    def _sync_align_buttons_from_target(self):
+        target = self.cmb_align_target.currentData()
+        if target == (-1, -1) or target is None:
+            cur = getattr(self.table_item, 'alignment', 'center')
+        else:
+            r, c = target
+            cur = self.table_item.get_cell_alignment(r, c)
+        self.btn_al_left.setChecked(cur == "left")
+        self.btn_al_center.setChecked(cur == "center")
+        self.btn_al_right.setChecked(cur == "right")
+
+    def _on_target_changed(self):
+        self._sync_align_buttons_from_target()
+
+    def _apply_alignment(self, align_val: str):
+        target = self.cmb_align_target.currentData()
+        if target == (-1, -1) or target is None:
+            self.table_item.set_all_cells_alignment(align_val)
+        else:
+            r, c = target
+            self.table_item.set_cell_alignment(r, c, align_val)
+        self._sync_align_buttons_from_target()
+
+    def _apply_to_all_cells(self):
+        target = self.cmb_align_target.currentData()
+        if target == (-1, -1) or target is None:
+            cur = getattr(self.table_item, 'alignment', 'center')
+        else:
+            r, c = target
+            cur = self.table_item.get_cell_alignment(r, c)
+        self.table_item.set_all_cells_alignment(cur)
+        self._sync_align_buttons_from_target()
 
 
 TR_EMOJI_NAMES: Dict[str, str] = {
@@ -2754,13 +2989,13 @@ class AudioWaveformVisualizer(QWidget):
                 painter.setBrush(QColor("#ef4444"))
                 painter.drawEllipse(14, 12, 8, 8)
             painter.setPen(QColor("#f87171"))
-            painter.drawText(28, 20, "CANLI SES KAYDEDİLİYOR...")
+            painter.drawText(28, 20, LanguageManager.tr("audio_record_visualizer_live"))
         elif self.mode == self.MODE_PLAYING:
             painter.setPen(QColor("#38bdf8"))
-            painter.drawText(14, 20, "▶ SES OYNATILIYOR")
+            painter.drawText(14, 20, LanguageManager.tr("audio_record_visualizer_playing"))
         else:
             painter.setPen(QColor("#94a3b8"))
-            painter.drawText(14, 20, "Ses Görselleştirici (Hazır)")
+            painter.drawText(14, 20, LanguageManager.tr("audio_record_visualizer_ready"))
 
         # Çubukları çiz
         avail_w = w - 28
@@ -2793,27 +3028,77 @@ class AudioWaveformVisualizer(QWidget):
             painter.drawRoundedRect(rect, bar_w / 2.0, bar_w / 2.0)
 
 
+class MiniAudioWaveformVisualizer(QWidget):
+    """Kompakt mod için ultra-hafif, modern ve canlı 5 barlı mikrofon ekolayzırı."""
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setFixedSize(36, 18)
+        self.bars = 5
+        self.heights = [3.0] * self.bars
+        self.phase = 0.0
+        self.level = 0.0
+        self.is_active = False
+
+    def set_level(self, lvl: float, active: bool = True):
+        self.level = lvl
+        self.is_active = active
+        if not active:
+            self.heights = [3.0] * self.bars
+            self.update()
+            return
+
+        self.phase += 0.4
+        max_h = 16.0
+        min_h = 3.0
+        for i in range(self.bars):
+            factor = math.sin(self.phase + i * 0.9)
+            target = min_h + (max(0.1, min(1.0, self.level * 2.2)) * abs(factor)) * (max_h - min_h)
+            self.heights[i] = self.heights[i] * 0.35 + target * 0.65
+        self.update()
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        bar_w = 3.5
+        gap = 3.0
+        h = self.height()
+        start_x = 2.0
+        for i in range(self.bars):
+            bh = max(3.0, min(float(h), self.heights[i]))
+            bx = start_x + i * (bar_w + gap)
+            by = (h - bh) / 2.0
+            rect = QRectF(bx, by, bar_w, bh)
+            if self.is_active:
+                painter.setBrush(QColor("#38bdf8") if i % 2 == 0 else QColor("#818cf8"))
+            else:
+                painter.setBrush(QColor("#475569"))
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.drawRoundedRect(rect, bar_w / 2.0, bar_w / 2.0)
+
+
 class AudioRecordDialog(QDialog):
     """
     Canlı mikrofon kaydı veya dosya seçimi ile PDF'e ses notu ekleme diyalogu.
-    Ayrı Kaydı Başlat / Kaydı Durdur butonları ve canlı ses dalgası önizlemesi içerir.
+    Hem tam görünüm (dalga görselleştirici, başlık ve dosya seçimi) hem de
+    kullanıcı paneli küçülttüğünde veya simge durumuna aldığında ekranda kalan
+    minik, şık yüzen kontrol kapsülü (Dynamic Island stili) içerir.
     """
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setWindowTitle(LanguageManager.tr("audio_record_title", default="Ses Kaydı Ekle"))
+        self.setWindowTitle(LanguageManager.tr("audio_record_title"))
         self.setMinimumSize(500, 530)
         self.resize(520, 550)
 
-        # Belgeyi düzenlemeye devam edebilmek için modeless ve üstte kalma bayrakları
         self.setWindowFlags(
             Qt.WindowType.Window |
             Qt.WindowType.WindowStaysOnTopHint |
             Qt.WindowType.CustomizeWindowHint |
             Qt.WindowType.WindowTitleHint |
-            Qt.WindowType.WindowCloseButtonHint |
-            Qt.WindowType.WindowMinimizeButtonHint
+            Qt.WindowType.WindowCloseButtonHint
         )
         self.is_compact = False
+        self.compact_corner = "bottom-right"
+        self._drag_start_pos = None
 
         self.audio_bytes: Optional[bytes] = None
         self.duration_sec: float = 0.0
@@ -2839,7 +3124,6 @@ class AudioRecordDialog(QDialog):
         self.timer = QTimer(self)
         self.timer.timeout.connect(self._tick_timer)
 
-        # Gerçek mikrofon seviyesini okumak için QAudioSource
         self.audio_fmt = QAudioFormat()
         self.audio_fmt.setSampleRate(8000)
         self.audio_fmt.setChannelCount(1)
@@ -2851,25 +3135,38 @@ class AudioRecordDialog(QDialog):
         self.level_timer.setInterval(40)
         self.level_timer.timeout.connect(self._read_audio_level)
 
-        layout = QVBoxLayout(self)
-        layout.setSpacing(12)
-        layout.setContentsMargins(20, 20, 20, 20)
+        main_layout = QVBoxLayout(self)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.setSpacing(0)
+
+        self.stack = QStackedWidget(self)
+        main_layout.addWidget(self.stack)
+
+        # ======================================================================
+        # 1. TAM GÖRÜNÜM WIDGET'I (FULL VIEW)
+        # ======================================================================
+        self.widget_full = QWidget()
+        layout_full = QVBoxLayout(self.widget_full)
+        layout_full.setSpacing(12)
+        layout_full.setContentsMargins(20, 20, 20, 20)
 
         hdr_box = QHBoxLayout()
-        hdr = QLabel("Ses Kaydı Ekle")
-        hdr.setStyleSheet("font-size: 16px; font-weight: bold; ")
+        hdr = QLabel(LanguageManager.tr("audio_record_title"))
+        hdr.setStyleSheet("font-size: 16px; font-weight: bold;")
         hdr_box.addWidget(hdr)
         hdr_box.addStretch()
 
-        self.btn_compact = QPushButton(LanguageManager.tr("compact_view", default="Kompakt Görünüm"))
-        self.btn_compact.setToolTip("Belgeyi rahatça düzenleyebilmek için pencereyi küçültür / genişletir")
+        self.btn_compact = QPushButton()
+        self.btn_compact.setIcon(ModernIconFactory.icon_compress("#94a3b8"))
+        self.btn_compact.setText(" " + LanguageManager.tr("compact_view"))
+        self.btn_compact.setToolTip(LanguageManager.tr("audio_record_compact_tip"))
         self.btn_compact.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_compact.setStyleSheet("""
             QPushButton {
                 background-color: rgba(255, 255, 255, 0.06);
                 color: #f1f5f9;
                 border: 1px solid rgba(255, 255, 255, 0.12);
-                border-radius: 5px; padding: 4px 10px; font-size: 11px; font-weight: 500;
+                border-radius: 6px; padding: 5px 12px; font-size: 11px; font-weight: 500;
             }
             QPushButton:hover {
                 background-color: rgba(255, 255, 255, 0.12);
@@ -2879,13 +3176,13 @@ class AudioRecordDialog(QDialog):
         """)
         self.btn_compact.clicked.connect(self._toggle_compact_mode)
         hdr_box.addWidget(self.btn_compact)
-        layout.addLayout(hdr_box)
+        layout_full.addLayout(hdr_box)
 
-        self.lbl_title = QLabel("Ses Notu Başlığı:")
-        self.lbl_title.setStyleSheet(" font-size: 11px;")
-        layout.addWidget(self.lbl_title)
+        self.lbl_title = QLabel(LanguageManager.tr("audio_note_title") + ":")
+        self.lbl_title.setStyleSheet("font-size: 11px; font-weight: 600;")
+        layout_full.addWidget(self.lbl_title)
 
-        self.txt_title = QLineEdit("Ses Notu")
+        self.txt_title = QLineEdit(LanguageManager.tr("audio_note_title"))
         self.txt_title.setStyleSheet("""
             QLineEdit {
                 background-color: rgba(255, 255, 255, 0.06);
@@ -2896,16 +3193,16 @@ class AudioRecordDialog(QDialog):
             }
             QLineEdit:focus { border-color: #38bdf8; }
         """)
-        layout.addWidget(self.txt_title)
+        layout_full.addWidget(self.txt_title)
 
-        # Sayaç Paneli
+        # Sayaç ve Durum Paneli
         self.timer_frame = QFrame()
         self.timer_frame.setObjectName("timer_frame")
-        self.timer_frame.setMinimumHeight(92)
+        self.timer_frame.setMinimumHeight(96)
         self.timer_frame.setStyleSheet("""
             QFrame#timer_frame {
                 background-color: rgba(0, 0, 0, 0.25);
-                border-radius: 8px;
+                border-radius: 10px;
                 border: 1px solid rgba(255, 255, 255, 0.1);
             }
         """)
@@ -2916,18 +3213,18 @@ class AudioRecordDialog(QDialog):
 
         self.lbl_time = QLabel("00:00")
         self.lbl_time.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.lbl_time.setStyleSheet("font-size: 34px; font-weight: bold;  font-family: 'Consolas', 'Segoe UI', monospace; border: none; background: transparent; padding: 0; min-height: 42px;")
+        self.lbl_time.setStyleSheet("font-size: 36px; font-weight: bold; font-family: 'Consolas', 'Segoe UI', monospace; border: none; background: transparent; padding: 0; min-height: 44px;")
         t_layout.addWidget(self.lbl_time)
 
-        self.lbl_status = QLabel("Kayda hazır")
+        self.lbl_status = QLabel(LanguageManager.tr("audio_record_ready"))
         self.lbl_status.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.lbl_status.setStyleSheet(" font-size: 12px; font-weight: 500; border: none; background: transparent; padding: 0; min-height: 20px;")
+        self.lbl_status.setStyleSheet("font-size: 12px; font-weight: 500; border: none; background: transparent; padding: 0; min-height: 20px;")
         t_layout.addWidget(self.lbl_status)
-        layout.addWidget(self.timer_frame)
+        layout_full.addWidget(self.timer_frame)
 
         # Canlı Ses Dalga Önizleme Bileşeni
         self.visualizer = AudioWaveformVisualizer(self)
-        layout.addWidget(self.visualizer)
+        layout_full.addWidget(self.visualizer)
 
         # Kontrol Butonları (Başlat / Duraklat / Durdur / Sıfırla / Dinle)
         ctrl_box = QHBoxLayout()
@@ -2935,61 +3232,71 @@ class AudioRecordDialog(QDialog):
 
         btn_disabled_css = "background-color: rgba(255, 255, 255, 0.03); color: #64748b; border: 1px solid rgba(255, 255, 255, 0.06);"
 
-        self.btn_start = QPushButton("Kaydı Başlat")
+        self.btn_start = QPushButton(LanguageManager.tr("audio_record_start"))
+        self.btn_start.setIcon(ModernIconFactory.icon_menu_voice_recording("#ffffff"))
         self.btn_start.setStyleSheet(f"""
             QPushButton {{
-                  font-weight: bold;
-                padding: 9px 8px; border-radius: 6px; border: none; font-size: 11px; min-width: 72px;
+                background-color: #2563eb; color: #ffffff;
+                font-weight: bold;
+                padding: 9px 12px; border-radius: 6px; border: none; font-size: 11px; min-width: 72px;
             }}
-            QPushButton:hover {{  }}
+            QPushButton:hover {{ background-color: #3b82f6; }}
             QPushButton:disabled {{ {btn_disabled_css} }}
         """)
         self.btn_start.clicked.connect(self._start_record)
 
-        self.btn_pause = QPushButton("Duraklat")
+        self.btn_pause = QPushButton(LanguageManager.tr("audio_record_pause"))
+        self.btn_pause.setIcon(ModernIconFactory.icon_pause("#f1f5f9"))
         self.btn_pause.setEnabled(False)
         self.btn_pause.setStyleSheet(f"""
             QPushButton {{
-                  font-weight: bold;
-                padding: 9px 8px; border-radius: 6px; border: none; font-size: 11px; min-width: 72px;
+                background-color: rgba(255, 255, 255, 0.08); color: #f1f5f9;
+                font-weight: bold;
+                padding: 9px 12px; border-radius: 6px; border: 1px solid rgba(255, 255, 255, 0.15); font-size: 11px; min-width: 72px;
             }}
-            QPushButton:hover {{  }}
+            QPushButton:hover {{ background-color: rgba(255, 255, 255, 0.14); }}
             QPushButton:disabled {{ {btn_disabled_css} }}
         """)
         self.btn_pause.clicked.connect(self._toggle_pause)
 
-        self.btn_stop = QPushButton("Durdur")
+        self.btn_stop = QPushButton(LanguageManager.tr("audio_record_stop"))
+        self.btn_stop.setIcon(ModernIconFactory.icon_stop("#ffffff"))
         self.btn_stop.setEnabled(False)
         self.btn_stop.setStyleSheet(f"""
             QPushButton {{
-                  font-weight: bold;
-                padding: 9px 8px; border-radius: 6px; border: none; font-size: 11px; min-width: 72px;
+                background-color: #dc2626; color: #ffffff;
+                font-weight: bold;
+                padding: 9px 12px; border-radius: 6px; border: none; font-size: 11px; min-width: 72px;
             }}
-            QPushButton:hover {{  }}
+            QPushButton:hover {{ background-color: #ef4444; }}
             QPushButton:disabled {{ {btn_disabled_css} }}
         """)
         self.btn_stop.clicked.connect(self._stop_record)
 
-        self.btn_reset = QPushButton("Sıfırla")
+        self.btn_reset = QPushButton(LanguageManager.tr("audio_record_reset"))
+        self.btn_reset.setIcon(ModernIconFactory.icon_trash("#94a3b8"))
         self.btn_reset.setEnabled(False)
         self.btn_reset.setStyleSheet(f"""
             QPushButton {{
-                  font-weight: bold;
-                padding: 9px 8px; border-radius: 6px; border: none; font-size: 11px; min-width: 72px;
+                background-color: rgba(255, 255, 255, 0.08); color: #f1f5f9;
+                font-weight: bold;
+                padding: 9px 12px; border-radius: 6px; border: 1px solid rgba(255, 255, 255, 0.15); font-size: 11px; min-width: 72px;
             }}
-            QPushButton:hover {{  }}
+            QPushButton:hover {{ background-color: rgba(255, 255, 255, 0.14); }}
             QPushButton:disabled {{ {btn_disabled_css} }}
         """)
         self.btn_reset.clicked.connect(self._reset_record)
 
-        self.btn_play_preview = QPushButton("Dinle")
+        self.btn_play_preview = QPushButton(LanguageManager.tr("audio_record_listen"))
+        self.btn_play_preview.setIcon(ModernIconFactory.icon_play("#f1f5f9"))
         self.btn_play_preview.setEnabled(False)
         self.btn_play_preview.setStyleSheet(f"""
             QPushButton {{
-                  font-weight: bold;
-                padding: 9px 8px; border-radius: 6px; border: none; font-size: 11px; min-width: 72px;
+                background-color: rgba(255, 255, 255, 0.08); color: #f1f5f9;
+                font-weight: bold;
+                padding: 9px 12px; border-radius: 6px; border: 1px solid rgba(255, 255, 255, 0.15); font-size: 11px; min-width: 72px;
             }}
-            QPushButton:hover {{  }}
+            QPushButton:hover {{ background-color: rgba(255, 255, 255, 0.14); }}
             QPushButton:disabled {{ {btn_disabled_css} }}
         """)
         self.btn_play_preview.clicked.connect(self._play_preview)
@@ -2999,27 +3306,27 @@ class AudioRecordDialog(QDialog):
         ctrl_box.addWidget(self.btn_stop)
         ctrl_box.addWidget(self.btn_reset)
         ctrl_box.addWidget(self.btn_play_preview)
-        layout.addLayout(ctrl_box)
+        layout_full.addLayout(ctrl_box)
 
-        self.btn_choose_file = QPushButton("veya Bilgisayardan Ses Dosyası Seç (.mp3, .wav, .m4a)...")
+        self.btn_choose_file = QPushButton(LanguageManager.tr("audio_pick_file"))
         self.btn_choose_file.setStyleSheet("""
             QPushButton {
-                background-color: transparent;  text-decoration: underline;
-                border: none; font-size: 11px; padding: 4px;
+                background-color: transparent; text-decoration: underline;
+                border: none; font-size: 11px; padding: 4px; color: #38bdf8;
             }
-            QPushButton:hover {  }
+            QPushButton:hover { color: #7dd3fc; }
         """)
         self.btn_choose_file.clicked.connect(self._choose_audio_file)
-        layout.addWidget(self.btn_choose_file)
+        layout_full.addWidget(self.btn_choose_file)
 
-        layout.addStretch()
+        layout_full.addStretch()
 
         btn_box = QHBoxLayout()
-        self.btn_cancel = QPushButton(LanguageManager.tr("btn_cancel", default="İptal"))
+        self.btn_cancel = QPushButton(LanguageManager.tr("btn_cancel"))
         self.btn_cancel.setObjectName("CancelBtn")
         self.btn_cancel.clicked.connect(self._on_cancel)
 
-        self.btn_ok = QPushButton(LanguageManager.tr("btn_insert", default="Belgeye Ekle"))
+        self.btn_ok = QPushButton(LanguageManager.tr("audio_record_insert"))
         self.btn_ok.setObjectName("PrimaryBtn")
         self.btn_ok.setEnabled(False)
         self.btn_ok.clicked.connect(self.accept)
@@ -3027,72 +3334,332 @@ class AudioRecordDialog(QDialog):
         btn_box.addStretch()
         btn_box.addWidget(self.btn_cancel)
         btn_box.addWidget(self.btn_ok)
-        layout.addLayout(btn_box)
+        layout_full.addLayout(btn_box)
 
+        self.stack.addWidget(self.widget_full)
+
+        # ======================================================================
+        # 2. MİNİK KOMPAKT KAPSÜL WIDGET'I (DYNAMIC ISLAND STYLED MINI CAPSULE)
+        # ======================================================================
+        # ======================================================================
+        # 2. MİNİK KOMPAKT KAPSÜL WIDGET'I (DYNAMIC ISLAND STYLED MINI CAPSULE)
+        # ======================================================================
+        self.widget_mini = QWidget()
+        self.widget_mini.setStyleSheet("background: transparent;")
+        v_mini_wrap = QVBoxLayout(self.widget_mini)
+        v_mini_wrap.setContentsMargins(4, 4, 4, 4)
+        v_mini_wrap.setSpacing(0)
+
+        self.mini_frame = QFrame()
+        self.mini_frame.setObjectName("mini_record_capsule")
+        self.mini_frame.setToolTip(LanguageManager.tr("audio_compact_drag_hint"))
+        self.mini_frame.setStyleSheet("""
+            QFrame#mini_record_capsule {
+                background-color: rgba(15, 23, 42, 0.95);
+                border: 1px solid rgba(255, 255, 255, 0.16);
+                border-radius: 17px;
+            }
+        """)
+        h_mini = QHBoxLayout(self.mini_frame)
+        h_mini.setContentsMargins(10, 4, 10, 4)
+        h_mini.setSpacing(6)
+        h_mini.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        # Durum göstergesi (LED nokta)
+        self.dot_mini = QFrame()
+        self.dot_mini.setFixedSize(8, 8)
+        self.dot_mini.setToolTip(LanguageManager.tr("audio_record_ready"))
+        self.dot_mini.setStyleSheet("background-color: #94a3b8; border-radius: 4px; border: none;")
+        h_mini.addWidget(self.dot_mini)
+
+        # Canlı Ses Kaydı Süresi
+        self.lbl_mini_time = QLabel("00:00")
+        self.lbl_mini_time.setToolTip(LanguageManager.tr("audio_compact_time"))
+        self.lbl_mini_time.setStyleSheet("font-size: 13px; font-weight: bold; font-family: 'Consolas', 'Segoe UI', monospace; color: #f8fafc; background: transparent; border: none; min-width: 42px;")
+        h_mini.addWidget(self.lbl_mini_time)
+
+        # Ekolayzır Canlı Mini Dalga
+        self.mini_visualizer = MiniAudioWaveformVisualizer(self)
+        h_mini.addWidget(self.mini_visualizer)
+
+        # İnce ayırıcı çizgi
+        self.mini_sep = QFrame()
+        self.mini_sep.setFixedSize(1, 14)
+        self.mini_sep.setStyleSheet("background-color: rgba(255, 255, 255, 0.18); border: none;")
+        h_mini.addWidget(self.mini_sep)
+
+        # Duraklat / Devam Et Butonu (Düzgün Köşeli Kare 26x26px)
+        self.btn_mini_pause = QPushButton()
+        self.btn_mini_pause.setIcon(ModernIconFactory.icon_pause("#f1f5f9"))
+        self.btn_mini_pause.setToolTip(LanguageManager.tr("audio_record_pause"))
+        self.btn_mini_pause.setFixedSize(26, 26)
+        self.btn_mini_pause.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_mini_pause.setStyleSheet("""
+            QPushButton {
+                background-color: rgba(255, 255, 255, 0.08);
+                border: 1px solid rgba(255, 255, 255, 0.14);
+                border-radius: 4px;
+                min-width: 0px !important;
+                min-height: 0px !important;
+                padding: 0px !important;
+            }
+            QPushButton:hover {
+                background-color: rgba(255, 255, 255, 0.18);
+                border-color: rgba(255, 255, 255, 0.3);
+            }
+            QPushButton:disabled {
+                background-color: rgba(255, 255, 255, 0.03);
+                border-color: transparent;
+            }
+        """)
+        self.btn_mini_pause.setEnabled(False)
+        self.btn_mini_pause.clicked.connect(self._toggle_pause)
+        h_mini.addWidget(self.btn_mini_pause)
+
+        # Durdur / Belgeye Ekle Butonu (Düzgün Köşeli Kare 26x26px)
+        self.btn_mini_stop = QPushButton()
+        self.btn_mini_stop.setIcon(ModernIconFactory.icon_stop("#ffffff"))
+        self.btn_mini_stop.setToolTip(LanguageManager.tr("audio_record_stop"))
+        self.btn_mini_stop.setFixedSize(26, 26)
+        self.btn_mini_stop.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_mini_stop.setStyleSheet("""
+            QPushButton {
+                background-color: rgba(255, 255, 255, 0.08);
+                border: 1px solid rgba(255, 255, 255, 0.14);
+                border-radius: 4px;
+                min-width: 0px !important;
+                min-height: 0px !important;
+                padding: 0px !important;
+            }
+            QPushButton:hover {
+                background-color: rgba(239, 68, 68, 0.25);
+                border-color: rgba(239, 68, 68, 0.6);
+            }
+            QPushButton:disabled {
+                background-color: rgba(255, 255, 255, 0.03);
+                border-color: transparent;
+            }
+        """)
+        self.btn_mini_stop.setEnabled(False)
+        self.btn_mini_stop.clicked.connect(self._on_mini_stop_clicked)
+        h_mini.addWidget(self.btn_mini_stop)
+
+        # Konum Değiştir (Sağ Alt <-> Sol Alt) Butonu (Düzgün Köşeli Kare 26x26px)
+        self.btn_mini_dock = QPushButton()
+        self.btn_mini_dock.setIcon(ModernIconFactory.icon_swap("#94a3b8"))
+        self.btn_mini_dock.setToolTip(LanguageManager.tr("audio_compact_dock_toggle"))
+        self.btn_mini_dock.setFixedSize(26, 26)
+        self.btn_mini_dock.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_mini_dock.setStyleSheet("""
+            QPushButton {
+                background-color: rgba(255, 255, 255, 0.08);
+                border: 1px solid rgba(255, 255, 255, 0.14);
+                border-radius: 4px;
+                min-width: 0px !important;
+                min-height: 0px !important;
+                padding: 0px !important;
+            }
+            QPushButton:hover {
+                background-color: rgba(56, 189, 248, 0.2);
+                border-color: rgba(56, 189, 248, 0.45);
+            }
+        """)
+        self.btn_mini_dock.clicked.connect(self._toggle_dock_corner)
+        h_mini.addWidget(self.btn_mini_dock)
+
+        # Tam Görünüme Geri Dönüş / Genişletme (Düzgün Köşeli Kare 26x26px)
+        self.btn_mini_expand = QPushButton()
+        self.btn_mini_expand.setIcon(ModernIconFactory.icon_fullscreen("#38bdf8"))
+        self.btn_mini_expand.setToolTip(LanguageManager.tr("audio_record_expand_tip"))
+        self.btn_mini_expand.setFixedSize(26, 26)
+        self.btn_mini_expand.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_mini_expand.setStyleSheet("""
+            QPushButton {
+                background-color: rgba(255, 255, 255, 0.08);
+                border: 1px solid rgba(255, 255, 255, 0.14);
+                border-radius: 4px;
+                min-width: 0px !important;
+                min-height: 0px !important;
+                padding: 0px !important;
+            }
+            QPushButton:hover {
+                background-color: rgba(56, 189, 248, 0.2);
+                border-color: rgba(56, 189, 248, 0.45);
+            }
+        """)
+        self.btn_mini_expand.clicked.connect(self._toggle_compact_mode)
+        h_mini.addWidget(self.btn_mini_expand)
+
+        # İptal / Kapat Seçeneği (Düzgün Köşeli Kare 26x26px)
+        self.btn_mini_cancel = QPushButton()
+        self.btn_mini_cancel.setIcon(ModernIconFactory.icon_close("#ef4444"))
+        self.btn_mini_cancel.setToolTip(LanguageManager.tr("btn_cancel"))
+        self.btn_mini_cancel.setFixedSize(26, 26)
+        self.btn_mini_cancel.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_mini_cancel.setStyleSheet("""
+            QPushButton {
+                background-color: rgba(255, 255, 255, 0.08);
+                border: 1px solid rgba(239, 68, 68, 0.35);
+                border-radius: 4px;
+                min-width: 0px !important;
+                min-height: 0px !important;
+                padding: 0px !important;
+            }
+            QPushButton:hover {
+                background-color: rgba(239, 68, 68, 0.25);
+                border-color: rgba(239, 68, 68, 0.7);
+            }
+        """)
+        self.btn_mini_cancel.clicked.connect(self._on_cancel)
+        h_mini.addWidget(self.btn_mini_cancel)
+
+        v_mini_wrap.addWidget(self.mini_frame)
+        self.stack.addWidget(self.widget_mini)
+
+        # Sürükleme için eventFilter kurulumu
+        for w in (self.mini_frame, self.dot_mini, self.lbl_mini_time, self.mini_visualizer, self.mini_sep):
+            w.installEventFilter(self)
+
+        self.stack.setCurrentWidget(self.widget_full)
         apply_dialog_theme(self, parent)
+
+    def eventFilter(self, watched, event):
+        if self.is_compact and watched in (self.mini_frame, self.dot_mini, self.lbl_mini_time, self.mini_visualizer, getattr(self, 'mini_sep', None)):
+            if event.type() == QEvent.Type.MouseButtonPress and event.button() == Qt.MouseButton.LeftButton:
+                self._drag_start_pos = event.globalPosition().toPoint() - self.pos()
+                return True
+            elif event.type() == QEvent.Type.MouseMove and (event.buttons() & Qt.MouseButton.LeftButton) and getattr(self, '_drag_start_pos', None):
+                self.move(event.globalPosition().toPoint() - self._drag_start_pos)
+                return True
+            elif event.type() == QEvent.Type.MouseButtonRelease:
+                self._drag_start_pos = None
+                return True
+        return super().eventFilter(watched, event)
+
+    def mousePressEvent(self, event):
+        if self.is_compact and event.button() == Qt.MouseButton.LeftButton:
+            self._drag_start_pos = event.globalPosition().toPoint() - self.pos()
+            event.accept()
+            return
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event):
+        if self.is_compact and (event.buttons() & Qt.MouseButton.LeftButton) and getattr(self, '_drag_start_pos', None):
+            self.move(event.globalPosition().toPoint() - self._drag_start_pos)
+            event.accept()
+            return
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        if self.is_compact:
+            self._drag_start_pos = None
+            parent = self.parent() or QApplication.activeWindow()
+            if parent:
+                p_geo = parent.geometry()
+                mid_x = p_geo.center().x()
+                cur_x = self.pos().x() + self.width() / 2.0
+                target_corner = "bottom-left" if cur_x < mid_x else "bottom-right"
+                self._dock_compact_capsule(target_corner)
+        super().mouseReleaseEvent(event)
+
+    def changeEvent(self, event):
+        if event.type() == QEvent.Type.WindowStateChange:
+            if self.isMinimized():
+                event.ignore()
+                QTimer.singleShot(0, self._minimize_to_compact)
+                return
+        super().changeEvent(event)
+
+    def _minimize_to_compact(self):
+        self.setWindowState(self.windowState() & ~Qt.WindowState.WindowMinimized | Qt.WindowState.WindowActive)
+        self.showNormal()
+        if not self.is_compact:
+            self._toggle_compact_mode()
+
+    def _dock_compact_capsule(self, corner: str = "bottom-right"):
+        self.compact_corner = corner
+        parent = self.parent() or QApplication.activeWindow()
+        capsule_w = 310
+        capsule_h = 44
+        margin = 24
+
+        if parent:
+            p_geo = parent.geometry()
+            if corner == "bottom-left":
+                left_toolbar_offset = 64 if hasattr(parent, 'modern_left_toolbar') else 0
+                target_x = p_geo.left() + left_toolbar_offset + margin
+                target_y = p_geo.bottom() - capsule_h - margin
+            else:  # bottom-right
+                right_sidebar_offset = 40 if (hasattr(parent, 'modern_right_sidebar') and getattr(parent.modern_right_sidebar, 'isVisible', lambda: False)()) else 0
+                target_x = p_geo.right() - right_sidebar_offset - capsule_w - margin
+                target_y = p_geo.bottom() - capsule_h - margin
+
+            screen = parent.screen().availableGeometry() if hasattr(parent, 'screen') and parent.screen() else QApplication.primaryScreen().availableGeometry()
+            target_x = max(screen.left() + 10, min(target_x, screen.right() - capsule_w - 10))
+            target_y = max(screen.top() + 10, min(target_y, screen.bottom() - capsule_h - 10))
+            self.move(int(target_x), int(target_y))
+        else:
+            screen = QApplication.primaryScreen().availableGeometry()
+            if corner == "bottom-left":
+                target_x = screen.left() + margin
+            else:
+                target_x = screen.right() - capsule_w - margin
+            target_y = screen.bottom() - capsule_h - margin
+            self.move(int(target_x), int(target_y))
+
+    def _toggle_dock_corner(self):
+        new_corner = "bottom-left" if getattr(self, 'compact_corner', 'bottom-right') == "bottom-right" else "bottom-right"
+        self._dock_compact_capsule(new_corner)
 
     def _toggle_compact_mode(self):
         self.is_compact = not self.is_compact
         if self.is_compact:
-            self.lbl_title.hide()
-            self.txt_title.hide()
-            self.visualizer.hide()
-            self.btn_choose_file.hide()
-            self.btn_cancel.hide()
-            self.timer_frame.setMinimumHeight(56)
-            self.lbl_time.setStyleSheet(
-                "font-size: 24px; font-weight: bold;  font-family: 'Consolas', 'Segoe UI', monospace; border: none; background: transparent; padding: 0;"
+            self._saved_full_pos = self.pos()
+            self.setWindowFlags(
+                Qt.WindowType.Tool |
+                Qt.WindowType.FramelessWindowHint |
+                Qt.WindowType.WindowStaysOnTopHint
             )
-            self.lbl_status.setStyleSheet(
-                " font-size: 11px; font-weight: 500; border: none; background: transparent; padding: 0;"
-            )
-            self.btn_compact.setText(LanguageManager.tr("full_view", default="Tam Görünüm"))
-            self.btn_compact.setStyleSheet("""
-                QPushButton {
-                    background-color: rgba(255, 255, 255, 0.06);
-                    color: #f1f5f9;
-                    border: 1px solid rgba(255, 255, 255, 0.12);
-                    border-radius: 5px; padding: 4px 10px; font-size: 11px; font-weight: bold;
-                }
-                QPushButton:hover {
-                    background-color: rgba(255, 255, 255, 0.12);
-                    border-color: rgba(255, 255, 255, 0.25);
-                    color: #ffffff;
-                }
-            """)
-            self.setFixedSize(480, 235)
+            self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+            self.setStyleSheet("background: transparent;")
+            self.stack.setCurrentWidget(self.widget_mini)
+            self.setMinimumSize(0, 0)
+            self.setMaximumSize(330, 52)
+            self.resize(310, 46)
+            self._dock_compact_capsule(getattr(self, 'compact_corner', 'bottom-right'))
+            self.show()
         else:
-            self.lbl_title.show()
-            self.txt_title.show()
-            self.visualizer.show()
-            self.btn_choose_file.show()
-            self.btn_cancel.show()
-            self.timer_frame.setMinimumHeight(92)
-            self.lbl_time.setStyleSheet(
-                "font-size: 34px; font-weight: bold;  font-family: 'Consolas', 'Segoe UI', monospace; border: none; background: transparent; padding: 0; min-height: 42px;"
+            self.setWindowFlags(
+                Qt.WindowType.Window |
+                Qt.WindowType.WindowStaysOnTopHint |
+                Qt.WindowType.CustomizeWindowHint |
+                Qt.WindowType.WindowTitleHint |
+                Qt.WindowType.WindowCloseButtonHint
             )
-            self.lbl_status.setStyleSheet(
-                " font-size: 12px; font-weight: 500; border: none; background: transparent; padding: 0; min-height: 20px;"
-            )
-            self.btn_compact.setText("🗕 Kompakt Mod")
-            self.btn_compact.setStyleSheet("""
-                QPushButton {
-                    background-color: rgba(255, 255, 255, 0.06);
-                    color: #f1f5f9;
-                    border: 1px solid rgba(255, 255, 255, 0.12);
-                    border-radius: 5px; padding: 4px 10px; font-size: 11px; font-weight: 500;
-                }
-                QPushButton:hover {
-                    background-color: rgba(255, 255, 255, 0.12);
-                    border-color: rgba(255, 255, 255, 0.25);
-                    color: #ffffff;
-                }
-            """)
-            self.setFixedSize(500, 520)
+            self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, False)
+            self.setStyleSheet("")
+            apply_dialog_theme(self, self.parent())
+            self.stack.setCurrentWidget(self.widget_full)
+            self.setMaximumSize(16777215, 16777215)
+            self.setMinimumSize(500, 520)
+            self.resize(520, 550)
+            if hasattr(self, '_saved_full_pos') and self._saved_full_pos:
+                self.move(self._saved_full_pos)
+            self.setWindowTitle(LanguageManager.tr("audio_record_title"))
+            self.show()
+
+    def _on_mini_stop_clicked(self):
+        if self.is_recording:
+            self._stop_record()
+        elif self.audio_bytes:
+            self.accept()
+        else:
+            self._start_record()
 
     def _read_audio_level(self):
         if not self.is_recording or self.is_paused or not self.audio_source_io:
             self.visualizer.set_audio_level(0.0)
+            self.mini_visualizer.set_level(0.0, active=False)
             return
         try:
             raw_bytes = bytes(self.audio_source_io.readAll())
@@ -3103,16 +3670,18 @@ class AudioRecordDialog(QDialog):
                 peak = max(abs(s) for s in samples)
                 level = peak / 32768.0
                 self.visualizer.set_audio_level(level)
+                self.mini_visualizer.set_level(level, active=True)
             else:
                 self.visualizer.set_audio_level(0.0)
+                self.mini_visualizer.set_level(0.0, active=False)
         except Exception:
             self.visualizer.set_audio_level(0.0)
+            self.mini_visualizer.set_level(0.0, active=False)
 
     def _set_status(self, text: str, color: str = "#94a3b8"):
         self.lbl_status.setText(text)
-        font_size = "11px" if self.is_compact else "12px"
         self.lbl_status.setStyleSheet(
-            f"color: {color}; font-size: {font_size}; font-weight: 500; border: none; background: transparent; padding: 0;"
+            f"color: {color}; font-size: 12px; font-weight: 500; border: none; background: transparent; padding: 0;"
         )
 
     def _start_record(self):
@@ -3124,6 +3693,7 @@ class AudioRecordDialog(QDialog):
         self.is_paused = False
         self.elapsed_seconds = 0
         self.lbl_time.setText("00:00")
+        self.lbl_mini_time.setText("00:00")
         self.timer.start(1000)
 
         try:
@@ -3139,58 +3709,65 @@ class AudioRecordDialog(QDialog):
 
         self.btn_start.setEnabled(False)
         self.btn_pause.setEnabled(True)
-        self.btn_pause.setText("Duraklat")
-        self.btn_pause.setStyleSheet(f"""
-            QPushButton {{
-                  font-weight: bold;
-                padding: 9px 8px; border-radius: 6px; border: none; font-size: 11px; min-width: 72px;
-            }}
-            QPushButton:hover {{  }}
-            QPushButton:disabled {{ {btn_disabled_css} }}
-        """)
+        self.btn_pause.setText(LanguageManager.tr("audio_record_pause"))
+        self.btn_pause.setIcon(ModernIconFactory.icon_pause("#f1f5f9"))
         self.btn_stop.setEnabled(True)
         self.btn_reset.setEnabled(False)
         self.btn_play_preview.setEnabled(False)
         self.btn_ok.setEnabled(False)
 
-        self._set_status("Mikrofondan ses kaydediliyor...", "#f87171")
+        # Mini bar kontrollerini senkronize et
+        self.dot_mini.setStyleSheet("background-color: #ef4444; border-radius: 4px; border: none;")
+        self.dot_mini.setToolTip(LanguageManager.tr("audio_record_recording"))
+        self.btn_mini_pause.show()
+        self.btn_mini_pause.setEnabled(True)
+        self.btn_mini_pause.setIcon(ModernIconFactory.icon_pause("#f1f5f9"))
+        self.btn_mini_pause.setToolTip(LanguageManager.tr("audio_record_pause"))
+        self.btn_mini_stop.setEnabled(True)
+        self.btn_mini_stop.setIcon(ModernIconFactory.icon_stop("#ffffff"))
+        self.btn_mini_stop.setStyleSheet("""
+            QPushButton {
+                background-color: rgba(255, 255, 255, 0.08);
+                border: 1px solid rgba(255, 255, 255, 0.14);
+                border-radius: 4px;
+            }
+            QPushButton:hover {
+                background-color: rgba(239, 68, 68, 0.25);
+                border-color: rgba(239, 68, 68, 0.6);
+            }
+        """)
+
+        self._set_status(LanguageManager.tr("audio_record_recording"), "#f87171")
         self.visualizer.start_recording_anim()
 
     def _toggle_pause(self):
         if not self.is_recording:
             return
 
-        btn_disabled_css = "background-color: rgba(255, 255, 255, 0.03); color: #64748b; border: 1px solid rgba(255, 255, 255, 0.06);"
-
         if not self.is_paused:
             self.recorder.pause()
             self.is_paused = True
             self.timer.stop()
-            self.btn_pause.setText("Devam Et")
-            self.btn_pause.setStyleSheet(f"""
-                QPushButton {{
-                      font-weight: bold;
-                    padding: 9px 8px; border-radius: 6px; border: none; font-size: 11px; min-width: 72px;
-                }}
-                QPushButton:hover {{  }}
-                QPushButton:disabled {{ {btn_disabled_css} }}
-            """)
-            self._set_status("Kayıt duraklatıldı", "#eab308")
+            self.btn_pause.setText(LanguageManager.tr("audio_record_resume"))
+            self.btn_pause.setIcon(ModernIconFactory.icon_play("#f1f5f9"))
+            self.btn_mini_pause.setIcon(ModernIconFactory.icon_play("#f1f5f9"))
+            self.btn_mini_pause.setToolTip(LanguageManager.tr("audio_record_resume"))
+            self.dot_mini.setStyleSheet("background-color: #eab308; border-radius: 4px; border: none;")
+            self.dot_mini.setToolTip(LanguageManager.tr("audio_record_paused"))
+            self._set_status(LanguageManager.tr("audio_record_paused"), "#eab308")
             self.visualizer.set_audio_level(0.0)
+            self.mini_visualizer.set_level(0.0, active=False)
         else:
             self.recorder.record()
             self.is_paused = False
             self.timer.start(1000)
-            self.btn_pause.setText("Duraklat")
-            self.btn_pause.setStyleSheet(f"""
-                QPushButton {{
-                      font-weight: bold;
-                    padding: 9px 8px; border-radius: 6px; border: none; font-size: 11px; min-width: 72px;
-                }}
-                QPushButton:hover {{  }}
-                QPushButton:disabled {{ {btn_disabled_css} }}
-            """)
-            self._set_status("Mikrofondan ses kaydediliyor...", "#f87171")
+            self.btn_pause.setText(LanguageManager.tr("audio_record_pause"))
+            self.btn_pause.setIcon(ModernIconFactory.icon_pause("#f1f5f9"))
+            self.btn_mini_pause.setIcon(ModernIconFactory.icon_pause("#f1f5f9"))
+            self.btn_mini_pause.setToolTip(LanguageManager.tr("audio_record_pause"))
+            self.dot_mini.setStyleSheet("background-color: #ef4444; border-radius: 4px; border: none;")
+            self.dot_mini.setToolTip(LanguageManager.tr("audio_record_recording"))
+            self._set_status(LanguageManager.tr("audio_record_recording"), "#f87171")
 
     def _stop_record(self):
         if not self.is_recording:
@@ -3208,12 +3785,33 @@ class AudioRecordDialog(QDialog):
 
         self.btn_start.setEnabled(False)
         self.btn_pause.setEnabled(False)
-        self.btn_pause.setText("Duraklat")
+        self.btn_pause.setText(LanguageManager.tr("audio_record_pause"))
+        self.btn_pause.setIcon(ModernIconFactory.icon_pause("#f1f5f9"))
         self.btn_stop.setEnabled(False)
         self.btn_reset.setEnabled(True)
 
-        self._set_status("Kayıt tamamlandı", "#10b981")
+        # Mini bar kontrollerini senkronize et
+        self.dot_mini.setStyleSheet("background-color: #10b981; border-radius: 4px; border: none;")
+        self.dot_mini.setToolTip(LanguageManager.tr("audio_record_completed"))
+        self.btn_mini_pause.hide()
+        self.btn_mini_stop.setIcon(ModernIconFactory.icon_check("#ffffff"))
+        self.btn_mini_stop.setToolTip(LanguageManager.tr("audio_record_insert"))
+        self.btn_mini_stop.setStyleSheet("""
+            QPushButton {
+                background-color: rgba(16, 185, 129, 0.2);
+                border: 1px solid rgba(16, 185, 129, 0.5);
+                border-radius: 4px;
+            }
+            QPushButton:hover {
+                background-color: rgba(16, 185, 129, 0.35);
+                border-color: #10b981;
+            }
+        """)
+        self.btn_mini_stop.setEnabled(True)
+
+        self._set_status(LanguageManager.tr("audio_record_completed"), "#10b981")
         self.visualizer.stop_anim()
+        self.mini_visualizer.set_level(0.0, active=False)
 
         QTimer.singleShot(500, self._load_temp_audio)
 
@@ -3231,13 +3829,37 @@ class AudioRecordDialog(QDialog):
         self.elapsed_seconds = 0
         self.is_paused = False
         self.lbl_time.setText("00:00")
-        self._set_status("Kayda hazır", "#94a3b8")
+        self.lbl_mini_time.setText("00:00")
+        self.dot_mini.setStyleSheet("background-color: #94a3b8; border-radius: 4px; border: none;")
+        self.dot_mini.setToolTip(LanguageManager.tr("audio_record_ready"))
+        self.btn_mini_pause.show()
+        self.btn_mini_pause.setEnabled(False)
+        self.btn_mini_stop.setEnabled(False)
+        self.btn_mini_stop.setIcon(ModernIconFactory.icon_stop("#ffffff"))
+        self.btn_mini_stop.setToolTip(LanguageManager.tr("audio_record_stop"))
+        self.btn_mini_stop.setStyleSheet("""
+            QPushButton {
+                background-color: rgba(255, 255, 255, 0.08);
+                border: 1px solid rgba(255, 255, 255, 0.14);
+                border-radius: 4px;
+            }
+            QPushButton:hover {
+                background-color: rgba(239, 68, 68, 0.25);
+                border-color: rgba(239, 68, 68, 0.6);
+            }
+            QPushButton:disabled {
+                background-color: rgba(255, 255, 255, 0.03);
+                border-color: transparent;
+            }
+        """)
 
+        self._set_status(LanguageManager.tr("audio_record_ready"), "#94a3b8")
         self.visualizer.stop_anim()
+        self.mini_visualizer.set_level(0.0, active=False)
 
         self.btn_start.setEnabled(True)
         self.btn_pause.setEnabled(False)
-        self.btn_pause.setText("Duraklat")
+        self.btn_pause.setText(LanguageManager.tr("audio_record_pause"))
         self.btn_stop.setEnabled(False)
         self.btn_reset.setEnabled(False)
         self.btn_play_preview.setEnabled(False)
@@ -3247,7 +3869,11 @@ class AudioRecordDialog(QDialog):
         self.elapsed_seconds += 1
         m = self.elapsed_seconds // 60
         s = self.elapsed_seconds % 60
-        self.lbl_time.setText(f"{m:02d}:{s:02d}")
+        time_str = f"{m:02d}:{s:02d}"
+        self.lbl_time.setText(time_str)
+        self.lbl_mini_time.setText(time_str)
+        if self.is_compact:
+            self.setWindowTitle(f"[{time_str}] {LanguageManager.tr('audio_record_title')}")
 
     def _load_temp_audio(self):
         if os.path.exists(self.temp_record_path):
@@ -3260,7 +3886,7 @@ class AudioRecordDialog(QDialog):
         if self.player.playbackState() == QMediaPlayer.PlaybackState.PlayingState:
             self.player.stop()
             self.visualizer.stop_anim()
-            self.btn_play_preview.setText("Dinle")
+            self.btn_play_preview.setText(LanguageManager.tr("audio_record_listen"))
             return
 
         if self.temp_record_path and os.path.exists(self.temp_record_path):
@@ -3268,22 +3894,22 @@ class AudioRecordDialog(QDialog):
             self.player_output.setVolume(1.0)
             self.player.play()
             self.visualizer.start_playing_anim()
-            self.btn_play_preview.setText("Durdur")
+            self.btn_play_preview.setText(LanguageManager.tr("audio_record_stop"))
 
     def _on_playback_state_changed(self, state):
         if state == QMediaPlayer.PlaybackState.StoppedState:
             self.visualizer.stop_anim()
-            self.btn_play_preview.setText("Dinle")
+            self.btn_play_preview.setText(LanguageManager.tr("audio_record_listen"))
 
     def _choose_audio_file(self):
-        fpath, _ = QFileDialog.getOpenFileName(self, "Ses Dosyası Seç", "", "Ses Dosyaları (*.mp3 *.wav *.m4a *.ogg *.aac)")
+        fpath, _ = QFileDialog.getOpenFileName(self, LanguageManager.tr("insert_audio_file"), "", "Ses Dosyaları (*.mp3 *.wav *.m4a *.ogg *.aac)")
         if fpath and os.path.exists(fpath):
             with open(fpath, "rb") as f:
                 self.audio_bytes = f.read()
             ext = os.path.splitext(fpath)[1].replace(".", "")
             self.format = ext
             self.txt_title.setText(os.path.basename(fpath))
-            self._set_status(f"Dosya yüklendi: {os.path.basename(fpath)}", "#10b981")
+            self._set_status(f"{LanguageManager.tr('audio_record_completed')}: {os.path.basename(fpath)}", "#10b981")
             self.temp_record_path = fpath
             self.btn_reset.setEnabled(True)
             self.btn_play_preview.setEnabled(True)

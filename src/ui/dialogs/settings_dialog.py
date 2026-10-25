@@ -1587,14 +1587,29 @@ class AuraSettingsDialog(QDialog):
 
         # 4. Yan Panel & Araç Çubuğu Düzeni
         self.cmb_panel_layout = QComboBox()
-        self.cmb_panel_layout.addItem(LanguageManager.tr("settings_panel_layout_tools_left"), "tools_left_nav_right")
         self.cmb_panel_layout.addItem(LanguageManager.tr("settings_panel_layout_tools_right"), "tools_right_nav_left")
+        self.cmb_panel_layout.addItem(LanguageManager.tr("settings_panel_layout_tools_left"), "tools_left_nav_right")
         row_panel_layout = self._create_setting_row(
             LanguageManager.tr("settings_panel_layout_lbl"),
             self.cmb_panel_layout,
             LanguageManager.tr("settings_panel_layout_desc")
         )
         card_layout.addWidget(row_panel_layout)
+        sep4 = QFrame()
+        sep4.setFixedHeight(1)
+        sep4.setObjectName("SettingsCardSep")
+        card_layout.addWidget(sep4)
+
+        # 5. Sekme Önizlemesi (Fare ile üzerine gelindiğinde)
+        self.chk_tab_hover_preview = QCheckBox()
+        self.chk_tab_hover_preview.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.chk_tab_hover_preview.toggled.connect(self._on_tab_preview_toggled)
+        row_tab_preview = self._create_setting_row(
+            LanguageManager.tr("settings_show_tab_hover_preview"),
+            self.chk_tab_hover_preview,
+            LanguageManager.tr("settings_show_tab_hover_preview_desc")
+        )
+        card_layout.addWidget(row_tab_preview)
 
         layout.addWidget(card)
 
@@ -1660,6 +1675,8 @@ class AuraSettingsDialog(QDialog):
             self._set_cmb_data(self.cmb_app_font_size, 10)
         if hasattr(self, 'cmb_panel_layout'):
             self._set_cmb_data(self.cmb_panel_layout, "tools_left_nav_right")
+        if hasattr(self, 'chk_tab_hover_preview'):
+            self.chk_tab_hover_preview.setChecked(False)
 
         # Yazar bilgileri
         def_user, def_comp = get_default_author_info()
@@ -2534,9 +2551,13 @@ class AuraSettingsDialog(QDialog):
         QMessageBox.warning(self, LanguageManager.tr("updates_error_title"), err_msg)
 
     def _set_cmb_data(self, cmb: QComboBox, data_val):
-        idx = cmb.findData(data_val)
-        if idx >= 0:
-            cmb.setCurrentIndex(idx)
+        try:
+            if cmb:
+                idx = cmb.findData(data_val)
+                if idx >= 0:
+                    cmb.setCurrentIndex(idx)
+        except Exception:
+            pass
 
     def _on_cursor_preset_changed(self, idx):
         preset_key = self.cmb_cursor_preset.currentData()
@@ -2679,8 +2700,12 @@ class AuraSettingsDialog(QDialog):
 
         # Panel Yerleşimi
         if hasattr(self, 'cmb_panel_layout'):
-            saved_layout = self.settings.value("sidebar_layout", "tools_left_nav_right")
+            saved_layout = self.settings.value("sidebar_layout", "tools_right_nav_left")
             self._set_cmb_data(self.cmb_panel_layout, saved_layout)
+
+        # Sekme Önizlemesi (Varsayılan: Kapalı)
+        if hasattr(self, 'chk_tab_hover_preview'):
+            self.chk_tab_hover_preview.setChecked(self.settings.value("show_tab_preview", False, type=bool))
 
         tb_version = self.settings.value("floating_tools_order_version", 0, type=int)
         raw_tb = self.settings.value("floating_tools_order", None)
@@ -2736,6 +2761,14 @@ class AuraSettingsDialog(QDialog):
             self._set_cmb_data(self.cmb_update_freq, saved_freq)
         if hasattr(self, 'txt_github_token'):
             self.txt_github_token.setText(self.settings.value("github_token", ""))
+
+    def _on_tab_preview_toggled(self, checked: bool):
+        self.settings.setValue("show_tab_preview", checked)
+        self.settings.sync()
+        if hasattr(self.main_window, 'show_tab_preview_enabled'):
+            self.main_window.show_tab_preview_enabled = checked
+        if not checked and hasattr(self.main_window, '_do_hide_tab_preview'):
+            self.main_window._do_hide_tab_preview()
 
     def apply_settings(self):
         # 1. Tema Kaydet & Uygula
@@ -2805,6 +2838,14 @@ class AuraSettingsDialog(QDialog):
                 self.settings.setValue("sidebar_layout", panel_layout)
                 if hasattr(self.main_window, 'update_panels_layout'):
                     self.main_window.update_panels_layout(panel_layout)
+
+        # Sekme Önizlemesi
+        if hasattr(self, 'chk_tab_hover_preview'):
+            is_preview = self.chk_tab_hover_preview.isChecked()
+            self.settings.setValue("show_tab_preview", is_preview)
+            self.settings.sync()
+            if hasattr(self.main_window, 'show_tab_preview_enabled'):
+                self.main_window.show_tab_preview_enabled = is_preview
 
         # 6. Toolbar Düzenini Kaydet & Uygula
         reordered_items = []
