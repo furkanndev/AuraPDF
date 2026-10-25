@@ -300,7 +300,7 @@ def main():
     app_icon = AuraIconFactory.icon_app()
     app.setWindowIcon(app_icon)
 
-    # Windows Dosya Gezgini PDF kucuk resim onizlemesi ve sag-alt AuraPDF rozeti
+    # Windows Dosya Gezgini PDF kucuk resim onizlemesi (temiz, sag-alt rozetsiz)
     # Yalnızca paketlenmiş/kurulu sürümde çalıştırılır (geliştirme ortamında sisteme müdahale edilmez)
     if getattr(sys, "frozen", False):
         try:

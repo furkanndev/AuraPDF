@@ -1,9 +1,9 @@
 """
-AuraPDF - Windows Shell Entegrasyonu (PDF Önizleme ve Küçük Resim Sağ-Alt Logo Rozeti)
-========================================================================================
+AuraPDF - Windows Shell Entegrasyonu (PDF Önizleme ve Temiz Küçük Resim Görünümü)
+==================================================================================
 Windows Dosya Gezgini'nde (Explorer) PDF dosyalarının ilk sayfasının yüksek çözünürlüklü
-küçük resim (thumbnail) olarak görüntülenmesini ve sağ alt köşesinde AuraPDF uygulama
-logosunun (DefaultIcon rozeti) yer almasını sağlar.
+küçük resim (thumbnail) olarak temiz bir şekilde görüntülenmesini sağlar.
+Sağ alt köşedeki gereksiz uygulama logo rozetini (ShowTypeOverlay=0) devre dışı bırakır.
 """
 
 import os
@@ -48,8 +48,9 @@ def get_bundled_file_path(filename: str) -> str | None:
 
 def ensure_pdf_shell_integration(force: bool = False) -> bool:
     """
-    Windows Dosya Gezgini için PDF önizleme (Thumbnail Provider) ve
-    sağ-alt AuraPDF logo rozeti (ShowTypeOverlay) ayarlarını doğrular ve etkinleştirir.
+    Windows Dosya Gezgini için PDF önizleme (Thumbnail Provider) ayarlarını doğrular
+    ve sağ-alt köşe uygulama logo rozetini kapatarak (ShowTypeOverlay=0) temiz ve modern
+    bir önizleme sunar.
     Geliştirme ortamında (main.py doğrudan çalıştırıldığında) sisteme müdahale etmez;
     yalnızca derlenmiş/kurulu sürümde (sys.frozen) veya force=True durumunda çalışır.
     """
@@ -70,12 +71,14 @@ def ensure_pdf_shell_integration(force: bool = False) -> bool:
         target_dll = os.path.join(local_appdata, "PdfThumbnailProvider.dll")
         target_exe = os.path.join(local_appdata, "PowerToys.PdfThumbnailProvider.exe")
         target_ico = os.path.join(local_appdata, "app_icon.ico")
+        target_pdf_ico = os.path.join(local_appdata, "pdf_file.ico")
 
-        # Gerekli dosyaları senkronize et (DLL, Thumbnail Helper EXE ve Uygulama İkonu)
+        # Gerekli dosyaları senkronize et (DLL, Thumbnail Helper EXE, Uygulama İkonu ve PDF Belge İkonu)
         files_to_sync = [
             ("PdfThumbnailProvider.dll", target_dll),
             ("PowerToys.PdfThumbnailProvider.exe", target_exe),
             ("app_icon.ico", target_ico),
+            ("pdf_file.ico", target_pdf_ico),
         ]
 
         for fname, dst in files_to_sync:
@@ -130,8 +133,8 @@ def ensure_pdf_shell_integration(force: bool = False) -> bool:
         set_reg_val(winreg.HKEY_CURRENT_USER, f"{clsid_path}\\InprocServer32", "", active_dll)
         set_reg_val(winreg.HKEY_CURRENT_USER, f"{clsid_path}\\InprocServer32", "ThreadingModel", "Apartment")
 
-        # 3. ShellEx Thumbnail Handler İlişkilendirmesi
-        # AuraPDF ProgID, .pdf uzantısı ve SystemFileAssociations
+        # 3. ShellEx Thumbnail Handler İlişkilendirmesi ve TypeOverlay Rozetini Kapatma
+        # Windows Shell SDK: TypeOverlay = "" değeri küçük resim üzerindeki uygulama logo rozetini engeller
         for assoc_base in [
             r"Software\Classes\AuraPDF.AssocFile.PDF",
             r"Software\Classes\.pdf",
@@ -143,24 +146,30 @@ def ensure_pdf_shell_integration(force: bool = False) -> bool:
                 "",
                 THUMBNAIL_PROVIDER_CLSID,
             )
+            set_reg_val(
+                winreg.HKEY_CURRENT_USER,
+                assoc_base,
+                "TypeOverlay",
+                "",
+            )
 
-        # 4. AuraPDF DefaultIcon (Önizleme sağ-alt logosunun AuraPDF logosu olması için)
-        active_ico = target_ico if os.path.isfile(target_ico) else get_bundled_file_path("app_icon.ico")
-        if active_ico and os.path.isfile(active_ico):
+        # 4. AuraPDF DefaultIcon (PDF dosyaları için standart belge simgesi)
+        active_pdf_ico = target_pdf_ico if os.path.isfile(target_pdf_ico) else get_bundled_file_path("pdf_file.ico")
+        if active_pdf_ico and os.path.isfile(active_pdf_ico):
             set_reg_val(
                 winreg.HKEY_CURRENT_USER,
                 r"Software\Classes\AuraPDF.AssocFile.PDF\DefaultIcon",
                 "",
-                f"{active_ico},0",
+                f"{active_pdf_ico},0",
             )
 
-        # 5. Windows Gezgini Sağ-Alt Logo Rozetini (Type Overlay) Etkinleştir
-        # ShowTypeOverlay = 1: Küçük resmin sağ alt köşesinde uygulama simgesini gösterir
+        # 5. Windows Gezgini Sağ-Alt Logo Rozetini Kapat (Temiz Önizleme Görünümü)
+        # ShowTypeOverlay = 0: Küçük resimlerin sağ-alt köşesindeki uygulama logosu rozetini kaldırır
         set_reg_dword(
             winreg.HKEY_CURRENT_USER,
             r"Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced",
             "ShowTypeOverlay",
-            1,
+            0,
         )
 
         # 6. Değişiklik varsa Shell bildirimini gönder
@@ -227,7 +236,7 @@ def remove_pdf_shell_integration() -> bool:
         # 4. Local AppData altındaki DLL ve kopyalanmış araçları temizle
         try:
             local_appdata = os.path.expandvars(r"%LOCALAPPDATA%\AuraPDF")
-            for fname in ["PdfThumbnailProvider.dll", "PowerToys.PdfThumbnailProvider.exe", "app_icon.ico"]:
+            for fname in ["PdfThumbnailProvider.dll", "PowerToys.PdfThumbnailProvider.exe", "app_icon.ico", "pdf_file.ico"]:
                 fpath = os.path.join(local_appdata, fname)
                 if os.path.isfile(fpath):
                     try:

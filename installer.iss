@@ -82,7 +82,10 @@ Root: HKA; Subkey: "Software\Classes\AuraPDF.AssocFile.PDF"; ValueType: string; 
 Root: HKA; Subkey: "Software\Classes\AuraPDF.AssocFile.PDF\DefaultIcon"; ValueType: string; ValueName: ""; ValueData: "{app}\pdf_file.ico,0"; Tasks: assocpdf
 Root: HKA; Subkey: "Software\Classes\AuraPDF.AssocFile.PDF\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\{#MyAppExeName}"" ""%1"""; Tasks: assocpdf
 Root: HKA; Subkey: "Software\Classes\AuraPDF.AssocFile.PDF\ShellEx\{{8895b1c6-b41f-4c1c-a562-0d564250836f}"; ValueType: string; ValueName: ""; ValueData: "{{3A84F9C2-6164-485C-A7D9-4B27F8AC009E}"; Tasks: assocpdf
-; PDF Onizleme (Thumbnail Provider) ve Sag-Alt AuraPDF Logo Rozeti
+; PDF Onizleme (Thumbnail Provider) - Sag-Alt Rozet Kapali (TypeOverlay = "" ve ShowTypeOverlay = 0)
+Root: HKA; Subkey: "Software\Classes\AuraPDF.AssocFile.PDF"; ValueType: string; ValueName: "TypeOverlay"; ValueData: ""; Flags: uninsdeletevalue; Tasks: assocpdf
+Root: HKA; Subkey: "Software\Classes\.pdf"; ValueType: string; ValueName: "TypeOverlay"; ValueData: ""; Flags: uninsdeletevalue; Tasks: assocpdf
+Root: HKA; Subkey: "Software\Classes\SystemFileAssociations\.pdf"; ValueType: string; ValueName: "TypeOverlay"; ValueData: ""; Flags: uninsdeletevalue; Tasks: assocpdf
 Root: HKA; Subkey: "Software\Classes\CLSID\{{D8BB9942-93BD-412D-87E4-33FAB214DC1A}"; ValueType: string; ValueName: ""; ValueData: "AuraPDF Thumbnail Provider"; Flags: uninsdeletekey; Tasks: assocpdf
 Root: HKA; Subkey: "Software\Classes\CLSID\{{D8BB9942-93BD-412D-87E4-33FAB214DC1A}"; ValueType: dword; ValueName: "DisableProcessIsolation"; ValueData: "1"; Tasks: assocpdf
 Root: HKA; Subkey: "Software\Classes\CLSID\{{D8BB9942-93BD-412D-87E4-33FAB214DC1A}\InprocServer32"; ValueType: string; ValueName: ""; ValueData: "{app}\PdfThumbnailProvider.dll"; Tasks: assocpdf
@@ -90,7 +93,8 @@ Root: HKA; Subkey: "Software\Classes\CLSID\{{D8BB9942-93BD-412D-87E4-33FAB214DC1
 Root: HKA; Subkey: "Software\Classes\AuraPDF.AssocFile.PDF\ShellEx\{{e357fccd-a995-4576-b01f-234630154e96}"; ValueType: string; ValueName: ""; ValueData: "{{D8BB9942-93BD-412D-87E4-33FAB214DC1A}"; Tasks: assocpdf
 Root: HKA; Subkey: "Software\Classes\.pdf\ShellEx\{{e357fccd-a995-4576-b01f-234630154e96}"; ValueType: string; ValueName: ""; ValueData: "{{D8BB9942-93BD-412D-87E4-33FAB214DC1A}"; Tasks: assocpdf
 Root: HKA; Subkey: "Software\Classes\SystemFileAssociations\.pdf\ShellEx\{{e357fccd-a995-4576-b01f-234630154e96}"; ValueType: string; ValueName: ""; ValueData: "{{D8BB9942-93BD-412D-87E4-33FAB214DC1A}"; Tasks: assocpdf
-Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced"; ValueType: dword; ValueName: "ShowTypeOverlay"; ValueData: "1"; Tasks: assocpdf
+Root: HKLM; Subkey: "Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced"; ValueType: dword; ValueName: "ShowTypeOverlay"; ValueData: "0"; Tasks: assocpdf
+Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced"; ValueType: dword; ValueName: "ShowTypeOverlay"; ValueData: "0"; Tasks: assocpdf
 ; Windows Birlikte Ac (Open With) ve Uygulama Kaydi
 Root: HKA; Subkey: "Software\Classes\Applications\{#MyAppExeName}\SupportedTypes"; ValueType: string; ValueName: ".pdf"; ValueData: ""; Flags: uninsdeletevalue; Tasks: assocpdf
 Root: HKA; Subkey: "Software\Classes\Applications\{#MyAppExeName}\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\{#MyAppExeName}"" ""%1"""; Tasks: assocpdf
