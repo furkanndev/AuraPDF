@@ -28,6 +28,17 @@ def get_unicode_font_path(font_name: str = "Arial", bold: bool = False, italic: 
     fn_low = (font_name or "").lower().replace(" ", "").replace("-", "")
 
     # Windows sistem fontları haritası: (normal, bold, italic, bold_italic)
+    ALIAS_MAP = {
+        "helv": "arial",
+        "helvetica": "arial",
+        "tiro": "times",
+        "timesroman": "times",
+        "couri": "courier",
+        "couriernew": "courier",
+    }
+    if fn_low in ALIAS_MAP:
+        fn_low = ALIAS_MAP[fn_low]
+
     FONT_MAP = {
         "calibri": ("calibri.ttf", "calibrib.ttf", "calibrii.ttf", "calibriz.ttf"),
         "segoe": ("segoeui.ttf", "segoeuib.ttf", "segoeuii.ttf", "segoeuiz.ttf"),
@@ -43,6 +54,7 @@ def get_unicode_font_path(font_name: str = "Arial", bold: bool = False, italic: 
         "gothic": ("gothic.ttf", "gothicb.ttf", "gothici.ttf", "gothicbi.ttf"),
         "century": ("century.ttf", "century.ttf", "century.ttf", "century.ttf"),
         "aptos": ("aptos.ttf", "aptos-bold.ttf", "aptos-italic.ttf", "aptos-bolditalic.ttf"),
+        "impact": ("impact.ttf", "impact.ttf", "impact.ttf", "impact.ttf"),
     }
 
     windir = os.environ.get("WINDIR", r"C:\Windows")
@@ -50,7 +62,7 @@ def get_unicode_font_path(font_name: str = "Arial", bold: bool = False, italic: 
 
     target_tuple = None
     for key, files in FONT_MAP.items():
-        if key in fn_low:
+        if key in fn_low or fn_low in key or fn_low.startswith(key) or key.startswith(fn_low):
             target_tuple = files
             break
 

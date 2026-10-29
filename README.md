@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/furkanndev/AuraPDF/releases"><img src="https://img.shields.io/badge/Release-Pro%20v2.2.3-6366f1?style=for-the-badge&logo=windows&logoColor=white" alt="Version" /></a>
+  <a href="https://github.com/furkanndev/AuraPDF/releases"><img src="https://img.shields.io/badge/Release-Pro%20v2.2.4-6366f1?style=for-the-badge&logo=windows&logoColor=white" alt="Version" /></a>
   <a href="https://www.python.org/"><img src="https://img.shields.io/badge/Python-3.10%2B-3776AB?style=for-the-badge&logo=python&logoColor=white" alt="Python Version" /></a>
   <a href="https://www.riverbankcomputing.com/software/pyqt/"><img src="https://img.shields.io/badge/Framework-PyQt6-41CD52?style=for-the-badge&logo=qt&logoColor=white" alt="PyQt6" /></a>
   <a href="https://pymupdf.readthedocs.io/"><img src="https://img.shields.io/badge/Engine-PyMuPDF_2.0-FF6F00?style=for-the-badge" alt="PyMuPDF" /></a>
@@ -220,8 +220,8 @@ AuraPDF Pro can be compiled into a single-file, production-grade installer using
    python build_setup.py
    ```
 3. Once completed, the output installer will be available at:
-   * `Kurulum/Pro/AuraPDF_Pro v<version>.exe` (e.g., `AuraPDF_Pro v2.2.3.exe`)
-   * Desktop: `AuraPDF_Pro v2.2.3.exe`
+   * `Kurulum/Pro/AuraPDF_Pro v<version>.exe` (e.g., `AuraPDF_Pro v2.2.4.exe`)
+   * Desktop: `AuraPDF_Pro v2.2.4.exe`
 
 *(To validate the Inno Setup script without recompiling Python binaries, run `python build_setup.py --iss-only`.)*
 

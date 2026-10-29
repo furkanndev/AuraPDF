@@ -1735,7 +1735,9 @@ class AuraPDFViewer(QMainWindow):
                 qpix = QPixmap.fromImage(qimg)
 
             title = self.tab_widget.tabText(index) or getattr(tab_doc, 'custom_title', '')
-            if not title and getattr(tab_doc, 'file_path', None):
+            if title:
+                title = title.lstrip("*").strip()
+            elif getattr(tab_doc, 'file_path', None):
                 title = os.path.basename(tab_doc.file_path)
             if not title:
                 title = LanguageManager.tr("untitled")
@@ -4943,7 +4945,16 @@ class AuraPDFViewer(QMainWindow):
 
         existing_path = getattr(tab_doc, 'file_path', None)
         if save_as or not existing_path or not os.path.isfile(existing_path):
-            default_name = existing_path if existing_path else "Yeni_Belge.pdf"
+            if existing_path:
+                default_name = existing_path
+            elif getattr(tab_doc, 'custom_title', None):
+                default_name = tab_doc.custom_title.lstrip("*").strip()
+                if not default_name.lower().endswith(".pdf"):
+                    default_name += ".pdf"
+            else:
+                default_name = LanguageManager.tr("untitled_doc")
+                if not default_name.lower().endswith(".pdf"):
+                    default_name += ".pdf"
             path, _ = QFileDialog.getSaveFileName(self, LanguageManager.tr("save_dialog_title"), default_name, "PDF (*.pdf)")
             if not path:
                 return
@@ -5626,7 +5637,10 @@ class AuraPDFViewer(QMainWindow):
         for idx in range(self.tab_widget.count()):
             widget = self.tab_widget.widget(idx)
             if isinstance(widget, PDFTabDocument) and widget.is_modified:
-                fallback_name = f"{LanguageManager.tr('untitled')}.pdf"
+                raw_fallback = getattr(widget, 'custom_title', None) or f"{LanguageManager.tr('untitled')}.pdf"
+                fallback_name = str(raw_fallback).lstrip("*").strip()
+                if not fallback_name.lower().endswith(".pdf"):
+                    fallback_name += ".pdf"
                 base_name = os.path.basename(widget.file_path) if widget.file_path else fallback_name
                 reply = QMessageBox.question(
                     self,

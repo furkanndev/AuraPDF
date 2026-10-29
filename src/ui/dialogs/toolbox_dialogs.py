@@ -5161,7 +5161,7 @@ class InteractiveWatermarkPreviewLabel(QLabel):
         self.positionChanged.emit(self.norm_pos)
 
 
-def get_watermark_fitz_font(font_key: str = "helv") -> fitz.Font:
+def get_watermark_fitz_font(font_key: str = "arial") -> fitz.Font:
     """
     Filigran için Türkçe karakterleri %100 destekleyen font nesnesini döndürür.
     Sistemdeki TrueType fontları (Arial, Times New Roman vb.) kullanarak
@@ -5187,7 +5187,7 @@ def get_watermark_fitz_font(font_key: str = "helv") -> fitz.Font:
         return None
 
 
-def calculate_safe_watermark_fontsize(text: str, angle_deg: float, page_w: float, page_h: float, margin: float = 35.0, font_key: str = "helv") -> float:
+def calculate_safe_watermark_fontsize(text: str, angle_deg: float, page_w: float, page_h: float, margin: float = 35.0, font_key: str = "arial") -> float:
     if not text:
         return 50.0
     rad = math.radians(abs(angle_deg))
@@ -5347,7 +5347,7 @@ def apply_watermark_to_doc(doc: fitz.Document, settings: dict):
         r_norm, g_norm, b_norm = col.redF(), col.greenF(), col.blueF()
         autofit = bool(settings.get("autofit", True))
 
-        font_key = settings.get("font_family", "helv")
+        font_key = settings.get("font_family", "arial")
         import os
         from src.ui.direct_text_editor import get_unicode_font_path
         wm_font_file = get_unicode_font_path(font_key, bold=True, italic=False)
@@ -5376,7 +5376,7 @@ def apply_watermark_to_doc(doc: fitz.Document, settings: dict):
                 try:
                     page.insert_font(fontname=wm_font_name, fontfile=wm_font_file)
                 except Exception:
-                    wm_font_name = "helv"
+                    pass
             else:
                 wm_font_name = "helv"
 
@@ -5588,9 +5588,17 @@ class PDFWatermarkDialog(QDialog):
         h_font_row = QHBoxLayout()
         h_font_row.addWidget(QLabel(LanguageManager.tr("watermark_font_family")))
         self.cmb_font_family = QComboBox()
-        self.cmb_font_family.addItem("Helvetica / Arial (Sans-Serif)", "helv")
-        self.cmb_font_family.addItem("Times-Roman (Serif)", "tiro")
-        self.cmb_font_family.addItem("Courier (Monospace)", "couri")
+        self.cmb_font_family.addItem("Arial / Helvetica (Sans-Serif)", "arial")
+        self.cmb_font_family.addItem("Segoe UI (Modern Windows)", "segoe")
+        self.cmb_font_family.addItem("Calibri (Modern Sans)", "calibri")
+        self.cmb_font_family.addItem("Times New Roman (Serif)", "times")
+        self.cmb_font_family.addItem("Georgia (Classic Serif)", "georgia")
+        self.cmb_font_family.addItem("Verdana (Clean Sans)", "verdana")
+        self.cmb_font_family.addItem("Tahoma (Compact Sans)", "tahoma")
+        self.cmb_font_family.addItem("Trebuchet MS (Humanist Sans)", "trebuchet")
+        self.cmb_font_family.addItem("Courier New (Monospace)", "courier")
+        self.cmb_font_family.addItem("Consolas (Modern Code)", "consolas")
+        self.cmb_font_family.addItem("Impact (Bold Stamp)", "impact")
         self.cmb_font_family.currentIndexChanged.connect(self.update_preview)
         h_font_row.addWidget(self.cmb_font_family, stretch=1)
         v_style.addLayout(h_font_row)
@@ -6134,7 +6142,7 @@ class PDFWatermarkDialog(QDialog):
         if is_text:
             settings.update({
                 "text": self.txt_watermark.text().strip(),
-                "font_family": self.cmb_font_family.currentData() if hasattr(self, 'cmb_font_family') else "helv",
+                "font_family": self.cmb_font_family.currentData() if hasattr(self, 'cmb_font_family') else "arial",
                 "font_size": self.spn_fontsize.value(),
                 "angle": self._get_current_angle(),
                 "opacity": self.sld_opacity.value(),
@@ -6186,7 +6194,11 @@ class PDFWatermarkDialog(QDialog):
             if "text" in s:
                 self.txt_watermark.setText(str(s["text"]))
             if "font_family" in s and hasattr(self, 'cmb_font_family'):
-                idx = self.cmb_font_family.findData(s["font_family"])
+                fam = str(s["font_family"]).lower()
+                fam_alias = {"helv": "arial", "helvetica": "arial", "tiro": "times", "times-roman": "times", "couri": "courier"}.get(fam, fam)
+                idx = self.cmb_font_family.findData(fam_alias)
+                if idx < 0:
+                    idx = self.cmb_font_family.findData(fam)
                 if idx >= 0:
                     self.cmb_font_family.setCurrentIndex(idx)
             fs_val = int(s.get("font_size", s.get("fontsize", 54)))
@@ -6379,7 +6391,7 @@ class PDFWatermarkDialog(QDialog):
             self.lbl_img_rotation.setText(LanguageManager.tr("watermark_angle_label", val=val))
         self.update_preview()
 
-    def _calculate_safe_fontsize(self, text: str, angle_deg: float, page_w: float, page_h: float, margin: float = 35.0, font_key: str = "helv") -> float:
+    def _calculate_safe_fontsize(self, text: str, angle_deg: float, page_w: float, page_h: float, margin: float = 35.0, font_key: str = "arial") -> float:
         if not text:
             return 50.0
         rad = math.radians(abs(angle_deg))
@@ -6592,13 +6604,24 @@ class PDFWatermarkDialog(QDialog):
             angle = self._get_current_angle()
             opacity = float(self.sld_opacity.value()) / 100.0
 
-            font_key = self.cmb_font_family.currentData() if hasattr(self, 'cmb_font_family') else "helv"
-            if font_key == "tiro":
-                qfont_family = "Times New Roman"
-            elif font_key == "couri":
-                qfont_family = "Courier New"
-            else:
-                qfont_family = "Segoe UI"
+            font_key = self.cmb_font_family.currentData() if hasattr(self, 'cmb_font_family') else "arial"
+            font_key_map = {
+                "helv": "Arial",
+                "arial": "Arial",
+                "segoe": "Segoe UI",
+                "calibri": "Calibri",
+                "tiro": "Times New Roman",
+                "times": "Times New Roman",
+                "georgia": "Georgia",
+                "verdana": "Verdana",
+                "tahoma": "Tahoma",
+                "trebuchet": "Trebuchet MS",
+                "couri": "Courier New",
+                "courier": "Courier New",
+                "consolas": "Consolas",
+                "impact": "Impact",
+            }
+            qfont_family = font_key_map.get(font_key, "Arial")
 
             # Safe font size math
             real_w = getattr(self, 'preview_page_w', 595.0)

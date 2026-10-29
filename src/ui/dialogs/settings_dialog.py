@@ -1655,56 +1655,56 @@ class AuraSettingsDialog(QDialog):
         # 1. QSettings kayıtlarını temizle
         self.settings.clear()
         self.shortcut_settings.clear()
+        self.settings.sync()
+        self.shortcut_settings.sync()
 
-        # 2. Arayüz kontrollerini varsayılan değerlerine döndür
+        # 2. Temayı Gray (Varsayılan) olarak seç
         if "gray" in self.theme_radios:
             self.theme_radios["gray"].setChecked(True)
         self.current_theme = "gray"
         self._apply_dialog_style()
 
-        # Kısayollar
-        self._reset_shortcuts_to_default()
+        if hasattr(self, 'theme_studio_card') and hasattr(self.theme_studio_card, 'set_all_colors'):
+            default_custom = {
+                "accent": "#38bdf8",
+                "bg": "#14171d",
+                "surface": "#1e222b",
+                "text": "#f1f5f9",
+                "border": "#2e3442"
+            }
+            try:
+                self.theme_studio_card.set_all_colors(default_custom)
+            except Exception:
+                pass
 
-        # Toolbar listesi
-        self._populate_toolbar_list(list(DEFAULT_TOOLBAR_USER_ITEMS))
-
-        # Zoom modu
-        self._set_cmb_data(self.cmb_zoom_mode, "last")
-        self._set_cmb_data(self.cmb_default_template, "blank")
-        if hasattr(self, 'cmb_app_font_size'):
-            self._set_cmb_data(self.cmb_app_font_size, 10)
-        if hasattr(self, 'cmb_panel_layout'):
-            self._set_cmb_data(self.cmb_panel_layout, "tools_left_nav_right")
-        if hasattr(self, 'chk_tab_hover_preview'):
-            self.chk_tab_hover_preview.setChecked(False)
-
-        # Yazar bilgileri
-        def_user, def_comp = get_default_author_info()
-        self.txt_author_name.setText(def_user)
-        self.txt_author_title.setText(def_comp)
-        self.txt_author_email.setText("")
-        self.chk_save_metadata.setChecked(True)
-        self.chk_use_notes.setChecked(True)
-
-        # Dil (Mevcut seçili dil)
+        # Dil (Varsayılan: Türkçe)
         if hasattr(self, 'rb_lang_tr'):
             self.rb_lang_tr.setChecked(True)
 
-        # İmleç ayarları
-        self._reset_cursors_to_apple()
+        # 3. Tüm UI alanlarını temizlenmiş QSettings varsayılanları üzerinden yeniden yükle
+        self._load_saved_values()
 
-        # Güncelleme ayarları
-        if hasattr(self, 'chk_auto_update'):
-            self.chk_auto_update.setChecked(True)
-        if hasattr(self, 'cmb_update_freq'):
-            self._set_cmb_data(self.cmb_update_freq, "startup")
-        if hasattr(self, 'txt_github_token'):
-            self.txt_github_token.setText("")
+        # Yan panel & araç çubuğu düzenini kesin olarak varsayılan "tools_right_nav_left" yap
+        if hasattr(self, 'cmb_panel_layout'):
+            self._set_cmb_data(self.cmb_panel_layout, "tools_right_nav_left")
 
-        # 3. Kaydet & Ana Uygulamaya Uygula
+        # 4. Kapsül ve araç çubuğu ana pencere durumlarını sıfırla
+        if self.main_window:
+            if hasattr(self.main_window, 'undock_capsule'):
+                self.main_window.undock_capsule()
+            if hasattr(self.main_window, 'reset_toolbar_order'):
+                self.main_window.reset_toolbar_order()
+            if hasattr(self.main_window, 'update_panels_layout'):
+                self.main_window.update_panels_layout("tools_right_nav_left")
+            if hasattr(self.main_window, 'floating_capsule') and self.main_window.floating_capsule:
+                self.main_window.floating_capsule.user_moved = False
+                if hasattr(self.main_window, 'update_floating_capsule_pos'):
+                    self.main_window.update_floating_capsule_pos()
+
+        # 5. Kaydet & Ana Uygulamaya Uygula
         self.apply_settings()
 
-        # 4. Bildirim
+        # 6. Bildirim
         QMessageBox.information(
             self,
             LanguageManager.tr("reset_all_success_title"),
@@ -2770,6 +2770,8 @@ class AuraSettingsDialog(QDialog):
         if not checked and hasattr(self.main_window, '_do_hide_tab_preview'):
             self.main_window._do_hide_tab_preview()
 
+    load_settings = _load_saved_values
+
     def apply_settings(self):
         # 1. Tema Kaydet & Uygula
         selected_theme = "gray"
@@ -2805,6 +2807,7 @@ class AuraSettingsDialog(QDialog):
 
         # 4. Dil Kaydet & Uygula
         selected_lang = "en" if self.rb_lang_en.isChecked() else "tr"
+        self.settings.setValue("language", selected_lang)
         if selected_lang != LanguageManager.current_lang:
             if hasattr(self.main_window, 'change_language'):
                 self.main_window.change_language(selected_lang)
