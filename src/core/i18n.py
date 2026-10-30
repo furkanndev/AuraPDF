@@ -1347,6 +1347,12 @@ class LanguageManager:
             "updates_download_success": "Kurulum paketi başarıyla indirildi!\n\nYeni sürümü kurmak için AuraPDF kapatılacak. Devam etmek istiyor musunuz?",
             "updates_notification_title": "AuraPDF Güncellemesi",
             "updates_notification_text": "Yeni bir AuraPDF sürümü ({version}) mevcut! İncelemek için tıklayın.",
+            "updates_tag_released": "GitHub üzerinde yeni bir etiket yayınlandı.",
+            "updates_err_no_public_release": "Depo henüz herkese açık (Public) bir Release içermiyor veya özel (Private) bir depoysa Ayarlar'dan GitHub Token girilmesi gerekiyor.",
+            "updates_err_api": "GitHub API Hatası ({code}): {reason}",
+            "updates_err_connection": "Bağlantı hatası: {error}",
+            "updates_err_no_version_info": "Sürüm bilgisi alınamadı.",
+            "updates_new_version_title": "Yeni Sürüm",
             # --- V3 YENİ ÖZELLİKLER ---
             "recent_files": "Son Açılan Dosyalar",
             "recent_files_clear": "Son Açılanları Temizle",
@@ -3379,6 +3385,12 @@ class LanguageManager:
             "updates_download_success": "Setup package downloaded successfully!\n\nAuraPDF will close to install the new version. Do you want to continue?",
             "updates_notification_title": "AuraPDF Update",
             "updates_notification_text": "A new version of AuraPDF ({version}) is available! Click to review.",
+            "updates_tag_released": "A new tag has been released on GitHub.",
+            "updates_err_no_public_release": "The repository does not have a public release yet, or if it is a private repository, a GitHub Token is required in Settings.",
+            "updates_err_api": "GitHub API Error ({code}): {reason}",
+            "updates_err_connection": "Connection error: {error}",
+            "updates_err_no_version_info": "Could not retrieve version information.",
+            "updates_new_version_title": "New Version",
             # --- V3 NEW FEATURES ---
             "recent_files": "Recent Files",
             "recent_files_clear": "Clear Recent Files",
@@ -4084,5 +4096,9 @@ class LanguageManager:
     def set_language(cls, lang: str):
         if lang in cls.TRANSLATIONS:
             cls.current_lang = lang
+
+    @classmethod
+    def get_language(cls) -> str:
+        return cls.current_lang or "tr"
 
 

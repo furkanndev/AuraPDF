@@ -118,14 +118,15 @@ class UpdateDialog(QDialog):
         layout.addWidget(header_card)
 
         # 2. Sürüm Notları (Changelog) Alanı
-        if self.update_info.has_update and self.update_info.release_notes:
+        notes_text = self.update_info.get_release_notes(LanguageManager.get_language()) if hasattr(self.update_info, "get_release_notes") else (self.update_info.release_notes or "")
+        if self.update_info.has_update and notes_text:
             lbl_notes_title = QLabel(LanguageManager.tr("updates_release_notes_label", default="Sürüm Notları ve Yenilikler:"))
             lbl_notes_title.setStyleSheet("font-weight: bold; font-size: 13px;")
             layout.addWidget(lbl_notes_title)
 
             self.txt_notes = QTextBrowser()
             self.txt_notes.setOpenExternalLinks(True)
-            self.txt_notes.setMarkdown(self.update_info.release_notes)
+            self.txt_notes.setMarkdown(notes_text)
             layout.addWidget(self.txt_notes, 1)
 
         # 3. İlerleme Çubuğu ve İndirme Durumu
@@ -141,7 +142,7 @@ class UpdateDialog(QDialog):
         self.lbl_status.hide()
         layout.addWidget(self.lbl_status)
 
-        layout.addStretch() if not (self.update_info.has_update and self.update_info.release_notes) else None
+        layout.addStretch() if not (self.update_info.has_update and notes_text) else None
 
         # 4. Alt İşlem Butonları
         btn_layout = QHBoxLayout()
