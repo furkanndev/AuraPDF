@@ -57,7 +57,7 @@ Bu belge, AuraPDF projesinde kod yazan, hata gideren veya yeni özellik gelişti
 ---
 
 ## 6. Commit Mesaj Standartları
-Commit mesajları açık, anlaşılır ve Conventional Commits standardına uygun olmalıdır. Asla emoji içermemelidir.
+Commit mesajları açık, anlaşılır ve Conventional Commits standardına uygun olmalıdır. Asla emoji içermemelidir. Yapay zeka araçları için `Co-Authored-By` satırı veya "Generated with" imzası eklenmemelidir; bu satırlar GitHub'da aracı katkıda bulunan olarak gösterir.
 
 * **Format:** `<tip>(<kapsam>): <kısa açıklama>`
 * **Kullanılacak Tipler:**

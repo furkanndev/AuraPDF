@@ -1,296 +1,204 @@
 <p align="center">
-  <img src="assets/app_icon_128.png" alt="AuraPDF Pro Logo" width="112" height="112" />
+  <img src="assets/app_icon_128.png" alt="AuraPDF logo" width="96" height="96" />
 </p>
 
 <h1 align="center">AuraPDF Pro</h1>
 
 <p align="center">
-  <strong>High-Performance Desktop PDF Platform</strong><br>
-  Engineered with Python 3, PyQt6, and the native C++ PyMuPDF rendering engine. Designed for high-speed document viewing, direct in-page text editing, visual page organization, digital signatures, AcroForms, and format conversion.
+  A fast, private PDF workspace for Windows.<br>
+  Read, edit, sign, organize and convert documents on your own machine.
 </p>
 
 <p align="center">
-  <a href="https://github.com/furkanndev/AuraPDF/releases"><img src="https://img.shields.io/badge/Release-Pro%20v2.2.5-6366f1?style=for-the-badge&logo=windows&logoColor=white" alt="Version" /></a>
-  <a href="https://www.python.org/"><img src="https://img.shields.io/badge/Python-3.10%2B-3776AB?style=for-the-badge&logo=python&logoColor=white" alt="Python Version" /></a>
-  <a href="https://www.riverbankcomputing.com/software/pyqt/"><img src="https://img.shields.io/badge/Framework-PyQt6-41CD52?style=for-the-badge&logo=qt&logoColor=white" alt="PyQt6" /></a>
-  <a href="https://pymupdf.readthedocs.io/"><img src="https://img.shields.io/badge/Engine-PyMuPDF_2.0-FF6F00?style=for-the-badge" alt="PyMuPDF" /></a>
-  <a href="#"><img src="https://img.shields.io/badge/Platform-Windows_10%20%2F%2011-0078D6?style=for-the-badge&logo=windows11&logoColor=white" alt="Platform" /></a>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-a855f7?style=for-the-badge" alt="License" /></a>
+  <a href="https://github.com/furkanndev/AuraPDF/releases/latest"><img src="https://img.shields.io/badge/release-Pro%20v2.2.5-2563eb?style=flat-square" alt="Latest release" /></a>
+  <img src="https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-0078D6?style=flat-square" alt="Windows 10 and 11" />
+  <img src="https://img.shields.io/badge/python-3.10%2B-3776AB?style=flat-square" alt="Python 3.10 or later" />
+  <img src="https://img.shields.io/badge/UI-PyQt6-41CD52?style=flat-square" alt="PyQt6" />
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-64748b?style=flat-square" alt="MIT License" /></a>
 </p>
-
----
 
 <p align="center">
-  <img src="docs/screenshots/01_hero_reader_dark.png" alt="AuraPDF Pro Document Reader Interface" width="96%" style="border-radius: 8px; box-shadow: 0 8px 30px rgba(0,0,0,0.3);" />
+  <a href="https://github.com/furkanndev/AuraPDF/releases/latest"><strong>Download</strong></a>
+  &nbsp;·&nbsp;
+  <a href="#features">Features</a>
+  &nbsp;·&nbsp;
+  <a href="#development">Development</a>
+  &nbsp;·&nbsp;
+  <a href="#keyboard-shortcuts">Shortcuts</a>
 </p>
 
----
-
-## Table of Contents
-- [Overview](#overview)
-- [Key Features](#key-features)
-  - [1. High-Performance Reader & Multi-Tab Workspace](#1-high-performance-reader--multi-tab-workspace)
-  - [2. Home Dashboard & Document Templates](#2-home-dashboard--document-templates)
-  - [3. Visual Page Organization & Manipulation](#3-visual-page-organization--manipulation)
-  - [4. Comprehensive Conversion & PDF Toolbox](#4-comprehensive-conversion--pdf-toolbox)
-  - [5. Direct In-Page Content Editing & Annotations](#5-direct-in-page-content-editing--annotations)
-  - [6. Digital Signatures, Stamps, and AcroForms](#6-digital-signatures-stamps-and-acroforms)
-  - [7. Modern Theme Engine & High-DPI Aesthetics](#7-modern-theme-engine--high-dpi-aesthetics)
-- [System Requirements](#system-requirements)
-- [Installation & Getting Started](#installation--getting-started)
-- [Building the Windows Installer (.exe)](#building-the-windows-installer-exe)
-- [Keyboard Shortcuts](#keyboard-shortcuts)
-- [Project Architecture & Directory Structure](#project-architecture--directory-structure)
-- [Branching Model & Development Standards](#branching-model--development-standards)
-- [License](#license)
-
----
+<p align="center">
+  <img src="docs/screenshots/01_reader.png" alt="AuraPDF document reader with the floating tool palette and All Tools panel" width="100%" />
+</p>
 
 ## Overview
 
-**AuraPDF Pro** is a modern desktop PDF workstation built to deliver high performance, offline privacy, and an Adobe Acrobat-grade feature set.
+AuraPDF Pro is a desktop PDF application built with Python, PyQt6 and PyMuPDF. It brings everyday reading and advanced document work into one tabbed workspace, available in Turkish and English.
 
-By utilizing PyMuPDF's low-level C++ rendering pipeline combined with PyQt6's responsive UI architecture, AuraPDF Pro provides smooth 60+ FPS navigation across large documents, minimal memory usage, in-place content editing, searchable sandwich OCR, interactive form filling, and a comprehensive suite of page management and conversion tools.
-
----
-
-## Key Features
-
-### 1. High-Performance Reader & Multi-Tab Workspace
-
-<p align="center">
-  <img src="docs/screenshots/01_hero_reader_dark.png" alt="AuraPDF Pro Reading Experience" width="94%" style="border-radius: 8px;" />
-</p>
-
-* **Multi-Tab Architecture:** Manage multiple PDF documents simultaneously in detached, draggable, and restorable tabs (`Ctrl+W`, `Ctrl+Shift+T`).
-* **Hierarchical Table of Contents (TOC):** Interactive tree navigation enabling instant jumping between document sections and nested headings.
-* **Floating Quick Tools Capsule:** Context-aware, draggable floating tool palette positioned beside your cursor for quick highlighter, pen, eraser, and annotation selection.
-* **Reading & Color Modes:**
-  * **Day Mode:** Native, color-accurate PDF rendering.
-  * **Hardware-Accelerated Dark Mode:** Inverted palette preserving vector clarity while minimizing eye fatigue.
-  * **Book (Sepia) Mode:** Warm paper hue designed for extended reading sessions.
-* **Smart Navigation:** Fit-to-width (`Ctrl+2`), fit-to-height (`Ctrl+0`), smooth fractional zoom (`Ctrl++` / `Ctrl+-`), and browser-style view history (`Alt+Left Arrow`, `Alt+Right Arrow`).
-
----
-
-### 2. Home Dashboard & Document Templates
-
-<p align="center">
-  <img src="docs/screenshots/02_home_dashboard.png" alt="AuraPDF Pro Home Dashboard" width="94%" style="border-radius: 8px;" />
-</p>
-
-* **Document Starter Hub:** Launch new document canvases with one click, including *Blank Document*, *Lined Notes*, *Grid Paper*, *Cornell Notes*, and *Dot Grid*.
-* **Enriched Recent Files:** Track recent files with real-time metadata including page count, file size, last modified timestamp, and location.
-* **Favorites System:** Pin frequently referenced documents for immediate single-click access.
-* **Quick Action Tiles:** Direct access to Organize Pages, Annotate, Prepare Form, Edit Content, and Protect PDF.
-
----
-
-### 3. Visual Page Organization & Manipulation
-
-<p align="center">
-  <img src="docs/screenshots/03_organize_pages.png" alt="AuraPDF Pro Page Organizer" width="94%" style="border-radius: 8px;" />
-</p>
-
-* **Full-Screen Grid View:** High-resolution page thumbnail grid displaying entire documents at a glance.
-* **Drag-and-Drop Reordering:** Rearrange page order dynamically with intuitive visual drop indicators.
-* **Comprehensive Page Actions:**
-  * Rotate clockwise / counter-clockwise (90° CW / CCW).
-  * Bulk selection and deletion of unwanted pages.
-  * Extract selected pages into standalone PDF documents.
-  * Insert external PDF files or blank pages into any position.
-  * Duplicate selected pages.
-
----
-
-### 4. Comprehensive Conversion & PDF Toolbox
-
-<p align="center">
-  <img src="docs/screenshots/04_convert_and_export.png" alt="AuraPDF Pro Conversion and Export" width="94%" style="border-radius: 8px;" />
-</p>
-
-* **Office & Document Export Pipelines:**
-  * **Microsoft Word (`.docx`):** Retains formatting, tables, headings, and paragraph alignment.
-  * **Spreadsheet (`.xlsx`):** Automatically extracts tabular data into editable Excel sheets.
-  * **Presentation (`.pptx`):** Converts PDF pages into high-definition PowerPoint presentation slides.
-  * **E-Book (`.epub`):** Reflowable format conversion optimized for e-readers.
-  * **Image Export (`.png`, `.jpg`):** Export full pages or batch-extract embedded graphics.
-  * **Web & Text:** HTML web pages, Rich Text Format (`.rtf`), Plain Text (`.txt`), and PostScript (`.eps`).
-* **PDF Merge & Split:** Combine multiple distinct files into one organized document or split by customized page ranges.
-* **Sandwich OCR Engine:** Generate an invisible, coordinate-aligned searchable text layer behind scanned documents without degrading original visual quality.
-* **PDF Compression:** Optimize image DPI and strip duplicate streams to reduce file sizes by up to 80%.
-
----
-
-### 5. Direct In-Page Content Editing & Annotations
-
-<p align="center">
-  <img src="docs/screenshots/05_direct_edit_mode.png" alt="AuraPDF Pro Direct Text Editor" width="94%" style="border-radius: 8px;" />
-</p>
-
-* **In-Place Text Editor:** Click directly into existing PDF text blocks to edit words, sentences, typography, font sizes, and alignments on the canvas.
-* **Standard PDF Markups:** Highlight, underline, strikeout, and wavy line annotations.
-* **Vector Drawing Tools:** Pressure-sensitive pen, freehand highlighter, arrows, lines, rectangles, and ellipses.
-* **Comments & Sticky Notes:** Interactive callout boxes, searchable annotations list, and threaded replies.
-* **Permanent Redaction:** Irreversibly black out confidential data, IDs, credit cards, or sensitive clauses directly from the underlying PDF stream.
-
----
-
-### 6. Digital Signatures, Stamps, and AcroForms
-
-* **Signature Suite:**
-  * Draw signatures with mouse or stylus.
-  * Generate stylized handwritten signatures from text.
-  * Import transparent PNG stamps and official company seals.
-* **Bidirectional AcroForms:** Fill, validate, clear, and save interactive form fields including text inputs, checkboxes, radio buttons, and dropdown lists.
-* **Bates Numbering & Pagination:** Apply customizable legal numbering, prefixes, and page positions for litigation and archival discovery.
-
----
-
-### 7. Modern Theme Engine & High-DPI Aesthetics
-
-AuraPDF Pro includes 8 professionally calibrated theme palettes:
-
-| Theme | Description |
+| | |
 | :--- | :--- |
-| **Dark** | Modern deep black canvas with vibrant blue accents |
-| **Gray** | Balanced corporate slate inspired by modern IDEs |
-| **Nord** | Arctic-inspired cold blue and muted navy tones |
-| **Apple** | Minimalist slate aesthetics adhering to macOS design principles |
-| **Emerald** | Deep forest green base with emerald accents |
-| **Purple** | Creative studio palette with purple and lilac highlights |
-| **Crimson** | High-contrast dark palette with energetic crimson red |
-| **Vice City** | Neon cyberpunk synthwave aesthetic |
+| **Read** | Tabs, table of contents, search, reading modes and read-aloud |
+| **Edit** | In-page text editing, annotations, drawing, images, tables and media |
+| **Organize** | Merge, split, reorder, rotate, extract and insert pages |
+| **Convert** | Word, Excel, PowerPoint, EPUB, HTML, RTF, text, EPS and images |
+| **Secure** | Passwords, permanent redaction, signatures and stamps |
 
-*All icons are drawn vectorially via `AuraIconFactory` using `QPainterPath`, ensuring sharpness across 4K displays and high-DPI scaling.*
+## Features
 
----
+### Reading workspace
 
-## System Requirements
+- Work across multiple documents with tabs, and reopen closed tabs with `Ctrl+Shift+T`.
+- Compare two documents side by side in split view.
+- Navigate with the table of contents, thumbnails, bookmarks and view history.
+- Switch between day, dark and sepia reading modes.
+- Keep frequent tools close with the floating tool palette.
 
-* **Operating System:** Windows 10 or Windows 11 (64-bit)
-* **Processor:** Dual-core 1.8 GHz or faster
-* **Memory (RAM):** 2 GB minimum (4 GB recommended)
-* **Storage:** 250 MB free disk space
-* **Python (For developers):** Python 3.10 or higher
+### Home and templates
 
----
+Start from blank, lined, grid, Cornell or dot grid templates, and return to recent and favorite documents.
 
-## Installation & Getting Started
+<p align="center">
+  <img src="docs/screenshots/02_home.png" alt="Home screen with document templates and recommended tools" width="100%" />
+</p>
 
-### For End Users (Windows Installer)
-Download the latest standalone `.exe` installer from the official [Releases](https://github.com/furkanndev/AuraPDF/releases) page. The installer configures desktop shortcuts, Start Menu entries, and native `.pdf` file associations automatically.
+### Page organization
 
----
+Manage a whole document from a thumbnail grid: reorder pages by dragging, rotate, delete, duplicate, extract or insert them.
 
-### For Developers (Running from Source)
+<p align="center">
+  <img src="docs/screenshots/03_organize_pages.png" alt="Organize Pages workspace with a thumbnail grid" width="100%" />
+</p>
 
-1. **Clone the Repository:**
-   ```bash
-   git clone https://github.com/furkanndev/AuraPDF.git
-   cd AuraPDF
-   git checkout aurapdf_pro_windows
-   ```
+### Conversion and toolbox
 
-2. **Create and Activate a Virtual Environment:**
-   ```powershell
-   python -m venv venv
-   .\venv\Scripts\Activate.ps1
-   ```
+- Export to `.docx`, `.xlsx`, `.pptx`, `.epub`, `.html`, `.rtf`, `.txt`, `.eps`, PNG and JPG.
+- Merge and split PDFs, and compress them with presets.
+- Run OCR to add a searchable text layer to scanned documents.
 
-3. **Install Dependencies:**
-   ```powershell
-   pip install -r requirements.txt
-   ```
+<p align="center">
+  <img src="docs/screenshots/04_export_tools.png" alt="Export panel listing the supported output formats" width="100%" />
+</p>
 
-4. **Launch Application:**
-   ```powershell
-   python main.py
-   ```
+### Editing and annotation
 
----
+- Edit existing PDF text directly on the page.
+- Highlight, underline, strike out, comment and add sticky notes.
+- Draw with pens, highlighters and shapes.
+- Add text boxes, images, GIFs, tables, audio and video.
+- Add headers, footers, watermarks, backgrounds, links and Bates numbering.
+- Permanently redact sensitive content.
 
-## Building the Windows Installer (.exe)
+<p align="center">
+  <img src="docs/screenshots/05_edit_tools.png" alt="Edit panel with page and content tools" width="100%" />
+</p>
 
-AuraPDF Pro can be compiled into a single-file, production-grade installer using **PyInstaller** and **Inno Setup 6**.
+### Forms and signatures
 
-1. Verify that [Inno Setup 6](https://jrsoftware.org/isinfo.php) is installed on your workstation.
-2. Run the automated build script:
-   ```powershell
-   python build_setup.py
-   ```
-3. Once completed, the output installer will be available at:
-   * `Kurulum/Pro/AuraPDF_Pro v<version>.exe` (e.g., `AuraPDF_Pro v2.2.5.exe`)
-   * Desktop: `AuraPDF_Pro v2.2.5.exe`
+Fill and create AcroForms, draw or type a signature, and place images, stamps and company seals.
 
-*(To validate the Inno Setup script without recompiling Python binaries, run `python build_setup.py --iss-only`.)*
+### Interface styles
 
----
+Choose the interface that suits your work. Each style has its own layout, typography, colors and motion, and animations can be turned off in Settings.
 
-## Keyboard Shortcuts
+| Grafit | Atölye | Şerit |
+| :---: | :---: | :---: |
+| <img src="docs/screenshots/07_style_grafit.png" alt="Grafit interface style" /> | <img src="docs/screenshots/08_style_atolye.png" alt="Atölye interface style" /> | <img src="docs/screenshots/09_style_serit.png" alt="Şerit interface style" /> |
 
-| Shortcut | Description / Action |
+The default Classic style offers Gray, Emerald, Purple, Crimson, Nord, Vice City and Apple themes, along with custom colors.
+
+### Icon sets
+
+Icons are drawn as vectors, so they stay sharp on scaled displays. Choose from six sets, each in color and monochrome, or switch to Classic Drawn.
+
+<p align="center">
+  <img src="docs/screenshots/06_icon_sets.png" alt="Icon set gallery in Settings" width="72%" />
+</p>
+
+## Installation
+
+Download the latest installer from the [Releases](https://github.com/furkanndev/AuraPDF/releases/latest) page and run it.
+
+**Requirements:** 64-bit Windows 10 or 11, with 250 MB of free disk space. 4 GB of RAM is recommended.
+
+> The installer is not code-signed yet, so Windows SmartScreen may show a warning.
+
+## Keyboard shortcuts
+
+| Shortcut | Action |
 | :--- | :--- |
-| `Ctrl + O` | Open PDF Document |
-| `Ctrl + S` | Save Current Document Safely |
-| `Ctrl + Shift + S` | Save As |
-| `Ctrl + W` | Close Active Tab |
-| `Ctrl + Shift + T` | Reopen Last Closed Tab |
-| `Ctrl + F` | In-Document Text Search |
-| `Ctrl + K` | Open Quick Command Palette |
-| `Ctrl + D` | Document Properties & Security |
-| `Ctrl + +` / `Ctrl + -` | Zoom In / Zoom Out |
-| `Ctrl + 0` | Fit Page to Window Height |
-| `Ctrl + 2` | Fit Page to Window Width |
-| `Alt + Left Arrow` | Navigate to Previous View Location |
-| `Alt + Right Arrow` | Navigate to Next View Location |
-| `F11` | Full-Screen Reading Mode |
-| `F1` | Keyboard Shortcuts & Help Guide |
+| `Ctrl+O` | Open a document |
+| `Ctrl+S` / `Ctrl+Shift+S` | Save / Save as |
+| `Ctrl+W` / `Ctrl+Shift+T` | Close tab / Reopen closed tab |
+| `Ctrl+F` | Search in the document |
+| `Ctrl+K` | Open the command palette |
+| `Ctrl+D` | Document properties |
+| `Ctrl++` / `Ctrl+-` | Zoom in / Zoom out |
+| `Ctrl+0` / `Ctrl+2` | Fit page / Fit width |
+| `Alt+Left` / `Alt+Right` | Previous / Next view |
+| `F11` | Full screen |
+| `F1` | Help and shortcuts |
 
----
+Shortcuts can be changed in Settings.
 
-## Project Architecture & Directory Structure
+## Development
+
+### Run from source
+
+Requires Python 3.10 or later.
+
+```powershell
+git clone https://github.com/furkanndev/AuraPDF.git
+cd AuraPDF
+python -m venv venv
+.\venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+python main.py
+```
+
+High-quality local text-to-speech is optional: `pip install -r requirements-tts.txt`
+
+### Run the tests
+
+```powershell
+python -m unittest tests.test_static_guards tests.test_icon_sets
+```
+
+### Build the installer
+
+Install [Inno Setup 6](https://jrsoftware.org/isinfo.php), then run:
+
+```powershell
+python build_setup.py
+```
+
+The installer is written to `Kurulum/Pro/`. Use `python build_setup.py --iss-only` to rebuild only the installer from an existing application build.
+
+### Project structure
 
 ```text
 AuraPDF/
-├── assets/                     # Application icons, Windows shell integration DLLs
-├── docs/
-│   └── screenshots/            # High-resolution documentation screenshots
+├── assets/              Application icons and shell integration files
+├── docs/screenshots/    README images
 ├── src/
-│   ├── core/                  # Core engines (i18n, updater, shortcut manager)
-│   ├── document/              # Tab document architecture, render queues, media items
-│   └── ui/                    # Graphical user interface layer
-│       ├── dialogs/           # Toolbox dialogs, OCR, signatures, settings
-│       ├── popups/            # Floating HUDs, tool settings, stamp palettes
-│       ├── aura_views.py    # Acrobat-style modern tab bar, header, drawers, workspaces
-│       ├── icons.py           # Vector QPainterPath AuraIconFactory engine
-│       ├── widgets.py         # Custom segmented zoom controllers, toolbars, docks
-│       └── direct_text_editor.py # Direct on-canvas text editing engine
-├── Kurulum/                   # Compiled distribution packages (Basic/ and Pro/)
-├── build_setup.py             # PyInstaller & Inno Setup automated build script
-├── installer.iss              # Inno Setup installation scenario script
-├── main.py                    # Application entrypoint & single-instance IPC server
-├── requirements.txt           # Python package dependencies
-├── AGENTS.md                  # Development principles, architecture rules, standards
-└── README.md                  # Primary repository documentation
+│   ├── core/            Localization, updates, speech and shell integration
+│   ├── document/        Tab documents, rendering and media items
+│   └── ui/              Windows, dialogs, panels, icons and interface styles
+├── tests/               Regression and static guard tests
+├── tools/               Windows thumbnail provider
+├── build_setup.py       Application and installer build script
+├── installer.iss        Inno Setup script
+└── main.py              Application entry point
 ```
 
----
+### Branches
 
-## Branching Model & Development Standards
+| Branch | Edition |
+| :--- | :--- |
+| `aurapdf_pro_windows` | Pro edition, with the full toolset |
+| `aurapdf-basic-windows` | Basic edition, with core reading, annotation and page tools |
 
-AuraPDF is maintained across two active branches:
-* **`aurapdf-basic-windows`:** Lightweight edition focusing on core PDF reading, annotations, page management, and AcroForms.
-* **`aurapdf_pro_windows` (Active Branch):** Professional edition featuring digital signatures, sandwich OCR, direct text editing, and the complete toolbox suite.
-
-All contributions adhere to the architecture principles, strict i18n parity, and Conventional Commits guidelines defined in [AGENTS.md](AGENTS.md).
-
----
+Project rules, including theming, localization and commit conventions, are in [AGENTS.md](AGENTS.md).
 
 ## License
 
-This project is licensed under the [MIT License](LICENSE). It is free to use, modify, and distribute in both commercial and private environments.
-
-<p align="center">
-  <sub>AuraPDF Pro — Desktop Document Engineering.</sub>
-</p>
+Released under the [MIT License](LICENSE). Third-party components are listed in [THIRD_PARTY_NOTICES.txt](THIRD_PARTY_NOTICES.txt).
