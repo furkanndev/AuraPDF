@@ -10,17 +10,16 @@ import re
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QFileDialog, QTabWidget, QWidget, QFrame, QSplitter,
-    QScrollArea, QSpinBox, QCheckBox, QLineEdit, QTableWidget,
-    QTableWidgetItem, QHeaderView, QMessageBox, QProgressBar,
-    QComboBox, QRadioButton, QButtonGroup
+    QScrollArea, QCheckBox, QLineEdit, QTableWidget,
+    QTableWidgetItem, QHeaderView, QMessageBox, QComboBox, QRadioButton, QButtonGroup
 )
-from PyQt6.QtCore import Qt, QRectF, QPointF
+from PyQt6.QtCore import Qt, QRectF
 from PyQt6.QtGui import QPixmap, QImage, QColor, QPainter, QPen, QBrush
 
 import pymupdf as fitz
 from src.core.i18n import LanguageManager
-from src.ui.dialog_theme import apply_dialog_theme, get_dialog_theme_stylesheet, ModernInfoCard
-from src.ui.icons import ModernIconFactory
+from src.ui.dialog_theme import apply_dialog_theme, AuraInfoCard
+from src.ui.icons import AuraIconFactory
 
 
 class RedactPreviewLabel(QLabel):
@@ -110,7 +109,7 @@ class PDFRedactionDialog(QDialog):
         super().__init__(parent_widget)
         self.main_window = main_window
         self.setWindowTitle(LanguageManager.tr("redact_title"))
-        self.setWindowIcon(ModernIconFactory.icon_redact())
+        self.setWindowIcon(AuraIconFactory.icon_redact())
         self.resize(1200, 800)
         self.setMinimumSize(1020, 680)
         self.setSizeGripEnabled(True)
@@ -226,7 +225,7 @@ class PDFRedactionDialog(QDialog):
         root.setSpacing(10)
 
         # Üst Başlık & Açıklama
-        header_card = ModernInfoCard(
+        header_card = AuraInfoCard(
             text=LanguageManager.tr("redact_banner_sub"),
             title=LanguageManager.tr("redact_banner_title"),
             icon_type="redact",
@@ -272,7 +271,7 @@ class PDFRedactionDialog(QDialog):
         # Sayfa Gezintisi
         nav_box = QHBoxLayout()
         btn_prev = QPushButton(LanguageManager.tr('prev_page'))
-        btn_prev.setIcon(ModernIconFactory.icon_chevron_left())
+        btn_prev.setIcon(AuraIconFactory.icon_chevron_left())
         btn_prev.clicked.connect(self._prev_page)
         nav_box.addWidget(btn_prev)
 
@@ -281,7 +280,7 @@ class PDFRedactionDialog(QDialog):
         nav_box.addWidget(self.lbl_page_info)
 
         btn_next = QPushButton(LanguageManager.tr('next_page'))
-        btn_next.setIcon(ModernIconFactory.icon_chevron_right())
+        btn_next.setIcon(AuraIconFactory.icon_chevron_right())
         btn_next.clicked.connect(self._next_page)
         nav_box.addWidget(btn_next)
 
@@ -311,22 +310,21 @@ class PDFRedactionDialog(QDialog):
 
         # ---------------- ALT EYLEM BUTONLARI ----------------
         bottom_bar = QHBoxLayout()
-
-        self.btn_apply = QPushButton(LanguageManager.tr("redact_btn_apply"))
-        self.btn_apply.setObjectName("DangerBtn")
-        self.btn_apply.clicked.connect(self._apply_redactions_current)
-        bottom_bar.addWidget(self.btn_apply)
-
-        self.btn_save_as = QPushButton(LanguageManager.tr("redact_btn_save_as"))
-        self.btn_save_as.setObjectName("PrimaryBtn")
-        self.btn_save_as.clicked.connect(self._apply_redactions_save_as)
-        bottom_bar.addWidget(self.btn_save_as)
-
         bottom_bar.addStretch()
 
         btn_cancel = QPushButton(LanguageManager.tr("btn_cancel_settings"))
         btn_cancel.clicked.connect(self.reject)
         bottom_bar.addWidget(btn_cancel)
+
+        self.btn_save_as = QPushButton(LanguageManager.tr("redact_btn_save_as"))
+        self.btn_save_as.setObjectName("SecondaryBtn")
+        self.btn_save_as.clicked.connect(self._apply_redactions_save_as)
+        bottom_bar.addWidget(self.btn_save_as)
+
+        self.btn_apply = QPushButton(LanguageManager.tr("redact_btn_apply"))
+        self.btn_apply.setObjectName("DangerBtn")
+        self.btn_apply.clicked.connect(self._apply_redactions_current)
+        bottom_bar.addWidget(self.btn_apply)
 
         root.addLayout(bottom_bar)
 
@@ -426,10 +424,10 @@ class PDFRedactionDialog(QDialog):
         self.cmb_overlay_text = QComboBox()
         self.cmb_overlay_text.setEditable(True)
         self.cmb_overlay_text.addItem("")  # Boş
-        self.cmb_overlay_text.addItem("[GİZLENDİ]")
-        self.cmb_overlay_text.addItem("[SANSÜRLENDİ]")
+        self.cmb_overlay_text.addItem(LanguageManager.tr("redact_stamp_hidden"))
+        self.cmb_overlay_text.addItem(LanguageManager.tr("redact_stamp_censored"))
         self.cmb_overlay_text.addItem("[REDACTED]")
-        self.cmb_overlay_text.addItem("[KVKK KAPSAMINDA GİZLİDİR]")
+        self.cmb_overlay_text.addItem(LanguageManager.tr("redact_stamp_privacy"))
         c_lay.addWidget(self.cmb_overlay_text)
 
         c_lay.addSpacing(6)
@@ -466,7 +464,7 @@ class PDFRedactionDialog(QDialog):
         c_lay.addWidget(self.chk_clean_links)
 
         c_lay.addSpacing(8)
-        warning = ModernInfoCard(
+        warning = AuraInfoCard(
             text=LanguageManager.tr("redact_clean_warning"),
             is_warning=True,
             parent=self
@@ -484,7 +482,7 @@ class PDFRedactionDialog(QDialog):
             return
 
         total = len(self.doc)
-        self.lbl_page_info.setText(f"Sayfa: {self.current_page + 1} / {total}")
+        self.lbl_page_info.setText(LanguageManager.tr("ui_sayfa_4", value=self.current_page + 1, total=total))
 
         page = self.doc[self.current_page]
         rect = page.rect
@@ -519,18 +517,18 @@ class PDFRedactionDialog(QDialog):
         # Regex kalıpları
         PATTERNS = []
         if self.chk_tc.isChecked():
-            PATTERNS.append(("TC Kimlik", re.compile(r'\b[1-9]\d{10}\b')))
+            PATTERNS.append((LanguageManager.tr("link_kind_tc"), re.compile(r'\b[1-9]\d{10}\b')))
         if self.chk_phone.isChecked():
-            PATTERNS.append(("Telefon", re.compile(r'(?:\+90|0)?\s*[5]\d{2}[\s.-]?\d{3}[\s.-]?\d{2}[\s.-]?\d{2}')))
+            PATTERNS.append((LanguageManager.tr("link_kind_phone"), re.compile(r'(?:\+90|0)?\s*[5]\d{2}[\s.-]?\d{3}[\s.-]?\d{2}[\s.-]?\d{2}')))
         if self.chk_email.isChecked():
-            PATTERNS.append(("E-Posta", re.compile(r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b')))
+            PATTERNS.append((LanguageManager.tr("link_kind_email"), re.compile(r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b')))
         if self.chk_iban.isChecked():
             PATTERNS.append(("IBAN", re.compile(r'\bTR\d{2}\s*(?:\d{4}\s*){5}\d{2}\b', re.IGNORECASE)))
-            PATTERNS.append(("Kredi Kartı", re.compile(r'\b(?:\d{4}[-\s]?){3}\d{4}\b')))
+            PATTERNS.append((LanguageManager.tr("redact_cat_credit_card"), re.compile(r'\b(?:\d{4}[-\s]?){3}\d{4}\b')))
 
         custom_word = self.txt_custom_search.text().strip()
         if custom_word:
-            PATTERNS.append(("Özel Terim", re.compile(re.escape(custom_word), re.IGNORECASE)))
+            PATTERNS.append((LanguageManager.tr("redact_cat_custom_term"), re.compile(re.escape(custom_word), re.IGNORECASE)))
 
         pages_to_scan = [self.current_page] if self.rb_curr_page.isChecked() else list(range(len(self.doc)))
 
@@ -637,9 +635,8 @@ class PDFRedactionDialog(QDialog):
 
     def _apply_redactions_current(self):
         reply = QMessageBox.question(
-            self, "Kalıcı Karartmayı Onayla",
-            "Bu işlem seçili hassas verileri belgeden <b>geri alınamaz biçimde tamamen silecektir</b>.\n"
-            "Devam etmek istiyor musunuz?",
+            self, LanguageManager.tr("ui_kalici_karartmayi_onayla"),
+            LanguageManager.tr("ui_bu_islem_secili_hassas_verileri_belgeden"),
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No
         )
@@ -647,19 +644,24 @@ class PDFRedactionDialog(QDialog):
             return
 
         try:
+            if self.tab_doc and hasattr(self.tab_doc, 'stop_render_worker'):
+                self.tab_doc.stop_render_worker()
             self._execute_redactions_on_doc(self.doc)
             if self.tab_doc:
-                self.tab_doc.is_modified = True
-                if hasattr(self.tab_doc, 'render_current_page'):
-                    self.tab_doc.render_current_page()
+                # Ana görünümdeki önbellekli sayfa görüntüleri karartılmamış içeriği
+                # göstermeye devam etmesin diye görünüm ve küçük resimler yenilenir.
+                if hasattr(self.tab_doc, 'refresh_after_external_edit'):
+                    self.tab_doc.refresh_after_external_edit()
+                else:
+                    self.tab_doc.set_modified(True)
             self._render_current_page()
             self._clear_manual_rects()
             self.detected_items.clear()
             self.tbl_items.setRowCount(0)
-            QMessageBox.information(self, "Başarılı", "Hassas veriler kalıcı olarak silindi ve temizlendi.")
+            QMessageBox.information(self, LanguageManager.tr("success"), LanguageManager.tr("ui_hassas_veriler_kalici_olarak_silindi_ve"))
             self.accept()
         except Exception as e:
-            QMessageBox.critical(self, "Hata", f"Karartma uygulanamadı:\n{e}")
+            QMessageBox.critical(self, LanguageManager.tr("error"), LanguageManager.tr("ui_karartma_uygulanamadi", e=e))
 
     def _apply_redactions_save_as(self):
         default_name = "belge_karartilmis.pdf"
@@ -668,7 +670,7 @@ class PDFRedactionDialog(QDialog):
             default_name = f"{base}_karartilmis.pdf"
 
         save_path, _ = QFileDialog.getSaveFileName(
-            self, "Karartılmış Kopya Olarak Kaydet", default_name, "PDF Dosyaları (*.pdf)"
+            self, LanguageManager.tr("ui_karartilmis_kopya_olarak_kaydet"), default_name, LanguageManager.tr("sidebar_pdf_filter")
         )
         if not save_path:
             return
@@ -684,7 +686,7 @@ class PDFRedactionDialog(QDialog):
             copy_doc.save(save_path, garbage=4, deflate=True)
             copy_doc.close()
 
-            QMessageBox.information(self, "Başarılı", f"Kalıcı karartılmış güvenli PDF başarıyla kaydedildi:\n{save_path}")
+            QMessageBox.information(self, LanguageManager.tr("success"), LanguageManager.tr("ui_kalici_karartilmis_guvenli_pdf_basariyla_kaydedildi", save_path=save_path))
             self.accept()
         except Exception as e:
-            QMessageBox.critical(self, "Hata", f"Kaydedilemedi:\n{e}")
+            QMessageBox.critical(self, LanguageManager.tr("error"), f"Kaydedilemedi:\n{e}")

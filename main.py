@@ -17,16 +17,37 @@ if CURRENT_DIR not in sys.path:
 import faulthandler
 import traceback
 
-# C/C++ seviyesindeki sinyalleri stderr'a yazdır
+
+def _crash_log_path() -> str:
+    """Çökme günlüğü için yazılabilir yol (%LOCALAPPDATA%\\AuraPDF\\logs).
+
+    Kurulu sürümde uygulama klasörü (Program Files) yazılamaz; bu yüzden
+    günlük asla uygulama klasörüne yazılmaz.
+    """
+    try:
+        from src.core.logger import get_log_path
+        return get_log_path("crash_debug.log")
+    except Exception:
+        import tempfile
+        return os.path.join(tempfile.gettempdir(), "AuraPDF_crash_debug.log")
+
+
+# C/C++ seviyesindeki çökmeleri (access violation vb.) dosyaya yazdır.
+# Pencereli (--windowed) sürümde sys.stderr None olduğundan doğrudan dosya kullanılır.
+_FAULT_LOG_FILE = None
 try:
-    faulthandler.enable()
+    _FAULT_LOG_FILE = open(_crash_log_path().replace("crash_debug.log", "native_crash.log"), "a", encoding="utf-8")
+    faulthandler.enable(file=_FAULT_LOG_FILE, all_threads=True)
 except Exception:
-    pass
+    try:
+        if sys.stderr is not None:
+            faulthandler.enable()
+    except Exception:
+        pass
 
 def _global_excepthook(exc_type, exc_val, exc_tb):
     try:
-        log_path = os.path.join(CURRENT_DIR, "crash_debug.log")
-        with open(log_path, "a", encoding="utf-8") as f:
+        with open(_crash_log_path(), "a", encoding="utf-8") as f:
             f.write("\n=== AuraPDF Unhandled Exception ===\n")
             traceback.print_exception(exc_type, exc_val, exc_tb, file=f)
             f.flush()
@@ -37,13 +58,12 @@ def _global_excepthook(exc_type, exc_val, exc_tb):
 sys.excepthook = _global_excepthook
 
 from PyQt6.QtWidgets import QApplication
-from PyQt6.QtGui import QPainterPath, QPen, QColor
 from PyQt6.QtCore import Qt
 
 # Gerekli ana bileşenleri doğrudan aktar
 from src.core.i18n import LanguageManager
-from src.ui.icons import ModernIconFactory, AuraIconFactory
-from src.viewer import ModernPDFViewer, AuraPDFViewer
+from src.ui.icons import AuraIconFactory
+from src.viewer import AuraPDFViewer
 
 # Diğer sınıfları geriye dönük uyumluluk (backward compatibility) için ihtiyaç anında tembel yükle (Lazy load)
 _LAZY_EXPORTS = {
@@ -57,11 +77,8 @@ _LAZY_EXPORTS = {
     "AuraSettingsDialog": ("src.ui.dialogs.settings_dialog", "AuraSettingsDialog"),
     "AuraDocumentPropertiesDialog": ("src.ui.dialogs.document_properties_dialog", "AuraDocumentPropertiesDialog"),
     "CursorFactory": ("src.ui.cursors", "CursorFactory"),
-    "DraggableToolButton": ("src.ui.widgets", "DraggableToolButton"),
-    "ReorderableToolBar": ("src.ui.widgets", "ReorderableToolBar"),
     "EditableInlineTextItem": ("src.ui.widgets", "EditableInlineTextItem"),
     "ThumbnailsDock": ("src.ui.widgets", "ThumbnailsDock"),
-    "ModernTabWidget": ("src.ui.widgets", "ModernTabWidget"),
     "SelectionSettingsPopup": ("src.ui.popups", "SelectionSettingsPopup"),
     "TextSettingsPopup": ("src.ui.popups", "TextSettingsPopup"),
     "TextPreviewWidget": ("src.ui.popups", "TextPreviewWidget"),
@@ -69,7 +86,6 @@ _LAZY_EXPORTS = {
     "ToolSettingsPopup": ("src.ui.popups", "ToolSettingsPopup"),
     "FloatingHUDPreview": ("src.ui.popups", "FloatingHUDPreview"),
     "PointerSettingsPopup": ("src.ui.popups", "PointerSettingsPopup"),
-    "ModernPrintDialog": ("src.ui.dialogs.print_dialog", "ModernPrintDialog"),
     "get_ebook_convert_path": ("src.ui.dialogs.toolbox_dialogs", "get_ebook_convert_path"),
     "EbookConversionThread": ("src.ui.dialogs.toolbox_dialogs", "EbookConversionThread"),
     "PDFMergeListWidget": ("src.ui.dialogs.toolbox_dialogs", "PDFMergeListWidget"),
@@ -93,8 +109,6 @@ _LAZY_EXPORTS = {
     "PDFRedactionDialog": ("src.ui.dialogs.pdf_redaction_dialog", "PDFRedactionDialog"),
     "PDFScanOCRDialog": ("src.ui.dialogs.pdf_ocr_dialog", "PDFScanOCRDialog"),
     "PDFTabDocument": ("src.document.tab_document", "PDFTabDocument"),
-    "ModernLaserPointerItem": ("src.document.tab_document", "ModernLaserPointerItem"),
-    "ModernDocumentPropertiesDialog": ("src.ui.dialogs.document_properties_dialog", "ModernDocumentPropertiesDialog"),
     "PDFTableItem": ("src.document.media_items", "PDFTableItem"),
     "PDFResizableImageItem": ("src.document.media_items", "PDFResizableImageItem"),
     "PDFAudioItem": ("src.document.media_items", "PDFAudioItem"),
@@ -110,15 +124,15 @@ _LAZY_EXPORTS = {
 }
 
 __all__ = [
-    "LanguageManager", "AuraIconFactory", "ModernIconFactory", "CursorFactory",
-    "AuraPDFViewer", "ModernPDFViewer", "AuraTabWidget", "ModernTabWidget",
-    "AuraSearchBar", "ModernSearchBar",
-    "DraggableToolButton", "ReorderableToolBar", "EditableInlineTextItem",
+    "LanguageManager", "AuraIconFactory", "CursorFactory",
+    "AuraPDFViewer", "AuraTabWidget",
+    "AuraSearchBar",
+    "EditableInlineTextItem",
     "ThumbnailsDock", "SelectionSettingsPopup",
     "TextSettingsPopup", "TextPreviewWidget", "StrokePreviewWidget",
     "ToolSettingsPopup", "FloatingHUDPreview", "PointerSettingsPopup",
-    "AuraPrintDialog", "ModernPrintDialog", "AuraSettingsDialog", "ModernSettingsDialog",
-    "AuraDocumentPropertiesDialog", "ModernDocumentPropertiesDialog",
+    "AuraPrintDialog", "AuraSettingsDialog",
+    "AuraDocumentPropertiesDialog",
     "get_ebook_convert_path", "EbookConversionThread",
     "PDFMergeListWidget", "PDFMergeDialog", "PDFSplitDialog", "PDFToEbookDialog",
     "PDFToWordDialog", "PDFToPowerPointDialog", "PDFToExcelDialog",
@@ -127,8 +141,8 @@ __all__ = [
     "PDFOrganizePagesDialog", "PDFReorderPagesDialog", "PDFPageNumberDialog",
     "PDFContentEditorDialog", "PDFSignatureDialog", "PDFCompareDialog",
     "PDFRedactionDialog", "PDFScanOCRDialog",
-    "PDFTabDocument", "AuraLaserPointerItem", "ModernLaserPointerItem",
-    "AuraMeasurementItem", "ModernMeasurementItem",
+    "PDFTabDocument", "AuraLaserPointerItem",
+    "AuraMeasurementItem",
     "PDFTableItem", "PDFResizableImageItem", "PDFAudioItem", "PDFVideoItem",
     "TableInsertDialog", "EmojiGifPickerDialog", "ImageInsertDialog",
     "AudioRecordDialog", "VideoInsertDialog",
@@ -201,7 +215,13 @@ def activate_window(window):
 
 
 def _silence_system_sounds():
-    """Tüm Windows ve Qt sistem/uyarı/onay bip seslerini (MessageBeep/QApplication.beep) tamamen sessize alır."""
+    """Qt'nin uyarı bip sesini (QApplication.beep) sessize alır.
+
+    NOT: Önceki sürüm user32!MessageBeep fonksiyonunu bellekte VirtualProtect ile
+    yamalıyordu. Bu davranış antivirüs yazılımlarınca zararlı kod olarak
+    işaretlenebildiği için kaldırıldı. Windows sistem sesleri yalnızca
+    süreç-içi Python seviyesinde susturulur.
+    """
     try:
         from PyQt6.QtWidgets import QApplication
         QApplication.beep = staticmethod(lambda: None)
@@ -211,28 +231,6 @@ def _silence_system_sounds():
     try:
         import winsound
         winsound.MessageBeep = lambda *args, **kwargs: None
-        winsound.PlaySound = lambda *args, **kwargs: None
-        winsound.Beep = lambda *args, **kwargs: None
-    except Exception:
-        pass
-
-    try:
-        import ctypes
-        from ctypes import wintypes
-        kernel32 = ctypes.windll.kernel32
-        user32 = ctypes.windll.user32
-        kernel32.GetProcAddress.argtypes = [wintypes.HMODULE, ctypes.c_char_p]
-        kernel32.GetProcAddress.restype = ctypes.c_void_p
-        kernel32.VirtualProtect.argtypes = [ctypes.c_void_p, ctypes.c_size_t, wintypes.DWORD, ctypes.POINTER(wintypes.DWORD)]
-        kernel32.VirtualProtect.restype = wintypes.BOOL
-        proc_addr = kernel32.GetProcAddress(user32._handle, b'MessageBeep')
-        if proc_addr:
-            PAGE_EXECUTE_READWRITE = 0x40
-            old_protect = wintypes.DWORD()
-            patch = bytes([0xB8, 0x01, 0x00, 0x00, 0x00, 0xC3])  # mov eax, 1; ret
-            if kernel32.VirtualProtect(proc_addr, len(patch), PAGE_EXECUTE_READWRITE, ctypes.byref(old_protect)):
-                ctypes.memmove(proc_addr, patch, len(patch))
-                kernel32.VirtualProtect(proc_addr, len(patch), old_protect.value, ctypes.byref(old_protect))
     except Exception:
         pass
 

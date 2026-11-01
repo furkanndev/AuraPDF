@@ -7,3 +7,8 @@ openpyxl>=3.1.2
 rapidocr-onnxruntime>=1.2.0
 onnxruntime>=1.18.0
 Pillow>=10.0.0
+
+# --- İsteğe bağlı: yüksek kaliteli yerel sesli okuma (EMA Lightning) ---
+# Kurulu değilse uygulama Windows'un yerleşik konuşma motorunu (QtTextToSpeech)
+# kullanır. Bu paketler büyük olduğundan (torch) varsayılan kuruluma dahil değildir:
+#   pip install -r requirements-tts.txt

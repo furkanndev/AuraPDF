@@ -1,147 +1,32 @@
-from typing import List, Dict, Optional, Any
+from typing import Optional
 import os
 import tempfile
 import pymupdf as fitz
-from PyQt6.QtWidgets import (QToolButton, QToolBar, QGraphicsTextItem, QGraphicsItem,
+from PyQt6.QtWidgets import (QToolButton, QGraphicsTextItem, QGraphicsItem,
                              QDockWidget, QTabWidget, QListWidget, QListWidgetItem, 
-                             QWidget, QVBoxLayout, QLabel, QApplication, QAbstractItemView,
+                             QWidget, QLabel, QApplication, QAbstractItemView,
                              QFrame, QHBoxLayout, QVBoxLayout, QBoxLayout, QLineEdit, QMenu, QTreeWidget,
                              QTreeWidgetItem, QStackedWidget, QPushButton, QFileDialog,
                              QMessageBox, QInputDialog, QDialog, QGraphicsDropShadowEffect, QColorDialog,
-                             QStyleOptionViewItem, QStyle, QStyleOptionGraphicsItem)
-from PyQt6.QtGui import (QDrag, QColor, QFocusEvent, QPainter, QPixmap, QIcon, QFont, QImage,
-                         QDesktopServices, QTextCursor, QTextCharFormat, QTextFormat, QCursor, QBrush, QAction,
-                         QPainterPath, QPen, QLinearGradient, QIntValidator, QTextOption)
-from PyQt6.QtCore import (Qt, QMimeData, QPoint, QPointF, QSize, pyqtSignal, QEvent, QRect, QRectF, QTimer, QUrl,
+                             QStyleOptionViewItem, QStyleOptionGraphicsItem)
+from PyQt6.QtGui import (QColor, QPainter, QPixmap, QIcon, QFont, QImage,
+                         QDesktopServices, QTextCursor, QTextCharFormat, QCursor, QBrush, QPainterPath, QPen, QLinearGradient, QIntValidator, QTextOption)
+from PyQt6.QtCore import (Qt, QPoint, QPointF, QSize, QEvent, QRect, QRectF, QTimer, QUrl,
                           QEasingCurve, QPropertyAnimation, QSettings)
 from src.core.i18n import LanguageManager
 from src.core.hyperlink_detector import detect_hyperlink
-from src.ui.icons import ModernIconFactory
+from src.ui.icons import AuraIconFactory
 from src.ui.dialog_theme import apply_dialog_theme
 
-# --- 1. SÜRÜKLENEBİLİR TOOLBAR BUTONU & ÇUBUĞU ---
-class DraggableToolButton(QToolButton):
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.drag_start_pos = None
-
-    def mousePressEvent(self, event):
-        if event.button() == Qt.MouseButton.LeftButton:
-            self.drag_start_pos = event.pos()
-        super().mousePressEvent(event)
-
-    def mouseMoveEvent(self, event):
-        if event.buttons() & Qt.MouseButton.LeftButton and self.drag_start_pos:
-            if (event.pos() - self.drag_start_pos).manhattanLength() > QApplication.startDragDistance():
-                drag = QDrag(self)
-                mime = QMimeData()
-                mime.setText(str(id(self)))
-                drag.setMimeData(mime)
-                drag.exec(Qt.DropAction.MoveAction)
-                self.drag_start_pos = None
-                return
-        super().mouseMoveEvent(event)
-
-
-class ReorderableToolBar(QToolBar):
-    def __init__(self, title, parent=None):
-        super().__init__(title, parent)
-        self.setAcceptDrops(True)
-        self.setContextMenuPolicy(Qt.ContextMenuPolicy.DefaultContextMenu)
-
-    def contextMenuEvent(self, event):
-        main_win = self.window()
-        if hasattr(main_win, 'reset_toolbar_order'):
-            menu = QMenu(self)
-            menu.setStyleSheet("""
-                QMenu {
-                    background-color: #242424;
-                    color: #f0f0f0;
-                    border: 1px solid #3c3c3c;
-                    border-radius: 6px;
-                    padding: 4px;
-                }
-                QMenu::item {
-                    padding: 6px 20px;
-                    border-radius: 4px;
-                }
-                QMenu::item:selected {
-                    background-color: #1a73e8;
-                    color: #ffffff;
-                }
-            """)
-            act_reset = menu.addAction(LanguageManager.tr("reset_toolbar_action"))
-            act_reset.triggered.connect(main_win.reset_toolbar_order)
-            menu.exec(event.globalPos())
-            event.accept()
-        else:
-            event.ignore()
-
-    def dragEnterEvent(self, event):
-        if event.mimeData().hasUrls() and any(u.toLocalFile().lower().endswith('.pdf') for u in event.mimeData().urls()):
-            event.acceptProposedAction()
-            return
-        if event.mimeData().hasText():
-            event.acceptProposedAction()
-            return
-        super().dragEnterEvent(event)
-
-    def dragMoveEvent(self, event):
-        if event.mimeData().hasUrls() and any(u.toLocalFile().lower().endswith('.pdf') for u in event.mimeData().urls()):
-            event.acceptProposedAction()
-            return
-        if event.mimeData().hasText():
-            event.acceptProposedAction()
-            return
-        super().dragMoveEvent(event)
-
-    def dropEvent(self, event):
-        if event.mimeData().hasUrls():
-            pdf_urls = [u for u in event.mimeData().urls() if u.toLocalFile().lower().endswith('.pdf')]
-            if pdf_urls:
-                main_win = self.window()
-                if hasattr(main_win, 'handle_dropped_urls'):
-                    main_win.handle_dropped_urls(pdf_urls)
-                    event.acceptProposedAction()
-                    return
-
-        src_id = event.mimeData().text()
-        pos = event.position().toPoint()
-        target_action = self.actionAt(pos)
-
-        src_action = None
-        for act in self.actions():
-            w = self.widgetForAction(act)
-            if w and str(id(w)) == src_id:
-                src_action = act
-                break
-
-        if src_action and src_action != target_action:
-            self.removeAction(src_action)
-            if target_action:
-                self.insertAction(target_action, src_action)
-            else:
-                self.addAction(src_action)
-            w = self.widgetForAction(src_action)
-            if w:
-                w.show()
-            event.acceptProposedAction()
-            main_win = self.window()
-            if hasattr(main_win, 'save_toolbar_order'):
-                main_win.save_toolbar_order()
-
-
-
-
 # --- 1.5. MODERN HYPERLINK BAĞLANTI DİYALOĞU ---
-class ModernLinkInputDialog(QDialog):
+class AuraLinkInputDialog(QDialog):
     """
     Kullanıcının metin kutusuna veya seçili metne tıklanabilir web bağlantısı (hyperlink)
     eklemesini sağlayan şık ve modern diyalog.
     """
     def __init__(self, parent=None, initial_text="", initial_url="", has_existing_link=False):
         super().__init__(parent)
-        self.setWindowTitle("Bağlantı (Hyperlink) Ayarları")
+        self.setWindowTitle(LanguageManager.tr("ui_baglanti_hyperlink_ayarlari"))
         self.setFixedWidth(440)
         self.initial_text = initial_text or ""
         self.setStyleSheet("""
@@ -179,12 +64,12 @@ class ModernLinkInputDialog(QDialog):
         layout.setSpacing(14)
 
         # Başlık
-        header = QLabel("Metne Web Bağlantısı (Hyperlink) Ekle")
+        header = QLabel(LanguageManager.tr("ui_metne_web_baglantisi_hyperlink_ekle"))
         header.setStyleSheet("font-size: 16px; font-weight: bold; color: #38bdf8;")
         layout.addWidget(header)
 
         # Hedef URL Alanı
-        lbl_url = QLabel("Yönlendirilecek Web Adresi (URL):")
+        lbl_url = QLabel(LanguageManager.tr("ui_yonlendirilecek_web_adresi_url"))
         layout.addWidget(lbl_url)
         self.txt_url = QLineEdit()
         self.txt_url.setPlaceholderText("https://www.google.com")
@@ -193,7 +78,7 @@ class ModernLinkInputDialog(QDialog):
         layout.addWidget(self.txt_url)
 
         # Bilgilendirme / İpucu
-        hint = QLabel("Bağlantı eklenen metin mavi ve altı çizili görünecektir. Tıklandığında hedef site açılır.")
+        hint = QLabel(LanguageManager.tr("ui_baglanti_eklenen_metin_mavi_ve_alti"))
         hint.setWordWrap(True)
         hint.setStyleSheet("font-size: 11px; color: #94a3b8; font-style: italic; line-height: 1.4;")
         layout.addWidget(hint)
@@ -204,7 +89,7 @@ class ModernLinkInputDialog(QDialog):
 
         self.remove_link = False
         if has_existing_link:
-            self.btn_remove = QPushButton("Bağlantıyı Kaldır")
+            self.btn_remove = QPushButton(LanguageManager.tr("ui_baglantiyi_kaldir"))
             self.btn_remove.setStyleSheet("""
                 QPushButton {
                     background-color: #451a1a;
@@ -221,7 +106,7 @@ class ModernLinkInputDialog(QDialog):
 
         btn_layout.addStretch()
 
-        btn_cancel = QPushButton("İptal")
+        btn_cancel = QPushButton(LanguageManager.tr("cancel"))
         btn_cancel.setStyleSheet("""
             QPushButton {
                 background-color: #3f3f46;
@@ -235,7 +120,7 @@ class ModernLinkInputDialog(QDialog):
         btn_cancel.clicked.connect(self.reject)
         btn_layout.addWidget(btn_cancel)
 
-        btn_apply = QPushButton("Kaydet")
+        btn_apply = QPushButton(LanguageManager.tr("save"))
         btn_apply.setStyleSheet("""
             QPushButton {
                 background-color: #0284c7;
@@ -422,6 +307,7 @@ class EditableInlineTextItem(QGraphicsTextItem):
         self.italic = italic
         self.underline = underline
         self.alignment = Qt.AlignmentFlag.AlignLeft
+        self.box_bg_color = None
         self.link_url = ""
         self.link_type = None
         self.link_raw = ""
@@ -471,6 +357,15 @@ class EditableInlineTextItem(QGraphicsTextItem):
         elif self.alignment == Qt.AlignmentFlag.AlignJustify:
             return "justify"
         return "left"
+
+    def set_box_background(self, color, commit: bool = True):
+        """Kutunun arka plan rengini ayarlar; None şeffaf kutu demektir."""
+        if color == self.box_bg_color:
+            return
+        self.box_bg_color = color
+        self.update()
+        if commit and hasattr(self.tab_doc, 'commit_text_box_background'):
+            self.tab_doc.commit_text_box_background(self, color)
 
     def set_alignment(self, align, commit: bool = True):
         """Metin kutusu içerisindeki tüm paragrafların ve varsayılan seçeneğin hizalamasını ayarlar."""
@@ -692,6 +587,8 @@ class EditableInlineTextItem(QGraphicsTextItem):
             pass
 
     def paint(self, painter, option, widget=None):
+        if self.box_bg_color:
+            painter.fillRect(self.text_rect(), QColor(self.box_bg_color))
         if option is not None:
             opt = QStyleOptionGraphicsItem(option)
             opt.exposedRect = self.boundingRect()
@@ -745,7 +642,7 @@ class EditableInlineTextItem(QGraphicsTextItem):
         font.setUnderline(self.underline)
         self.setFont(font)
 
-    def apply_format_to_selection(self, *, bold=None, italic=None, underline=None, font_size=None, color=None, font_family=None):
+    def apply_format_to_selection(self, *, bold=None, italic=None, underline=None, strikeout=None, font_size=None, color=None, font_family=None):
         """
         Metin kutusu içinde seçilen harflerin veya aralığın kalınlığını, boyutunu,
         rengini veya yazı tipini SADECE seçili karakterler için uygular.
@@ -769,6 +666,8 @@ class EditableInlineTextItem(QGraphicsTextItem):
             fmt.setFontItalic(bool(italic))
         if underline is not None:
             fmt.setFontUnderline(bool(underline))
+        if strikeout is not None:
+            fmt.setFontStrikeOut(bool(strikeout))
         if font_size is not None and font_size > 0:
             dpi = getattr(self.tab_doc, 'base_render_dpi', 1.5)
             pixel_size = max(8, int(round(float(font_size) * dpi)))
@@ -933,6 +832,7 @@ class EditableInlineTextItem(QGraphicsTextItem):
             "bold": sel_bold,
             "italic": sel_italic,
             "underline": sel_underline,
+            "strikeout": self.textCursor().charFormat().fontStrikeOut(),
             "font_size": sel_size,
             "color": sel_color,
             "font_family": sel_family,
@@ -962,7 +862,7 @@ class EditableInlineTextItem(QGraphicsTextItem):
             while not it.atEnd():
                 f = it.fragment()
                 if f.isValid():
-                    txt = f.text()
+                    txt = f.text().replace("\xa0", " ")
                     if txt:
                         fmt = f.charFormat()
                         px_size = fmt.font().pixelSize() if hasattr(fmt, 'font') else 0
@@ -990,6 +890,7 @@ class EditableInlineTextItem(QGraphicsTextItem):
                             "bold": bool(f_bold),
                             "italic": fmt.fontItalic(),
                             "underline": fmt.fontUnderline(),
+                            "strikeout": fmt.fontStrikeOut(),
                             "color": col,
                             "href": fmt.anchorHref() if fmt.isAnchor() else ""
                         })
@@ -1067,7 +968,6 @@ class EditableInlineTextItem(QGraphicsTextItem):
                 self.format_entire_text_as_link(self.link_url)
             return
 
-        from src.core.hyperlink_detector import detect_hyperlink
         detected = detect_hyperlink(text)
         if detected:
             self.link_url = detected["url"]
@@ -1172,7 +1072,7 @@ class EditableInlineTextItem(QGraphicsTextItem):
             self.link_range = (st, en)
             self.link_text = full_text[st:en]
             self.link_raw = self.link_text
-            self.setToolTip(f"Bağlantı: {url}\n('{self.link_text}' üzerine tıklayarak siteye gidin)")
+            self.setToolTip(LanguageManager.tr("ui_baglanti_uzerine_tiklayarak_siteye_gidin", url=url, link_text=self.link_text))
         else:
             # Tüm metin bağlantı
             cursor.select(QTextCursor.SelectionType.Document)
@@ -1180,7 +1080,7 @@ class EditableInlineTextItem(QGraphicsTextItem):
             self.link_range = (0, len(full_text))
             self.link_text = ""
             self.link_raw = url
-            self.setToolTip(f"Bağlantı: {url}\n(Tıklayarak siteye gidin)")
+            self.setToolTip(LanguageManager.tr("ui_baglanti_tiklayarak_siteye_gidin", url=url))
 
         self.prepareGeometryChange()
         self.update()
@@ -1325,7 +1225,7 @@ class EditableInlineTextItem(QGraphicsTextItem):
         has_existing = bool(fmt_sel.get("is_link", False)) or bool(getattr(self, "link_url", "")) or getattr(self, "manual_link", False)
 
         parent_widget = self.scene().views()[0] if self.scene() and self.scene().views() else self.tab_doc.main_window
-        dlg = ModernLinkInputDialog(
+        dlg = AuraLinkInputDialog(
             parent_widget,
             initial_text=initial_word,
             initial_url=initial_url,
@@ -1380,7 +1280,7 @@ class EditableInlineTextItem(QGraphicsTextItem):
 
         if self._is_on_border(event.pos()):
             self.setCursor(Qt.CursorShape.SizeAllCursor)
-            self.setToolTip(LanguageManager.tr("direct_edit_move_hint", default="Metin kutusunu taşımak için sürükleyin"))
+            self.setToolTip(LanguageManager.tr("direct_edit_move_hint", default=LanguageManager.tr("ui_metin_kutusunu_tasimak_icin_surukleyin")))
             super().hoverMoveEvent(event)
             return
 
@@ -1393,14 +1293,14 @@ class EditableInlineTextItem(QGraphicsTextItem):
         anc = self.document().documentLayout().anchorAt(event.pos())
         if anc:
             self.setCursor(Qt.CursorShape.PointingHandCursor)
-            self.setToolTip(f"Bağlantı: {anc}\n(Tıklayarak siteye gidin)")
+            self.setToolTip(LanguageManager.tr("ui_baglanti_tiklayarak_siteye_gidin_2", anc=anc))
         elif getattr(self, "link_url", "") and not getattr(self, "link_text", ""):
             self.setCursor(Qt.CursorShape.PointingHandCursor)
-            self.setToolTip(f"Bağlantı: {self.link_url}\n(Tıklayarak siteye gidin)")
+            self.setToolTip(LanguageManager.tr("ui_baglanti_tiklayarak_siteye_gidin_3", link_url=self.link_url))
         elif getattr(self, "link_type", None) == "tc":
             self.setCursor(Qt.CursorShape.PointingHandCursor)
             val = getattr(self, "link_raw", "") or self.toPlainText().strip()
-            self.setToolTip(f"T.C. Kimlik No: {val}\n(Tıklayarak panoya kopyalayın)")
+            self.setToolTip(LanguageManager.tr("ui_t_c_kimlik_no_tiklayarak_panoya", val=val))
         else:
             self.setCursor(Qt.CursorShape.IBeamCursor)
             self.setToolTip("")
@@ -1484,7 +1384,7 @@ class EditableInlineTextItem(QGraphicsTextItem):
                     main_win = getattr(self.tab_doc, 'main_window', None)
                     status_bar = getattr(main_win, "statusBar", lambda: None)()
                     if status_bar:
-                        status_bar.showMessage(f"T.C. Kimlik No panoya kopyalandı: {val}", 4000)
+                        status_bar.showMessage(LanguageManager.tr("ui_t_c_kimlik_no_panoya_kopyalandi", val=val), 4000)
                     return
                 if link_url and not link_text:
                     QDesktopServices.openUrl(QUrl(link_url))
@@ -1845,14 +1745,14 @@ class EditableInlineTextItem(QGraphicsTextItem):
 
         if active_url and link_type != "tc":
             if link_type == "phone":
-                act_action = menu.addAction(f"Numarayı Ara ({link_raw})")
-                act_copy = menu.addAction("Telefon Numarasını Kopyala")
+                act_action = menu.addAction(LanguageManager.tr("ui_numarayi_ara", link_raw=link_raw))
+                act_copy = menu.addAction(LanguageManager.tr("ui_telefon_numarasini_kopyala"))
             elif link_type == "email":
-                act_action = menu.addAction(f"E-Posta Gönder ({link_raw})")
+                act_action = menu.addAction(LanguageManager.tr("ui_e_posta_gonder", link_raw=link_raw))
                 act_copy = menu.addAction("E-Posta Adresini Kopyala")
             else:
                 act_action = menu.addAction(f"Siteye Git ({active_url})")
-                act_copy = menu.addAction("Bağlantı Adresini Kopyala")
+                act_copy = menu.addAction(LanguageManager.tr("ui_baglanti_adresini_kopyala"))
             menu.addSeparator()
         elif link_type == "tc":
             act_copy = menu.addAction(f"T.C. Kimlik No Kopyala ({link_raw})")
@@ -1868,26 +1768,26 @@ class EditableInlineTextItem(QGraphicsTextItem):
             is_italic = fmt.get("italic", False)
             is_underline = fmt.get("underline", False)
 
-            act_bold = menu.addAction(f"Kalın (Bold){'  ✓' if is_bold else ''}")
-            act_italic = menu.addAction(f"İtalik (Italic){'  ✓' if is_italic else ''}")
-            act_underline = menu.addAction(f"Altı Çizili (Underline){'  ✓' if is_underline else ''}")
+            act_bold = menu.addAction(LanguageManager.tr("ui_kalin_bold", value='  ✓' if is_bold else ''))
+            act_italic = menu.addAction(LanguageManager.tr("ui_italik_italic", value='  ✓' if is_italic else ''))
+            act_underline = menu.addAction(LanguageManager.tr("ui_alti_cizili_underline", value='  ✓' if is_underline else ''))
 
-            size_menu = menu.addMenu("Yazı Tipi Boyutu")
+            size_menu = menu.addMenu(LanguageManager.tr("ui_yazi_tipi_boyutu"))
             curr_sz = int(round(fmt.get("font_size", 14)))
             for sz in [9, 10, 11, 12, 14, 16, 18, 20, 24, 28, 32, 36, 48, 72]:
                 act_sz = size_menu.addAction(f"{sz} pt{'  ✓' if sz == curr_sz else ''}")
                 act_sz.triggered.connect(lambda _, s=sz: self.apply_format_to_selection(font_size=s))
 
-            color_menu = menu.addMenu("Metin Rengi")
+            color_menu = menu.addMenu(LanguageManager.tr("direct_edit_font_color"))
             colors = [
-                ("Siyah", "#000000"),
-                ("Beyaz", "#ffffff"),
-                ("Kırmızı", "#e53935"),
-                ("Mavi", "#1e88e5"),
-                ("Yeşil", "#43a047"),
-                ("Sarı", "#fdd835"),
-                ("Turuncu", "#fb8c00"),
-                ("Mor", "#8e24aa"),
+                (LanguageManager.tr("clr_black"), "#000000"),
+                (LanguageManager.tr("clr_white"), "#ffffff"),
+                (LanguageManager.tr("clr_red"), "#e53935"),
+                (LanguageManager.tr("clr_blue"), "#1e88e5"),
+                (LanguageManager.tr("clr_green"), "#43a047"),
+                (LanguageManager.tr("clr_yellow"), "#fdd835"),
+                (LanguageManager.tr("clr_orange"), "#fb8c00"),
+                (LanguageManager.tr("clr_purple"), "#8e24aa"),
             ]
             for col_name, col_hex in colors:
                 act_c = color_menu.addAction(col_name)
@@ -1896,30 +1796,30 @@ class EditableInlineTextItem(QGraphicsTextItem):
                 act_c.setIcon(QIcon(pix))
                 act_c.triggered.connect(lambda _, c=col_hex: self.apply_format_to_selection(color=QColor(c)))
 
-            act_custom_c = color_menu.addAction("Özel Renk Seç...")
+            act_custom_c = color_menu.addAction(LanguageManager.tr("background_color_custom"))
             def _choose_custom_color():
-                c = QColorDialog.getColor(fmt.get("color", QColor("#000000")), None, "Metin Rengi Seç")
+                c = QColorDialog.getColor(fmt.get("color", QColor("#000000")), None, LanguageManager.tr("ui_choose_text_color"))
                 if c.isValid():
                     self.apply_format_to_selection(color=c)
             act_custom_c.triggered.connect(_choose_custom_color)
             menu.addSeparator()
 
         if selected_text:
-            act_link = menu.addAction(f"'{selected_text}' İfadesine Bağlantı Ekle / Düzenle...")
+            act_link = menu.addAction(LanguageManager.tr("ui_ifadesine_baglanti_ekle_duzenle", selected_text=selected_text))
             target_word_hint = selected_text
         else:
-            act_link = menu.addAction("Bağlantı (Hyperlink) Ekle / Düzenle...")
+            act_link = menu.addAction(LanguageManager.tr("ui_baglanti_hyperlink_ekle_duzenle_2"))
             target_word_hint = ""
 
-        act_edit_txt = menu.addAction("Metni Düzenle")
-        act_rm_link = menu.addAction("Bağlantıyı Kaldır")
+        act_edit_txt = menu.addAction(LanguageManager.tr("ui_metni_duzenle"))
+        act_rm_link = menu.addAction(LanguageManager.tr("ui_baglantiyi_kaldir"))
         if not has_link:
             act_rm_link.setEnabled(False)
 
         menu.addSeparator()
 
         from src.core.i18n import LanguageManager
-        from src.ui.icons import ModernIconFactory
+        from src.ui.icons import AuraIconFactory
         from src.ui.popups import POPUP_THEME_SPECS
 
         main_win = getattr(self.tab_doc, 'main_window', None)
@@ -1932,26 +1832,26 @@ class EditableInlineTextItem(QGraphicsTextItem):
         cur_align = getattr(self, "alignment_str", "left")
 
         act_al_left = align_menu.addAction(f"{LanguageManager.tr('align_left')}{'  ✓' if cur_align == 'left' else ''}")
-        act_al_left.setIcon(ModernIconFactory.icon_align_left(16, "#ffffff" if cur_align == "left" else icon_col))
+        act_al_left.setIcon(AuraIconFactory.icon_align_left(16, "#ffffff" if cur_align == "left" else icon_col))
         act_al_left.triggered.connect(lambda: self.set_alignment("left"))
 
         act_al_center = align_menu.addAction(f"{LanguageManager.tr('align_center')}{'  ✓' if cur_align == 'center' else ''}")
-        act_al_center.setIcon(ModernIconFactory.icon_align_center(16, "#ffffff" if cur_align == "center" else icon_col))
+        act_al_center.setIcon(AuraIconFactory.icon_align_center(16, "#ffffff" if cur_align == "center" else icon_col))
         act_al_center.triggered.connect(lambda: self.set_alignment("center"))
 
         act_al_right = align_menu.addAction(f"{LanguageManager.tr('align_right')}{'  ✓' if cur_align == 'right' else ''}")
-        act_al_right.setIcon(ModernIconFactory.icon_align_right(16, "#ffffff" if cur_align == "right" else icon_col))
+        act_al_right.setIcon(AuraIconFactory.icon_align_right(16, "#ffffff" if cur_align == "right" else icon_col))
         act_al_right.triggered.connect(lambda: self.set_alignment("right"))
 
         act_al_justify = align_menu.addAction(f"{LanguageManager.tr('align_justify')}{'  ✓' if cur_align == 'justify' else ''}")
-        act_al_justify.setIcon(ModernIconFactory.icon_align_justify(16, "#ffffff" if cur_align == "justify" else icon_col))
+        act_al_justify.setIcon(AuraIconFactory.icon_align_justify(16, "#ffffff" if cur_align == "justify" else icon_col))
         act_al_justify.triggered.connect(lambda: self.set_alignment("justify"))
 
         menu.addSeparator()
-        act_grid = menu.addAction(ModernIconFactory.icon_all_grid(icon_col), LanguageManager.tr("align_to_grid", default="Grid'e Hizala"))
+        act_grid = menu.addAction(AuraIconFactory.icon_all_grid(icon_col), LanguageManager.tr("align_to_grid", default="Grid'e Hizala"))
         menu.addSeparator()
         act_delete_box = menu.addAction(LanguageManager.tr("delete_text_box"))
-        act_delete_box.setIcon(ModernIconFactory.icon_trash("#ef4444"))
+        act_delete_box.setIcon(AuraIconFactory.icon_trash("#ef4444"))
 
         chosen = menu.exec(event.screenPos())
         if act_action and chosen == act_action:
@@ -1961,7 +1861,7 @@ class EditableInlineTextItem(QGraphicsTextItem):
             QApplication.clipboard().setText(val_to_copy)
             status_bar = getattr(self.tab_doc.main_window, "statusBar", lambda: None)()
             if status_bar:
-                status_bar.showMessage(f"Panoya kopyalandı: {val_to_copy}", 3000)
+                status_bar.showMessage(LanguageManager.tr("ui_panoya_kopyalandi", val_to_copy=val_to_copy), 3000)
         elif act_bold and chosen == act_bold:
             self.apply_format_to_selection(bold=not is_bold)
         elif act_italic and chosen == act_italic:
@@ -1992,7 +1892,7 @@ class FullscreenToolbarGrip(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setCursor(Qt.CursorShape.SizeAllCursor)
-        self.setToolTip("Sürükleyip Bırak (Ekranın Kenarlarına Taşı)")
+        self.setToolTip(LanguageManager.tr("ui_surukleyip_birak_ekranin_kenarlarina_tasi"))
         self.is_horizontal = False
         self.setFixedSize(36, 14)
 
@@ -2099,15 +1999,15 @@ class FullscreenSlideToolbar(QFrame):
 
         self.buttons = {}
         tools = [
-            ('select', ModernIconFactory.icon_cursor(), 'Seçim Aracı (İmleç / Ayarlar için tıkla)'),
-            ('pan', ModernIconFactory.icon_select_pan(), 'El Aracı (Sayfayı Kaydır)'),
-            ('selection_tool', ModernIconFactory.icon_select_rect(), 'Kare Seçim Aracı (Seçim / Cetvel Paneli için tıkla)'),
-            ('pen', ModernIconFactory.icon_pen(), 'Çizim / Kalem (Renk & Boyut Paneli için tıkla)'),
-            ('highlighter', ModernIconFactory.icon_highlighter(), 'Vurgulayıcı (Renk & Boyut Paneli için tıkla)'),
-            ('eraser', ModernIconFactory.icon_eraser(), 'Silgi (Silgi Ayarları için tıkla)'),
-            ('text', ModernIconFactory.icon_text_box(), 'Metin Kutusu (Yazı & Biçim Paneli için tıkla)'),
-            ('insert', ModernIconFactory.icon_insert("#10b981"), LanguageManager.tr("insert_btn_tip")),
-            ('pointer', ModernIconFactory.icon_pointer(), 'Lazer İşaretçi (İşaretçi Ayarları için tıkla)')
+            ('select', AuraIconFactory.icon_cursor(), LanguageManager.tr("tool_tip_select")),
+            ('pan', AuraIconFactory.icon_select_pan(), LanguageManager.tr("tool_tip_pan")),
+            ('selection_tool', AuraIconFactory.icon_select_rect(), LanguageManager.tr("tool_tip_selection")),
+            ('pen', AuraIconFactory.icon_pen(), LanguageManager.tr("tool_tip_pen")),
+            ('highlighter', AuraIconFactory.icon_highlighter(), LanguageManager.tr("tool_tip_highlighter")),
+            ('eraser', AuraIconFactory.icon_eraser(), LanguageManager.tr("tool_tip_eraser")),
+            ('text', AuraIconFactory.icon_text_box(), LanguageManager.tr("tool_tip_text")),
+            ('insert', AuraIconFactory.icon_insert("#10b981"), LanguageManager.tr("insert_btn_tip")),
+            ('pointer', AuraIconFactory.icon_pointer(), LanguageManager.tr("tool_tip_pointer"))
         ]
 
         for name, icon, tip in tools:
@@ -2130,8 +2030,8 @@ class FullscreenSlideToolbar(QFrame):
         self.box_layout.addWidget(self.sep)
 
         self.btn_exit = QToolButton(self)
-        self.btn_exit.setIcon(ModernIconFactory.icon_fullscreen())
-        self.btn_exit.setToolTip('Tam Ekrandan Çık (F11 / Esc)')
+        self.btn_exit.setIcon(AuraIconFactory.icon_fullscreen())
+        self.btn_exit.setToolTip(LanguageManager.tr("ui_tam_ekrandan_cik_f11_esc"))
         self.btn_exit.setFixedSize(40, 40)
         self.btn_exit.clicked.connect(self._on_exit_fullscreen)
         self.box_layout.addWidget(self.btn_exit)
@@ -2343,9 +2243,9 @@ class FullscreenSlideToolbar(QFrame):
             act.setChecked(self.edge == edge_key)
             act.triggered.connect(lambda chk=False, ek=edge_key: self.set_edge(ek))
         menu.addSeparator()
-        act_center = menu.addAction(ModernIconFactory.icon_refresh(), LanguageManager.tr("fs_center_position"))
+        act_center = menu.addAction(AuraIconFactory.icon_refresh(), LanguageManager.tr("fs_center_position"))
         act_center.triggered.connect(self.reset_to_center)
-        act_reset = menu.addAction(ModernIconFactory.icon_refresh(), LanguageManager.tr("fullscreen_tb_reset_pos"))
+        act_reset = menu.addAction(AuraIconFactory.icon_refresh(), LanguageManager.tr("fullscreen_tb_reset_pos"))
         act_reset.triggered.connect(self.reset_to_default)
         menu.exec(event.globalPos())
 
@@ -2397,15 +2297,15 @@ class FullscreenSlideToolbar(QFrame):
         if 'selection_tool' in self.buttons:
             btn_sel = self.buttons['selection_tool']
             if tool_name == 'ruler':
-                btn_sel.setIcon(ModernIconFactory.icon_ruler())
+                btn_sel.setIcon(AuraIconFactory.icon_ruler())
             else:
                 mode = getattr(self.main_window, 'selection_shape_mode', 'rect')
                 if mode == 'rect':
-                    btn_sel.setIcon(ModernIconFactory.icon_select_rect())
+                    btn_sel.setIcon(AuraIconFactory.icon_select_rect())
                 elif mode == 'lasso':
-                    btn_sel.setIcon(ModernIconFactory.icon_select_lasso())
+                    btn_sel.setIcon(AuraIconFactory.icon_select_lasso())
                 elif mode == 'move':
-                    btn_sel.setIcon(ModernIconFactory.icon_select_move())
+                    btn_sel.setIcon(AuraIconFactory.icon_select_move())
 
     def _get_popup_for_tool(self, name: str):
         mw = self.main_window
@@ -2587,13 +2487,13 @@ class FullscreenSlideToolbar(QFrame):
                     margin: 4px 10px;
                 }
             """)
-            menu.addAction(ModernIconFactory.icon_menu_voice_recording(), "  " + LanguageManager.tr("insert_voice_recording"), mw.show_insert_audio_dialog)
+            menu.addAction(AuraIconFactory.icon_menu_voice_recording(), "  " + LanguageManager.tr("insert_voice_recording"), mw.show_insert_audio_dialog)
             menu.addSeparator()
-            menu.addAction(ModernIconFactory.icon_menu_image(), "  " + LanguageManager.tr("insert_image"), lambda: mw.show_insert_image_dialog(default_tab=0))
-            menu.addAction(ModernIconFactory.icon_menu_camera(), "  " + LanguageManager.tr("insert_camera"), mw.show_insert_video_dialog)
-            menu.addAction(ModernIconFactory.icon_menu_audio(), "  " + LanguageManager.tr("insert_audio_file"), mw.show_insert_audio_file_picker)
-            menu.addAction(ModernIconFactory.icon_menu_drawing(), "  " + LanguageManager.tr("insert_drawing"), mw.show_insert_emoji_dialog)
-            menu.addAction(ModernIconFactory.icon_menu_table(), "  " + LanguageManager.tr("insert_table"), mw.show_insert_table_dialog)
+            menu.addAction(AuraIconFactory.icon_menu_image(), "  " + LanguageManager.tr("insert_image"), lambda: mw.show_insert_image_dialog(default_tab=0))
+            menu.addAction(AuraIconFactory.icon_menu_camera(), "  " + LanguageManager.tr("insert_camera"), mw.show_insert_video_dialog)
+            menu.addAction(AuraIconFactory.icon_menu_audio(), "  " + LanguageManager.tr("insert_audio_file"), mw.show_insert_audio_file_picker)
+            menu.addAction(AuraIconFactory.icon_menu_drawing(), "  " + LanguageManager.tr("insert_drawing"), mw.show_insert_emoji_dialog)
+            menu.addAction(AuraIconFactory.icon_menu_table(), "  " + LanguageManager.tr("insert_table"), mw.show_insert_table_dialog)
 
         # Menü konumunu kenar yönüne göre konumlandır
         menu.adjustSize()
@@ -2781,14 +2681,14 @@ class FullscreenReadingHUD(QFrame):
 
         # 1. Sayfa Çevirme & Gezinti
         self.btn_first = QToolButton(self)
-        self.btn_first.setIcon(ModernIconFactory.icon_first_page())
+        self.btn_first.setIcon(AuraIconFactory.icon_first_page())
         self.btn_first.setToolTip(LanguageManager.tr("fs_hud_first_page"))
         self.btn_first.setFixedSize(34, 34)
         self.btn_first.clicked.connect(self._go_first)
         self.box_layout.addWidget(self.btn_first)
 
         self.btn_prev = QToolButton(self)
-        self.btn_prev.setIcon(ModernIconFactory.icon_move_left())
+        self.btn_prev.setIcon(AuraIconFactory.icon_move_left())
         self.btn_prev.setToolTip(LanguageManager.tr("fs_hud_prev_page"))
         self.btn_prev.setFixedSize(34, 34)
         self.btn_prev.clicked.connect(self._go_prev)
@@ -2813,14 +2713,14 @@ class FullscreenReadingHUD(QFrame):
         self.box_layout.addLayout(self.page_box)
 
         self.btn_next = QToolButton(self)
-        self.btn_next.setIcon(ModernIconFactory.icon_move_right())
+        self.btn_next.setIcon(AuraIconFactory.icon_move_right())
         self.btn_next.setToolTip(LanguageManager.tr("fs_hud_next_page"))
         self.btn_next.setFixedSize(34, 34)
         self.btn_next.clicked.connect(self._go_next)
         self.box_layout.addWidget(self.btn_next)
 
         self.btn_last = QToolButton(self)
-        self.btn_last.setIcon(ModernIconFactory.icon_last_page())
+        self.btn_last.setIcon(AuraIconFactory.icon_last_page())
         self.btn_last.setToolTip(LanguageManager.tr("fs_hud_last_page"))
         self.btn_last.setFixedSize(34, 34)
         self.btn_last.clicked.connect(self._go_last)
@@ -2830,7 +2730,7 @@ class FullscreenReadingHUD(QFrame):
 
         # 2. Sayfa Görünüm Modları (Tekli / İkili)
         self.btn_single = QToolButton(self)
-        self.btn_single.setIcon(ModernIconFactory.icon_view_single())
+        self.btn_single.setIcon(AuraIconFactory.icon_view_single())
         self.btn_single.setToolTip(LanguageManager.tr("view_mode_single"))
         self.btn_single.setCheckable(True)
         self.btn_single.setFixedSize(34, 34)
@@ -2838,7 +2738,7 @@ class FullscreenReadingHUD(QFrame):
         self.box_layout.addWidget(self.btn_single)
 
         self.btn_double = QToolButton(self)
-        self.btn_double.setIcon(ModernIconFactory.icon_view_double())
+        self.btn_double.setIcon(AuraIconFactory.icon_view_double())
         self.btn_double.setToolTip(LanguageManager.tr("view_mode_double"))
         self.btn_double.setCheckable(True)
         self.btn_double.setFixedSize(34, 34)
@@ -2849,7 +2749,7 @@ class FullscreenReadingHUD(QFrame):
 
         # 3. Okuma Renk Modları (Gündüz, Gece, Sepya)
         self.btn_color_light = QToolButton(self)
-        self.btn_color_light.setIcon(ModernIconFactory.icon_reading_mode())
+        self.btn_color_light.setIcon(AuraIconFactory.icon_reading_mode())
         self.btn_color_light.setToolTip(LanguageManager.tr("reading_mode_normal"))
         self.btn_color_light.setCheckable(True)
         self.btn_color_light.setFixedSize(34, 34)
@@ -2857,7 +2757,7 @@ class FullscreenReadingHUD(QFrame):
         self.box_layout.addWidget(self.btn_color_light)
 
         self.btn_color_dark = QToolButton(self)
-        self.btn_color_dark.setIcon(ModernIconFactory.icon_reading_dark())
+        self.btn_color_dark.setIcon(AuraIconFactory.icon_reading_dark())
         self.btn_color_dark.setToolTip(LanguageManager.tr("reading_mode_dark"))
         self.btn_color_dark.setCheckable(True)
         self.btn_color_dark.setFixedSize(34, 34)
@@ -2865,7 +2765,7 @@ class FullscreenReadingHUD(QFrame):
         self.box_layout.addWidget(self.btn_color_dark)
 
         self.btn_color_sepia = QToolButton(self)
-        self.btn_color_sepia.setIcon(ModernIconFactory.icon_reading_sepia())
+        self.btn_color_sepia.setIcon(AuraIconFactory.icon_reading_sepia())
         self.btn_color_sepia.setToolTip(LanguageManager.tr("reading_mode_sepia"))
         self.btn_color_sepia.setCheckable(True)
         self.btn_color_sepia.setFixedSize(34, 34)
@@ -2876,14 +2776,14 @@ class FullscreenReadingHUD(QFrame):
 
         # 4. Sığdırma Butonları (Genişlik & Sayfa)
         self.btn_fit_width = QToolButton(self)
-        self.btn_fit_width.setIcon(ModernIconFactory.icon_fit_width())
+        self.btn_fit_width.setIcon(AuraIconFactory.icon_fit_width())
         self.btn_fit_width.setToolTip(LanguageManager.tr("fit_to_width"))
         self.btn_fit_width.setFixedSize(34, 34)
         self.btn_fit_width.clicked.connect(self._fit_width)
         self.box_layout.addWidget(self.btn_fit_width)
 
         self.btn_fit_page = QToolButton(self)
-        self.btn_fit_page.setIcon(ModernIconFactory.icon_fit_page())
+        self.btn_fit_page.setIcon(AuraIconFactory.icon_fit_page())
         self.btn_fit_page.setToolTip(LanguageManager.tr("fit_to_page"))
         self.btn_fit_page.setFixedSize(34, 34)
         self.btn_fit_page.clicked.connect(self._fit_page)
@@ -2893,7 +2793,7 @@ class FullscreenReadingHUD(QFrame):
 
         # 5. Kapat / Gizle Butonu
         self.btn_close = QToolButton(self)
-        self.btn_close.setIcon(ModernIconFactory.icon_close())
+        self.btn_close.setIcon(AuraIconFactory.icon_close())
         self.btn_close.setToolTip(LanguageManager.tr("fs_hud_hide"))
         self.btn_close.setFixedSize(30, 30)
         self.btn_close.clicked.connect(self.slide_out)
@@ -3196,12 +3096,6 @@ class FullscreenReadingHUD(QFrame):
 
         return QPoint(int(x), int(y))
 
-    def reposition(self):
-        if self._is_dragging:
-            return
-        target_pos = self.get_target_coords(visible=self.is_slid_in)
-        self.move(target_pos)
-
     def eventFilter(self, watched, event):
         if event.type() == QEvent.Type.MouseButtonPress:
             if event.button() == Qt.MouseButton.LeftButton:
@@ -3310,9 +3204,9 @@ class FullscreenReadingHUD(QFrame):
             act.setChecked(self.edge == edge_key)
             act.triggered.connect(lambda chk=False, ek=edge_key: self.set_edge(ek))
         menu.addSeparator()
-        act_center = menu.addAction(ModernIconFactory.icon_refresh(), LanguageManager.tr("fs_center_position"))
+        act_center = menu.addAction(AuraIconFactory.icon_refresh(), LanguageManager.tr("fs_center_position"))
         act_center.triggered.connect(self.reset_to_center)
-        act_reset = menu.addAction(ModernIconFactory.icon_refresh(), LanguageManager.tr("hud_reset_pos"))
+        act_reset = menu.addAction(AuraIconFactory.icon_refresh(), LanguageManager.tr("hud_reset_pos"))
         act_reset.triggered.connect(self.reset_to_default_pos)
         menu.exec(event.globalPos())
 
@@ -3385,7 +3279,8 @@ class FullscreenReadingHUD(QFrame):
         self.hide()
 
     def reposition(self):
-        if not self.isVisible():
+        # Görünmüyorsa veya kullanıcı sürüklüyorsa konumu değiştirme
+        if not self.isVisible() or getattr(self, '_is_dragging', False):
             return
         target_pos = self.get_target_coords(visible=self.is_slid_in)
         self.move(target_pos)
@@ -3532,7 +3427,7 @@ class ThumbnailsDock(QDockWidget):
 
         self.btn_tab_thumbs = QToolButton()
         self.btn_tab_thumbs.setProperty("class", "SidebarTab")
-        self.btn_tab_thumbs.setIcon(ModernIconFactory.icon_thumbnails())
+        self.btn_tab_thumbs.setIcon(AuraIconFactory.icon_thumbnails())
         self.btn_tab_thumbs.setText(" " + LanguageManager.tr("sidebar_thumbnails"))
         self.btn_tab_thumbs.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
         self.btn_tab_thumbs.setCheckable(True)
@@ -3541,7 +3436,7 @@ class ThumbnailsDock(QDockWidget):
 
         self.btn_tab_bookmarks = QToolButton()
         self.btn_tab_bookmarks.setProperty("class", "SidebarTab")
-        self.btn_tab_bookmarks.setIcon(ModernIconFactory.icon_bookmark())
+        self.btn_tab_bookmarks.setIcon(AuraIconFactory.icon_bookmark())
         self.btn_tab_bookmarks.setText(" " + LanguageManager.tr("sidebar_bookmarks"))
         self.btn_tab_bookmarks.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
         self.btn_tab_bookmarks.setCheckable(True)
@@ -3549,7 +3444,7 @@ class ThumbnailsDock(QDockWidget):
 
         self.btn_tab_attachments = QToolButton()
         self.btn_tab_attachments.setProperty("class", "SidebarTab")
-        self.btn_tab_attachments.setIcon(ModernIconFactory.icon_attachment())
+        self.btn_tab_attachments.setIcon(AuraIconFactory.icon_attachment())
         self.btn_tab_attachments.setText(" " + LanguageManager.tr("sidebar_attachments"))
         self.btn_tab_attachments.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
         self.btn_tab_attachments.setCheckable(True)
@@ -3557,7 +3452,7 @@ class ThumbnailsDock(QDockWidget):
 
         self.btn_tab_comments = QToolButton()
         self.btn_tab_comments.setProperty("class", "SidebarTab")
-        self.btn_tab_comments.setIcon(ModernIconFactory.icon_comments())
+        self.btn_tab_comments.setIcon(AuraIconFactory.icon_comments())
         self.btn_tab_comments.setText(" " + LanguageManager.tr("sidebar_comments"))
         self.btn_tab_comments.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
         self.btn_tab_comments.setCheckable(True)
@@ -3609,7 +3504,7 @@ class ThumbnailsDock(QDockWidget):
 
         lbl_icon = QLabel()
         lbl_icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        lbl_icon.setPixmap(ModernIconFactory.icon_thumbnails().pixmap(44, 44))
+        lbl_icon.setPixmap(AuraIconFactory.icon_thumbnails().pixmap(44, 44))
         l_empty.addWidget(lbl_icon)
 
         self.lbl_empty_title = QLabel(LanguageManager.tr("sidebar_no_pages_title"))
@@ -3645,7 +3540,7 @@ class ThumbnailsDock(QDockWidget):
         """
 
         self.btn_empty_insert_pdf = QPushButton("  " + LanguageManager.tr("sidebar_btn_add_pdf"))
-        self.btn_empty_insert_pdf.setIcon(ModernIconFactory.icon_new_document())
+        self.btn_empty_insert_pdf.setIcon(AuraIconFactory.icon_new_document())
         self.btn_empty_insert_pdf.setIconSize(QSize(18, 18))
         self.btn_empty_insert_pdf.setStyleSheet(btn_style)
         self.btn_empty_insert_pdf.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -3653,7 +3548,7 @@ class ThumbnailsDock(QDockWidget):
         l_empty.addWidget(self.btn_empty_insert_pdf)
 
         self.btn_empty_add_blank = QPushButton("  " + LanguageManager.tr("sidebar_btn_add_blank"))
-        self.btn_empty_add_blank.setIcon(ModernIconFactory.icon_add_page())
+        self.btn_empty_add_blank.setIcon(AuraIconFactory.icon_add_page())
         self.btn_empty_add_blank.setIconSize(QSize(18, 18))
         self.btn_empty_add_blank.setStyleSheet(btn_style)
         self.btn_empty_add_blank.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -3743,13 +3638,6 @@ class ThumbnailsDock(QDockWidget):
             self.load_attachments()
         elif index == 3:
             self.load_comments()
-
-    def showEvent(self, event):
-        super().showEvent(event)
-        self.load_thumbnails_lazy()
-        tab_doc = self.main_window.get_current_tab_doc()
-        if tab_doc and tab_doc.doc is not None:
-            self.select_page(tab_doc.current_page_idx)
 
     def apply_theme(self, theme_name: str = "dark", spec: Optional[dict] = None):
         if not spec:
@@ -3910,10 +3798,10 @@ class ThumbnailsDock(QDockWidget):
 
             title = target_item.text(0)
             if hasattr(self.main_window, 'statusBar') and self.main_window.statusBar():
-                self.main_window.statusBar().showMessage(f"Yer İmi: {title} (Sayfa {page_idx + 1})", 3500)
+                self.main_window.statusBar().showMessage(LanguageManager.tr("ui_yer_imi_sayfa", title=title, value=page_idx + 1), 3500)
         else:
             if hasattr(self.main_window, 'statusBar') and self.main_window.statusBar():
-                self.main_window.statusBar().showMessage(f"Sayfa {page_idx + 1} yer imi gösterildi", 3000)
+                self.main_window.statusBar().showMessage(LanguageManager.tr("ui_sayfa_yer_imi_gosterildi", value=page_idx + 1), 3000)
 
     def eventFilter(self, source, event):
         if source == self.list_widget.viewport():
@@ -3963,13 +3851,13 @@ class ThumbnailsDock(QDockWidget):
         
         act_show_bm = None
         if item and idx >= 0 and idx in self.get_bookmarked_pages():
-            act_show_bm = menu.addAction(ModernIconFactory.icon_bookmark(), LanguageManager.tr("sidebar_show_in_toc"))
+            act_show_bm = menu.addAction(AuraIconFactory.icon_bookmark(), LanguageManager.tr("sidebar_show_in_toc"))
             menu.addSeparator()
 
-        act_add_blank = menu.addAction(ModernIconFactory.icon_add_page(), LanguageManager.tr("sidebar_btn_add_blank"))
-        act_change_style = menu.addAction(ModernIconFactory.icon_brush(), LanguageManager.tr("change_page_style_action")) if item else None
-        act_insert_pdf = menu.addAction(ModernIconFactory.icon_new_document(), LanguageManager.tr("sidebar_btn_add_pdf"))
-        act_del = menu.addAction(ModernIconFactory.icon_trash(), LanguageManager.tr("sidebar_delete_page")) if item else None
+        act_add_blank = menu.addAction(AuraIconFactory.icon_add_page(), LanguageManager.tr("sidebar_btn_add_blank"))
+        act_change_style = menu.addAction(AuraIconFactory.icon_brush(), LanguageManager.tr("change_page_style_action")) if item else None
+        act_insert_pdf = menu.addAction(AuraIconFactory.icon_new_document(), LanguageManager.tr("sidebar_btn_add_pdf"))
+        act_del = menu.addAction(AuraIconFactory.icon_trash(), LanguageManager.tr("sidebar_delete_page")) if item else None
         
         chosen = menu.exec(global_pos)
         if not chosen:
@@ -4174,7 +4062,7 @@ class ThumbnailsDock(QDockWidget):
                 if hasattr(self, 'refresh_bookmark_indicators'):
                     self.refresh_bookmark_indicators()
                 if hasattr(self.main_window, 'statusBar') and self.main_window.statusBar():
-                    self.main_window.statusBar().showMessage(f"Yer imi güncellendi: {new_title}", 3000)
+                    self.main_window.statusBar().showMessage(LanguageManager.tr("ui_yer_imi_guncellendi", new_title=new_title), 3000)
         except Exception as e:
             print(f"Yer imi yeniden adlandırma hatası: {e}")
 
@@ -4230,18 +4118,18 @@ class ThumbnailsDock(QDockWidget):
             tree_item = QTreeWidgetItem(parent)
             tree_item.setFlags(tree_item.flags() | Qt.ItemFlag.ItemIsEditable)
             tree_item.setText(0, f"{title}")
-            tree_item.setIcon(0, ModernIconFactory.icon_bookmark())
+            tree_item.setIcon(0, AuraIconFactory.icon_bookmark())
 
             if page_1_based > 0:
                 if is_sub:
-                    tree_item.setToolTip(0, f"Sayfa {page_1_based} • Alt Yer İmi (Çift tıklayarak düzenleyin / F2)")
+                    tree_item.setToolTip(0, LanguageManager.tr("ui_sayfa_alt_yer_imi_cift_tiklayarak", page_1_based=page_1_based))
                     tree_item.setForeground(0, QBrush(QColor("#94a3b8")))
                 else:
-                    tree_item.setToolTip(0, f"Sayfa {page_1_based} • Çift tıklayarak yeniden adlandırın (F2)")
+                    tree_item.setToolTip(0, LanguageManager.tr("ui_sayfa_cift_tiklayarak_yeniden_adlandirin_f2", page_1_based=page_1_based))
                     tree_item.setForeground(0, QBrush(QColor("#f1f5f9")))
                 tree_item.setData(0, Qt.ItemDataRole.UserRole, page_1_based - 1)
             else:
-                tree_item.setToolTip(0, "Çift tıklayarak yeniden adlandırın (F2)")
+                tree_item.setToolTip(0, LanguageManager.tr("ui_cift_tiklayarak_yeniden_adlandirin_f2"))
                 tree_item.setData(0, Qt.ItemDataRole.UserRole, None)
 
             tree_item.setData(0, Qt.ItemDataRole.UserRole + 1, toc_idx)
@@ -4304,7 +4192,7 @@ class ThumbnailsDock(QDockWidget):
             display_text = f"{name}"
             if size_str:
                 display_text += f" ({size_str})"
-            item = QListWidgetItem(ModernIconFactory.icon_attachment(), display_text)
+            item = QListWidgetItem(AuraIconFactory.icon_attachment(), display_text)
             item.setData(Qt.ItemDataRole.UserRole, name)
             self.list_attachments.addItem(item)
 
@@ -4362,11 +4250,11 @@ class ThumbnailsDock(QDockWidget):
         for p_idx in sorted(pages_dict.keys()):
             annots = pages_dict[p_idx]
             page_item = QTreeWidgetItem(self.tree_comments)
-            page_item.setText(0, f"Sayfa {p_idx + 1} ({len(annots)})")
+            page_item.setText(0, LanguageManager.tr("ui_sayfa", value=p_idx + 1, len_annots=len(annots)))
             page_item.setExpanded(True)
             for a in annots:
                 sub = QTreeWidgetItem(page_item)
-                icon = ModernIconFactory.icon_highlighter() if "high" in a['type'].lower() else ModernIconFactory.icon_comments()
+                icon = AuraIconFactory.icon_highlighter() if "high" in a['type'].lower() else AuraIconFactory.icon_comments()
                 sub.setIcon(0, icon)
                 sub.setText(0, f"[{a['type']}] {a['title']}")
                 sub.setData(0, Qt.ItemDataRole.UserRole, a)
@@ -4404,11 +4292,11 @@ class ThumbnailsDock(QDockWidget):
             QMenu::item:selected { background-color: #0284c7; color: #ffffff; }
         """)
         
-        act_rename = menu.addAction(ModernIconFactory.icon_bookmark(), "Yeniden Adlandır (F2)") if item else None
-        act_add_sub = menu.addAction(ModernIconFactory.icon_bookmark(), "Bu Sayfaya Alt Yer İmi Ekle...") if item else None
-        act_edit = menu.addAction("Düzenle (Başlık & Sayfa)...") if item else None
-        act_add = menu.addAction("Yeni Yer İmi Ekle...")
-        act_del = menu.addAction("Sil") if item else None
+        act_rename = menu.addAction(AuraIconFactory.icon_bookmark(), LanguageManager.tr("ui_yeniden_adlandir_f2")) if item else None
+        act_add_sub = menu.addAction(AuraIconFactory.icon_bookmark(), LanguageManager.tr("bookmark_ribbon_add_sub")) if item else None
+        act_edit = menu.addAction(LanguageManager.tr("ui_duzenle_baslik_sayfa")) if item else None
+        act_add = menu.addAction(LanguageManager.tr("ui_yeni_yer_imi_ekle"))
+        act_del = menu.addAction(LanguageManager.tr("sticky_delete")) if item else None
         
         chosen = menu.exec(self.tree_bookmarks.mapToGlobal(pos))
         if chosen == act_rename and item:
@@ -4435,11 +4323,10 @@ class ThumbnailsDock(QDockWidget):
         tab_doc = self.main_window.get_current_tab_doc()
         if not tab_doc or not tab_doc.doc: return
         
-        from PyQt6.QtWidgets import QInputDialog
-        title, ok = QInputDialog.getText(self, "Yer İmi Ekle", "Başlık:")
+        title, ok = QInputDialog.getText(self, LanguageManager.tr("bookmarks_add_btn"), LanguageManager.tr("ui_baslik"))
         if not ok or not title.strip(): return
         
-        page_str, ok2 = QInputDialog.getText(self, "Yer İmi Ekle", "Sayfa Numarası (1'den başlar):")
+        page_str, ok2 = QInputDialog.getText(self, LanguageManager.tr("bookmarks_add_btn"), LanguageManager.tr("ui_sayfa_numarasi_1_den_baslar"))
         if not ok2 or not page_str.isdigit(): return
         page_num = int(page_str)
         
@@ -4487,14 +4374,13 @@ class ThumbnailsDock(QDockWidget):
         tab_doc = self.main_window.get_current_tab_doc()
         if not tab_doc or not tab_doc.doc: return
         
-        from PyQt6.QtWidgets import QInputDialog
         old_title = item.text(0)
-        title, ok = QInputDialog.getText(self, "Yer İmini Düzenle", "Yeni Başlık:", text=old_title)
+        title, ok = QInputDialog.getText(self, LanguageManager.tr("ui_yer_imini_duzenle"), LanguageManager.tr("ui_yeni_baslik"), text=old_title)
         if not ok or not title.strip(): return
         
         old_page = item.data(0, Qt.ItemDataRole.UserRole)
         page_str = str(old_page + 1) if old_page is not None else ""
-        new_page_str, ok2 = QInputDialog.getText(self, "Yer İmini Düzenle", "Yeni Sayfa Numarası:", text=page_str)
+        new_page_str, ok2 = QInputDialog.getText(self, LanguageManager.tr("ui_yer_imini_duzenle"), LanguageManager.tr("ui_yeni_sayfa_numarasi"), text=page_str)
         if not ok2 or not new_page_str.isdigit(): return
         new_page = int(new_page_str)
         
@@ -4591,8 +4477,8 @@ class ThumbnailsDock(QDockWidget):
         if changed:
             tab_doc.set_modified(True)
             self.load_attachments()
-            if hasattr(self.main_window, 'modern_right_sidebar') and self.main_window.modern_right_sidebar:
-                self.main_window.modern_right_sidebar.load_attachments()
+            if hasattr(self.main_window, 'aura_right_sidebar') and self.main_window.aura_right_sidebar:
+                self.main_window.aura_right_sidebar.load_attachments()
 
     def _show_attachment_context_menu(self, pos):
         item = self.list_attachments.itemAt(pos)
@@ -4603,10 +4489,10 @@ class ThumbnailsDock(QDockWidget):
             QMenu::item:selected { background-color: #0284c7; color: #ffffff; }
         """)
         
-        act_add = menu.addAction(ModernIconFactory.icon_plus("#38bdf8"), LanguageManager.tr("sidebar_add_attachment"))
-        act_open = menu.addAction(ModernIconFactory.icon_open_file("#38bdf8"), LanguageManager.tr("sidebar_open_attachment")) if item else None
-        act_save = menu.addAction(ModernIconFactory.icon_save("#38bdf8"), LanguageManager.tr("sidebar_save_attachment")) if item else None
-        act_del = menu.addAction(ModernIconFactory.icon_trash("#ef4444"), LanguageManager.tr("sidebar_delete_attachment")) if item else None
+        act_add = menu.addAction(AuraIconFactory.icon_plus("#38bdf8"), LanguageManager.tr("sidebar_add_attachment"))
+        act_open = menu.addAction(AuraIconFactory.icon_open_file("#38bdf8"), LanguageManager.tr("sidebar_open_attachment")) if item else None
+        act_save = menu.addAction(AuraIconFactory.icon_save("#38bdf8"), LanguageManager.tr("sidebar_save_attachment")) if item else None
+        act_del = menu.addAction(AuraIconFactory.icon_trash("#ef4444"), LanguageManager.tr("sidebar_delete_attachment")) if item else None
         
         chosen = menu.exec(self.list_attachments.mapToGlobal(pos))
         if chosen == act_add:
@@ -4632,8 +4518,8 @@ class ThumbnailsDock(QDockWidget):
                 tab_doc.doc.embfile_add(basename, content)
                 tab_doc.set_modified(True)
                 self.load_attachments()
-                if hasattr(self.main_window, 'modern_right_sidebar') and self.main_window.modern_right_sidebar:
-                    self.main_window.modern_right_sidebar.load_attachments()
+                if hasattr(self.main_window, 'aura_right_sidebar') and self.main_window.aura_right_sidebar:
+                    self.main_window.aura_right_sidebar.load_attachments()
             except Exception as e:
                 QMessageBox.warning(self, LanguageManager.tr("error"), f"{e}")
 
@@ -4644,8 +4530,8 @@ class ThumbnailsDock(QDockWidget):
             tab_doc.doc.embfile_del(name)
             tab_doc.set_modified(True)
             self.load_attachments()
-            if hasattr(self.main_window, 'modern_right_sidebar') and self.main_window.modern_right_sidebar:
-                self.main_window.modern_right_sidebar.load_attachments()
+            if hasattr(self.main_window, 'aura_right_sidebar') and self.main_window.aura_right_sidebar:
+                self.main_window.aura_right_sidebar.load_attachments()
         except Exception as e:
             QMessageBox.warning(self, LanguageManager.tr("error"), f"{e}")
 
@@ -4667,7 +4553,7 @@ class ThumbnailsDock(QDockWidget):
                 f.write(content)
             os.startfile(out_path)
         except Exception as e:
-            QMessageBox.warning(self, LanguageManager.tr("app_title"), f"Ek açılamadı:\n{e}")
+            QMessageBox.warning(self, LanguageManager.tr("app_title"), LanguageManager.tr("ui_ek_acilamadi", e=e))
 
     def _save_attachment(self, name: str):
         tab_doc = self.main_window.get_current_tab_doc()
@@ -4811,9 +4697,9 @@ class ThumbnailsDock(QDockWidget):
 
             p_num = idx + 1
             if is_bm:
-                item.setToolTip(f"Sayfa {p_num} • Yer İmi Ekli")
+                item.setToolTip(LanguageManager.tr("ui_sayfa_yer_imi_ekli", p_num=p_num))
             else:
-                item.setToolTip(f"Sayfa {p_num}")
+                item.setToolTip(LanguageManager.tr("ui_sayfa_2", p_num=p_num))
 
     def load_thumbnails_lazy(self):
         tab_doc = self.main_window.get_current_tab_doc()
@@ -4877,9 +4763,9 @@ class ThumbnailsDock(QDockWidget):
             item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             item.setData(Qt.ItemDataRole.UserRole, idx)
             if is_bm:
-                item.setToolTip(f"Sayfa {idx + 1} • Yer İmi Ekli")
+                item.setToolTip(LanguageManager.tr("ui_sayfa_yer_imi_ekli_2", value=idx + 1))
             else:
-                item.setToolTip(f"Sayfa {idx + 1}")
+                item.setToolTip(LanguageManager.tr("ui_sayfa_3", value=idx + 1))
             self.list_widget.addItem(item)
         self.is_loaded = True
 
@@ -4933,6 +4819,13 @@ class ThumbnailsDock(QDockWidget):
         super().showEvent(event)
         if not self.is_loaded:
             self.load_thumbnails_lazy()
+        # Panel yeniden gösterildiğinde geçerli sayfayı seçili getir
+        try:
+            tab_doc = self.main_window.get_current_tab_doc()
+            if tab_doc and tab_doc.doc is not None:
+                self.select_page(tab_doc.current_page_idx)
+        except Exception:
+            pass
 
     def update_thumbnail(self, page_idx: int):
         tab_doc = self.main_window.get_current_tab_doc()
@@ -5129,9 +5022,9 @@ class ThumbnailsDock(QDockWidget):
             is_bm = page_idx in bookmarked_pages
             if is_bm:
                 pixmap = self._draw_bookmark_ribbon_badge(pixmap)
-                item.setToolTip(f"Sayfa {page_idx + 1} • Yer İmi Ekli")
+                item.setToolTip(LanguageManager.tr("ui_sayfa_yer_imi_ekli_2", value=page_idx + 1))
             else:
-                item.setToolTip(f"Sayfa {page_idx + 1}")
+                item.setToolTip(LanguageManager.tr("ui_sayfa_3", value=page_idx + 1))
             item.setIcon(QIcon(pixmap))
             lbl = f"{page_idx + 1}"
             try:
@@ -5231,7 +5124,7 @@ class AuraTabWidget(QTabWidget):
 
             # Uygulama Logosu
             logo_size = 112
-            logo_pix = ModernIconFactory.pixmap_app(logo_size)
+            logo_pix = AuraIconFactory.pixmap_app(logo_size)
             if not logo_pix.isNull():
                 p.drawPixmap(int(cx - logo_size / 2.0), int(cy - logo_size / 2.0 - 45), logo_pix)
 
@@ -5249,7 +5142,6 @@ class AuraTabWidget(QTabWidget):
             p.drawText(hint_rect, Qt.AlignmentFlag.AlignCenter, text)
             p.end()
 
-ModernTabWidget = AuraTabWidget
 
 
 # --- 12. AURA METİN ARAMA ÇUBUĞU (SEARCH BAR) ---
@@ -5266,7 +5158,7 @@ class AuraSearchBar(QFrame):
 
         # Search icon
         lbl_icon = QLabel()
-        lbl_icon.setPixmap(ModernIconFactory.icon_search().pixmap(14, 14))
+        lbl_icon.setPixmap(AuraIconFactory.icon_search().pixmap(14, 14))
         lbl_icon.setStyleSheet("border: none; background: transparent; padding-left: 2px;")
         layout.addWidget(lbl_icon)
 
@@ -5305,7 +5197,7 @@ class AuraSearchBar(QFrame):
 
         # Close button
         self.btn_close = QToolButton()
-        self.btn_close.setIcon(ModernIconFactory.icon_close())
+        self.btn_close.setIcon(AuraIconFactory.icon_close())
         self.btn_close.setIconSize(QSize(12, 12))
         self.btn_close.setFixedSize(24, 24)
         self.btn_close.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -5333,7 +5225,7 @@ class AuraSearchBar(QFrame):
         tab_text = spec.get("tab_text", "#aaaaaa")
 
         self.setStyleSheet(f"""
-            QFrame#AuraSearchBar, QFrame#ModernSearchBar {{
+            QFrame#AuraSearchBar, QFrame#AuraSearchBar {{
                 background-color: {bg};
                 border: 1px solid {border};
                 border-radius: 8px;
@@ -5384,7 +5276,7 @@ class AuraSearchBar(QFrame):
             }}
         """)
         if hasattr(self, 'btn_close'):
-            self.btn_close.setIcon(ModernIconFactory.icon_close(text))
+            self.btn_close.setIcon(AuraIconFactory.icon_close(text))
 
     def show_search(self):
         self.reposition()
@@ -5403,12 +5295,10 @@ class AuraSearchBar(QFrame):
             tab_doc.view.setFocus()
 
     def reposition(self):
-        tb_height = self.viewer.toolbar.height() if hasattr(self.viewer, 'toolbar') and self.viewer.toolbar.isVisible() else 0
         w = max(360, self.sizeHint().width())
         h = max(38, self.sizeHint().height())
         x = max(10, self.viewer.width() - w - 24)
-        y = tb_height + 8
-        self.setGeometry(x, y, w, h)
+        self.setGeometry(x, 8, w, h)
 
     def _on_text_changed(self, text):
         self.search_timer.start()
@@ -5476,8 +5366,5 @@ class AuraSearchBar(QFrame):
         super().keyPressEvent(event)
 
 # AuraPDF Marka İsimlendirmesi ile Geriye Dönük Uyumluluk Takma Adları (Aliases)
-ModernSearchBar = AuraSearchBar
-AuraLinkInputDialog = ModernLinkInputDialog
 
 # Modern Stepper / SpinBox Bileşenleri
-from src.ui.modern_stepper import ModernSpinBox, ModernDoubleSpinBox, AuraSpinBox, AuraDoubleSpinBox

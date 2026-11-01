@@ -132,6 +132,21 @@ def parse_release_notes_by_language(raw_body: str) -> Tuple[str, str]:
         notes_tr = translate_changelog(notes_en, target_lang="tr", source_lang="en")
 
     return notes_tr, notes_en
+_TRUSTED_DOWNLOAD_HOSTS = (
+    "github.com",
+    "objects.githubusercontent.com",
+    "release-assets.githubusercontent.com",
+)
+
+
+def _is_trusted_download_url(url: str) -> bool:
+    try:
+        parsed = urllib.parse.urlparse(url)
+        return parsed.scheme == "https" and (parsed.hostname or "").lower() in _TRUSTED_DOWNLOAD_HOSTS
+    except Exception:
+        return False
+
+
 class UpdateInfo:
     """Güncelleme denetimi sonucunu taşıyan veri yapısı."""
     def __init__(self,
@@ -144,6 +159,7 @@ class UpdateInfo:
                  download_url: Optional[str] = None,
                  asset_name: Optional[str] = None,
                  asset_size: int = 0,
+                 asset_sha256: Optional[str] = None,
                  published_at: str = "",
                  error_message: Optional[str] = None,
                  notes_tr: str = "",
@@ -161,6 +177,7 @@ class UpdateInfo:
         self.download_url = download_url
         self.asset_name = asset_name
         self.asset_size = asset_size
+        self.asset_sha256 = asset_sha256
         self.published_at = published_at
         self.error_message = error_message
 
@@ -195,7 +212,11 @@ class UpdateChecker(QThread):
 
     def run(self):
         settings = QSettings("AuraPDF", "PDFViewer")
-        token = self.custom_token or settings.value("github_token", "").strip() or os.environ.get("GITHUB_TOKEN", "").strip()
+        from src.core.secure_store import read_secret
+        # Not: Genel GITHUB_TOKEN ortam değişkeni kullanılmaz (geliştiricinin kişisel
+        # jetonu istemeden gönderilmesin); yalnızca uygulamaya özel değişken okunur.
+        token = (self.custom_token or read_secret(settings, "github_token")
+                 or os.environ.get("AURAPDF_GITHUB_TOKEN", "")).strip()
 
         headers = {
             "User-Agent": "AuraPDF-Desktop-App",
@@ -304,14 +325,22 @@ class UpdateChecker(QThread):
         download_url = None
         asset_name = None
         asset_size = 0
+        asset_sha256 = None
         assets = release_data.get("assets", [])
         for a in assets:
             name = a.get("name", "")
             if name.lower().endswith(".exe"):
                 download_url = a.get("browser_download_url")
                 asset_name = name
-                asset_size = a.get("size", 0)
+                asset_size = int(a.get("size", 0) or 0)
+                # GitHub, varlıklar için "sha256:<hex>" biçiminde özet yayınlar
+                digest = str(a.get("digest") or "")
+                if digest.lower().startswith("sha256:"):
+                    asset_sha256 = digest.split(":", 1)[1].strip().lower()
                 break
+        # Yalnızca GitHub'ın kendi indirme alan adlarından gelen HTTPS bağlantılarına izin ver
+        if download_url and not _is_trusted_download_url(download_url):
+            download_url = None
 
         # Sürüm karşılaştırması
         clean_digits = re.findall(r'\d+(?:\.\d+)*', tag_name)
@@ -341,7 +370,7 @@ class UpdateChecker(QThread):
             download_url=download_url,
             asset_name=asset_name,
             asset_size=asset_size,
-            published_at=published_at
+            asset_sha256=asset_sha256,
         )
 
         self._save_last_check_timestamp()
@@ -360,10 +389,13 @@ class UpdateDownloader(QThread):
     download_finished = pyqtSignal(str)     # indirilen dosyanın yerel yolu
     download_failed = pyqtSignal(str)       # hata mesajı
 
-    def __init__(self, download_url: str, filename: str = "AuraPDF_Setup.exe", parent=None):
+    def __init__(self, download_url: str, filename: str = "AuraPDF_Setup.exe", parent=None,
+                 expected_size: int = 0, expected_sha256: Optional[str] = None):
         super().__init__(parent)
         self.download_url = download_url
-        self.filename = filename
+        self.filename = os.path.basename(filename) or "AuraPDF_Setup.exe"
+        self.expected_size = int(expected_size or 0)
+        self.expected_sha256 = (expected_sha256 or "").lower() or None
         self._is_cancelled = False
 
     def cancel(self):
@@ -380,6 +412,11 @@ class UpdateDownloader(QThread):
                 "User-Agent": "AuraPDF-Desktop-App",
                 "Accept": "application/octet-stream"
             }
+            if not _is_trusted_download_url(self.download_url):
+                self.download_failed.emit(LanguageManager.tr("updates_err_untrusted_url"))
+                return
+            import hashlib
+            hasher = hashlib.sha256()
             req = urllib.request.Request(self.download_url, headers=headers)
             with urllib.request.urlopen(req, timeout=30) as resp, open(dest_path, "wb") as out_file:
                 total_size = int(resp.headers.get("Content-Length", 0))
@@ -393,33 +430,58 @@ class UpdateDownloader(QThread):
                             os.remove(dest_path)
                         except Exception:
                             pass
-                        self.download_failed.emit("İndirme kullanıcı tarafından iptal edildi.")
+                        self.download_failed.emit(LanguageManager.tr("ui_indirme_kullanici_tarafindan_iptal_edildi"))
                         return
 
                     chunk = resp.read(chunk_size)
                     if not chunk:
                         break
                     out_file.write(chunk)
+                    hasher.update(chunk)
                     downloaded += len(chunk)
                     self.progress.emit(downloaded, total_size)
 
+            # Bütünlük doğrulaması: yarım kalmış veya değiştirilmiş dosya asla çalıştırılmaz
+            expected = self.expected_size or total_size
+            problem = None
+            if expected and downloaded != expected:
+                problem = LanguageManager.tr("updates_err_incomplete", got=downloaded, expected=expected)
+            elif self.expected_sha256 and hasher.hexdigest().lower() != self.expected_sha256:
+                problem = LanguageManager.tr("updates_err_checksum")
+            if problem:
+                try:
+                    os.remove(dest_path)
+                except Exception:
+                    pass
+                self.download_failed.emit(problem)
+                return
+
             self.download_finished.emit(dest_path)
         except Exception as e:
-            self.download_failed.emit(f"İndirme hatası: {str(e)}")
+            self.download_failed.emit(LanguageManager.tr("ui_indirme_hatasi", e=str(e)))
 
 
 def launch_installer(installer_path: str):
     """İndirilen kurulum dosyasını başlatır ve mevcut uygulamayı sonlandırır."""
-    import subprocess
     if not os.path.isfile(installer_path):
         return False
     try:
-        subprocess.Popen([installer_path], shell=True)
+        if sys.platform == "win32":
+            # ShellExecute: kurulum yönetici izni istediğinde UAC penceresini doğru açar.
+            # (shell=True ile cmd.exe üzerinden başlatmaya gerek yok.)
+            os.startfile(installer_path)
+        else:
+            import subprocess
+            subprocess.Popen([installer_path])
         from PyQt6.QtWidgets import QApplication
         app = QApplication.instance()
         if app:
             app.quit()
         return True
     except Exception as e:
-        print(f"[HATA] Kurulum başlatılamadı: {e}")
+        try:
+            from src.core.logger import logger
+            logger.error("Installer could not be started: %s", e)
+        except Exception:
+            pass
         return False

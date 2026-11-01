@@ -1,5 +1,5 @@
 from PyQt6.QtGui import (QIcon, QPixmap, QPainter, QColor, QPen, QBrush, 
-                         QPainterPath, QPolygonF, QLinearGradient, QRadialGradient, QFont)
+                         QPainterPath, QPolygonF, QLinearGradient, QFont)
 from PyQt6.QtCore import Qt, QPointF, QRectF, QSettings
 
 import os
@@ -25,8 +25,10 @@ def _find_app_icon_path(filename="app_icon.png"):
             return p
     return None
 
+from src.ui.icon_glyphs import install_glyph_icons, set_glyph_theme
+
 # --- 5. VEKTÖREL İKON FABRİKASI ---
-class ModernIconFactory:
+class AuraIconFactory:
     _cached_app_icon = None
     _cached_app_pixmap = None
 
@@ -37,13 +39,36 @@ class ModernIconFactory:
 
     @staticmethod
     def _base():
-        pix = QPixmap(26, 26)
+        pix = QPixmap(26 * 4, 26 * 4)
+        pix.setDevicePixelRatio(4.0)
         pix.fill(Qt.GlobalColor.transparent)
         p = QPainter(pix)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
         return pix, p
 
     _icon_cache = {}
+
+    @staticmethod
+    def set_theme(text: str, accent: str, accent_hover: str, danger: str):
+        """Renk verilmeden üretilen ikonların aktif temayı izlemesini sağlar."""
+        set_glyph_theme(text, accent, accent_hover, danger)
+
+    @staticmethod
+    def tinted(icon: QIcon, color: str, size: int = 18) -> QIcon:
+        """Dosya türü gibi çok renkli ikonları tek tema rengine boyar."""
+        source = icon.pixmap(size * 4, size * 4)
+        if source.isNull():
+            return icon
+        source.setDevicePixelRatio(1.0)
+        result = QPixmap(source.size())
+        result.fill(Qt.GlobalColor.transparent)
+        p = QPainter(result)
+        p.drawPixmap(0, 0, source)
+        p.setCompositionMode(QPainter.CompositionMode.CompositionMode_SourceIn)
+        p.fillRect(result.rect(), QColor(color))
+        p.end()
+        result.setDevicePixelRatio(4.0)
+        return QIcon(result)
 
     @classmethod
     def icon_app(cls) -> QIcon:
@@ -106,7 +131,7 @@ class ModernIconFactory:
 
     @staticmethod
     def icon_toolbox(color: str = None):
-        pix, p = ModernIconFactory._base()
+        pix, p = AuraIconFactory._base()
         col = QColor(color or "#e0e0e0")
         p.setPen(QPen(col, 1.4, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
         p.drawRoundedRect(3, 9, 20, 13, 3, 3)
@@ -121,7 +146,7 @@ class ModernIconFactory:
 
     @staticmethod
     def icon_word():
-        pix, p = ModernIconFactory._base()
+        pix, p = AuraIconFactory._base()
         p.setBrush(QBrush(QColor("#2b579a")))
         p.setPen(Qt.PenStyle.NoPen)
         p.drawRoundedRect(QRectF(4, 3, 18, 20), 2.5, 2.5)
@@ -140,7 +165,7 @@ class ModernIconFactory:
 
     @staticmethod
     def icon_select_rect():
-        pix, p = ModernIconFactory._base()
+        pix, p = AuraIconFactory._base()
         p.setPen(QPen(QColor("#388bfd"), 1.8, Qt.PenStyle.DashLine, Qt.PenCapStyle.RoundCap))
         p.drawRoundedRect(3, 3, 20, 20, 3, 3)
         p.end()
@@ -148,7 +173,7 @@ class ModernIconFactory:
 
     @staticmethod
     def icon_pen(color: str = None) -> QIcon:
-        pix, p = ModernIconFactory._base()
+        pix, p = AuraIconFactory._base()
         col = QColor(color or "#0284c7")
         p.setPen(QPen(col, 1.6, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.MiterJoin))
         path = QPainterPath()
@@ -160,7 +185,7 @@ class ModernIconFactory:
     # ... İhtiyaç duyulan tüm ikon metotları ...
     @staticmethod
     def icon_contents():
-        pix, p = ModernIconFactory._base()
+        pix, p = AuraIconFactory._base()
         p.setBrush(QColor("#e0e0e0"))
         p.drawEllipse(3, 6, 2, 2); p.drawEllipse(3, 12, 2, 2); p.drawEllipse(3, 18, 2, 2)
         p.setPen(QPen(QColor("#e0e0e0"), 1.8, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
@@ -170,19 +195,8 @@ class ModernIconFactory:
 
 
     @staticmethod
-    def icon_fullscreen():
-        pix, p = ModernIconFactory._base()
-        p.setPen(QPen(QColor("#ffffff"), 1.8, Qt.PenStyle.SolidLine, Qt.PenCapStyle.SquareCap, Qt.PenJoinStyle.MiterJoin))
-        p.drawLine(4, 9, 4, 4); p.drawLine(4, 4, 9, 4)
-        p.drawLine(22, 9, 22, 4); p.drawLine(22, 4, 17, 4)
-        p.drawLine(4, 17, 4, 22); p.drawLine(4, 22, 9, 22)
-        p.drawLine(22, 17, 22, 22); p.drawLine(22, 22, 17, 22)
-        p.end()
-        return QIcon(pix)
-
-    @staticmethod
     def icon_select_lasso(color=None):
-        pix, p = ModernIconFactory._base()
+        pix, p = AuraIconFactory._base()
         c = QColor(color) if color else QColor("#388bfd")
         p.setPen(QPen(c, 1.8, Qt.PenStyle.DashLine, Qt.PenCapStyle.RoundCap))
         path = QPainterPath()
@@ -193,7 +207,7 @@ class ModernIconFactory:
 
     @staticmethod
     def icon_select_move(color=None):
-        pix, p = ModernIconFactory._base()
+        pix, p = AuraIconFactory._base()
         c = QColor(color) if color else QColor("#388bfd")
         p.setPen(QPen(c, 1.8, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
         # Dikey çizgi ve ok uçları
@@ -213,7 +227,7 @@ class ModernIconFactory:
         Metin kutuları, araç çubukları ve hareketli pencereler için
         ultra modern 4 yönlü pusula + dokunsal tutamaç vektörel ikonu.
         """
-        pix, p = ModernIconFactory._base()
+        pix, p = AuraIconFactory._base()
         c = QColor(color) if color else QColor("#38bdf8" if active else "#e2e8f0")
         p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
 
@@ -308,7 +322,7 @@ class ModernIconFactory:
 
     @staticmethod
     def icon_select_pan(color=None):
-        pix, p = ModernIconFactory._base()
+        pix, p = AuraIconFactory._base()
         c = QColor(color) if color else QColor("#388bfd")
         p.setPen(QPen(c, 1.4, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
         fill_c = QColor(c)
@@ -338,7 +352,7 @@ class ModernIconFactory:
 
     @staticmethod
     def icon_highlighter(color: str = None):
-        pix, p = ModernIconFactory._base()
+        pix, p = AuraIconFactory._base()
         col = QColor(color or "#ffd600")
         p.setPen(QPen(QColor("#ffffff"), 1.2))
         p.setBrush(QBrush(QColor("#ffffff")))
@@ -351,7 +365,7 @@ class ModernIconFactory:
 
     @staticmethod
     def icon_text_box():
-        pix, p = ModernIconFactory._base()
+        pix, p = AuraIconFactory._base()
         p.setPen(QPen(QColor("#e0e0e0"), 1.4))
         p.drawRoundedRect(3, 3, 20, 20, 4, 4)
         p.drawLine(8, 8, 18, 8); p.drawLine(13, 8, 13, 18)
@@ -361,7 +375,7 @@ class ModernIconFactory:
     @staticmethod
     def icon_eraser(color: str = None) -> QIcon:
         """Gerçekçi silgi ikonu (Eğik gövdeli, kılıflı, silgi ucu ve silme izli)"""
-        pix, p = ModernIconFactory._base()
+        pix, p = AuraIconFactory._base()
         col = QColor(color or "#ef4444")
 
         # 1. Taban silgi ucu (sol alt, yumuşak pembe/saydam gölge)
@@ -406,7 +420,7 @@ class ModernIconFactory:
     @staticmethod
     def icon_skip_back(color: str = None) -> QIcon:
         """Medyada Geri Atlama (<<) İkonu - Dolgulu Çift Üçgen"""
-        pix, p = ModernIconFactory._base()
+        pix, p = AuraIconFactory._base()
         col = QColor(color or "#38bdf8")
         p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
         p.setPen(Qt.PenStyle.NoPen)
@@ -430,7 +444,7 @@ class ModernIconFactory:
     @staticmethod
     def icon_skip_forward(color: str = None) -> QIcon:
         """Medyada İleri Atlama (>>) İkonu - Dolgulu Çift Üçgen"""
-        pix, p = ModernIconFactory._base()
+        pix, p = AuraIconFactory._base()
         col = QColor(color or "#38bdf8")
         p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
         p.setPen(Qt.PenStyle.NoPen)
@@ -454,7 +468,7 @@ class ModernIconFactory:
     @staticmethod
     def icon_media_prev(color: str = None) -> QIcon:
         """Medyada Önceki Parça / Cümle (|◀) İkonu - Kesinlikle 'K' şeklinde değil, profesyonel medya ikonu"""
-        pix, p = ModernIconFactory._base()
+        pix, p = AuraIconFactory._base()
         col = QColor(color or "#f1f5f9")
         p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
         p.setPen(Qt.PenStyle.NoPen)
@@ -474,7 +488,7 @@ class ModernIconFactory:
     @staticmethod
     def icon_media_next(color: str = None) -> QIcon:
         """Medyada Sonraki Parça / Cümle (▶|) İkonu - Dolgulu medya ikonu"""
-        pix, p = ModernIconFactory._base()
+        pix, p = AuraIconFactory._base()
         col = QColor(color or "#f1f5f9")
         p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
         p.setPen(Qt.PenStyle.NoPen)
@@ -494,7 +508,7 @@ class ModernIconFactory:
     @staticmethod
     def icon_speed(color: str = None) -> QIcon:
         """Okuma Hızı / Hız Göstergesi İkonu"""
-        pix, p = ModernIconFactory._base()
+        pix, p = AuraIconFactory._base()
         col = QColor(color or "#38bdf8")
         p.setPen(QPen(col, 1.6, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
         p.setBrush(Qt.BrushStyle.NoBrush)
@@ -509,7 +523,7 @@ class ModernIconFactory:
     @staticmethod
     def icon_paste(color: str = None) -> QIcon:
         """Panodan Yapıştır İkonu"""
-        pix, p = ModernIconFactory._base()
+        pix, p = AuraIconFactory._base()
         col = QColor(color or "#38bdf8")
         p.setPen(QPen(col, 1.5, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
         p.setBrush(Qt.BrushStyle.NoBrush)
@@ -528,7 +542,7 @@ class ModernIconFactory:
     @staticmethod
     def icon_export_audio(color: str = None) -> QIcon:
         """Ses Dosyasını Kaydet / Dışa Aktar İkonu"""
-        pix, p = ModernIconFactory._base()
+        pix, p = AuraIconFactory._base()
         col = QColor(color or "#10b981")
         p.setPen(QPen(col, 1.5, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
         p.setBrush(Qt.BrushStyle.NoBrush)
@@ -552,7 +566,7 @@ class ModernIconFactory:
 
     @staticmethod
     def icon_undo():
-        pix, p = ModernIconFactory._base()
+        pix, p = AuraIconFactory._base()
         p.setPen(QPen(QColor("#e0e0e0"), 1.8, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
         p.drawArc(7, 8, 14, 14, 0, 150 * 16)
         p.setBrush(QBrush(QColor("#e0e0e0")))
@@ -563,7 +577,7 @@ class ModernIconFactory:
 
     @staticmethod
     def icon_redo():
-        pix, p = ModernIconFactory._base()
+        pix, p = AuraIconFactory._base()
         p.setPen(QPen(QColor("#e0e0e0"), 1.8, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
         p.drawArc(5, 8, 14, 14, 30 * 16, 150 * 16)
         p.setBrush(QBrush(QColor("#e0e0e0")))
@@ -575,7 +589,7 @@ class ModernIconFactory:
     @staticmethod
     def icon_rotate(color=None):
         """Sağa Döndür (Sayfa Silüeti ve Saat Yönünde Dönüş Oku - CW 90°)"""
-        pix, p = ModernIconFactory._base()
+        pix, p = AuraIconFactory._base()
         col = QColor(color) if color else QColor("#e0e0e0")
         # 1. Dikey sayfa silüeti (ortalanmış, yuvarlatılmış köşeli belge)
         p.setPen(QPen(col, 1.5, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
@@ -601,7 +615,7 @@ class ModernIconFactory:
     @staticmethod
     def icon_rotate_ccw(color=None):
         """Sola Döndür (Sayfa Silüeti ve Saat Yönünün Tersinde Dönüş Oku - CCW 90°)"""
-        pix, p = ModernIconFactory._base()
+        pix, p = AuraIconFactory._base()
         col = QColor(color) if color else QColor("#e0e0e0")
         # 1. Dikey sayfa silüeti (ortalanmış, yuvarlatılmış köşeli belge)
         p.setPen(QPen(col, 1.5, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
@@ -626,7 +640,7 @@ class ModernIconFactory:
 
     @staticmethod
     def icon_print(color: str = None) -> QIcon:
-        pix, p = ModernIconFactory._base()
+        pix, p = AuraIconFactory._base()
         col = QColor(color or "#ffffff")
         p.setPen(QPen(col, 1.8, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
         p.setBrush(Qt.BrushStyle.NoBrush)
@@ -644,7 +658,7 @@ class ModernIconFactory:
 
     @staticmethod
     def icon_save():
-        pix, p = ModernIconFactory._base()
+        pix, p = AuraIconFactory._base()
         p.setPen(QPen(QColor("#e0e0e0"), 1.4))
         p.drawRoundedRect(4, 4, 18, 18, 2, 2)
         p.drawRect(7, 4, 12, 6); p.drawRect(7, 14, 12, 8)
@@ -653,7 +667,7 @@ class ModernIconFactory:
 
     @staticmethod
     def icon_pointer():
-        pix, p = ModernIconFactory._base()
+        pix, p = AuraIconFactory._base()
         # Laser wand shaft
         p.setPen(QPen(QColor("#e0e0e0"), 2.2, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
         p.drawLine(QPointF(5, 21), QPointF(13, 13))
@@ -675,7 +689,7 @@ class ModernIconFactory:
 
     @staticmethod
     def icon_cursor():
-        pix, p = ModernIconFactory._base()
+        pix, p = AuraIconFactory._base()
         path = QPainterPath()
         path.moveTo(5.5, 4.0)
         path.lineTo(5.5, 20.0)
@@ -693,7 +707,7 @@ class ModernIconFactory:
 
     @staticmethod
     def icon_search(color: str = None):
-        pix, p = ModernIconFactory._base()
+        pix, p = AuraIconFactory._base()
         col = QColor(color or "#ffffff")
         p.setPen(QPen(col, 1.8, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
         p.drawEllipse(QRectF(4.0, 4.0, 11.5, 11.5))
@@ -703,7 +717,7 @@ class ModernIconFactory:
 
     @staticmethod
     def icon_reorder():
-        pix, p = ModernIconFactory._base()
+        pix, p = AuraIconFactory._base()
         p.setPen(QPen(QColor("#58a6ff"), 1.8, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
         # 3 horizontal page lines
         p.drawLine(3, 7, 15, 7)
@@ -720,7 +734,7 @@ class ModernIconFactory:
 
     @staticmethod
     def icon_organize(color: str = None) -> QIcon:
-        pix, p = ModernIconFactory._base()
+        pix, p = AuraIconFactory._base()
         col = QColor(color or "#22c55e")
         p.setPen(QPen(col, 1.8, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
         p.setBrush(Qt.BrushStyle.NoBrush)
@@ -733,7 +747,7 @@ class ModernIconFactory:
 
     @staticmethod
     def icon_page_number():
-        pix, p = ModernIconFactory._base()
+        pix, p = AuraIconFactory._base()
         # Page sheet outline & background
         p.setPen(QPen(QColor("#58a6ff"), 1.4))
         p.setBrush(QBrush(QColor("#1e293b")))
@@ -759,7 +773,7 @@ class ModernIconFactory:
 
     @staticmethod
     def icon_lock(color: str = None) -> QIcon:
-        pix, p = ModernIconFactory._base()
+        pix, p = AuraIconFactory._base()
         col = QColor(color or "#3b82f6")
         p.setPen(QPen(col, 1.8, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
         p.setBrush(Qt.BrushStyle.NoBrush)
@@ -780,7 +794,7 @@ class ModernIconFactory:
 
     @staticmethod
     def icon_watermark():
-        pix, p = ModernIconFactory._base()
+        pix, p = AuraIconFactory._base()
         # Page background outline
         p.setPen(QPen(QColor('#707070'), 1.4, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
         p.setBrush(QBrush(QColor('#2a2a2a')))
@@ -806,7 +820,7 @@ class ModernIconFactory:
 
     @staticmethod
     def icon_background():
-        pix, p = ModernIconFactory._base()
+        pix, p = AuraIconFactory._base()
         # Back layer (colored background sheet)
         p.setPen(QPen(QColor('#388bfd'), 1.2))
         p.setBrush(QBrush(QColor('#1f3a5f')))
@@ -827,7 +841,7 @@ class ModernIconFactory:
 
     @staticmethod
     def icon_recovery():
-        pix, p = ModernIconFactory._base()
+        pix, p = AuraIconFactory._base()
         # Key head (circle with hole)
         p.setPen(QPen(QColor('#10b981'), 1.8, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
         p.setBrush(QBrush(QColor('#064e3b')))
@@ -846,7 +860,7 @@ class ModernIconFactory:
 
     @staticmethod
     def icon_merge():
-        pix, p = ModernIconFactory._base()
+        pix, p = AuraIconFactory._base()
         # Left sheet
         p.setPen(QPen(QColor('#388bfd'), 1.3))
         p.setBrush(QBrush(QColor('#1a2736')))
@@ -867,7 +881,7 @@ class ModernIconFactory:
 
     @staticmethod
     def icon_split():
-        pix, p = ModernIconFactory._base()
+        pix, p = AuraIconFactory._base()
         # Left half sheet
         p.setPen(QPen(QColor('#f85149'), 1.3))
         p.setBrush(QBrush(QColor('#2e1919')))
@@ -887,7 +901,7 @@ class ModernIconFactory:
 
     @staticmethod
     def icon_epub():
-        pix, p = ModernIconFactory._base()
+        pix, p = AuraIconFactory._base()
         # Open book pages
         p.setPen(QPen(QColor('#f59e0b'), 1.5, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
         p.setBrush(QBrush(QColor('#2b2210')))
@@ -911,7 +925,7 @@ class ModernIconFactory:
 
     @staticmethod
     def icon_mobi():
-        pix, p = ModernIconFactory._base()
+        pix, p = AuraIconFactory._base()
         # E-Reader / Mobile device frame
         p.setPen(QPen(QColor('#a855f7'), 1.4))
         p.setBrush(QBrush(QColor('#1e142e')))
@@ -937,7 +951,7 @@ class ModernIconFactory:
 
     @staticmethod
     def icon_powerpoint():
-        pix, p = ModernIconFactory._base()
+        pix, p = AuraIconFactory._base()
         p.setBrush(QBrush(QColor("#a2361d")))
         p.setPen(Qt.PenStyle.NoPen)
         p.drawRoundedRect(QRectF(4, 3, 18, 20), 2.5, 2.5)
@@ -955,7 +969,7 @@ class ModernIconFactory:
 
     @staticmethod
     def icon_excel():
-        pix, p = ModernIconFactory._base()
+        pix, p = AuraIconFactory._base()
         p.setBrush(QBrush(QColor("#0e5a2f")))
         p.setPen(Qt.PenStyle.NoPen)
         p.drawRoundedRect(QRectF(4, 3, 18, 20), 2.5, 2.5)
@@ -974,7 +988,7 @@ class ModernIconFactory:
 
     @staticmethod
     def icon_view_single(color: str = None):
-        pix, p = ModernIconFactory._base()
+        pix, p = AuraIconFactory._base()
         c_acc = QColor(color or "#38bdf8")
         p.setPen(QPen(c_acc, 1.5))
         p.setBrush(QBrush(QColor(c_acc.red(), c_acc.green(), c_acc.blue(), 30)))
@@ -988,7 +1002,7 @@ class ModernIconFactory:
 
     @staticmethod
     def icon_view_double(color: str = None):
-        pix, p = ModernIconFactory._base()
+        pix, p = AuraIconFactory._base()
         c_acc = QColor(color or "#38bdf8")
         p.setPen(QPen(c_acc, 1.2))
         p.setBrush(QBrush(QColor(c_acc.red(), c_acc.green(), c_acc.blue(), 30)))
@@ -1004,7 +1018,7 @@ class ModernIconFactory:
 
     @staticmethod
     def icon_multiview(color: str = None):
-        pix, p = ModernIconFactory._base()
+        pix, p = AuraIconFactory._base()
         c_acc = QColor(color or "#38bdf8")
         p.setPen(QPen(c_acc, 1.4, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
         p.setBrush(QBrush(QColor(c_acc.red(), c_acc.green(), c_acc.blue(), 25)))
@@ -1022,7 +1036,7 @@ class ModernIconFactory:
 
     @staticmethod
     def icon_swap(color: str = None):
-        pix, p = ModernIconFactory._base()
+        pix, p = AuraIconFactory._base()
         col = QColor(color or "#94a3b8")
         pen = QPen(col, 1.8, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin)
         p.setPen(pen)
@@ -1044,7 +1058,7 @@ class ModernIconFactory:
 
     @staticmethod
     def icon_new_document(color: str = None) -> QIcon:
-        pix, p = ModernIconFactory._base()
+        pix, p = AuraIconFactory._base()
         col = QColor(color or "#ef4444")
         p.setPen(QPen(col, 1.8, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
         p.setBrush(Qt.BrushStyle.NoBrush)
@@ -1068,7 +1082,7 @@ class ModernIconFactory:
 
     @staticmethod
     def icon_add_page():
-        pix, p = ModernIconFactory._base()
+        pix, p = AuraIconFactory._base()
         p.setPen(QPen(QColor("#a855f7"), 1.4))
         p.setBrush(QBrush(QColor(168, 85, 247, 25)))
         p.drawRoundedRect(QRectF(4, 3, 14, 19), 2, 2)
@@ -1083,7 +1097,7 @@ class ModernIconFactory:
 
     @staticmethod
     def icon_settings(color: str = None):
-        pix, p = ModernIconFactory._base()
+        pix, p = AuraIconFactory._base()
         col = QColor(color or "#e0e0e0")
         p.setPen(QPen(col, 1.6, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
         p.setBrush(Qt.BrushStyle.NoBrush)
@@ -1100,7 +1114,7 @@ class ModernIconFactory:
 
     @staticmethod
     def icon_update():
-        pix, p = ModernIconFactory._base()
+        pix, p = AuraIconFactory._base()
         p.setPen(QPen(QColor("#38bdf8"), 1.8, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
         p.setBrush(Qt.BrushStyle.NoBrush)
         p.drawArc(4, 4, 18, 18, 45 * 16, 260 * 16)
@@ -1111,7 +1125,7 @@ class ModernIconFactory:
 
     @staticmethod
     def icon_fullscreen(color: str = None):
-        pix, p = ModernIconFactory._base()
+        pix, p = AuraIconFactory._base()
         col = QColor(color or "#a8b2c1")
         p.setPen(QPen(col, 1.8, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
         p.setBrush(Qt.BrushStyle.NoBrush)
@@ -1132,7 +1146,7 @@ class ModernIconFactory:
 
     @staticmethod
     def icon_sign():
-        pix, p = ModernIconFactory._base()
+        pix, p = AuraIconFactory._base()
         p.setPen(QPen(QColor("#707070"), 1.3, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
         p.setBrush(QBrush(QColor("#242424")))
         p.drawRoundedRect(QRectF(4.0, 3.0, 13.0, 18.0), 2.0, 2.0)
@@ -1156,7 +1170,7 @@ class ModernIconFactory:
 
     @staticmethod
     def icon_image():
-        pix, p = ModernIconFactory._base()
+        pix, p = AuraIconFactory._base()
         p.setPen(QPen(QColor("#a0aec0"), 1.4))
         p.setBrush(QBrush(QColor("#1e293b")))
         p.drawRoundedRect(QRectF(3.5, 4.5, 19.0, 15.0), 2.5, 2.5)
@@ -1173,7 +1187,7 @@ class ModernIconFactory:
 
     @staticmethod
     def icon_compare(color: str = None) -> QIcon:
-        pix, p = ModernIconFactory._base()
+        pix, p = AuraIconFactory._base()
         col = QColor(color or "#a855f7")
         p.setPen(QPen(col, 1.6, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
         p.setBrush(Qt.BrushStyle.NoBrush)
@@ -1200,7 +1214,7 @@ class ModernIconFactory:
 
     @staticmethod
     def icon_redact(color: str = None) -> QIcon:
-        pix, p = ModernIconFactory._base()
+        pix, p = AuraIconFactory._base()
         col = QColor(color or "#ef4444")
         p.setPen(QPen(col, 1.8, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
         p.setBrush(Qt.BrushStyle.NoBrush)
@@ -1210,7 +1224,7 @@ class ModernIconFactory:
 
     @staticmethod
     def icon_ocr(color: str = None) -> QIcon:
-        pix, p = ModernIconFactory._base()
+        pix, p = AuraIconFactory._base()
         col = QColor(color or "#10b981")
         p.setPen(QPen(col, 1.8, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
         p.setBrush(Qt.BrushStyle.NoBrush)
@@ -1232,7 +1246,7 @@ class ModernIconFactory:
 
     @staticmethod
     def icon_edit_content(color: str = None) -> QIcon:
-        pix, p = ModernIconFactory._base()
+        pix, p = AuraIconFactory._base()
         col = QColor(color or "#ec4899")
         p.setPen(QPen(col, 1.8, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
         p.setBrush(Qt.BrushStyle.NoBrush)
@@ -1267,7 +1281,7 @@ class ModernIconFactory:
 
     @staticmethod
     def icon_ruler(color: str = None) -> QIcon:
-        pix, p = ModernIconFactory._base()
+        pix, p = AuraIconFactory._base()
         col = QColor(color or "#ec4899")
         p.setPen(QPen(col, 1.8, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
         p.setBrush(Qt.BrushStyle.NoBrush)
@@ -1285,7 +1299,7 @@ class ModernIconFactory:
 
     @staticmethod
     def icon_thumbnails():
-        pix, p = ModernIconFactory._base()
+        pix, p = AuraIconFactory._base()
         p.setPen(QPen(QColor("#94a3b8"), 1.2))
         p.setBrush(QBrush(QColor(148, 163, 184, 45)))
         p.drawRoundedRect(QRectF(4.0, 4.0, 7.5, 7.5), 1.5, 1.5)
@@ -1297,7 +1311,7 @@ class ModernIconFactory:
 
     @staticmethod
     def icon_bookmark():
-        pix, p = ModernIconFactory._base()
+        pix, p = AuraIconFactory._base()
         p.setPen(QPen(QColor("#38bdf8"), 1.4, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
         p.setBrush(QBrush(QColor(56, 189, 248, 55)))
         path = QPainterPath()
@@ -1312,33 +1326,8 @@ class ModernIconFactory:
         return QIcon(pix)
 
     @staticmethod
-    def icon_star(filled: bool = True, color: str = None) -> QIcon:
-        pix, p = ModernIconFactory._base()
-        cx, cy = 13.0, 13.0
-        r_out = 9.0
-        r_in = 4.2
-        path = QPainterPath()
-        for i in range(10):
-            angle = -math.pi / 2.0 + i * (math.pi / 5.0)
-            r = r_out if i % 2 == 0 else r_in
-            x = cx + r * math.cos(angle)
-            y = cy + r * math.sin(angle)
-            if i == 0:
-                path.moveTo(x, y)
-            else:
-                path.lineTo(x, y)
-        path.closeSubpath()
-        stroke_color = QColor(color or ('#facc15' if filled else '#cbd5e1'))
-        fill_color = QColor(color or '#facc15') if filled else QColor(0, 0, 0, 0)
-        p.setPen(QPen(stroke_color, 1.5, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
-        p.setBrush(QBrush(fill_color))
-        p.drawPath(path)
-        p.end()
-        return QIcon(pix)
-
-    @staticmethod
     def icon_trash(color: str = None) -> QIcon:
-        pix, p = ModernIconFactory._base()
+        pix, p = AuraIconFactory._base()
         col = QColor(color or '#ef4444')
         p.setPen(QPen(col, 1.4, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
         p.drawLine(QPointF(6.0, 8.0), QPointF(20.0, 8.0))
@@ -1401,7 +1390,7 @@ class ModernIconFactory:
 
     @staticmethod
     def icon_minus(color: str = None) -> QIcon:
-        pix, p = ModernIconFactory._base()
+        pix, p = AuraIconFactory._base()
         col = QColor(color or "#cbd5e1")
         p.setPen(QPen(col, 2.0, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
         p.drawLine(QPointF(7.0, 13.0), QPointF(19.0, 13.0))
@@ -1410,7 +1399,7 @@ class ModernIconFactory:
 
     @staticmethod
     def icon_plus(color: str = None) -> QIcon:
-        pix, p = ModernIconFactory._base()
+        pix, p = AuraIconFactory._base()
         col = QColor(color or "#cbd5e1")
         p.setPen(QPen(col, 2.0, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
         p.drawLine(QPointF(7.0, 13.0), QPointF(19.0, 13.0))
@@ -1420,7 +1409,7 @@ class ModernIconFactory:
 
     @staticmethod
     def icon_zoom_in(color: str = None) -> QIcon:
-        pix, p = ModernIconFactory._base()
+        pix, p = AuraIconFactory._base()
         col = QColor(color or "#ffffff")
         p.setPen(QPen(col, 1.8, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
         p.drawEllipse(QRectF(4.0, 4.0, 11.5, 11.5))
@@ -1433,7 +1422,7 @@ class ModernIconFactory:
 
     @staticmethod
     def icon_zoom_out(color: str = None) -> QIcon:
-        pix, p = ModernIconFactory._base()
+        pix, p = AuraIconFactory._base()
         col = QColor(color or "#ffffff")
         p.setPen(QPen(col, 1.8, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
         p.drawEllipse(QRectF(4.0, 4.0, 11.5, 11.5))
@@ -1445,7 +1434,7 @@ class ModernIconFactory:
 
     @staticmethod
     def icon_eyedropper(color: str = None) -> QIcon:
-        pix, p = ModernIconFactory._base()
+        pix, p = AuraIconFactory._base()
         col = QColor(color or "#cbd5e1")
         p.save()
         p.translate(13, 13)
@@ -1466,7 +1455,7 @@ class ModernIconFactory:
 
     @staticmethod
     def icon_palette_grid(color: str = None) -> QIcon:
-        pix, p = ModernIconFactory._base()
+        pix, p = AuraIconFactory._base()
         p.setPen(QPen(QColor("#475569"), 1.2))
         p.setBrush(QBrush(QColor(30, 41, 59, 120)))
         p.drawEllipse(QRectF(3.5, 3.5, 19.0, 19.0))
@@ -1489,7 +1478,7 @@ class ModernIconFactory:
 
     @staticmethod
     def icon_pen_rack(color: str = None) -> QIcon:
-        pix, p = ModernIconFactory._base()
+        pix, p = AuraIconFactory._base()
         col = QColor(color or "#94a3b8")
         p.setPen(QPen(col, 1.4, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
         for offset_x in (6.5, 13.0, 19.5):
@@ -1505,7 +1494,7 @@ class ModernIconFactory:
 
     @staticmethod
     def icon_pen_star(color: str = None, star_color: str = None) -> QIcon:
-        pix, p = ModernIconFactory._base()
+        pix, p = AuraIconFactory._base()
         col = QColor(color or "#cbd5e1")
         st_col = QColor(star_color or color or "#cbd5e1")
         p.setPen(QPen(col, 1.5, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
@@ -1541,7 +1530,7 @@ class ModernIconFactory:
 
     @staticmethod
     def icon_brush(color: str = None) -> QIcon:
-        pix, p = ModernIconFactory._base()
+        pix, p = AuraIconFactory._base()
         col = QColor(color or "#38bdf8")
         # Handle (angled wooden handle from top-right towards center)
         p.setPen(QPen(QColor("#94a3b8"), 1.8, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
@@ -1569,7 +1558,7 @@ class ModernIconFactory:
 
     @staticmethod
     def icon_attachment():
-        pix, p = ModernIconFactory._base()
+        pix, p = AuraIconFactory._base()
         p.save()
         p.translate(13, 13)
         p.rotate(45)
@@ -1590,7 +1579,7 @@ class ModernIconFactory:
 
     @staticmethod
     def icon_dock_side(to_side="right", color=None):
-        pix, p = ModernIconFactory._base()
+        pix, p = AuraIconFactory._base()
         col = QColor(color) if color else QColor("#e2e8f0")
         accent = QColor("#38bdf8")
 
@@ -1632,7 +1621,7 @@ class ModernIconFactory:
 
     @staticmethod
     def icon_insert(color=None):
-        pix, p = ModernIconFactory._base()
+        pix, p = AuraIconFactory._base()
         c = QColor(color) if color else QColor("#38bdf8")
         p.setPen(QPen(c, 2.2, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
         # Crisp modern plus symbol
@@ -1643,7 +1632,7 @@ class ModernIconFactory:
 
     @staticmethod
     def icon_table():
-        pix, p = ModernIconFactory._base()
+        pix, p = AuraIconFactory._base()
         col = QColor("#e2e8f0")
         accent = QColor("#38bdf8")
         # Outer table frame
@@ -1664,7 +1653,7 @@ class ModernIconFactory:
 
     @staticmethod
     def icon_emoji(color: str = None) -> QIcon:
-        pix, p = ModernIconFactory._base()
+        pix, p = AuraIconFactory._base()
         col = QColor(color or "#e2e8f0")
         accent = QColor("#f59e0b") if not color else col
         # Crisp modern vector outline circle
@@ -1688,7 +1677,7 @@ class ModernIconFactory:
 
     @staticmethod
     def icon_menu_voice_recording(color: str = None) -> QIcon:
-        pix, p = ModernIconFactory._base()
+        pix, p = AuraIconFactory._base()
         col = QColor(color or "#f1f5f9")
         pen = QPen(col, 1.6, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin)
         p.setPen(pen)
@@ -1705,7 +1694,7 @@ class ModernIconFactory:
 
     @staticmethod
     def icon_menu_image(color: str = None) -> QIcon:
-        pix, p = ModernIconFactory._base()
+        pix, p = AuraIconFactory._base()
         col = QColor(color or "#f1f5f9")
         pen = QPen(col, 1.5, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin)
         p.setPen(pen)
@@ -1724,7 +1713,7 @@ class ModernIconFactory:
 
     @staticmethod
     def icon_menu_camera(color: str = None) -> QIcon:
-        pix, p = ModernIconFactory._base()
+        pix, p = AuraIconFactory._base()
         col = QColor(color or "#f1f5f9")
         pen = QPen(col, 1.5, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin)
         p.setPen(pen)
@@ -1740,7 +1729,7 @@ class ModernIconFactory:
 
     @staticmethod
     def icon_menu_scan(color: str = None) -> QIcon:
-        pix, p = ModernIconFactory._base()
+        pix, p = AuraIconFactory._base()
         col = QColor(color or "#f1f5f9")
         pen = QPen(col, 1.5, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin)
         p.setPen(pen)
@@ -1761,7 +1750,7 @@ class ModernIconFactory:
 
     @staticmethod
     def icon_menu_audio(color: str = None) -> QIcon:
-        pix, p = ModernIconFactory._base()
+        pix, p = AuraIconFactory._base()
         col = QColor(color or "#f1f5f9")
         pen = QPen(col, 1.6, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin)
         p.setPen(pen)
@@ -1782,7 +1771,7 @@ class ModernIconFactory:
 
     @staticmethod
     def icon_menu_drawing(color: str = None) -> QIcon:
-        pix, p = ModernIconFactory._base()
+        pix, p = AuraIconFactory._base()
         col = QColor(color or "#f1f5f9")
         pen = QPen(col, 1.5, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin)
         p.setPen(pen)
@@ -1803,7 +1792,7 @@ class ModernIconFactory:
 
     @staticmethod
     def icon_menu_sticky_note(color: str = None) -> QIcon:
-        pix, p = ModernIconFactory._base()
+        pix, p = AuraIconFactory._base()
         col = QColor(color or "#f1f5f9")
         pen = QPen(col, 1.5, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin)
         p.setPen(pen)
@@ -1830,7 +1819,7 @@ class ModernIconFactory:
 
     @staticmethod
     def icon_menu_table(color: str = None) -> QIcon:
-        pix, p = ModernIconFactory._base()
+        pix, p = AuraIconFactory._base()
         col = QColor(color or "#f1f5f9")
         pen = QPen(col, 1.5, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin)
         p.setPen(pen)
@@ -1845,7 +1834,7 @@ class ModernIconFactory:
 
     @staticmethod
     def icon_mic():
-        pix, p = ModernIconFactory._base()
+        pix, p = AuraIconFactory._base()
         accent = QColor("#ec4899")
         col = QColor("#e2e8f0")
         # Mic capsule
@@ -1867,7 +1856,7 @@ class ModernIconFactory:
 
     @staticmethod
     def icon_video():
-        pix, p = ModernIconFactory._base()
+        pix, p = AuraIconFactory._base()
         accent = QColor("#8b5cf6")
         col = QColor("#e2e8f0")
         # Camera body
@@ -1897,7 +1886,7 @@ class ModernIconFactory:
 
     @staticmethod
     def icon_url():
-        pix, p = ModernIconFactory._base()
+        pix, p = AuraIconFactory._base()
         col = QColor("#38bdf8")
         # Globe outline
         p.setPen(QPen(col, 1.5, Qt.PenStyle.SolidLine))
@@ -1912,7 +1901,7 @@ class ModernIconFactory:
 
     @staticmethod
     def icon_fit_page(color: str = None) -> QIcon:
-        pix, p = ModernIconFactory._base()
+        pix, p = AuraIconFactory._base()
         col = QColor(color or "#f1f5f9")
         p.setPen(QPen(col, 1.5, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
         p.setBrush(Qt.BrushStyle.NoBrush)
@@ -1928,7 +1917,7 @@ class ModernIconFactory:
 
     @staticmethod
     def icon_fit_width(color: str = None) -> QIcon:
-        pix, p = ModernIconFactory._base()
+        pix, p = AuraIconFactory._base()
         col = QColor(color or "#f1f5f9")
         p.setPen(QPen(col, 1.5, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
         p.setBrush(Qt.BrushStyle.NoBrush)
@@ -1948,7 +1937,7 @@ class ModernIconFactory:
 
     @staticmethod
     def icon_speech(color: str = None) -> QIcon:
-        pix, p = ModernIconFactory._base()
+        pix, p = AuraIconFactory._base()
         col = QColor(color or "#38bdf8")
         p.setPen(QPen(col, 1.5, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
         p.setBrush(QBrush(col))
@@ -1971,7 +1960,7 @@ class ModernIconFactory:
 
     @staticmethod
     def icon_headphones(color: str = None) -> QIcon:
-        pix, p = ModernIconFactory._base()
+        pix, p = AuraIconFactory._base()
         col = QColor(color or "#38bdf8")
         p.setPen(QPen(col, 1.8, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
         p.setBrush(Qt.BrushStyle.NoBrush)
@@ -1987,7 +1976,7 @@ class ModernIconFactory:
 
     @staticmethod
     def icon_play(color: str = None) -> QIcon:
-        pix, p = ModernIconFactory._base()
+        pix, p = AuraIconFactory._base()
         col = QColor(color or "#38bdf8")
         p.setPen(QPen(col, 1.2, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
         p.setBrush(QBrush(col))
@@ -2002,7 +1991,7 @@ class ModernIconFactory:
 
     @staticmethod
     def icon_pause(color: str = None) -> QIcon:
-        pix, p = ModernIconFactory._base()
+        pix, p = AuraIconFactory._base()
         col = QColor(color or "#38bdf8")
         p.setPen(Qt.PenStyle.NoPen)
         p.setBrush(QBrush(col))
@@ -2014,7 +2003,7 @@ class ModernIconFactory:
     @staticmethod
     def icon_stop(color: str = None) -> QIcon:
         """Medyada Durdur İkonu - Dolgulu Kare"""
-        pix, p = ModernIconFactory._base()
+        pix, p = AuraIconFactory._base()
         col = QColor(color or "#ef4444")
         p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
         p.setPen(Qt.PenStyle.NoPen)
@@ -2024,23 +2013,8 @@ class ModernIconFactory:
         return QIcon(pix)
 
     @staticmethod
-    def icon_info(color: str = None) -> QIcon:
-        pix, p = ModernIconFactory._base()
-        col = QColor(color or "#94a3b8")
-        p.setPen(QPen(col, 1.6, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
-        p.setBrush(Qt.BrushStyle.NoBrush)
-        p.drawEllipse(QRectF(4.0, 4.0, 18.0, 18.0))
-        p.setPen(Qt.PenStyle.NoPen)
-        p.setBrush(QBrush(col))
-        p.drawEllipse(QRectF(11.9, 7.5, 2.2, 2.2))
-        p.setPen(QPen(col, 1.8, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
-        p.drawLine(QPointF(13.0, 11.5), QPointF(13.0, 16.5))
-        p.end()
-        return QIcon(pix)
-
-    @staticmethod
     def icon_nav_back(color: str = None) -> QIcon:
-        pix, p = ModernIconFactory._base()
+        pix, p = AuraIconFactory._base()
         col = QColor(color or "#f1f5f9")
         p.setPen(QPen(col, 1.8, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
         p.setBrush(Qt.BrushStyle.NoBrush)
@@ -2051,7 +2025,7 @@ class ModernIconFactory:
 
     @staticmethod
     def icon_nav_forward(color: str = None) -> QIcon:
-        pix, p = ModernIconFactory._base()
+        pix, p = AuraIconFactory._base()
         col = QColor(color or "#f1f5f9")
         p.setPen(QPen(col, 1.8, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
         p.setBrush(Qt.BrushStyle.NoBrush)
@@ -2062,7 +2036,7 @@ class ModernIconFactory:
 
     @staticmethod
     def icon_first_page(color: str = None) -> QIcon:
-        pix, p = ModernIconFactory._base()
+        pix, p = AuraIconFactory._base()
         col = QColor(color or "#f1f5f9")
         p.setPen(QPen(col, 1.8, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
         p.setBrush(Qt.BrushStyle.NoBrush)
@@ -2074,7 +2048,7 @@ class ModernIconFactory:
 
     @staticmethod
     def icon_last_page(color: str = None) -> QIcon:
-        pix, p = ModernIconFactory._base()
+        pix, p = AuraIconFactory._base()
         col = QColor(color or "#f1f5f9")
         p.setPen(QPen(col, 1.8, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
         p.setBrush(Qt.BrushStyle.NoBrush)
@@ -2086,7 +2060,7 @@ class ModernIconFactory:
 
     @staticmethod
     def icon_reading_mode(color: str = None) -> QIcon:
-        pix, p = ModernIconFactory._base()
+        pix, p = AuraIconFactory._base()
         col = QColor(color or "#fbbf24")
         p.setPen(QPen(col, 1.5, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
         p.setBrush(Qt.BrushStyle.NoBrush)
@@ -2107,7 +2081,7 @@ class ModernIconFactory:
 
     @staticmethod
     def icon_reading_dark(color: str = None) -> QIcon:
-        pix, p = ModernIconFactory._base()
+        pix, p = AuraIconFactory._base()
         col = QColor(color or "#a855f7")
         p.setPen(QPen(col, 1.5, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
         p.setBrush(Qt.BrushStyle.NoBrush)
@@ -2123,7 +2097,7 @@ class ModernIconFactory:
 
     @staticmethod
     def icon_reading_sepia(color: str = None) -> QIcon:
-        pix, p = ModernIconFactory._base()
+        pix, p = AuraIconFactory._base()
         col = QColor(color or "#f97316")
         p.setPen(QPen(col, 1.5, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
         p.setBrush(Qt.BrushStyle.NoBrush)
@@ -2145,7 +2119,7 @@ class ModernIconFactory:
 
     @staticmethod
     def icon_gif(color: str = None) -> QIcon:
-        pix, p = ModernIconFactory._base()
+        pix, p = AuraIconFactory._base()
         col = QColor(color or "#10b981")
         p.setPen(QPen(col, 1.8, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
         p.setBrush(Qt.BrushStyle.NoBrush)
@@ -2163,7 +2137,7 @@ class ModernIconFactory:
 
     @staticmethod
     def icon_comments(color: str = None) -> QIcon:
-        pix, p = ModernIconFactory._base()
+        pix, p = AuraIconFactory._base()
         col = QColor(color or "#f59e0b")
         p.setPen(QPen(col, 1.8, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
         p.setBrush(Qt.BrushStyle.NoBrush)
@@ -2186,7 +2160,7 @@ class ModernIconFactory:
 
     @staticmethod
     def icon_doc_properties(color: str = None) -> QIcon:
-        pix, p = ModernIconFactory._base()
+        pix, p = AuraIconFactory._base()
         col = QColor(color or "#f1f5f9")
         p.setPen(QPen(col, 1.5, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
         p.setBrush(Qt.BrushStyle.NoBrush)
@@ -2209,7 +2183,7 @@ class ModernIconFactory:
 
     @staticmethod
     def icon_home(color=None):
-        pix, p = ModernIconFactory._base()
+        pix, p = AuraIconFactory._base()
         clr = QColor(color) if color else QColor("#e0e0e0")
         p.setPen(QPen(clr, 1.6, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
         path = QPainterPath()
@@ -2222,7 +2196,7 @@ class ModernIconFactory:
 
     @staticmethod
     def icon_folder(color=None):
-        pix, p = ModernIconFactory._base()
+        pix, p = AuraIconFactory._base()
         clr = QColor(color) if color else QColor("#e0e0e0")
         p.setPen(QPen(clr, 1.5, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
         path = QPainterPath()
@@ -2239,7 +2213,7 @@ class ModernIconFactory:
 
     @staticmethod
     def icon_all_grid(color=None):
-        pix, p = ModernIconFactory._base()
+        pix, p = AuraIconFactory._base()
         clr = QColor(color) if color else QColor("#e0e0e0")
         p.setPen(Qt.PenStyle.NoPen)
         p.setBrush(QBrush(clr))
@@ -2257,7 +2231,7 @@ class ModernIconFactory:
 
     @staticmethod
     def icon_chevron_up(color=None):
-        pix, p = ModernIconFactory._base()
+        pix, p = AuraIconFactory._base()
         clr = QColor(color) if color else QColor("#e0e0e0")
         p.setPen(QPen(clr, 1.8, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
         path = QPainterPath()
@@ -2268,7 +2242,7 @@ class ModernIconFactory:
 
     @staticmethod
     def icon_chevron_down(color=None):
-        pix, p = ModernIconFactory._base()
+        pix, p = AuraIconFactory._base()
         clr = QColor(color) if color else QColor("#e0e0e0")
         p.setPen(QPen(clr, 1.8, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
         path = QPainterPath()
@@ -2279,7 +2253,7 @@ class ModernIconFactory:
 
     @staticmethod
     def icon_chevron_left(color=None):
-        pix, p = ModernIconFactory._base()
+        pix, p = AuraIconFactory._base()
         clr = QColor(color) if color else QColor("#e0e0e0")
         p.setPen(QPen(clr, 1.8, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
         path = QPainterPath()
@@ -2290,7 +2264,7 @@ class ModernIconFactory:
 
     @staticmethod
     def icon_chevron_right(color=None):
-        pix, p = ModernIconFactory._base()
+        pix, p = AuraIconFactory._base()
         clr = QColor(color) if color else QColor("#e0e0e0")
         p.setPen(QPen(clr, 1.8, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
         path = QPainterPath()
@@ -2301,7 +2275,7 @@ class ModernIconFactory:
 
     @staticmethod
     def icon_compress(color: str = None) -> QIcon:
-        pix, p = ModernIconFactory._base()
+        pix, p = AuraIconFactory._base()
         col = QColor(color or "#ef4444")
         p.setPen(QPen(col, 1.8, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
         p.setBrush(Qt.BrushStyle.NoBrush)
@@ -2336,7 +2310,7 @@ class ModernIconFactory:
 
     @staticmethod
     def icon_keyboard_shortcuts():
-        pix, p = ModernIconFactory._base()
+        pix, p = AuraIconFactory._base()
         # Keyboard body
         p.setPen(QPen(QColor('#94a3b8'), 1.4, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
         p.setBrush(QBrush(QColor('#1e293b')))
@@ -2359,7 +2333,7 @@ class ModernIconFactory:
 
     @staticmethod
     def icon_check(color: str = None) -> QIcon:
-        pix, p = ModernIconFactory._base()
+        pix, p = AuraIconFactory._base()
         col = QColor(color or "#10b981")
         p.setPen(QPen(col, 2.0, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
         path = QPainterPath()
@@ -2372,7 +2346,7 @@ class ModernIconFactory:
 
     @staticmethod
     def icon_menu_hamburger(color: str = None) -> QIcon:
-        pix, p = ModernIconFactory._base()
+        pix, p = AuraIconFactory._base()
         col = QColor(color or "#475569")
         p.setPen(QPen(col, 2.0, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
         for y in (7.5, 13.0, 18.5):
@@ -2382,7 +2356,7 @@ class ModernIconFactory:
 
     @staticmethod
     def icon_export_pdf(color: str = None) -> QIcon:
-        pix, p = ModernIconFactory._base()
+        pix, p = AuraIconFactory._base()
         col = QColor(color or "#0ea5e9")
         p.setPen(QPen(col, 1.8, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
         p.setBrush(Qt.BrushStyle.NoBrush)
@@ -2406,7 +2380,7 @@ class ModernIconFactory:
 
     @staticmethod
     def icon_fill_sign(color: str = None) -> QIcon:
-        pix, p = ModernIconFactory._base()
+        pix, p = AuraIconFactory._base()
         col = QColor(color or "#a855f7")
         p.setPen(QPen(col, 1.8, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
         p.setBrush(Qt.BrushStyle.NoBrush)
@@ -2428,7 +2402,7 @@ class ModernIconFactory:
 
     @staticmethod
     def icon_combine_files(color: str = None) -> QIcon:
-        pix, p = ModernIconFactory._base()
+        pix, p = AuraIconFactory._base()
         col = QColor(color or "#38bdf8")
         p.setPen(QPen(col, 1.8, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
         p.setBrush(Qt.BrushStyle.NoBrush)
@@ -2456,7 +2430,7 @@ class ModernIconFactory:
 
     @staticmethod
     def icon_prepare_form(color: str = None) -> QIcon:
-        pix, p = ModernIconFactory._base()
+        pix, p = AuraIconFactory._base()
         col = QColor(color or "#a855f7")
         p.setPen(QPen(col, 1.8, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
         p.setBrush(Qt.BrushStyle.NoBrush)
@@ -2471,7 +2445,7 @@ class ModernIconFactory:
 
     @staticmethod
     def icon_stamp(color: str = None) -> QIcon:
-        pix, p = ModernIconFactory._base()
+        pix, p = AuraIconFactory._base()
         col = QColor(color or "#06b6d4")
         p.setPen(QPen(col, 1.8, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
         p.setBrush(Qt.BrushStyle.NoBrush)
@@ -2500,7 +2474,7 @@ class ModernIconFactory:
 
     @staticmethod
     def icon_certificate(color: str = None) -> QIcon:
-        pix, p = ModernIconFactory._base()
+        pix, p = AuraIconFactory._base()
         col = QColor(color or "#0284c7")
         p.setPen(QPen(col, 1.8, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
         # Seal circle
@@ -2524,7 +2498,7 @@ class ModernIconFactory:
 
     @staticmethod
     def icon_extract(color: str = None) -> QIcon:
-        pix, p = ModernIconFactory._base()
+        pix, p = AuraIconFactory._base()
         col = QColor(color or "#ef4444")
         p.setPen(QPen(col, 1.8, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
         p.setBrush(Qt.BrushStyle.NoBrush)
@@ -2544,7 +2518,7 @@ class ModernIconFactory:
 
     @staticmethod
     def icon_split_page(color: str = None) -> QIcon:
-        pix, p = ModernIconFactory._base()
+        pix, p = AuraIconFactory._base()
         col = QColor(color or "#475569")
         p.setPen(QPen(col, 1.8, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
         p.drawRoundedRect(QRectF(4, 5, 8, 16), 1.5, 1.5)
@@ -2554,7 +2528,7 @@ class ModernIconFactory:
 
     @staticmethod
     def icon_replace_page(color: str = None) -> QIcon:
-        pix, p = ModernIconFactory._base()
+        pix, p = AuraIconFactory._base()
         col = QColor(color or "#475569")
         p.setPen(QPen(col, 1.8, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
         # Two curved swap arrows
@@ -2571,7 +2545,7 @@ class ModernIconFactory:
 
     @staticmethod
     def icon_info(color: str = None) -> QIcon:
-        pix, p = ModernIconFactory._base()
+        pix, p = AuraIconFactory._base()
         col = QColor(color or "#64748b")
         p.setPen(QPen(col, 1.8, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
         p.drawEllipse(QRectF(4, 4, 18, 18))
@@ -2582,7 +2556,7 @@ class ModernIconFactory:
 
     @staticmethod
     def icon_warning(color: str = None) -> QIcon:
-        pix, p = ModernIconFactory._base()
+        pix, p = AuraIconFactory._base()
         col = QColor(color or "#f59e0b")
         p.setPen(QPen(col, 1.8, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
         triangle = QPainterPath()
@@ -2598,7 +2572,7 @@ class ModernIconFactory:
 
     @staticmethod
     def icon_cloud_share(color: str = None) -> QIcon:
-        pix, p = ModernIconFactory._base()
+        pix, p = AuraIconFactory._base()
         col = QColor(color or "#64748b")
         p.setPen(QPen(col, 1.8, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
         cloud = QPainterPath()
@@ -2614,7 +2588,7 @@ class ModernIconFactory:
 
     @staticmethod
     def icon_pptx(color: str = None) -> QIcon:
-        pix, p = ModernIconFactory._base()
+        pix, p = AuraIconFactory._base()
         col = QColor(color or "#ea580c")
         p.setPen(QPen(col, 1.8, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
         # Presentation slide frame
@@ -2631,7 +2605,7 @@ class ModernIconFactory:
 
     @staticmethod
     def icon_html(color: str = None) -> QIcon:
-        pix, p = ModernIconFactory._base()
+        pix, p = AuraIconFactory._base()
         col = QColor(color or "#0284c7")
         p.setPen(QPen(col, 1.8, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
         # < code >
@@ -2651,7 +2625,7 @@ class ModernIconFactory:
 
     @staticmethod
     def icon_txt(color: str = None) -> QIcon:
-        pix, p = ModernIconFactory._base()
+        pix, p = AuraIconFactory._base()
         col = QColor(color or "#64748b")
         p.setPen(QPen(col, 1.8, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
         p.drawRoundedRect(QRectF(5, 4, 16, 18), 2, 2)
@@ -2663,7 +2637,7 @@ class ModernIconFactory:
 
     @staticmethod
     def icon_eps(color: str = None) -> QIcon:
-        pix, p = ModernIconFactory._base()
+        pix, p = AuraIconFactory._base()
         col = QColor(color or "#8b5cf6")
         p.setPen(QPen(col, 1.8, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
         # Pen nib
@@ -2681,7 +2655,7 @@ class ModernIconFactory:
 
     @staticmethod
     def icon_bates(color: str = None) -> QIcon:
-        pix, p = ModernIconFactory._base()
+        pix, p = AuraIconFactory._base()
         col = QColor(color or "#10b981")
         p.setPen(QPen(col, 1.8, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
         # # symbol
@@ -2694,7 +2668,7 @@ class ModernIconFactory:
 
     @staticmethod
     def icon_header_footer(color: str = None) -> QIcon:
-        pix, p = ModernIconFactory._base()
+        pix, p = AuraIconFactory._base()
         col = QColor(color or "#ec4899")
         p.setPen(QPen(col, 1.8, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
         p.drawRoundedRect(QRectF(5, 4, 16, 18), 2, 2)
@@ -2705,7 +2679,7 @@ class ModernIconFactory:
 
     @staticmethod
     def icon_guided_actions(color: str = None) -> QIcon:
-        pix, p = ModernIconFactory._base()
+        pix, p = AuraIconFactory._base()
         col = QColor(color or "#f59e0b")
         p.setPen(QPen(col, 1.7, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
         p.drawLine(QPointF(5, 21), QPointF(15, 11))
@@ -2721,7 +2695,7 @@ class ModernIconFactory:
 
     @staticmethod
     def icon_accessibility(color: str = None) -> QIcon:
-        pix, p = ModernIconFactory._base()
+        pix, p = AuraIconFactory._base()
         col = QColor(color or "#10b981")
         p.setPen(QPen(col, 1.7, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
         p.drawEllipse(QRectF(4, 4, 18, 18))
@@ -2737,7 +2711,7 @@ class ModernIconFactory:
 
     @staticmethod
     def icon_star(filled: bool = False, color: str = None) -> QIcon:
-        pix, p = ModernIconFactory._base()
+        pix, p = AuraIconFactory._base()
         col = QColor(color or ("#f59e0b" if filled else "#94a3b8"))
         p.setPen(QPen(col, 1.5, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
         if filled:
@@ -2766,7 +2740,7 @@ class ModernIconFactory:
 
     @staticmethod
     def icon_share(color: str = None) -> QIcon:
-        pix, p = ModernIconFactory._base()
+        pix, p = AuraIconFactory._base()
         col = QColor(color or "#ec4899")
         p.setPen(QPen(col, 1.8, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
         p.setBrush(Qt.BrushStyle.NoBrush)
@@ -2780,7 +2754,7 @@ class ModernIconFactory:
 
     @staticmethod
     def icon_standards(color: str = None) -> QIcon:
-        pix, p = ModernIconFactory._base()
+        pix, p = AuraIconFactory._base()
         col = QColor(color or "#0ea5e9")
         p.setPen(QPen(col, 1.7, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
         p.drawRoundedRect(QRectF(5, 4, 16, 18), 2, 2)
@@ -2792,11 +2766,11 @@ class ModernIconFactory:
 
     @staticmethod
     def icon_search_index(color: str = None) -> QIcon:
-        return ModernIconFactory.icon_share(color)
+        return AuraIconFactory.icon_share(color)
 
     @staticmethod
     def icon_code(color: str = None) -> QIcon:
-        pix, p = ModernIconFactory._base()
+        pix, p = AuraIconFactory._base()
         col = QColor(color or "#38bdf8")
         p.setPen(QPen(col, 1.8, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
         p.setBrush(Qt.BrushStyle.NoBrush)
@@ -2821,7 +2795,7 @@ class ModernIconFactory:
 
     @staticmethod
     def icon_translate(color: str = None) -> QIcon:
-        pix, p = ModernIconFactory._base()
+        pix, p = AuraIconFactory._base()
         col = QColor(color or "#a855f7")
         p.setPen(QPen(col, 1.6, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
         p.setBrush(Qt.BrushStyle.NoBrush)
@@ -2837,7 +2811,7 @@ class ModernIconFactory:
 
     @staticmethod
     def icon_discord(color: str = None) -> QIcon:
-        pix, p = ModernIconFactory._base()
+        pix, p = AuraIconFactory._base()
         col = QColor(color or "#5865f2")
         p.setPen(QPen(col, 1.8, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
         # Controller/bubble outline
@@ -2859,7 +2833,7 @@ class ModernIconFactory:
 
     @staticmethod
     def icon_github(color: str = None) -> QIcon:
-        pix, p = ModernIconFactory._base()
+        pix, p = AuraIconFactory._base()
         col = QColor(color or "#24292f")
         p.setPen(QPen(col, 1.8, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
         p.drawEllipse(QRectF(5, 5, 16, 16))
@@ -2873,7 +2847,7 @@ class ModernIconFactory:
 
     @staticmethod
     def icon_web(color: str = None) -> QIcon:
-        pix, p = ModernIconFactory._base()
+        pix, p = AuraIconFactory._base()
         col = QColor(color or "#0284c7")
         p.setPen(QPen(col, 1.8, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
         p.drawEllipse(QRectF(4, 4, 18, 18))
@@ -2884,7 +2858,7 @@ class ModernIconFactory:
 
     @staticmethod
     def icon_pdf(color: str = None) -> QIcon:
-        pix, p = ModernIconFactory._base()
+        pix, p = AuraIconFactory._base()
         col = QColor(color or "#ef4444")
         p.setPen(QPen(col, 1.8, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
         # Document sheet with folded top-right corner
@@ -2907,7 +2881,7 @@ class ModernIconFactory:
 
     @staticmethod
     def icon_folder_open(color: str = None) -> QIcon:
-        pix, p = ModernIconFactory._base()
+        pix, p = AuraIconFactory._base()
         col = QColor(color or "#64748b")
         p.setPen(QPen(col, 1.8, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
         path = QPainterPath()
@@ -2928,7 +2902,7 @@ class ModernIconFactory:
 
     @staticmethod
     def icon_image_gallery(color: str = None) -> QIcon:
-        pix, p = ModernIconFactory._base()
+        pix, p = AuraIconFactory._base()
         col = QColor(color or "#0284c7")
         p.setPen(QPen(col, 1.8, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
         # Back picture frame
@@ -2952,7 +2926,7 @@ class ModernIconFactory:
 
     @staticmethod
     def icon_pin(color: str = None) -> QIcon:
-        pix, p = ModernIconFactory._base()
+        pix, p = AuraIconFactory._base()
         col = QColor(color or "#94a3b8")
         p.setPen(QPen(col, 1.6, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
         p.setBrush(QBrush(QColor(col.red(), col.green(), col.blue(), 40)))
@@ -2973,7 +2947,7 @@ class ModernIconFactory:
 
     @staticmethod
     def icon_unpin(color: str = None) -> QIcon:
-        pix, p = ModernIconFactory._base()
+        pix, p = AuraIconFactory._base()
         col = QColor(color or "#94a3b8")
         p.setPen(QPen(col, 1.5, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
         p.drawRoundedRect(QRectF(5, 7, 12, 12), 2, 2)
@@ -2985,7 +2959,7 @@ class ModernIconFactory:
 
     @staticmethod
     def icon_cross(color: str = None) -> QIcon:
-        pix, p = ModernIconFactory._base()
+        pix, p = AuraIconFactory._base()
         col = QColor(color or "#c084fc")
         p.setPen(QPen(col, 2.0, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
         p.drawLine(QPointF(7, 7), QPointF(19, 19))
@@ -2995,7 +2969,7 @@ class ModernIconFactory:
 
     @staticmethod
     def icon_dot(color: str = None) -> QIcon:
-        pix, p = ModernIconFactory._base()
+        pix, p = AuraIconFactory._base()
         col = QColor(color or "#c084fc")
         p.setPen(QPen(col, 1.8, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
         p.drawEllipse(QRectF(4, 4, 18, 18))
@@ -3007,7 +2981,7 @@ class ModernIconFactory:
 
     @staticmethod
     def icon_line(color: str = None) -> QIcon:
-        pix, p = ModernIconFactory._base()
+        pix, p = AuraIconFactory._base()
         col = QColor(color or "#c084fc")
         p.setPen(QPen(col, 2.2, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
         p.drawLine(QPointF(5, 13), QPointF(21, 13))
@@ -3016,7 +2990,7 @@ class ModernIconFactory:
 
     @staticmethod
     def icon_date(color: str = None) -> QIcon:
-        pix, p = ModernIconFactory._base()
+        pix, p = AuraIconFactory._base()
         col = QColor(color or "#c084fc")
         p.setPen(QPen(col, 1.8, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
         p.drawEllipse(QRectF(4, 4, 18, 18))
@@ -3027,7 +3001,7 @@ class ModernIconFactory:
 
     @staticmethod
     def icon_signature(color: str = None) -> QIcon:
-        pix, p = ModernIconFactory._base()
+        pix, p = AuraIconFactory._base()
         col = QColor(color or "#c084fc")
         p.setPen(QPen(col, 1.8, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
         path = QPainterPath()
@@ -3042,7 +3016,7 @@ class ModernIconFactory:
 
     @staticmethod
     def icon_initials(color: str = None) -> QIcon:
-        pix, p = ModernIconFactory._base()
+        pix, p = AuraIconFactory._base()
         col = QColor(color or "#c084fc")
         p.setPen(QPen(col, 1.8, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
         path = QPainterPath()
@@ -3057,7 +3031,7 @@ class ModernIconFactory:
 
     @staticmethod
     def icon_text_tool(color: str = None) -> QIcon:
-        pix, p = ModernIconFactory._base()
+        pix, p = AuraIconFactory._base()
         col = QColor(color or "#c084fc")
         p.setPen(QPen(col, 2.0, Qt.PenStyle.SolidLine, Qt.PenCapStyle.SquareCap))
         p.drawLine(QPointF(6, 7), QPointF(20, 7))
@@ -3070,7 +3044,7 @@ class ModernIconFactory:
 
     @staticmethod
     def icon_move_left(color: str = None) -> QIcon:
-        pix, p = ModernIconFactory._base()
+        pix, p = AuraIconFactory._base()
         col = QColor(color or "#388bfd")
         p.setPen(QPen(col, 1.8, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
         p.drawLine(QPointF(19, 13), QPointF(7, 13))
@@ -3081,7 +3055,7 @@ class ModernIconFactory:
 
     @staticmethod
     def icon_move_right(color: str = None) -> QIcon:
-        pix, p = ModernIconFactory._base()
+        pix, p = AuraIconFactory._base()
         col = QColor(color or "#388bfd")
         p.setPen(QPen(col, 1.8, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
         p.drawLine(QPointF(7, 13), QPointF(19, 13))
@@ -3092,7 +3066,7 @@ class ModernIconFactory:
 
     @staticmethod
     def icon_insert_pdf(color: str = None) -> QIcon:
-        pix, p = ModernIconFactory._base()
+        pix, p = AuraIconFactory._base()
         col = QColor(color or "#10b981")
         p.setPen(QPen(col, 1.6, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
         p.drawRoundedRect(QRectF(4, 3, 13, 18), 2, 2)
@@ -3104,7 +3078,7 @@ class ModernIconFactory:
 
     @staticmethod
     def icon_duplicate(color: str = None) -> QIcon:
-        pix, p = ModernIconFactory._base()
+        pix, p = AuraIconFactory._base()
         col = QColor(color or "#8b5cf6")
         p.setPen(QPen(col, 1.6, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
         p.drawRoundedRect(QRectF(8, 3, 14, 16), 2, 2)
@@ -3115,7 +3089,7 @@ class ModernIconFactory:
 
     @staticmethod
     def icon_page_label(color: str = None) -> QIcon:
-        pix, p = ModernIconFactory._base()
+        pix, p = AuraIconFactory._base()
         col = QColor(color or "#f59e0b")
         p.setPen(QPen(col, 1.6, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
         path = QPainterPath()
@@ -3133,7 +3107,7 @@ class ModernIconFactory:
 
     @staticmethod
     def icon_crop(color: str = None) -> QIcon:
-        pix, p = ModernIconFactory._base()
+        pix, p = AuraIconFactory._base()
         col = QColor(color or "#06b6d4")
         p.setPen(QPen(col, 2.0, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
         # Sol-Üst L köşe
@@ -3147,7 +3121,7 @@ class ModernIconFactory:
 
     @staticmethod
     def icon_auto_crop(color: str = None) -> QIcon:
-        pix, p = ModernIconFactory._base()
+        pix, p = AuraIconFactory._base()
         col = QColor(color or "#06b6d4")
         p.setPen(QPen(col, 1.6, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
         # Kırpma çerçevesi
@@ -3162,7 +3136,7 @@ class ModernIconFactory:
 
     @staticmethod
     def icon_refresh(color: str = None) -> QIcon:
-        pix, p = ModernIconFactory._base()
+        pix, p = AuraIconFactory._base()
         col = QColor(color or "#94a3b8")
         p.setPen(QPen(col, 1.8, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
         p.setBrush(Qt.BrushStyle.NoBrush)
@@ -3182,7 +3156,7 @@ class ModernIconFactory:
 
     @staticmethod
     def icon_grip(color: str = None) -> QIcon:
-        pix, p = ModernIconFactory._base()
+        pix, p = AuraIconFactory._base()
         col = QColor(color or "#94a3b8")
         p.setPen(Qt.PenStyle.NoPen)
         p.setBrush(QBrush(col))
@@ -3194,7 +3168,7 @@ class ModernIconFactory:
 
     @staticmethod
     def icon_copy(color: str = None) -> QIcon:
-        pix, p = ModernIconFactory._base()
+        pix, p = AuraIconFactory._base()
         col = QColor(color or "#38bdf8")
         p.setPen(QPen(col, 1.5, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
         p.setBrush(Qt.BrushStyle.NoBrush)
@@ -3206,7 +3180,7 @@ class ModernIconFactory:
 
     @staticmethod
     def icon_underline(color: str = None) -> QIcon:
-        pix, p = ModernIconFactory._base()
+        pix, p = AuraIconFactory._base()
         col = QColor(color or "#22c55e")
         p.setPen(QPen(col, 1.8, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
         p.setBrush(Qt.BrushStyle.NoBrush)
@@ -3222,7 +3196,7 @@ class ModernIconFactory:
 
     @staticmethod
     def icon_strikethrough(color: str = None) -> QIcon:
-        pix, p = ModernIconFactory._base()
+        pix, p = AuraIconFactory._base()
         col = QColor(color or "#f43f5e")
         p.setPen(QPen(col, 1.8, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
         p.setBrush(Qt.BrushStyle.NoBrush)
@@ -3240,7 +3214,7 @@ class ModernIconFactory:
 
     @staticmethod
     def icon_upload(color: str = None) -> QIcon:
-        pix, p = ModernIconFactory._base()
+        pix, p = AuraIconFactory._base()
         col = QColor(color or "#3b82f6")
         pen = QPen(col, 1.8, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin)
         p.setPen(pen)
@@ -3256,7 +3230,7 @@ class ModernIconFactory:
 
     @staticmethod
     def icon_sparkle(color: str = None) -> QIcon:
-        pix, p = ModernIconFactory._base()
+        pix, p = AuraIconFactory._base()
         col = QColor(color or "#a855f7")
         p.setBrush(QBrush(col))
         p.setPen(Qt.PenStyle.NoPen)
@@ -3288,7 +3262,7 @@ class ModernIconFactory:
 
     @staticmethod
     def icon_send(color: str = None) -> QIcon:
-        pix, p = ModernIconFactory._base()
+        pix, p = AuraIconFactory._base()
         col = QColor(color or "#a855f7")
         p.setBrush(QBrush(col))
         p.setPen(Qt.PenStyle.NoPen)
@@ -3304,13 +3278,13 @@ class ModernIconFactory:
 
 
 def _wrap_icon_methods():
-    for attr in dir(ModernIconFactory):
+    for attr in dir(AuraIconFactory):
         if attr.startswith("icon_") and attr != "icon_app":
-            orig = getattr(ModernIconFactory, attr)
+            orig = getattr(AuraIconFactory, attr)
             if callable(orig):
                 def make_cached(fn, name):
                     def wrapper(*args, **kwargs):
-                        cache = ModernIconFactory._icon_cache
+                        cache = AuraIconFactory._icon_cache
                         if not args and not kwargs:
                             key = name
                         else:
@@ -3322,9 +3296,11 @@ def _wrap_icon_methods():
                                 cache[key] = fn()
                         return cache[key]
                     return wrapper
-                setattr(ModernIconFactory, attr, staticmethod(make_cached(orig, attr)))
+                setattr(AuraIconFactory, attr, staticmethod(make_cached(orig, attr)))
 
 _wrap_icon_methods()
+# Klasik ikon seçeneği: Fabrikanın ilk çizimleri olduğu gibi kullanılır
+if QSettings("AuraPDF", "PDFViewer").value("icon_style", "modern", type=str) != "classic":
+    install_glyph_icons(AuraIconFactory)
 
 # AuraPDF Marka İsimlendirmesi ile Geriye Dönük Uyumluluk Takma Adı (Alias)
-AuraIconFactory = ModernIconFactory

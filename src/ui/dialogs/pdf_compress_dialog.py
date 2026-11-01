@@ -11,16 +11,15 @@ from typing import Optional
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QGridLayout, QLabel,
     QPushButton, QFileDialog, QMessageBox, QGroupBox, QRadioButton,
-    QButtonGroup, QProgressBar, QCheckBox, QSlider, QFrame, QLineEdit,
-    QSizePolicy
+    QButtonGroup, QProgressBar, QCheckBox, QSlider, QFrame, QLineEdit
 )
 from PyQt6.QtCore import Qt, QThread, pyqtSignal
 from PyQt6.QtGui import QFont
 
 from src.core.i18n import LanguageManager
 from src.core.pdf_compressor import PDFCompressor
-from src.ui.dialog_theme import apply_dialog_theme, ModernInfoCard
-from src.ui.icons import ModernIconFactory
+from src.ui.dialog_theme import apply_dialog_theme, AuraInfoCard
+from src.ui.icons import AuraIconFactory
 
 
 class CompressThread(QThread):
@@ -90,7 +89,7 @@ class PDFCompressDialog(QDialog):
         # Başlık
         header_layout = QHBoxLayout()
         icon_lbl = QLabel(self)
-        icon_lbl.setPixmap(ModernIconFactory.icon_compress().pixmap(32, 32))
+        icon_lbl.setPixmap(AuraIconFactory.icon_compress().pixmap(32, 32))
         header_layout.addWidget(icon_lbl)
 
         title_vbox = QVBoxLayout()
@@ -121,7 +120,7 @@ class PDFCompressDialog(QDialog):
             self.txt_input.setText(self.input_path)
 
         btn_browse_in = QPushButton(LanguageManager.tr("browse"), self)
-        btn_browse_in.setIcon(ModernIconFactory.icon_folder())
+        btn_browse_in.setIcon(AuraIconFactory.icon_folder())
         btn_browse_in.clicked.connect(self._browse_input)
 
         grid_file.addWidget(lbl_in, 0, 0, 1, 2)
@@ -190,7 +189,7 @@ class PDFCompressDialog(QDialog):
         self.txt_output = QLineEdit(self)
         self.txt_output.setText(self._generate_default_output())
         btn_browse_out = QPushButton(LanguageManager.tr("browse"), self)
-        btn_browse_out.setIcon(ModernIconFactory.icon_folder())
+        btn_browse_out.setIcon(AuraIconFactory.icon_folder())
         btn_browse_out.clicked.connect(self._browse_output)
 
         h_out.addWidget(self.txt_output)
@@ -210,7 +209,7 @@ class PDFCompressDialog(QDialog):
         main_layout.addWidget(self.lbl_status)
 
         # Sonuç Kartı
-        self.card_result = ModernInfoCard("", parent=self)
+        self.card_result = AuraInfoCard("", parent=self)
         self.card_result.setVisible(False)
         main_layout.addWidget(self.card_result)
 
@@ -230,7 +229,7 @@ class PDFCompressDialog(QDialog):
 
         self.btn_compress = QPushButton(LanguageManager.tr("compress_btn_start"), self)
         self.btn_compress.setObjectName("PrimaryBtn")
-        self.btn_compress.setIcon(ModernIconFactory.icon_compress())
+        self.btn_compress.setIcon(AuraIconFactory.icon_compress())
         self.btn_compress.clicked.connect(self._start_compression)
 
         btn_layout.addWidget(self.btn_cancel)

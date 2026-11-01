@@ -7,7 +7,7 @@ from PyQt6.QtCore import Qt, QPoint
 
 app = QApplication.instance() or QApplication(sys.argv)
 
-from src.ui.icons import ModernIconFactory
+from src.ui.icons import AuraIconFactory
 from src.core.i18n import LanguageManager
 from src.ui.widgets import FullscreenReadingHUD
 from src.viewer import AuraPDFViewer
@@ -22,18 +22,18 @@ class TestFullscreenFeatures(unittest.TestCase):
 
     def test_icons_exist(self):
         """HUD butonları için gereken tüm ikonların varlığını ve geçerliliğini test et."""
-        self.assertFalse(ModernIconFactory.icon_first_page().isNull())
-        self.assertFalse(ModernIconFactory.icon_last_page().isNull())
-        self.assertFalse(ModernIconFactory.icon_move_left().isNull())
-        self.assertFalse(ModernIconFactory.icon_move_right().isNull())
-        self.assertFalse(ModernIconFactory.icon_view_single().isNull())
-        self.assertFalse(ModernIconFactory.icon_view_double().isNull())
-        self.assertFalse(ModernIconFactory.icon_reading_mode().isNull())
-        self.assertFalse(ModernIconFactory.icon_reading_dark().isNull())
-        self.assertFalse(ModernIconFactory.icon_reading_sepia().isNull())
-        self.assertFalse(ModernIconFactory.icon_fit_width().isNull())
-        self.assertFalse(ModernIconFactory.icon_fit_page().isNull())
-        self.assertFalse(ModernIconFactory.icon_close().isNull())
+        self.assertFalse(AuraIconFactory.icon_first_page().isNull())
+        self.assertFalse(AuraIconFactory.icon_last_page().isNull())
+        self.assertFalse(AuraIconFactory.icon_move_left().isNull())
+        self.assertFalse(AuraIconFactory.icon_move_right().isNull())
+        self.assertFalse(AuraIconFactory.icon_view_single().isNull())
+        self.assertFalse(AuraIconFactory.icon_view_double().isNull())
+        self.assertFalse(AuraIconFactory.icon_reading_mode().isNull())
+        self.assertFalse(AuraIconFactory.icon_reading_dark().isNull())
+        self.assertFalse(AuraIconFactory.icon_reading_sepia().isNull())
+        self.assertFalse(AuraIconFactory.icon_fit_width().isNull())
+        self.assertFalse(AuraIconFactory.icon_fit_page().isNull())
+        self.assertFalse(AuraIconFactory.icon_close().isNull())
 
     def test_fullscreen_hud_initialized(self):
         """FullscreenReadingHUD bileşeninin başlatıldığını ve tüm öğelerini içerdiğini doğrula."""

@@ -2,9 +2,8 @@ import os
 import math
 import tempfile
 from typing import Optional, List, Dict, Any, Tuple
-from PyQt6.QtWidgets import (QGraphicsItem, QMenu, QInputDialog,
-                             QLineEdit, QMessageBox, QDialog, QVBoxLayout,
-                             QHBoxLayout, QPushButton, QSlider, QLabel, QStyle)
+from PyQt6.QtWidgets import (QGraphicsItem, QMenu, QLineEdit, QMessageBox, QDialog, QVBoxLayout,
+                             QHBoxLayout, QPushButton, QSlider, QLabel)
 from PyQt6.QtGui import (QPainter, QColor, QPen, QBrush, QFont, QFontMetrics, QFontMetricsF,
                          QPixmap, QImage, QPainterPath, QLinearGradient)
 from PyQt6.QtCore import (Qt, QRectF, QPointF, QUrl)
@@ -12,7 +11,7 @@ from PyQt6.QtMultimedia import QMediaPlayer, QAudioOutput
 from PyQt6.QtMultimediaWidgets import QVideoWidget
 
 from src.core.i18n import LanguageManager
-from src.ui.icons import ModernIconFactory
+from src.ui.icons import AuraIconFactory
 
 
 class ResizeHandle:
@@ -858,35 +857,35 @@ class PDFTableItem(QGraphicsItem):
         # 1. Seçili Hücreyi Hizala
         cur_cell_align = self.get_cell_alignment(click_r, click_c)
         cell_align_menu = menu.addMenu(LanguageManager.tr("table_selected_cell_alignment", row=click_r + 1, col=click_c + 1))
-        act_cell_left = cell_align_menu.addAction(ModernIconFactory.icon_align_left(16), LanguageManager.tr("table_align_left"))
+        act_cell_left = cell_align_menu.addAction(AuraIconFactory.icon_align_left(16), LanguageManager.tr("table_align_left"))
         act_cell_left.setCheckable(True)
         act_cell_left.setChecked(cur_cell_align == "left")
 
-        act_cell_center = cell_align_menu.addAction(ModernIconFactory.icon_align_center(16), LanguageManager.tr("table_align_center"))
+        act_cell_center = cell_align_menu.addAction(AuraIconFactory.icon_align_center(16), LanguageManager.tr("table_align_center"))
         act_cell_center.setCheckable(True)
         act_cell_center.setChecked(cur_cell_align == "center")
 
-        act_cell_right = cell_align_menu.addAction(ModernIconFactory.icon_align_right(16), LanguageManager.tr("table_align_right"))
+        act_cell_right = cell_align_menu.addAction(AuraIconFactory.icon_align_right(16), LanguageManager.tr("table_align_right"))
         act_cell_right.setCheckable(True)
         act_cell_right.setChecked(cur_cell_align == "right")
 
         # 2. Sütunu Hizala
         col_align_menu = menu.addMenu(LanguageManager.tr("table_column_alignment", col=click_c + 1))
-        act_col_left = col_align_menu.addAction(ModernIconFactory.icon_align_left(16), LanguageManager.tr("table_align_left"))
-        act_col_center = col_align_menu.addAction(ModernIconFactory.icon_align_center(16), LanguageManager.tr("table_align_center"))
-        act_col_right = col_align_menu.addAction(ModernIconFactory.icon_align_right(16), LanguageManager.tr("table_align_right"))
+        act_col_left = col_align_menu.addAction(AuraIconFactory.icon_align_left(16), LanguageManager.tr("table_align_left"))
+        act_col_center = col_align_menu.addAction(AuraIconFactory.icon_align_center(16), LanguageManager.tr("table_align_center"))
+        act_col_right = col_align_menu.addAction(AuraIconFactory.icon_align_right(16), LanguageManager.tr("table_align_right"))
 
         # 3. Tüm Tabloyu Hizala
         all_align_menu = menu.addMenu(LanguageManager.tr("table_all_cells_alignment"))
-        act_all_left = all_align_menu.addAction(ModernIconFactory.icon_align_left(16), LanguageManager.tr("table_align_left"))
+        act_all_left = all_align_menu.addAction(AuraIconFactory.icon_align_left(16), LanguageManager.tr("table_align_left"))
         act_all_left.setCheckable(True)
         act_all_left.setChecked(self.alignment == "left")
 
-        act_all_center = all_align_menu.addAction(ModernIconFactory.icon_align_center(16), LanguageManager.tr("table_align_center"))
+        act_all_center = all_align_menu.addAction(AuraIconFactory.icon_align_center(16), LanguageManager.tr("table_align_center"))
         act_all_center.setCheckable(True)
         act_all_center.setChecked(self.alignment == "center")
 
-        act_all_right = all_align_menu.addAction(ModernIconFactory.icon_align_right(16), LanguageManager.tr("table_align_right"))
+        act_all_right = all_align_menu.addAction(AuraIconFactory.icon_align_right(16), LanguageManager.tr("table_align_right"))
         act_all_right.setCheckable(True)
         act_all_right.setChecked(self.alignment == "right")
 
@@ -896,7 +895,7 @@ class PDFTableItem(QGraphicsItem):
         act_page_right = page_align_menu.addAction(LanguageManager.tr("table_align_page_right"))
 
         menu.addSeparator()
-        act_grid = menu.addAction(ModernIconFactory.icon_all_grid(), LanguageManager.tr("align_to_grid"))
+        act_grid = menu.addAction(AuraIconFactory.icon_all_grid(), LanguageManager.tr("align_to_grid"))
 
         menu.addSeparator()
         act_add_row = menu.addAction(LanguageManager.tr("table_add_row"))
@@ -904,7 +903,7 @@ class PDFTableItem(QGraphicsItem):
         act_add_col = menu.addAction(LanguageManager.tr("table_add_col"))
         act_del_col = menu.addAction(LanguageManager.tr("table_del_col"))
         menu.addSeparator()
-        act_del_table = menu.addAction(ModernIconFactory.icon_trash("#ef4444"), LanguageManager.tr("table_delete"))
+        act_del_table = menu.addAction(AuraIconFactory.icon_trash("#ef4444"), LanguageManager.tr("table_delete"))
 
         action = menu.exec(event.screenPos())
         if action == act_style:
@@ -977,7 +976,7 @@ class PDFTableItem(QGraphicsItem):
 
     def delete_row(self, at_idx: int):
         if self.rows <= 1:
-            QMessageBox.information(None, "Bilgi", "Tabloda en az 1 satır bulunmalıdır.")
+            QMessageBox.information(None, LanguageManager.tr("info"), LanguageManager.tr("ui_tabloda_en_az_1_satir_bulunmalidir"))
             return
         at_idx = max(0, min(at_idx, self.rows - 1))
         self.prepareGeometryChange()
@@ -1020,7 +1019,7 @@ class PDFTableItem(QGraphicsItem):
 
     def delete_col(self, at_idx: int):
         if self.cols <= 1:
-            QMessageBox.information(None, "Bilgi", "Tabloda en az 1 sütun bulunmalıdır.")
+            QMessageBox.information(None, LanguageManager.tr("info"), LanguageManager.tr("ui_tabloda_en_az_1_sutun_bulunmalidir"))
             return
         at_idx = max(0, min(at_idx, self.cols - 1))
         self.prepareGeometryChange()
@@ -1438,15 +1437,15 @@ class PDFResizableImageItem(QGraphicsItem):
             QMenu::item { padding: 6px 20px; border-radius: 4px; }
             QMenu::item:selected { background-color: #2563eb; }
         """)
-        act_aspect = menu.addAction(LanguageManager.tr("keep_aspect_ratio", default="En-Boy Oranını Koru"))
+        act_aspect = menu.addAction(LanguageManager.tr("keep_aspect_ratio", default=LanguageManager.tr("watermark_lock_ratio")))
         act_aspect.setCheckable(True)
         act_aspect.setChecked(self.keep_aspect_ratio)
 
         menu.addSeparator()
-        act_grid = menu.addAction(ModernIconFactory.icon_all_grid(), LanguageManager.tr("align_to_grid", default="Grid'e Hizala"))
-        act_reset = menu.addAction(ModernIconFactory.icon_refresh(), LanguageManager.tr("reset_size", default="Orijinal Boyuta Dön"))
+        act_grid = menu.addAction(AuraIconFactory.icon_all_grid(), LanguageManager.tr("align_to_grid", default="Grid'e Hizala"))
+        act_reset = menu.addAction(AuraIconFactory.icon_refresh(), LanguageManager.tr("reset_size", default=LanguageManager.tr("reset_size")))
         menu.addSeparator()
-        act_del = menu.addAction(ModernIconFactory.icon_trash("#ef4444"), LanguageManager.tr("content_btn_delete_img", default="Görseli Sil"))
+        act_del = menu.addAction(AuraIconFactory.icon_trash("#ef4444"), LanguageManager.tr("content_btn_delete_img", default=LanguageManager.tr("ui_gorseli_sil")))
 
         action = menu.exec(event.screenPos())
         if action == act_aspect:
@@ -1876,9 +1875,9 @@ class PDFAudioItem(QGraphicsItem):
             QMenu::item:selected { background-color: #2563eb; }
         """)
         act_play = menu.addAction("Durdur" if self.is_playing else "Oynat")
-        act_reset = menu.addAction("Varsayılan Boyuta Dön (180x48)")
+        act_reset = menu.addAction(LanguageManager.tr("ui_varsayilan_boyuta_don_180x48"))
         menu.addSeparator()
-        act_del = menu.addAction("Ses Kaydını Sil")
+        act_del = menu.addAction(LanguageManager.tr("ui_ses_kaydini_sil"))
 
         action = menu.exec(event.screenPos())
         if action == act_play:
@@ -1947,7 +1946,7 @@ class InternalVideoPlayerDialog(QDialog):
     """
     def __init__(self, video_url_or_path: str, title: str = "Video Oynatıcı", parent=None):
         super().__init__(parent)
-        self.setWindowTitle(f"Video Oynatıcı - {title}")
+        self.setWindowTitle(LanguageManager.tr("ui_video_oynatici", title=title))
         self.resize(720, 520)
         self.setMinimumSize(480, 360)
         self.setStyleSheet("""
@@ -2057,7 +2056,7 @@ class InternalVideoPlayerDialog(QDialog):
         ctrl_layout.addStretch()
 
         # Harici Tarayıcı / Oynatıcı Butonu
-        self.btn_external = QPushButton("Harici / Tarayıcıda Aç")
+        self.btn_external = QPushButton(LanguageManager.tr("ui_harici_tarayicida_ac"))
         self.btn_external.setStyleSheet("background-color: transparent; color: #38bdf8; border: 1px solid #0284c7; font-size: 11px;")
         self.btn_external.clicked.connect(self._open_external)
         ctrl_layout.addWidget(self.btn_external)
@@ -2133,7 +2132,7 @@ class InternalVideoPlayerDialog(QDialog):
             self.btn_fullscreen.setText("⛶ Tam Ekran")
         else:
             self.showFullScreen()
-            self.btn_fullscreen.setText("⛶ Normale Dön")
+            self.btn_fullscreen.setText(LanguageManager.tr("ui_normale_don"))
 
     def _open_external(self):
         import webbrowser
@@ -2143,11 +2142,11 @@ class InternalVideoPlayerDialog(QDialog):
             elif os.path.exists(self.video_url_or_path):
                 os.startfile(self.video_url_or_path)
         except Exception as e:
-            QMessageBox.warning(self, "Hata", f"Harici oynatıcı açılamadı: {e}")
+            QMessageBox.warning(self, LanguageManager.tr("error"), LanguageManager.tr("ui_harici_oynatici_acilamadi", e=e))
 
     def _on_player_error(self, error, error_string):
         if error != QMediaPlayer.Error.NoError:
-            self.btn_external.setText("Tarayıcıda Aç (Önerilen)")
+            self.btn_external.setText(LanguageManager.tr("ui_tarayicida_ac_onerilen"))
             self.btn_external.setStyleSheet("background-color: #dc2626; color: #ffffff; font-weight: bold; font-size: 11px;")
 
     def _format_time(self, ms: int) -> str:
@@ -2514,15 +2513,15 @@ class PDFVideoItem(QGraphicsItem):
             QMenu::item { padding: 6px 20px; border-radius: 4px; }
             QMenu::item:selected { background-color: #2563eb; }
         """)
-        act_internal = menu.addAction("Videoyu Dahili Oynat")
-        act_open = menu.addAction("Harici Oynatıcıda / Tarayıcıda Aç")
+        act_internal = menu.addAction(LanguageManager.tr("ui_videoyu_dahili_oynat"))
+        act_open = menu.addAction(LanguageManager.tr("ui_harici_oynaticida_tarayicida_ac"))
         menu.addSeparator()
-        act_aspect = menu.addAction("En-Boy Oranını Koru")
+        act_aspect = menu.addAction(LanguageManager.tr("watermark_lock_ratio"))
         act_aspect.setCheckable(True)
         act_aspect.setChecked(self.keep_aspect_ratio)
-        act_reset = menu.addAction("Varsayılan Boyuta Dön (200x120)")
+        act_reset = menu.addAction(LanguageManager.tr("ui_varsayilan_boyuta_don_200x120"))
         menu.addSeparator()
-        act_del = menu.addAction("Videoyu Sil")
+        act_del = menu.addAction(LanguageManager.tr("ui_videoyu_sil"))
 
         action = menu.exec(event.screenPos())
         if action == act_internal:

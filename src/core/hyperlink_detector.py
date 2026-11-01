@@ -6,6 +6,7 @@ ve T.C. Kimlik Numarası tanıma ve işleme yardımcı modülü.
 """
 
 import re
+from src.core.i18n import LanguageManager
 
 
 def is_valid_tc(tc_str: str) -> bool:
@@ -70,9 +71,9 @@ def detect_hyperlink(text: str) -> dict | None:
             'type': 'email',
             'url': f'mailto:{raw}',
             'raw': raw,
-            'title': 'E-Posta',
+            'title': LanguageManager.tr("link_kind_email"),
             'icon': '',
-            'tooltip': f'E-Posta: {raw}\n(Tıklayarak e-posta gönderin, sağ tık ile kopyalayın)'
+            'tooltip': LanguageManager.tr("link_tip_email", raw=raw)
         }
 
     # 2. Web Sitesi / URL Tespiti
@@ -88,9 +89,9 @@ def detect_hyperlink(text: str) -> dict | None:
             'type': 'url',
             'url': url,
             'raw': raw,
-            'title': 'Web Sitesi',
+            'title': LanguageManager.tr("link_kind_web"),
             'icon': '',
-            'tooltip': f'Web Sitesi: {url}\n(Tıklayarak tarayıcıda açın, sağ tık ile kopyalayın)'
+            'tooltip': LanguageManager.tr("link_tip_web_full", url=url)
         }
 
     # 3. T.C. Kimlik Numarası Tespiti (Sadece açıkça TC etiketi varsa ve algoritması doğrulanmışsa)
@@ -102,9 +103,9 @@ def detect_hyperlink(text: str) -> dict | None:
                 'type': 'tc',
                 'url': '',
                 'raw': raw,
-                'title': 'T.C. Kimlik No',
+                'title': LanguageManager.tr("link_kind_tc"),
                 'icon': '',
-                'tooltip': f'T.C. Kimlik No: {raw}\n(Tıklayarak panoya kopyalayın)'
+                'tooltip': LanguageManager.tr("link_tip_tc_full", raw=raw)
             }
 
     # 4. Telefon Numarası Tespiti
@@ -125,9 +126,9 @@ def detect_hyperlink(text: str) -> dict | None:
             'url': tel_url,
             'raw': raw,
             'clean': clean,
-            'title': 'Telefon',
+            'title': LanguageManager.tr("link_kind_phone"),
             'icon': '',
-            'tooltip': f'Telefon: {raw}\n(Aramak için tıklayın, sağ tık ile kopyalayın)'
+            'tooltip': LanguageManager.tr("link_tip_phone_full", raw=raw)
         }
 
     return None

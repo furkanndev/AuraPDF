@@ -12,18 +12,18 @@ Klasik ve eski işletim sistemi renk diyalogları yerine;
 
 from typing import Optional, List
 from PyQt6.QtCore import Qt, pyqtSignal, QSize, QRegularExpression
-from PyQt6.QtGui import QColor, QFont, QRegularExpressionValidator, QPainter, QBrush, QPen
+from PyQt6.QtGui import QColor, QFont, QRegularExpressionValidator
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton,
-    QFrame, QSlider, QGridLayout, QToolButton, QColorDialog, QWidget
+    QFrame, QSlider, QToolButton, QColorDialog
 )
 
 from src.core.i18n import LanguageManager
-from src.ui.icons import ModernIconFactory
-from src.ui.dialog_theme import apply_dialog_theme, get_theme_palette
+from src.ui.icons import AuraIconFactory
+from src.ui.dialog_theme import apply_dialog_theme
 
 
-class ModernColorSwatchButton(QPushButton):
+class AuraColorSwatchButton(QPushButton):
     """Modern yuvarlak renk hapı düğmesi."""
     def __init__(self, color_hex: str, size: int = 24, parent=None):
         super().__init__(parent)
@@ -62,7 +62,7 @@ class ModernColorSwatchButton(QPushButton):
             """)
 
 
-class ModernColorPickerDialog(QDialog):
+class AuraColorPickerDialog(QDialog):
     """
     AuraPDF için özel olarak tasarlanmış modern, şık ve kullanışlı renk seçici.
     """
@@ -81,7 +81,7 @@ class ModernColorPickerDialog(QDialog):
         self._initial_hex = init_c.name().upper()
         self._current_color = init_c
 
-        self._swatch_buttons: List[ModernColorSwatchButton] = []
+        self._swatch_buttons: List[AuraColorSwatchButton] = []
 
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(18, 16, 18, 16)
@@ -93,7 +93,7 @@ class ModernColorPickerDialog(QDialog):
         h_head.setSpacing(10)
 
         lbl_icon = QLabel()
-        lbl_icon.setPixmap(ModernIconFactory.icon_palette_grid("#38bdf8").pixmap(18, 18))
+        lbl_icon.setPixmap(AuraIconFactory.icon_palette_grid("#38bdf8").pixmap(18, 18))
         h_head.addWidget(lbl_icon)
 
         v_head = QVBoxLayout()
@@ -109,7 +109,7 @@ class ModernColorPickerDialog(QDialog):
         h_head.addLayout(v_head, 1)
 
         btn_close = QToolButton()
-        btn_close.setIcon(ModernIconFactory.icon_close())
+        btn_close.setIcon(AuraIconFactory.icon_close())
         btn_close.setIconSize(QSize(12, 12))
         btn_close.setFixedSize(24, 24)
         btn_close.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -145,13 +145,13 @@ class ModernColorPickerDialog(QDialog):
         h_split.setSpacing(0)
 
         self.lbl_orig_swatch = QLabel()
-        self.lbl_orig_swatch.setToolTip("Orijinal Renk")
+        self.lbl_orig_swatch.setToolTip(LanguageManager.tr("ui_orijinal_renk"))
         self.lbl_orig_swatch.setCursor(Qt.CursorShape.PointingHandCursor)
         self.lbl_orig_swatch.mousePressEvent = lambda e: self.set_color(self._initial_hex)
         h_split.addWidget(self.lbl_orig_swatch, 1)
 
         self.lbl_curr_swatch = QLabel()
-        self.lbl_curr_swatch.setToolTip("Yeni Seçilen Renk")
+        self.lbl_curr_swatch.setToolTip(LanguageManager.tr("ui_yeni_secilen_renk"))
         h_split.addWidget(self.lbl_curr_swatch, 1)
 
         h_prev.addWidget(self.frame_swatches_split)
@@ -243,7 +243,7 @@ class ModernColorPickerDialog(QDialog):
             h_row.setContentsMargins(0, 0, 0, 0)
             h_row.setSpacing(6)
             for c_hex in row_colors:
-                btn_sw = ModernColorSwatchButton(c_hex, size=21, parent=self)
+                btn_sw = AuraColorSwatchButton(c_hex, size=21, parent=self)
                 btn_sw.clicked.connect(lambda checked, col=c_hex: self.set_color(col))
                 self._swatch_buttons.append(btn_sw)
                 h_row.addWidget(btn_sw)

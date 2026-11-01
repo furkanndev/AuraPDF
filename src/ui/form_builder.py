@@ -1,18 +1,16 @@
-import math
-from typing import Optional, List, Dict, Any, Tuple
+from typing import Optional, List, Dict, Any
 from PyQt6.QtWidgets import (
     QGraphicsItem, QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
-    QCheckBox, QComboBox, QPushButton, QListWidget, QListWidgetItem,
-    QGroupBox, QFormLayout, QWidget, QMenu, QMessageBox
+    QCheckBox, QComboBox, QPushButton, QListWidget, QGroupBox, QFormLayout, QMenu, QMessageBox
 )
 from PyQt6.QtGui import (
-    QPainter, QColor, QPen, QBrush, QFont, QFontMetrics, QCursor, QPainterPath
+    QPainter, QColor, QPen, QBrush, QFont, QFontMetrics, QPainterPath
 )
 from PyQt6.QtCore import Qt, QRectF, QPointF
 
 import fitz
 from src.core.i18n import LanguageManager
-from src.ui.icons import ModernIconFactory
+from src.ui.icons import AuraIconFactory
 from src.ui.dialog_theme import apply_dialog_theme
 
 
@@ -233,8 +231,8 @@ class AuraFormFieldDesignerItem(QGraphicsItem):
 
     def _notify_selection(self):
         main_win = getattr(self.tab_doc, 'main_window', None)
-        if main_win and hasattr(main_win, 'modern_left_sidebar'):
-            drawer = getattr(main_win.modern_left_sidebar, 'prepare_form_drawer', None)
+        if main_win and hasattr(main_win, 'aura_left_sidebar'):
+            drawer = getattr(main_win.aura_left_sidebar, 'prepare_form_drawer', None)
             if drawer and hasattr(drawer, 'select_field_in_list'):
                 drawer.select_field_in_list(self.field_name, self.page_idx)
 
@@ -278,9 +276,9 @@ class AuraFormFieldDesignerItem(QGraphicsItem):
             QMenu::item { padding: 6px 20px; border-radius: 4px; font-size: 12px; }
             QMenu::item:selected { background-color: #0284c7; color: #ffffff; }
         """)
-        act_props = menu.addAction(ModernIconFactory.icon_settings(), LanguageManager.tr("form_action_edit_selected"))
-        act_dup = menu.addAction(ModernIconFactory.icon_add_page(), LanguageManager.tr("form_field_duplicate"))
-        act_del = menu.addAction(ModernIconFactory.icon_trash("#ef4444"), LanguageManager.tr("form_action_delete_selected"))
+        act_props = menu.addAction(AuraIconFactory.icon_settings(), LanguageManager.tr("form_action_edit_selected"))
+        act_dup = menu.addAction(AuraIconFactory.icon_add_page(), LanguageManager.tr("form_field_duplicate"))
+        act_del = menu.addAction(AuraIconFactory.icon_trash("#ef4444"), LanguageManager.tr("form_action_delete_selected"))
 
         chosen = menu.exec(event.screenPos())
         if chosen == act_props:
@@ -297,8 +295,8 @@ class AuraFormFieldDesignerItem(QGraphicsItem):
         dlg = AuraFormFieldPropertiesDialog(designer_item=self, parent=main_win)
         if dlg.exec() == QDialog.DialogCode.Accepted:
             self.update()
-            if main_win and hasattr(main_win, 'modern_left_sidebar'):
-                drawer = getattr(main_win.modern_left_sidebar, 'prepare_form_drawer', None)
+            if main_win and hasattr(main_win, 'aura_left_sidebar'):
+                drawer = getattr(main_win.aura_left_sidebar, 'prepare_form_drawer', None)
                 if drawer:
                     drawer.refresh_fields_list()
 
@@ -601,7 +599,7 @@ class AuraFormFieldPropertiesDialog(QDialog):
     def _on_save(self):
         new_name = self.txt_name.text().strip()
         if not new_name:
-            QMessageBox.warning(self, LanguageManager.tr("error"), LanguageManager.tr("form_prop_name") + " boş bırakılamaz.")
+            QMessageBox.warning(self, LanguageManager.tr("error"), LanguageManager.tr("form_prop_name") + LanguageManager.tr("ui_bos_birakilamaz"))
             return
 
         # İsim çakışması kontrolü
@@ -610,7 +608,7 @@ class AuraFormFieldPropertiesDialog(QDialog):
             for p in tab_doc.doc:
                 for w in p.widgets():
                     if w.field_name == new_name:
-                        QMessageBox.warning(self, LanguageManager.tr("error"), f"'{new_name}' adında bir alan zaten mevcut.")
+                        QMessageBox.warning(self, LanguageManager.tr("error"), LanguageManager.tr("ui_adinda_bir_alan_zaten_mevcut", new_name=new_name))
                         return
 
         # Değerleri öğeye ve PyMuPDF'e aktar

@@ -1,19 +1,16 @@
-import os
 import datetime
 from typing import Optional
 from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel, 
                              QPushButton, QLineEdit, QStackedWidget, QWidget,
-                             QGridLayout, QFrame, QScrollArea, QGraphicsDropShadowEffect,
-                             QComboBox, QDateEdit)
-from PyQt6.QtGui import (QPainter, QPen, QBrush, QColor, QFont, QPixmap, QImage, QPainterPath)
-from PyQt6.QtCore import Qt, QSize, QRectF, QBuffer, QIODevice, QPointF, QDate, QSettings
+                             QGridLayout, QFrame, QComboBox, QDateEdit)
+from PyQt6.QtGui import (QPainter, QPen, QBrush, QColor, QFont, QPixmap)
+from PyQt6.QtCore import Qt, QRectF, QBuffer, QIODevice, QPointF, QDate, QSettings
 
 from src.core.i18n import LanguageManager
 from src.ui.dialog_theme import apply_dialog_theme
-from src.ui.icons import ModernIconFactory
 
 
-class ModernStampDialog(QDialog):
+class AuraStampDialog(QDialog):
     """
     Adobe Acrobat benzeri gelişmiş damga ekleme iletişim kutusu.
     - Standart İş Damgaları (ONAYLANDI, GİZLİ, TASLAK, NİHAİ, vb.)
@@ -502,11 +499,11 @@ class DateStampDialog(QDialog):
         lbl_fmt.setStyleSheet("font-weight: 600; font-size: 13px;")
         self.cmb_format = QComboBox()
         self.cmb_format.setFixedHeight(32)
-        self.cmb_format.addItem("GG.AA.YYYY  (ör. 07.10.2026)", "%d.%m.%Y")
-        self.cmb_format.addItem("GG/AA/YYYY  (ör. 07/10/2026)", "%d/%m/%Y")
-        self.cmb_format.addItem("YYYY-AA-GG  (ör. 2026-10-07)", "%Y-%m-%d")
-        self.cmb_format.addItem("GG.AA.YYYY SS:dd  (ör. 07.10.2026 14:30)", "%d.%m.%Y %H:%M")
-        self.cmb_format.addItem("AA/GG/YYYY  (ör. 10/07/2026)", "%m/%d/%Y")
+        self.cmb_format.addItem(LanguageManager.tr("ui_gg_aa_yyyy_or_07_10"), "%d.%m.%Y")
+        self.cmb_format.addItem(LanguageManager.tr("ui_gg_aa_yyyy_or_07_10_2"), "%d/%m/%Y")
+        self.cmb_format.addItem(LanguageManager.tr("ui_yyyy_aa_gg_or_2026_10"), "%Y-%m-%d")
+        self.cmb_format.addItem(LanguageManager.tr("ui_gg_aa_yyyy_ss_dd_or"), "%d.%m.%Y %H:%M")
+        self.cmb_format.addItem(LanguageManager.tr("ui_aa_gg_yyyy_or_10_07"), "%m/%d/%Y")
 
         saved_fmt = self.settings.value("date_stamp_format", "%d.%m.%Y")
         idx = self.cmb_format.findData(saved_fmt)
@@ -526,8 +523,8 @@ class DateStampDialog(QDialog):
         self.cmb_color.addItem("Koyu Grafit (#0f172a)", "#0f172a")
         self.cmb_color.addItem("Klasik Siyah (#000000)", "#000000")
         self.cmb_color.addItem("Lacivert Mavi (#1d4ed8)", "#1d4ed8")
-        self.cmb_color.addItem("Zümrüt Yeşili (#047857)", "#047857")
-        self.cmb_color.addItem("Bordo Kırmızı (#b91c1c)", "#b91c1c")
+        self.cmb_color.addItem(LanguageManager.tr("ui_zumrut_yesili_047857"), "#047857")
+        self.cmb_color.addItem(LanguageManager.tr("ui_bordo_kirmizi_b91c1c"), "#b91c1c")
         self.cmb_color.addItem("Asil Mor (#6d28d9)", "#6d28d9")
 
         saved_col = self.settings.value("date_stamp_color", "#0f172a")
@@ -545,7 +542,7 @@ class DateStampDialog(QDialog):
         lbl_custom.setStyleSheet("font-weight: 600; font-size: 13px;")
         self.txt_custom = QLineEdit()
         self.txt_custom.setFixedHeight(32)
-        self.txt_custom.setPlaceholderText("Format yerine özel metin yazabilirsiniz...")
+        self.txt_custom.setPlaceholderText(LanguageManager.tr("ui_format_yerine_ozel_metin_yazabilirsiniz"))
         self.txt_custom.textChanged.connect(self._update_preview)
         h_custom.addWidget(lbl_custom)
         h_custom.addWidget(self.txt_custom, stretch=1)

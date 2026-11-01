@@ -7,24 +7,22 @@ sayfa metinlerini optik karakter tanıma (OCR) ile okuma aracı.
 """
 
 import os
-import io
 import numpy as np
-from PIL import Image
 
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QListWidget, QListWidgetItem, QTabWidget, QWidget, QFrame,
     QMessageBox, QFileDialog, QTextEdit, QLineEdit, QSplitter,
-    QScrollArea, QSpinBox, QComboBox, QColorDialog
+    QScrollArea, QColorDialog
 )
 from PyQt6.QtCore import Qt, QSize, QRectF
 from PyQt6.QtGui import QIcon, QPixmap, QImage, QFont, QPainter, QPen, QBrush, QColor
 
 import pymupdf as fitz
 from src.core.i18n import LanguageManager
-from src.ui.dialog_theme import get_dialog_theme_stylesheet, apply_dialog_theme
-from src.ui.icons import ModernIconFactory
-from src.ui.modern_stepper import ModernSpinBox
+from src.ui.dialog_theme import apply_dialog_theme
+from src.ui.icons import AuraIconFactory
+from src.ui.aura_stepper import AuraSpinBox
 
 
 class VisualBlockCanvas(QLabel):
@@ -103,7 +101,7 @@ class PDFContentEditorDialog(QDialog):
         self.current_page_idx = getattr(self.tab_doc, 'current_page_idx', 0) if self.tab_doc else 0
 
         self.setWindowTitle(LanguageManager.tr("editor_dialog_title"))
-        self.setWindowIcon(ModernIconFactory.icon_edit_content())
+        self.setWindowIcon(AuraIconFactory.icon_edit_content())
         self.resize(1060, 720)
         self.setMinimumSize(850, 560)
         self.setSizeGripEnabled(True)
@@ -159,12 +157,12 @@ class PDFContentEditorDialog(QDialog):
         tb_lay = QHBoxLayout(top_bar)
         tb_lay.setContentsMargins(8, 5, 8, 5)
 
-        self.btn_prev_page = QPushButton(f"◀ {LanguageManager.tr('prev_page')}")
+        self.btn_prev_page = QPushButton(LanguageManager.tr('prev_page'))
         self.btn_prev_page.clicked.connect(self._prev_page)
         tb_lay.addWidget(self.btn_prev_page)
 
         tb_lay.addWidget(QLabel(LanguageManager.tr("page_prefix_label")))
-        self.spn_page = ModernSpinBox(min_val=1, max_val=len(self.tab_doc.doc) if (self.tab_doc and self.tab_doc.doc) else 1, default_val=self.current_page_idx + 1, parent=self)
+        self.spn_page = AuraSpinBox(min_val=1, max_val=len(self.tab_doc.doc) if (self.tab_doc and self.tab_doc.doc) else 1, default_val=self.current_page_idx + 1, parent=self)
         self.spn_page.setFixedWidth(78)
         self.spn_page.valueChanged.connect(self._on_page_spin_changed)
         tb_lay.addWidget(self.spn_page)
@@ -172,7 +170,7 @@ class PDFContentEditorDialog(QDialog):
         self.lbl_page_total = QLabel(f"/ {len(self.tab_doc.doc) if (self.tab_doc and self.tab_doc.doc) else 1}")
         tb_lay.addWidget(self.lbl_page_total)
 
-        self.btn_next_page = QPushButton(f"{LanguageManager.tr('next_page')} ▶")
+        self.btn_next_page = QPushButton(LanguageManager.tr('next_page'))
         self.btn_next_page.clicked.connect(self._next_page)
         tb_lay.addWidget(self.btn_next_page)
 
@@ -269,7 +267,7 @@ class PDFContentEditorDialog(QDialog):
         # Font & Boyut Ayarları
         font_bar = QHBoxLayout()
         font_bar.addWidget(QLabel(LanguageManager.tr("size_label")))
-        self.spn_font_size = ModernSpinBox(min_val=6, max_val=48, default_val=11, suffix=" pt", parent=self)
+        self.spn_font_size = AuraSpinBox(min_val=6, max_val=48, default_val=11, suffix=" pt", parent=self)
         self.spn_font_size.setFixedWidth(84)
         font_bar.addWidget(self.spn_font_size)
 
@@ -300,7 +298,7 @@ class PDFContentEditorDialog(QDialog):
         layout.addWidget(splitter)
 
     def _choose_text_color(self):
-        c = QColorDialog.getColor(QColor(0, 0, 0), self, "Metin Rengi Seç")
+        c = QColorDialog.getColor(QColor(0, 0, 0), self, LanguageManager.tr("ui_choose_text_color"))
         if c.isValid():
             self.chosen_color = (c.red() / 255.0, c.green() / 255.0, c.blue() / 255.0)
             self.btn_text_color.setText(c.name().upper())
@@ -397,7 +395,7 @@ class PDFContentEditorDialog(QDialog):
 
         self.txt_ocr_result = QTextEdit()
         self.txt_ocr_result.setFont(QFont("Consolas", 10))
-        self.txt_ocr_result.setPlaceholderText("Tanınan metin burada görüntülenecektir...")
+        self.txt_ocr_result.setPlaceholderText(LanguageManager.tr("ui_taninan_metin_burada_goruntulenecektir"))
         layout.addWidget(self.txt_ocr_result)
 
     # ----------------------------------------------------
@@ -422,7 +420,7 @@ class PDFContentEditorDialog(QDialog):
     # ----------------------------------------------------
     def load_data(self):
         if not self.tab_doc or not self.tab_doc.doc:
-            self.lbl_img_count.setText("Açık belge bulunamadı.")
+            self.lbl_img_count.setText(LanguageManager.tr("ui_acik_belge_bulunamadi"))
             return
 
         total_pages = len(self.tab_doc.doc)
@@ -436,7 +434,7 @@ class PDFContentEditorDialog(QDialog):
         self.images_data = []
         self.list_images.clear()
         img_list = page.get_images()
-        self.lbl_img_count.setText(f"Bu sayfada toplam {len(img_list)} görsel bulundu.")
+        self.lbl_img_count.setText(LanguageManager.tr("ui_bu_sayfada_toplam_gorsel_bulundu", len_img_list=len(img_list)))
 
         for i, img_info in enumerate(img_list):
             xref = img_info[0]
@@ -461,7 +459,7 @@ class PDFContentEditorDialog(QDialog):
                 }
                 self.images_data.append(item_data)
 
-                item = QListWidgetItem(icon, f"Görsel #{i+1} ({ext.upper()} - {w}x{h} px)")
+                item = QListWidgetItem(icon, LanguageManager.tr("ui_gorsel_x_px", value=i+1, value2=ext.upper(), w=w, h=h))
                 self.list_images.addItem(item)
             except Exception as e:
                 print("Görsel yüklenemedi:", e)
@@ -506,10 +504,7 @@ class PDFContentEditorDialog(QDialog):
             pix = d["pixmap"]
             self.lbl_img_preview.setPixmap(pix.scaled(200, 200, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
             self.lbl_img_info.setText(
-                f"<b>Format:</b> {d['ext'].upper()}<br>"
-                f"<b>Çözünürlük:</b> {d['width']} x {d['height']} px<br>"
-                f"<b>Referans (xref):</b> {d['xref']}<br>"
-                f"<b>Konum:</b> x={d['rect'].x0:.1f}, y={d['rect'].y0:.1f}"
+                LanguageManager.tr("ui_format_cozunurluk_x_px_referans_xref", value=d['ext'].upper(), value2=d['width'], value3=d['height'], value4=d['xref'], x0=d['rect'].x0, y0=d['rect'].y0)
             )
         else:
             self.lbl_img_preview.clear()
@@ -583,7 +578,7 @@ class PDFContentEditorDialog(QDialog):
     def replace_selected_text(self):
         row = self.list_texts.currentRow()
         if not (0 <= row < len(self.text_blocks_data)):
-            QMessageBox.warning(self, "Uyarı", "Lütfen önce düzenlemek istediğiniz bir metin bloğu seçin.")
+            QMessageBox.warning(self, LanguageManager.tr("warning"), LanguageManager.tr("ui_lutfen_once_duzenlemek_istediginiz_bir_metin"))
             return
 
         new_text = self.edit_text_content.toPlainText().strip()
@@ -630,18 +625,18 @@ class PDFContentEditorDialog(QDialog):
                     color=col
                 )
 
-            self._commit_and_reload("Metin başarıyla güncellendi!")
+            self._commit_and_reload(LanguageManager.tr("ce_text_updated"))
         except Exception as e:
-            QMessageBox.critical(self, "Hata", f"Metin güncellenirken hata oluştu:\n{e}")
+            QMessageBox.critical(self, LanguageManager.tr("error"), LanguageManager.tr("ui_metin_guncellenirken_hata_olustu", e=e))
 
     def delete_selected_text(self):
         row = self.list_texts.currentRow()
         if not (0 <= row < len(self.text_blocks_data)):
-            QMessageBox.warning(self, "Uyarı", "Lütfen silinecek bir metin seçin.")
+            QMessageBox.warning(self, LanguageManager.tr("warning"), LanguageManager.tr("ui_lutfen_silinecek_bir_metin_secin"))
             return
 
         reply = QMessageBox.question(
-            self, "Metni Sil", "Seçili metin alandan kalıcı olarak silinsin mi?",
+            self, LanguageManager.tr("direct_edit_delete"), LanguageManager.tr("ui_secili_metin_alandan_kalici_olarak_silinsin"),
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No
         )
@@ -658,14 +653,14 @@ class PDFContentEditorDialog(QDialog):
                 graphics=fitz.PDF_REDACT_LINE_ART_NONE,
                 text=fitz.PDF_REDACT_TEXT_REMOVE
             )
-            self._commit_and_reload("Metin başarıyla silindi.")
+            self._commit_and_reload(LanguageManager.tr("ce_text_deleted"))
         except Exception as e:
-            QMessageBox.critical(self, "Hata", f"Metin silinemedi:\n{e}")
+            QMessageBox.critical(self, LanguageManager.tr("error"), LanguageManager.tr("ui_metin_silinemedi", e=e))
 
     def insert_custom_text(self):
         text = self.edit_text_content.toPlainText().strip()
         if not text:
-            QMessageBox.warning(self, "Uyarı", "Lütfen eklenecek metni sağdaki kutucuğa yazın.")
+            QMessageBox.warning(self, LanguageManager.tr("warning"), LanguageManager.tr("ui_lutfen_eklenecek_metni_sagdaki_kutucuga_yazin"))
             return
 
         page = self.tab_doc.doc[self.current_page_idx]
@@ -680,9 +675,9 @@ class PDFContentEditorDialog(QDialog):
                 fontname="arial_u" if fontfile else "helv",
                 color=col
             )
-            self._commit_and_reload("Yeni metin sayfaya başarıyla eklendi.")
+            self._commit_and_reload(LanguageManager.tr("ce_text_added"))
         except Exception as e:
-            QMessageBox.critical(self, "Hata", f"Metin eklenemedi:\n{e}")
+            QMessageBox.critical(self, LanguageManager.tr("error"), LanguageManager.tr("ui_metin_eklenemedi", e=e))
 
     # ----------------------------------------------------
     # GÖRSEL İŞLEMLERİ
@@ -690,11 +685,11 @@ class PDFContentEditorDialog(QDialog):
     def replace_selected_image(self):
         row = self.list_images.currentRow()
         if not (0 <= row < len(self.images_data)):
-            QMessageBox.warning(self, "Uyarı", "Lütfen değiştirilecek bir görsel seçin.")
+            QMessageBox.warning(self, LanguageManager.tr("warning"), LanguageManager.tr("ui_lutfen_degistirilecek_bir_gorsel_secin"))
             return
 
         file_path, _ = QFileDialog.getOpenFileName(
-            self, "Yeni Görsel Seç", "", "Resim Dosyaları (*.png *.jpg *.jpeg *.bmp *.webp)"
+            self, LanguageManager.tr("ui_yeni_gorsel_sec"), "", LanguageManager.tr("ui_resim_dosyalari_png_jpg_jpeg_bmp")
         )
         if not file_path or not os.path.isfile(file_path):
             return
@@ -709,18 +704,18 @@ class PDFContentEditorDialog(QDialog):
             page.apply_redactions(images=fitz.PDF_REDACT_IMAGE_REMOVE)
             page.insert_image(rect, filename=file_path)
 
-            self._commit_and_reload("Görsel başarıyla değiştirildi!")
+            self._commit_and_reload(LanguageManager.tr("ce_image_replaced"))
         except Exception as e:
-            QMessageBox.critical(self, "Hata", f"Görsel değiştirilemedi:\n{e}")
+            QMessageBox.critical(self, LanguageManager.tr("error"), LanguageManager.tr("ui_gorsel_degistirilemedi", e=e))
 
     def delete_selected_image(self):
         row = self.list_images.currentRow()
         if not (0 <= row < len(self.images_data)):
-            QMessageBox.warning(self, "Uyarı", "Lütfen silinecek bir görsel seçin.")
+            QMessageBox.warning(self, LanguageManager.tr("warning"), LanguageManager.tr("ui_lutfen_silinecek_bir_gorsel_secin"))
             return
 
         reply = QMessageBox.question(
-            self, "Görseli Sil", "Seçili görsel PDF'ten kalıcı olarak silinsin mi?",
+            self, LanguageManager.tr("ui_gorseli_sil"), LanguageManager.tr("ui_secili_gorsel_pdf_ten_kalici_olarak"),
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No
         )
@@ -735,9 +730,9 @@ class PDFContentEditorDialog(QDialog):
             if d["rect"] and not d["rect"].is_empty:
                 page.add_redact_annot(d["rect"])
                 page.apply_redactions(images=fitz.PDF_REDACT_IMAGE_REMOVE)
-            self._commit_and_reload("Görsel başarıyla silindi.")
+            self._commit_and_reload(LanguageManager.tr("ce_image_deleted"))
         except Exception as e:
-            QMessageBox.critical(self, "Hata", f"Görsel silinemedi:\n{e}")
+            QMessageBox.critical(self, LanguageManager.tr("error"), LanguageManager.tr("ui_gorsel_silinemedi", e=e))
 
     def export_selected_image(self):
         row = self.list_images.currentRow()
@@ -746,16 +741,16 @@ class PDFContentEditorDialog(QDialog):
         d = self.images_data[row]
         ext = d["ext"].lower()
         save_path, _ = QFileDialog.getSaveFileName(
-            self, "Görseli Kaydet", f"gorsel_s{self.current_page_idx+1}_{d['index']}.{ext}", f"{ext.upper()} (*.{ext})"
+            self, LanguageManager.tr("ui_gorseli_kaydet"), f"gorsel_s{self.current_page_idx+1}_{d['index']}.{ext}", f"{ext.upper()} (*.{ext})"
         )
         if save_path:
             with open(save_path, "wb") as f:
                 f.write(d["bytes"])
-            QMessageBox.information(self, "Başarılı", f"Görsel kaydedildi:\n{save_path}")
+            QMessageBox.information(self, LanguageManager.tr("success"), LanguageManager.tr("ui_gorsel_kaydedildi", save_path=save_path))
 
     def insert_new_image(self):
         file_path, _ = QFileDialog.getOpenFileName(
-            self, "Eklenecek Görseli Seç", "", "Resim Dosyaları (*.png *.jpg *.jpeg *.bmp *.webp)"
+            self, LanguageManager.tr("ui_eklenecek_gorseli_sec"), "", LanguageManager.tr("ui_resim_dosyalari_png_jpg_jpeg_bmp")
         )
         if not file_path or not os.path.isfile(file_path):
             return
@@ -764,9 +759,9 @@ class PDFContentEditorDialog(QDialog):
         rect = fitz.Rect(72, 72, 72 + 200, 72 + 150)
         try:
             page.insert_image(rect, filename=file_path)
-            self._commit_and_reload("Yeni görsel sayfaya eklendi.")
+            self._commit_and_reload(LanguageManager.tr("ce_image_added"))
         except Exception as e:
-            QMessageBox.critical(self, "Hata", f"Görsel eklenemedi:\n{e}")
+            QMessageBox.critical(self, LanguageManager.tr("error"), LanguageManager.tr("ui_gorsel_eklenemedi", e=e))
 
     # ----------------------------------------------------
     # OCR İŞLEMİ
@@ -776,7 +771,7 @@ class PDFContentEditorDialog(QDialog):
             return
 
         page = self.tab_doc.doc[self.current_page_idx]
-        self.lbl_ocr_status.setText("Metinler taranıyor ve tanınıyor...")
+        self.lbl_ocr_status.setText(LanguageManager.tr("ui_metinler_taraniyor_ve_taniniyor"))
         self.txt_ocr_result.clear()
 
         # Önce dijital metni dene
@@ -802,26 +797,26 @@ class PDFContentEditorDialog(QDialog):
 
         self.txt_ocr_result.setPlainText(full_text)
         words = len(full_text.split())
-        self.lbl_ocr_status.setText(f"Metin tanıma tamamlandı ({words} kelime).")
+        self.lbl_ocr_status.setText(LanguageManager.tr("ui_metin_tanima_tamamlandi_kelime", words=words))
 
     def copy_ocr_text(self):
         txt = self.txt_ocr_result.toPlainText()
         if txt:
             from PyQt6.QtWidgets import QApplication
             QApplication.clipboard().setText(txt)
-            QMessageBox.information(self, "Kopyalandı", "Metin panoya kopyalandı.")
+            QMessageBox.information(self, LanguageManager.tr("ui_kopyalandi"), LanguageManager.tr("ui_metin_panoya_kopyalandi"))
 
     def save_ocr_to_file(self):
         txt = self.txt_ocr_result.toPlainText()
         if not txt:
-            QMessageBox.warning(self, "Uyarı", "Kaydedilecek metin bulunamadı.")
+            QMessageBox.warning(self, LanguageManager.tr("warning"), LanguageManager.tr("ui_kaydedilecek_metin_bulunamadi"))
             return
 
-        path, _ = QFileDialog.getSaveFileName(self, "Metni Kaydet", "taninan_metin.txt", "Metin Dosyası (*.txt)")
+        path, _ = QFileDialog.getSaveFileName(self, LanguageManager.tr("ui_metni_kaydet"), "taninan_metin.txt", LanguageManager.tr("ui_metin_dosyasi_txt"))
         if path:
             with open(path, "w", encoding="utf-8") as f:
                 f.write(txt)
-            QMessageBox.information(self, "Başarılı", f"Metin dosyası kaydedildi:\n{path}")
+            QMessageBox.information(self, LanguageManager.tr("success"), LanguageManager.tr("ui_metin_dosyasi_kaydedildi", path=path))
 
     # ----------------------------------------------------
     # KAYDETME VE GÜNCELLEME
@@ -855,21 +850,17 @@ class PDFContentEditorDialog(QDialog):
                 except Exception:
                     pass
 
-            self.tab_doc.is_modified = True
-            if hasattr(self.tab_doc, 'update_tab_title'):
-                self.tab_doc.update_tab_title()
+            if hasattr(self.tab_doc, 'set_modified'):
+                self.tab_doc.set_modified(True)
 
-            # 2. Sol kenardaki sayfa küçük resimlerini (thumbnails) de anlık güncelle
-            if hasattr(self.main_window, 'thumbnails_dock') and self.main_window.thumbnails_dock:
+            # 2. Küçük resimleri (kenetli dock + sağ panel) anlık güncelle
+            if hasattr(self.tab_doc, 'refresh_after_external_edit'):
                 try:
-                    if hasattr(self.main_window.thumbnails_dock, 'update_page_thumbnail'):
-                        self.main_window.thumbnails_dock.update_page_thumbnail(page_idx)
-                    elif hasattr(self.main_window.thumbnails_dock, 'render_thumbnails'):
-                        self.main_window.thumbnails_dock.render_thumbnails()
+                    self.tab_doc.refresh_after_external_edit(page_idx)
                 except Exception:
                     pass
 
         # 3. Diyalog penceresindeki önizleme canvasını ve metin bloklarını da güncelle
         self.load_data()
         if msg:
-            QMessageBox.information(self, "Bilgi", msg)
+            QMessageBox.information(self, LanguageManager.tr("info"), msg)

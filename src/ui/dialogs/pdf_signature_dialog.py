@@ -7,25 +7,23 @@ imza eklemesini sağlayan modern arayüz bileşeni.
 """
 
 import os
-import io
 import base64
-from typing import Optional, List, Tuple
+from typing import Optional, List
 
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QTabWidget, QWidget, QLineEdit, QComboBox, QSlider,
-    QFileDialog, QMessageBox, QFrame, QCheckBox, QButtonGroup,
-    QRadioButton, QSizePolicy
+    QFileDialog, QMessageBox, QCheckBox, QSizePolicy
 )
-from PyQt6.QtCore import Qt, QPointF, QRectF, QSize, QSettings
+from PyQt6.QtCore import Qt, QPointF, QRectF, QSettings
 from PyQt6.QtGui import (
     QPainter, QPen, QColor, QFont, QImage, QPixmap, QPainterPath,
-    QFontDatabase, QCursor
+    QFontDatabase
 )
 
 from src.core.i18n import LanguageManager
-from src.ui.dialog_theme import get_dialog_theme_stylesheet, apply_dialog_theme
-from src.ui.icons import ModernIconFactory
+from src.ui.dialog_theme import get_theme_palette, apply_dialog_theme
+from src.ui.icons import AuraIconFactory
 
 
 class SignatureCanvasWidget(QWidget):
@@ -210,8 +208,6 @@ class PDFSignatureDialog(QDialog):
     def _init_ui(self):
         extra_css = """
             QDialog { font-family: 'Segoe UI', -apple-system, sans-serif; }
-            QPushButton#PrimaryBtn { background-color: #2563eb; color: #ffffff; border: none; font-weight: bold; border-radius: 6px; padding: 6px 14px; min-height: 26px; }
-            QPushButton#PrimaryBtn:hover { background-color: #3b82f6; }
             QPushButton#ActionBtn { border-radius: 6px; padding: 6px 14px; min-height: 26px; }
             QCheckBox { font-size: 12px; spacing: 8px; }
         """
@@ -294,7 +290,10 @@ class PDFSignatureDialog(QDialog):
         ]
 
         for hex_code, name in color_options:
-            btn = QPushButton(name)
+            btn = QPushButton()
+            btn.setFixedSize(28, 28)
+            btn.setToolTip(name)
+            btn.setAccessibleName(name)
             btn.setCursor(Qt.CursorShape.PointingHandCursor)
             btn.clicked.connect(lambda _, c=hex_code: self._set_draw_color(c))
             self.draw_color_buttons[hex_code] = (btn, name)
@@ -330,38 +329,21 @@ class PDFSignatureDialog(QDialog):
         self._refresh_draw_color_buttons()
 
     def _refresh_draw_color_buttons(self):
-        for hex_code, (btn, name) in self.draw_color_buttons.items():
-            if hex_code == self.selected_draw_color:
-                btn.setText(f"✓ {name}")
-                btn.setStyleSheet(f"""
-                    QPushButton {{
-                        background-color: {hex_code};
-                        
-                        font-weight: bold;
-                        border: 2.5px solid #38bdf8;
-                        border-radius: 6px;
-                        padding: 5px 10px;
-                    }}
-                """)
-            else:
-                btn.setText(name)
-                btn.setStyleSheet(f"""
-                    QPushButton {{
-                        background-color: {hex_code};
-                        color: #ffffff;
-                        font-weight: 500;
-                        border: 1px solid rgba(255, 255, 255, 0.2);
-                        border-radius: 5px;
-                        padding: 4px 8px;
-                    }}
-                    QPushButton:hover {{
-                        border-color: #ffffff;
-                    }}
-                """)
+        accent = get_theme_palette(self).get("accent", "#38bdf8")
+        for hex_code, (btn, _) in self.draw_color_buttons.items():
+            border = f"3px solid {accent}" if hex_code == self.selected_draw_color else "1px solid rgba(255, 255, 255, 0.28)"
+            btn.setStyleSheet(f"""
+                QPushButton {{
+                    background-color: {hex_code};
+                    border: {border};
+                    border-radius: 14px;
+                    padding: 0px;
+                    min-height: 0px;
+                }}
+                QPushButton:hover {{ border: 2px solid {accent}; }}
+                QPushButton:focus {{ border: 3px solid {accent}; }}
+            """)
 
-    # ----------------------------------------------------
-    # SEKME 2: YAZARAK İMZA
-    # ----------------------------------------------------
     def _build_type_tab(self, parent_widget):
         layout = QVBoxLayout(parent_widget)
         layout.setContentsMargins(14, 14, 14, 14)
@@ -460,7 +442,7 @@ class PDFSignatureDialog(QDialog):
                 """)
 
     def _update_type_preview(self):
-        text = self.txt_type_name.text().strip() or "İmza Örneği"
+        text = self.txt_type_name.text().strip() or LanguageManager.tr("sign_type_sample")
         font_family = self.cmb_font.currentData() or "Segoe Script"
         color_hex = getattr(self, 'selected_type_color', '#0d47a1')
 
@@ -494,7 +476,7 @@ class PDFSignatureDialog(QDialog):
 
         h_browse = QHBoxLayout()
         btn_browse = QPushButton(LanguageManager.tr("sign_image_choose"))
-        btn_browse.setIcon(ModernIconFactory.icon_image())
+        btn_browse.setIcon(AuraIconFactory.icon_image())
         btn_browse.setObjectName("PrimaryBtn")
         btn_browse.clicked.connect(self._browse_signature_image)
         h_browse.addWidget(btn_browse)
@@ -519,7 +501,7 @@ class PDFSignatureDialog(QDialog):
 
     def _browse_signature_image(self):
         path, _ = QFileDialog.getOpenFileName(
-            self, LanguageManager.tr("sign_image_choose"), "", "Resim Dosyaları (*.png *.jpg *.jpeg *.bmp)"
+            self, LanguageManager.tr("sign_image_choose"), "", LanguageManager.tr("ui_resim_dosyalari_png_jpg_jpeg_bmp_2")
         )
         if path and os.path.isfile(path):
             self.lbl_img_path.setText(os.path.basename(path))

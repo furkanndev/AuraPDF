@@ -10,14 +10,14 @@ import pymupdf as fitz
 
 from src.core.i18n import LanguageManager
 from src.document.tab_document import PDFTabDocument
-from src.ui.modern_views import ModernRightSidebar
+from src.ui.aura_views import AuraRightSidebar
 from src.ui.widgets import ThumbnailsDock
 
 class MockMainWindow(QWidget):
     def __init__(self):
         super().__init__()
         self.current_tab_doc = None
-        self.modern_right_sidebar = None
+        self.aura_right_sidebar = None
         self.thumbnails_dock = None
         self.organize_workspace = None
         self.dialog_shown = False
@@ -48,8 +48,8 @@ class TestThumbnailsPerformance(unittest.TestCase):
         tab_doc.current_page_idx = 0
         main_win.current_tab_doc = tab_doc
 
-        sidebar = ModernRightSidebar(main_window=main_win)
-        main_win.modern_right_sidebar = sidebar
+        sidebar = AuraRightSidebar(main_window=main_win)
+        main_win.aura_right_sidebar = sidebar
         sidebar.show()
         sidebar.set_panel("thumbnails")
         sidebar.load_thumbnails()
@@ -65,7 +65,7 @@ class TestThumbnailsPerformance(unittest.TestCase):
             iters += 1
         t1 = time.perf_counter()
         elapsed = t1 - t0
-        print(f"\n[ModernRightSidebar] 10 pages thumbnail queue duration: {elapsed * 1000:.2f} ms")
+        print(f"\n[AuraRightSidebar] 10 pages thumbnail queue duration: {elapsed * 1000:.2f} ms")
         self.assertEqual(len(sidebar._thumb_render_queue), 0)
         self.assertLess(elapsed, 0.5)
 

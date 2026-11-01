@@ -10,17 +10,17 @@ from typing import Optional, Dict, Any
 
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QLineEdit, QTextEdit, QScrollArea, QWidget, QFrame,
+    QLineEdit, QScrollArea, QWidget, QFrame,
     QStackedWidget, QProgressBar, QFileDialog, QMessageBox,
-    QSizePolicy, QApplication
+    QApplication
 )
 from PyQt6.QtCore import Qt, QSize, QTimer
-from PyQt6.QtGui import QFont, QIcon, QClipboard
+from PyQt6.QtGui import QFont
 
 from src.core.i18n import LanguageManager
 from src.core.ai_assistant import AuraAiWorker, GeminiApiClient
 from src.ui.dialog_theme import apply_dialog_theme
-from src.ui.icons import ModernIconFactory
+from src.ui.icons import AuraIconFactory
 
 
 class AuraAiAssistantDialog(QDialog):
@@ -70,7 +70,7 @@ class AuraAiAssistantDialog(QDialog):
         icon_badge.setFixedSize(40, 40)
         icon_badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
         icon_badge.setObjectName("AiDialogIconBadge")
-        icon_badge.setPixmap(ModernIconFactory.icon_sparkle("#a855f7").pixmap(24, 24))
+        icon_badge.setPixmap(AuraIconFactory.icon_sparkle("#a855f7").pixmap(24, 24))
         header_bar.addWidget(icon_badge)
 
         v_head = QVBoxLayout()
@@ -102,7 +102,7 @@ class AuraAiAssistantDialog(QDialog):
 
         # API Ayarlari Butonu
         self.btn_api_settings = QPushButton(LanguageManager.tr("ai_btn_api_settings"), self)
-        self.btn_api_settings.setIcon(ModernIconFactory.icon_settings())
+        self.btn_api_settings.setIcon(AuraIconFactory.icon_settings())
         self.btn_api_settings.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_api_settings.clicked.connect(self._open_api_settings)
         header_bar.addWidget(self.btn_api_settings)
@@ -117,7 +117,7 @@ class AuraAiAssistantDialog(QDialog):
         self.btn_tab_summary.setObjectName("AiNavTab")
         self.btn_tab_summary.setCheckable(True)
         self.btn_tab_summary.setChecked(True)
-        self.btn_tab_summary.setIcon(ModernIconFactory.icon_sparkle("#a855f7"))
+        self.btn_tab_summary.setIcon(AuraIconFactory.icon_sparkle("#a855f7"))
         self.btn_tab_summary.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_tab_summary.clicked.connect(lambda: self._set_tab(0))
         nav_layout.addWidget(self.btn_tab_summary)
@@ -125,7 +125,7 @@ class AuraAiAssistantDialog(QDialog):
         self.btn_tab_risks = QPushButton(LanguageManager.tr("ai_tab_risks").replace("&", "&&"), self)
         self.btn_tab_risks.setObjectName("AiNavTab")
         self.btn_tab_risks.setCheckable(True)
-        self.btn_tab_risks.setIcon(ModernIconFactory.icon_search("#a855f7"))
+        self.btn_tab_risks.setIcon(AuraIconFactory.icon_search("#a855f7"))
         self.btn_tab_risks.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_tab_risks.clicked.connect(lambda: self._set_tab(1))
         nav_layout.addWidget(self.btn_tab_risks)
@@ -133,7 +133,7 @@ class AuraAiAssistantDialog(QDialog):
         self.btn_tab_chat = QPushButton(LanguageManager.tr("ai_tab_chat").replace("&", "&&"), self)
         self.btn_tab_chat.setObjectName("AiNavTab")
         self.btn_tab_chat.setCheckable(True)
-        self.btn_tab_chat.setIcon(ModernIconFactory.icon_comments("#a855f7"))
+        self.btn_tab_chat.setIcon(AuraIconFactory.icon_comments("#a855f7"))
         self.btn_tab_chat.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_tab_chat.clicked.connect(lambda: self._set_tab(2))
         nav_layout.addWidget(self.btn_tab_chat)
@@ -359,13 +359,13 @@ class AuraAiAssistantDialog(QDialog):
         h_bottom.setSpacing(10)
 
         self.btn_copy_summary = QPushButton(LanguageManager.tr("ai_btn_copy_summary"))
-        self.btn_copy_summary.setIcon(ModernIconFactory.icon_copy())
+        self.btn_copy_summary.setIcon(AuraIconFactory.icon_copy())
         self.btn_copy_summary.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_copy_summary.clicked.connect(self._copy_summary)
         h_bottom.addWidget(self.btn_copy_summary)
 
         self.btn_export_summary = QPushButton(LanguageManager.tr("ai_btn_export_summary"))
-        self.btn_export_summary.setIcon(ModernIconFactory.icon_save())
+        self.btn_export_summary.setIcon(AuraIconFactory.icon_save())
         self.btn_export_summary.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_export_summary.clicked.connect(self._export_summary)
         h_bottom.addWidget(self.btn_export_summary)
@@ -490,7 +490,7 @@ class AuraAiAssistantDialog(QDialog):
 
         self.btn_send = QPushButton()
         self.btn_send.setObjectName("AiSendBtn")
-        self.btn_send.setIcon(ModernIconFactory.icon_send("#ffffff"))
+        self.btn_send.setIcon(AuraIconFactory.icon_send("#ffffff"))
         self.btn_send.setIconSize(QSize(16, 16))
         self.btn_send.setFixedSize(38, 36)
         self.btn_send.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -774,12 +774,12 @@ class AuraAiAssistantDialog(QDialog):
                     if isinstance(w, QLabel):
                         takeaways.append(w.text())
 
-                content = (
-                    f"AuraPDF AI Belge Analiz Raporu\n"
-                    f"Belge: {os.path.basename(self.doc_path)}\n"
-                    f"{'=' * 50}\n\n"
-                    f"GENEL BAKIŞ:\n{summary_text}\n\n"
-                    f"ÖNEMLİ BULGULAR:\n" + "\n".join(takeaways)
+                content = LanguageManager.tr(
+                    "ai_export_report",
+                    doc=os.path.basename(self.doc_path),
+                    sep="=" * 50,
+                    summary=summary_text,
+                    findings="\n".join(takeaways),
                 )
                 with open(file_path, "w", encoding="utf-8") as f:
                     f.write(content)
@@ -815,7 +815,7 @@ class AuraAiAssistantDialog(QDialog):
         h_btn.addStretch(1)
 
         btn_save = QPushButton(LanguageManager.tr("ai_settings_save"), dlg)
-        btn_save.setIcon(ModernIconFactory.icon_save())
+        btn_save.setIcon(AuraIconFactory.icon_save())
         btn_save.clicked.connect(lambda: (
             GeminiApiClient.set_api_key(txt_k.text()),
             self._update_mode_badge(),

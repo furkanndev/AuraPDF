@@ -1,4 +1,4 @@
-from typing import List, Dict, Optional, Any
+from typing import List, Optional
 import copy
 import os
 import sys
@@ -23,14 +23,14 @@ from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel, QFrame,
                              QLineEdit, QProgressBar, QMessageBox, QFileDialog, 
                              QComboBox, QCheckBox, QGroupBox, QRadioButton, QSpinBox, 
                              QAbstractSpinBox, QAbstractItemView,
-                             QTabWidget, QWidget, QSlider, QColorDialog, QButtonGroup, QApplication,
-                             QScrollArea, QGridLayout, QFormLayout)
-from PyQt6.QtGui import (QDragEnterEvent, QDropEvent, QImage, QPixmap, QIcon, QColor, QPainter, QPen, QBrush, QFont, QFontMetrics, QShortcut, QKeySequence, QTransform)
+                             QTabWidget, QWidget, QSlider, QColorDialog, QApplication,
+                             QScrollArea, QGridLayout)
+from PyQt6.QtGui import (QImage, QPixmap, QIcon, QColor, QPainter, QPen, QBrush, QFont, QFontMetrics, QShortcut, QKeySequence, QTransform)
 from PyQt6.QtCore import (Qt, QThread, pyqtSignal, QSize, QByteArray, QBuffer, QIODevice, QRectF, QPointF, QTimer)
 from src.core.i18n import LanguageManager
-from src.ui.dialog_theme import apply_modern_dialog_style, ModernInfoCard, get_theme_palette
-from src.ui.modern_stepper import ModernSpinBox, ModernDoubleSpinBox
-from src.ui.icons import ModernIconFactory
+from src.ui.dialog_theme import apply_aura_dialog_style, AuraInfoCard, get_theme_palette
+from src.ui.aura_stepper import AuraSpinBox
+from src.ui.icons import AuraIconFactory
 
 
 def get_spinbox_stylesheet(parent=None) -> str:
@@ -150,16 +150,16 @@ class EbookConversionThread(QThread):
             if calibre_bin:
                 proc = subprocess.run([calibre_bin, self.input_pdf, self.output_path], capture_output=True, text=True)
                 if proc.returncode == 0:
-                    self.finished_signal.emit(True, f"Başarıyla dönüştürüldü:\n{self.output_path}")
+                    self.finished_signal.emit(True, LanguageManager.tr("ui_basariyla_donusturuldu", output_path=self.output_path))
                 else:
-                    self.finished_signal.emit(False, f"Dönüştürme hatası:\n{proc.stderr}")
+                    self.finished_signal.emit(False, LanguageManager.tr("ui_donusturme_hatasi", stderr=proc.stderr))
             elif self.format_type == 'epub':
                 self.convert_builtin_epub()
-                self.finished_signal.emit(True, f"Başarıyla dönüştürüldü (Yerleşik Motor):\n{self.output_path}")
+                self.finished_signal.emit(True, LanguageManager.tr("ui_basariyla_donusturuldu_yerlesik_motor", output_path=self.output_path))
             else:
-                self.finished_signal.emit(False, "MOBI dönüştürmesi için sistemde Calibre bulunamadı.")
+                self.finished_signal.emit(False, LanguageManager.tr("ebook_engine_mobi_err"))
         except Exception as e:
-            self.finished_signal.emit(False, f"Dönüştürme sırasında hata oluştu:\n{e}")
+            self.finished_signal.emit(False, LanguageManager.tr("ui_donusturme_sirasinda_hata_olustu", e=e))
 
     def convert_builtin_epub(self):
         doc = fitz.open(self.input_pdf)
@@ -238,14 +238,14 @@ class PDFMergeListWidget(QListWidget):
 
 
 class PDFMergeDialog(QDialog):
-    def __init__(self, main_window):
+    def __init__(self, main_window, initial_files=None):
         super().__init__(main_window)
         self.main_window = main_window
         self.setWindowTitle(LanguageManager.tr("merge_title"))
         self.resize(640, 500)
         self.setMinimumSize(520, 380)
         self.setSizeGripEnabled(True)
-        apply_modern_dialog_style(self)
+        apply_aura_dialog_style(self)
 
         layout = QVBoxLayout(self)
         layout.addWidget(QLabel(LanguageManager.tr("merge_label")))
@@ -296,6 +296,11 @@ class PDFMergeDialog(QDialog):
 
         if (tab_doc := self.main_window.get_current_tab_doc()) and tab_doc.file_path:
             self.add_file(tab_doc.file_path)
+
+    def add_files(self, paths):
+        for p in paths or []:
+            if p and os.path.isfile(p):
+                self.add_file(p)
 
     def add_file(self, path):
         for i in range(self.list_widget.count()):
@@ -373,7 +378,7 @@ class PDFSplitDialog(QDialog):
         self.resize(600, 460)
         self.setMinimumSize(480, 360)
         self.setSizeGripEnabled(True)
-        apply_modern_dialog_style(self)
+        apply_aura_dialog_style(self)
 
         layout = QVBoxLayout(self)
 
@@ -405,7 +410,7 @@ class PDFSplitDialog(QDialog):
 
         h_n = QHBoxLayout()
         self.rb_n = QRadioButton(LanguageManager.tr("split_opt_n"))
-        self.spin_n = ModernSpinBox(min_val=1, max_val=9999, default_val=1, parent=self)
+        self.spin_n = AuraSpinBox(min_val=1, max_val=9999, default_val=1, parent=self)
         self.spin_n.setFixedWidth(115)
         self.spin_n.setEnabled(False)
         self.rb_n.toggled.connect(self.spin_n.setEnabled)
@@ -541,7 +546,7 @@ class PDFToEbookDialog(QDialog):
         self.resize(560, 340)
         self.setMinimumSize(460, 280)
         self.setSizeGripEnabled(True)
-        apply_modern_dialog_style(self)
+        apply_aura_dialog_style(self)
 
         layout = QVBoxLayout(self)
 
@@ -566,7 +571,7 @@ class PDFToEbookDialog(QDialog):
         calibre_path = get_ebook_convert_path()
         if calibre_path:
             engine_text = LanguageManager.tr("ebook_engine_calibre")
-            engine_color = "#4caf50"
+            engine_color = None
         elif self.target_format == 'epub':
             engine_text = LanguageManager.tr("ebook_engine_pure")
             engine_color = "#ff9800"
@@ -575,7 +580,9 @@ class PDFToEbookDialog(QDialog):
             engine_color = "#f44336"
 
         lbl_engine = QLabel(engine_text)
-        lbl_engine.setStyleSheet(f"color: {engine_color}; font-weight: bold;")
+        lbl_engine.setObjectName("DialogCaption")
+        if engine_color:
+            lbl_engine.setStyleSheet(f"color: {engine_color};")
         layout.addWidget(lbl_engine)
 
         self.progress_bar = QProgressBar()
@@ -888,7 +895,7 @@ class PDFToWordDialog(QDialog):
         self.resize(600, 400)
         self.setMinimumSize(480, 320)
         self.setSizeGripEnabled(True)
-        apply_modern_dialog_style(self)
+        apply_aura_dialog_style(self)
 
         layout = QVBoxLayout(self)
         layout.setSpacing(10)
@@ -920,7 +927,7 @@ class PDFToWordDialog(QDialog):
         h_range = QHBoxLayout()
         h_range.addWidget(self.rb_range)
         self.txt_range = QLineEdit()
-        self.txt_range.setPlaceholderText("Örn: 1-5")
+        self.txt_range.setPlaceholderText(LanguageManager.tr("ui_orn_1_5"))
         self.txt_range.setEnabled(False)
         self.rb_range.toggled.connect(self.txt_range.setEnabled)
         h_range.addWidget(self.txt_range)
@@ -932,13 +939,15 @@ class PDFToWordDialog(QDialog):
         try:
             import pdf2docx
             engine_text = LanguageManager.tr("word_engine_badge")
-            engine_color = "#4caf50"
+            engine_color = None
         except ImportError:
             engine_text = LanguageManager.tr("word_engine_pure")
             engine_color = "#ff9800"
 
         lbl_engine = QLabel(engine_text)
-        lbl_engine.setStyleSheet(f"color: {engine_color}; font-weight: bold;")
+        lbl_engine.setObjectName("DialogCaption")
+        if engine_color:
+            lbl_engine.setStyleSheet(f"color: {engine_color};")
         layout.addWidget(lbl_engine)
 
         self.progress_bar = QProgressBar()
@@ -1060,21 +1069,32 @@ class PDFToWordDialog(QDialog):
 
 # --- SAYFA ORGANİZE DİYALOĞU (SIRALAMA, SİLME & NUMARALANDIRMA) ---
 def parse_page_range(text: str, total_pages: int) -> List[int]:
-    """Kullanıcının girdiği '1-5, 8, 11' gibi sayfa metnini 0-indeksli liste olarak döner."""
+    """Kullanıcının girdiği '1-5, 8, 11' gibi sayfa metnini 0-indeksli liste olarak döner.
+
+    Ayrıca kabul edilir: ters aralık ('5-1'), açık uçlu aralık ('3-' = 3'ten sona,
+    '-3' = baştan 3'e), en dash/em dash ('1–5') ve noktalı virgül ayırıcı.
+    """
     pages = set()
+    text = (text or "").replace("\u2013", "-").replace("\u2014", "-").replace(";", ",")
     for part in text.split(","):
         part = part.strip()
         if not part:
             continue
         if "-" in part:
-            tokens = part.split("-")
+            tokens = [t.strip() for t in part.split("-")]
+            if len(tokens) != 2:
+                continue
             try:
-                start = max(1, int(tokens[0].strip()))
-                end = min(total_pages, int(tokens[1].strip()))
-                for p in range(start, end + 1):
-                    pages.add(p - 1)
+                start = int(tokens[0]) if tokens[0] else 1
+                end = int(tokens[1]) if tokens[1] else total_pages
             except ValueError:
                 continue
+            if start > end:
+                start, end = end, start
+            start = max(1, start)
+            end = min(total_pages, end)
+            for p in range(start, end + 1):
+                pages.add(p - 1)
         else:
             try:
                 p = int(part)
@@ -1082,7 +1102,7 @@ def parse_page_range(text: str, total_pages: int) -> List[int]:
                     pages.add(p - 1)
             except ValueError:
                 continue
-    return sorted(list(pages))
+    return sorted(pages)
 
 
 def to_roman(n: int) -> str:
@@ -1298,7 +1318,6 @@ def apply_numbering_to_doc(doc, format_func, get_font_func, font_size: float, op
 
         badge_rect, text_rect, align = get_badge_layout(
             r.width, r.height, tw, font_size, position, mx, my, shape_style, page_rect=r,
-            custom_norm_pos=custom_norm_pos
         )
 
         badge_rect_page = (badge_rect * derot).normalize()
@@ -1504,7 +1523,7 @@ class PDFOrganizePagesDialog(QDialog):
         self.preview_current_page = 0
         self.preview_total_pages = 1
 
-        apply_modern_dialog_style(self)
+        apply_aura_dialog_style(self)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(14, 14, 14, 14)
@@ -1581,7 +1600,7 @@ class PDFOrganizePagesDialog(QDialog):
         v_side.addWidget(btn_delete)
         v_side.addSpacing(6)
         btn_add_blank = QPushButton(LanguageManager.tr("insert_blank_page"))
-        btn_add_blank.setIcon(ModernIconFactory.icon_add_page())
+        btn_add_blank.setIcon(AuraIconFactory.icon_add_page())
         btn_add_blank.clicked.connect(self.add_blank_page)
         v_side.addWidget(btn_add_blank)
         v_side.addStretch()
@@ -1736,13 +1755,13 @@ class PDFOrganizePagesDialog(QDialog):
 
         h_pos_row2 = QHBoxLayout()
         h_pos_row2.addWidget(QLabel(LanguageManager.tr("page_number_margin_x")))
-        self.spn_margin_x = ModernSpinBox(min_val=5, max_val=200, default_val=36, suffix=" pt", parent=self)
+        self.spn_margin_x = AuraSpinBox(min_val=5, max_val=200, default_val=36, suffix=" pt", parent=self)
         self.spn_margin_x.setFixedWidth(115)
         h_pos_row2.addWidget(self.spn_margin_x)
 
         h_pos_row2.addSpacing(8)
         h_pos_row2.addWidget(QLabel(LanguageManager.tr("page_number_margin_y")))
-        self.spn_margin_y = ModernSpinBox(min_val=5, max_val=200, default_val=36, suffix=" pt", parent=self)
+        self.spn_margin_y = AuraSpinBox(min_val=5, max_val=200, default_val=36, suffix=" pt", parent=self)
         self.spn_margin_y.setFixedWidth(115)
         h_pos_row2.addWidget(self.spn_margin_y)
         h_pos_row2.addStretch()
@@ -1778,7 +1797,7 @@ class PDFOrganizePagesDialog(QDialog):
         h_std.setContentsMargins(0, 4, 0, 0)
         h_std.setSpacing(10)
         h_std.addWidget(QLabel(LanguageManager.tr("page_number_start_from")))
-        self.spn_start_num = ModernSpinBox(min_val=1, max_val=9999, default_val=1, parent=self)
+        self.spn_start_num = AuraSpinBox(min_val=1, max_val=9999, default_val=1, parent=self)
         self.spn_start_num.setFixedWidth(90)
         h_std.addWidget(self.spn_start_num)
 
@@ -1810,7 +1829,7 @@ class PDFOrganizePagesDialog(QDialog):
         h_th_row1 = QHBoxLayout()
         h_th_row1.setSpacing(8)
         h_th_row1.addWidget(QLabel(LanguageManager.tr("page_number_thesis_front_range")))
-        self.spn_thesis_front_end = ModernSpinBox(min_val=1, max_val=9999, default_val=3, parent=self)
+        self.spn_thesis_front_end = AuraSpinBox(min_val=1, max_val=9999, default_val=3, parent=self)
         self.spn_thesis_front_end.setFixedWidth(78)
         h_th_row1.addWidget(self.spn_thesis_front_end)
 
@@ -1825,7 +1844,7 @@ class PDFOrganizePagesDialog(QDialog):
 
         h_th_row1.addSpacing(6)
         h_th_row1.addWidget(QLabel(LanguageManager.tr("page_number_thesis_front_start")))
-        self.spn_thesis_front_start = ModernSpinBox(min_val=1, max_val=100, default_val=1, parent=self)
+        self.spn_thesis_front_start = AuraSpinBox(min_val=1, max_val=100, default_val=1, parent=self)
         self.spn_thesis_front_start.setFixedWidth(72)
         h_th_row1.addWidget(self.spn_thesis_front_start)
         h_th_row1.addStretch()
@@ -1847,7 +1866,7 @@ class PDFOrganizePagesDialog(QDialog):
         h_th_row2.addWidget(self.cmb_thesis_body_type)
 
         h_th_row2.addWidget(QLabel(LanguageManager.tr("page_number_thesis_body_start")))
-        self.spn_thesis_body_start_num = ModernSpinBox(min_val=1, max_val=9999, default_val=1, parent=self)
+        self.spn_thesis_body_start_num = AuraSpinBox(min_val=1, max_val=9999, default_val=1, parent=self)
         self.spn_thesis_body_start_num.setFixedWidth(78)
         h_th_row2.addWidget(self.spn_thesis_body_start_num)
         h_th_row2.addStretch()
@@ -1875,7 +1894,7 @@ class PDFOrganizePagesDialog(QDialog):
 
         h_font_row1_1 = QHBoxLayout()
         h_font_row1_1.addWidget(QLabel(LanguageManager.tr("page_number_font_size")))
-        self.spn_font_size = ModernSpinBox(min_val=6, max_val=72, default_val=10, suffix=" pt", parent=self)
+        self.spn_font_size = AuraSpinBox(min_val=6, max_val=72, default_val=10, suffix=" pt", parent=self)
         self.spn_font_size.setFixedWidth(115)
         h_font_row1_1.addWidget(self.spn_font_size)
 
@@ -2001,7 +2020,7 @@ class PDFOrganizePagesDialog(QDialog):
         h_nav.setSpacing(6)
         self.btn_prev_page = QPushButton(LanguageManager.tr("preview_prev"))
         self.btn_prev_page.setProperty("class", "NavBtn")
-        self.btn_prev_page.setIcon(ModernIconFactory.icon_chevron_left())
+        self.btn_prev_page.setIcon(AuraIconFactory.icon_chevron_left())
         self.btn_prev_page.setMinimumWidth(84)
         self.btn_prev_page.clicked.connect(self._preview_prev_page)
 
@@ -2014,7 +2033,7 @@ class PDFOrganizePagesDialog(QDialog):
         self.spn_preview_page.setFixedWidth(56)
         self.spn_preview_page.setStyleSheet("""
             QSpinBox#PreviewPageSpin {
-                background-color: #1a1a1e;
+                background-color: rgba(0, 0, 0, 0.25);
                 color: #f1f5f9;
                 border: 1px solid rgba(255, 255, 255, 0.12);
                 border-radius: 4px;
@@ -2034,7 +2053,7 @@ class PDFOrganizePagesDialog(QDialog):
 
         self.btn_next_page = QPushButton(LanguageManager.tr("preview_next"))
         self.btn_next_page.setProperty("class", "NavBtn")
-        self.btn_next_page.setIcon(ModernIconFactory.icon_chevron_right())
+        self.btn_next_page.setIcon(AuraIconFactory.icon_chevron_right())
         self.btn_next_page.setMinimumWidth(84)
         self.btn_next_page.clicked.connect(self._preview_next_page)
 
@@ -2199,7 +2218,7 @@ class PDFOrganizePagesDialog(QDialog):
     def load_from_tab_doc(self, tab_doc):
         self.loaded_file_path = tab_doc.file_path
         self.is_active_tab_doc = True
-        self.txt_file.setText(tab_doc.file_path or "Aktif Belge")
+        self.txt_file.setText(tab_doc.file_path or LanguageManager.tr("active_document_label"))
         self.populate_pages(tab_doc.doc)
         self.btn_apply_reorder.setEnabled(True)
         self.btn_save_as_reorder.setEnabled(True)
@@ -2380,22 +2399,17 @@ class PDFOrganizePagesDialog(QDialog):
         from PyQt6.QtWidgets import QMenu
         from PyQt6.QtGui import QCursor
         menu = QMenu(self)
-        menu.setStyleSheet("""
-            QMenu { background-color: #242426; color: #f1f5f9; border: 1px solid rgba(255, 255, 255, 0.12); border-radius: 6px; padding: 4px; }
-            QMenu::item { padding: 8px 24px; border-radius: 4px; font-size: 13px; }
-            QMenu::item:selected { background-color: #2563eb; color: #ffffff; }
-        """)
 
         styles = [
             (LanguageManager.tr("new_page_choose_style"), "dialog"),
-            ("Boş Sayfa", "blank"),
-            ("Kareli Sayfa (Grid)", "grid"),
-            ("Çizgili Sayfa", "lined"),
-            ("Noktalı Sayfa", "dotted"),
-            ("Cornell Not Sayfası", "cornell"),
-            ("Müzik Portesi", "music"),
-            ("Karanlık Mod", "dark"),
-            ("Kapak Sayfası", "cover")
+            (LanguageManager.tr("page_style_blank"), "blank"),
+            (LanguageManager.tr("page_style_grid"), "grid"),
+            (LanguageManager.tr("page_style_lined"), "lined"),
+            (LanguageManager.tr("page_style_dotted"), "dotted"),
+            (LanguageManager.tr("page_style_cornell"), "cornell"),
+            (LanguageManager.tr("page_style_music"), "music"),
+            (LanguageManager.tr("page_style_dark"), "dark"),
+            (LanguageManager.tr("page_style_cover"), "cover")
         ]
 
         for name, style_code in styles:
@@ -3333,31 +3347,6 @@ def extract_pdf_hint(file_path: str) -> Optional[str]:
     return None
 
 
-def parse_page_range(text: str, total_pages: int) -> List[int]:
-    """Kullanıcının girdiği '1-5, 8, 11' gibi sayfa metnini 0-indeksli liste olarak döner."""
-    pages = set()
-    for part in text.split(","):
-        part = part.strip()
-        if not part:
-            continue
-        if "-" in part:
-            tokens = part.split("-")
-            try:
-                start = max(1, int(tokens[0].strip()))
-                end = min(total_pages, int(tokens[1].strip()))
-                for p in range(start, end + 1):
-                    pages.add(p - 1)
-            except ValueError:
-                continue
-        else:
-            try:
-                p = int(part)
-                if 1 <= p <= total_pages:
-                    pages.add(p - 1)
-            except ValueError:
-                continue
-    return sorted(list(pages))
-
 
 # --- POWERPOINT (.PPTX) VE EXCEL (.XLSX) DÖNÜŞTÜRÜCÜ DİYALOGLARI ---
 
@@ -3394,7 +3383,7 @@ class PPTXConversionThread(QThread):
             from pptx import Presentation
             from pptx.util import Pt, Inches
         except ImportError:
-            self.finished_signal.emit(False, "python-pptx kütüphanesi sistemde yüklü değil.")
+            self.finished_signal.emit(False, LanguageManager.tr("ui_python_pptx_kutuphanesi_sistemde_yuklu_degil"))
             return
         try:
             doc = fitz.open(self.input_pdf)
@@ -3404,7 +3393,7 @@ class PPTXConversionThread(QThread):
             total = len(self.pages)
             if not self.pages:
                 doc.close()
-                self.finished_signal.emit(False, "Dönüştürülecek sayfa bulunamadı.")
+                self.finished_signal.emit(False, LanguageManager.tr("ui_donusturulecek_sayfa_bulunamadi"))
                 return
 
             first_page = doc[self.pages[0]]
@@ -3414,7 +3403,7 @@ class PPTXConversionThread(QThread):
             for idx, pno in enumerate(self.pages):
                 if self._cancelled:
                     doc.close()
-                    self.finished_signal.emit(False, "İşlem kullanıcı tarafından iptal edildi.")
+                    self.finished_signal.emit(False, LanguageManager.tr("ui_islem_kullanici_tarafindan_iptal_edildi"))
                     return
 
                 page = doc[pno]
@@ -3472,13 +3461,13 @@ class PPTXConversionThread(QThread):
                         except Exception:
                             pass
 
-                self.progress_signal.emit(idx + 1, total, f"Sayfa {pno + 1}/{len(doc)} slayta dönüştürülüyor...")
+                self.progress_signal.emit(idx + 1, total, LanguageManager.tr("ui_sayfa_slayta_donusturuluyor", value=pno + 1, len_doc=len(doc)))
 
             prs.save(self.output_path)
             doc.close()
-            self.finished_signal.emit(True, f"PowerPoint sunumu başarıyla oluşturuldu:\n{self.output_path}")
+            self.finished_signal.emit(True, LanguageManager.tr("ui_powerpoint_sunumu_basariyla_olusturuldu", output_path=self.output_path))
         except Exception as e:
-            self.finished_signal.emit(False, f"PowerPoint dönüştürme hatası:\n{e}")
+            self.finished_signal.emit(False, LanguageManager.tr("ui_powerpoint_donusturme_hatasi", e=e))
         finally:
             if self.temp_file_to_cleanup and os.path.isfile(self.temp_file_to_cleanup):
                 try:
@@ -3497,7 +3486,7 @@ class PDFToPowerPointDialog(QDialog):
         self.resize(600, 420)
         self.setMinimumSize(480, 320)
         self.setSizeGripEnabled(True)
-        apply_modern_dialog_style(self)
+        apply_aura_dialog_style(self)
 
         layout = QVBoxLayout(self)
         layout.setSpacing(10)
@@ -3537,7 +3526,7 @@ class PDFToPowerPointDialog(QDialog):
         h_range = QHBoxLayout()
         h_range.addWidget(self.rb_range)
         self.txt_range = QLineEdit()
-        self.txt_range.setPlaceholderText("Örn: 1-5, 8")
+        self.txt_range.setPlaceholderText(LanguageManager.tr("ui_orn_1_5_8"))
         self.txt_range.setEnabled(False)
         self.rb_range.toggled.connect(self.txt_range.setEnabled)
         h_range.addWidget(self.txt_range)
@@ -3546,7 +3535,7 @@ class PDFToPowerPointDialog(QDialog):
         layout.addWidget(grp_pages)
 
         lbl_engine = QLabel(LanguageManager.tr("pptx_engine_badge"))
-        lbl_engine.setStyleSheet(" font-weight: bold;")
+        lbl_engine.setObjectName("DialogCaption")
         layout.addWidget(lbl_engine)
 
         self.progress_bar = QProgressBar()
@@ -3599,12 +3588,12 @@ class PDFToPowerPointDialog(QDialog):
             total = len(doc)
             doc.close()
         except Exception as e:
-            QMessageBox.critical(self, LanguageManager.tr("error"), f"PDF açılamadı:\n{e}")
+            QMessageBox.critical(self, LanguageManager.tr("error"), LanguageManager.tr("ui_pdf_acilamadi", e=e))
             return
 
         pages = list(range(total)) if self.rb_all.isChecked() else parse_page_range(self.txt_range.text().strip(), total)
         if not pages:
-            QMessageBox.warning(self, LanguageManager.tr("warning"), "Lütfen geçerli bir sayfa aralığı belirtin.")
+            QMessageBox.warning(self, LanguageManager.tr("warning"), LanguageManager.tr("ui_lutfen_gecerli_bir_sayfa_araligi_belirtin"))
             return
 
         mode = "editable" if self.rb_mode_editable.isChecked() else "highres"
@@ -3681,7 +3670,7 @@ class ExcelConversionThread(QThread):
             import openpyxl
             from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
         except ImportError:
-            self.finished_signal.emit(False, "openpyxl kütüphanesi sistemde yüklü değil.")
+            self.finished_signal.emit(False, LanguageManager.tr("ui_openpyxl_kutuphanesi_sistemde_yuklu_degil"))
             return
         try:
             doc = fitz.open(self.input_pdf)
@@ -3699,7 +3688,7 @@ class ExcelConversionThread(QThread):
             for idx, pno in enumerate(self.pages):
                 if self._cancelled:
                     doc.close()
-                    self.finished_signal.emit(False, "İşlem kullanıcı tarafından iptal edildi.")
+                    self.finished_signal.emit(False, LanguageManager.tr("ui_islem_kullanici_tarafindan_iptal_edildi"))
                     return
 
                 page = doc[pno]
@@ -3766,13 +3755,13 @@ class ExcelConversionThread(QThread):
                                     ws.cell(row=current_row, column=1, value=l.strip())
                                 current_row += 1
 
-                self.progress_signal.emit(idx + 1, total, f"Sayfa {pno + 1}/{len(doc)} Excel'e aktarılıyor...")
+                self.progress_signal.emit(idx + 1, total, LanguageManager.tr("ui_sayfa_excel_e_aktariliyor", value=pno + 1, len_doc=len(doc)))
 
             wb.save(self.output_path)
             doc.close()
-            self.finished_signal.emit(True, f"Excel çalışma kitabı başarıyla oluşturuldu:\n{self.output_path}")
+            self.finished_signal.emit(True, LanguageManager.tr("ui_excel_calisma_kitabi_basariyla_olusturuldu", output_path=self.output_path))
         except Exception as e:
-            self.finished_signal.emit(False, f"Excel dönüştürme hatası:\n{e}")
+            self.finished_signal.emit(False, LanguageManager.tr("ui_excel_donusturme_hatasi", e=e))
         finally:
             if self.temp_file_to_cleanup and os.path.isfile(self.temp_file_to_cleanup):
                 try:
@@ -3791,7 +3780,7 @@ class PDFToExcelDialog(QDialog):
         self.resize(600, 430)
         self.setMinimumSize(480, 340)
         self.setSizeGripEnabled(True)
-        apply_modern_dialog_style(self)
+        apply_aura_dialog_style(self)
 
         layout = QVBoxLayout(self)
         layout.setSpacing(10)
@@ -3834,7 +3823,7 @@ class PDFToExcelDialog(QDialog):
         h_range = QHBoxLayout()
         h_range.addWidget(self.rb_range)
         self.txt_range = QLineEdit()
-        self.txt_range.setPlaceholderText("Örn: 1-5, 8")
+        self.txt_range.setPlaceholderText(LanguageManager.tr("ui_orn_1_5_8"))
         self.txt_range.setEnabled(False)
         self.rb_range.toggled.connect(self.txt_range.setEnabled)
         h_range.addWidget(self.txt_range)
@@ -3843,7 +3832,7 @@ class PDFToExcelDialog(QDialog):
         layout.addWidget(grp_pages)
 
         lbl_engine = QLabel(LanguageManager.tr("excel_engine_badge"))
-        lbl_engine.setStyleSheet(" font-weight: bold;")
+        lbl_engine.setObjectName("DialogCaption")
         layout.addWidget(lbl_engine)
 
         self.progress_bar = QProgressBar()
@@ -3896,12 +3885,12 @@ class PDFToExcelDialog(QDialog):
             total = len(doc)
             doc.close()
         except Exception as e:
-            QMessageBox.critical(self, LanguageManager.tr("error"), f"PDF açılamadı:\n{e}")
+            QMessageBox.critical(self, LanguageManager.tr("error"), LanguageManager.tr("ui_pdf_acilamadi", e=e))
             return
 
         pages = list(range(total)) if self.rb_all.isChecked() else parse_page_range(self.txt_range.text().strip(), total)
         if not pages:
-            QMessageBox.warning(self, LanguageManager.tr("warning"), "Lütfen geçerli bir sayfa aralığı belirtin.")
+            QMessageBox.warning(self, LanguageManager.tr("warning"), LanguageManager.tr("ui_lutfen_gecerli_bir_sayfa_araligi_belirtin"))
             return
 
         sheet_mode = "per_page" if self.rb_sheet_per_page.isChecked() else "single"
@@ -3966,7 +3955,7 @@ class PDFEncryptDialog(QDialog):
         self.resize(680, 680)
         self.setMinimumSize(540, 500)
         self.setSizeGripEnabled(True)
-        apply_modern_dialog_style(self)
+        apply_aura_dialog_style(self)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(16, 16, 16, 16)
@@ -3983,24 +3972,7 @@ class PDFEncryptDialog(QDialog):
         protect_scroll = QScrollArea()
         protect_scroll.setWidgetResizable(True)
         protect_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        protect_scroll.setStyleSheet("""
-            QScrollArea { border: none; background: transparent; }
-            QScrollBar:vertical {
-                border: none;
-                background: #1a1a1a;
-                width: 8px;
-                margin: 0px;
-                border-radius: 4px;
-            }
-            QScrollBar::handle:vertical {
-                background: #444444;
-                min-height: 24px;
-                border-radius: 4px;
-            }
-            QScrollBar::handle:vertical:hover {
-                background: #555555;
-            }
-        """)
+        protect_scroll.setStyleSheet("QScrollArea { border: none; background: transparent; }")
 
         protect_content = QWidget()
         v_protect = QVBoxLayout(protect_content)
@@ -4010,7 +3982,7 @@ class PDFEncryptDialog(QDialog):
         v_protect.addWidget(QLabel(LanguageManager.tr("encrypt_source_file")))
         h_src1 = QHBoxLayout()
         self.txt_protect_src = QLineEdit()
-        self.txt_protect_src.setPlaceholderText("PDF Dosyası Seçin...")
+        self.txt_protect_src.setPlaceholderText(LanguageManager.tr("ui_pdf_dosyasi_secin"))
         btn_src1 = QPushButton(LanguageManager.tr("split_btn_browse"))
         btn_src1.clicked.connect(lambda: self.browse_source(self.txt_protect_src, self.txt_protect_dst, "_sifreli.pdf"))
         h_src1.addWidget(self.txt_protect_src)
@@ -4115,7 +4087,7 @@ class PDFEncryptDialog(QDialog):
         v_unlock.addWidget(QLabel(LanguageManager.tr("encrypt_source_file")))
         h_src2 = QHBoxLayout()
         self.txt_unlock_src = QLineEdit()
-        self.txt_unlock_src.setPlaceholderText("Şifreli PDF Dosyası Seçin...")
+        self.txt_unlock_src.setPlaceholderText(LanguageManager.tr("ui_sifreli_pdf_dosyasi_secin"))
         btn_src2 = QPushButton(LanguageManager.tr("split_btn_browse"))
         btn_src2.clicked.connect(lambda: self.browse_source(self.txt_unlock_src, self.txt_unlock_dst, "_sifresiz.pdf"))
         h_src2.addWidget(self.txt_unlock_src)
@@ -4427,7 +4399,7 @@ class PasswordRecoveryWorker(QThread):
             doc = fitz.open(self.src_path)
             if not doc.is_encrypted:
                 doc.close()
-                self.finished_signal.emit(False, "Belge zaten şifreli değil.")
+                self.finished_signal.emit(False, LanguageManager.tr("ui_belge_zaten_sifreli_degil"))
                 return
 
             candidates = []
@@ -4443,7 +4415,7 @@ class PasswordRecoveryWorker(QThread):
             total = len(candidates)
             if total == 0:
                 doc.close()
-                self.finished_signal.emit(False, "Denebilecek parola şablonu oluşturulamadı.")
+                self.finished_signal.emit(False, LanguageManager.tr("ui_denebilecek_parola_sablonu_olusturulamadi"))
                 return
 
             t0 = time.time()
@@ -4518,7 +4490,7 @@ class PDFPasswordRecoveryDialog(QDialog):
         self.resize(660, 580)
         self.setMinimumSize(540, 460)
         self.setSizeGripEnabled(True)
-        apply_modern_dialog_style(self)
+        apply_aura_dialog_style(self)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(16, 16, 16, 16)
@@ -4596,7 +4568,7 @@ class PDFPasswordRecoveryDialog(QDialog):
         v_key.addStretch()
 
         btn_unlock_key = QPushButton(LanguageManager.tr("recovery_btn_unlock_key"))
-        btn_unlock_key.setObjectName("SuccessBtn")
+        btn_unlock_key.setObjectName("PrimaryBtn")
         btn_unlock_key.clicked.connect(self.execute_key_unlock)
         v_key.addWidget(btn_unlock_key)
 
@@ -4635,7 +4607,7 @@ class PDFPasswordRecoveryDialog(QDialog):
         v_mask.setSpacing(4)
         v_mask.addWidget(QLabel(LanguageManager.tr("recovery_mask_label")))
         self.txt_mask = QLineEdit("202?")
-        self.txt_mask.setPlaceholderText("Örn: 202? veya pass****")
+        self.txt_mask.setPlaceholderText(LanguageManager.tr("ui_orn_202_veya_pass"))
         v_mask.addWidget(self.txt_mask)
         self.widget_mask.setVisible(False)
         v_brute.addWidget(self.widget_mask)
@@ -4881,7 +4853,7 @@ class PDFPasswordRecoveryDialog(QDialog):
         mask = self.txt_mask.text().strip() if method == "mask" else ""
 
         self.progress_bar.setValue(0)
-        self.lbl_status.setText("Başlatılıyor...")
+        self.lbl_status.setText(LanguageManager.tr("ui_baslatiliyor"))
         self.btn_start_stop.setText(LanguageManager.tr("recovery_btn_stop"))
         self.btn_start_stop.setObjectName("DangerBtn")
         self.btn_start_stop.setStyle(self.btn_start_stop.style())
@@ -5399,7 +5371,6 @@ def apply_watermark_to_doc(doc: fitz.Document, settings: dict):
                 color=(r_norm, g_norm, b_norm),
                 fill_opacity=opacity,
                 morph=(fitz.Point(cx, cy), fitz.Matrix(angle)),
-                overlay=overlay
             )
             after_contents = page.get_contents()
             new_xrefs = [x for x in after_contents if x not in before_contents]
@@ -5501,18 +5472,19 @@ class PDFWatermarkDialog(QDialog):
         self.resize(990, 840)
         self.setMinimumSize(700, 500)
         self.setSizeGripEnabled(True)
-        apply_modern_dialog_style(self)
+        apply_aura_dialog_style(self)
 
         root = QHBoxLayout(self)
         root.setContentsMargins(14, 14, 14, 14)
         root.setSpacing(12)
 
         left_container = QWidget()
+        left_container.setObjectName("TransparentWidget")
         left_v = QVBoxLayout(left_container)
         left_v.setContentsMargins(0, 0, 0, 0)
         left_v.setSpacing(8)
 
-        self.lbl_editing_badge = ModernInfoCard(
+        self.lbl_editing_badge = AuraInfoCard(
             text=LanguageManager.tr("watermark_editing_badge"),
             parent=self
         )
@@ -5612,7 +5584,7 @@ class PDFWatermarkDialog(QDialog):
         h_color_size.addWidget(self.btn_color)
         h_color_size.addSpacing(12)
         h_color_size.addWidget(QLabel(LanguageManager.tr("watermark_font_size")))
-        self.spn_fontsize = ModernSpinBox(min_val=12, max_val=200, default_val=54, suffix=" pt", parent=self)
+        self.spn_fontsize = AuraSpinBox(min_val=12, max_val=200, default_val=54, suffix=" pt", parent=self)
         self.spn_fontsize.setFixedWidth(92)
         self.spn_fontsize.valueChanged.connect(self.update_preview)
         h_color_size.addWidget(self.spn_fontsize)
@@ -5642,7 +5614,7 @@ class PDFWatermarkDialog(QDialog):
         self.cmb_rotation.addItem(LanguageManager.tr("watermark_rot_custom"),  "custom")
         self.cmb_rotation.currentIndexChanged.connect(self._on_rotation_changed)
         h_rot.addWidget(self.cmb_rotation, stretch=1)
-        self.spn_custom_angle = ModernSpinBox(min_val=-180, max_val=180, default_val=45, suffix="\u00b0", parent=self)
+        self.spn_custom_angle = AuraSpinBox(min_val=-180, max_val=180, default_val=45, suffix="\u00b0", parent=self)
         self.spn_custom_angle.setFixedWidth(92)
         self.spn_custom_angle.setVisible(False)
         self.spn_custom_angle.valueChanged.connect(self.update_preview)
@@ -5659,7 +5631,7 @@ class PDFWatermarkDialog(QDialog):
         v_rot.addLayout(h_rot)
         h_op = QHBoxLayout()
         self.lbl_opacity = QLabel(LanguageManager.tr("watermark_opacity_label", val=30))
-        self.lbl_opacity.setFixedWidth(120)
+        self.lbl_opacity.setMinimumWidth(170)
         self.sld_opacity = QSlider(Qt.Orientation.Horizontal)
         self.sld_opacity.setRange(5, 100)
         self.sld_opacity.setValue(30)
@@ -5681,7 +5653,7 @@ class PDFWatermarkDialog(QDialog):
         tab_doc_init = getattr(self.main_window, 'get_current_tab_doc', lambda: None)()
         cur_p_idx = getattr(tab_doc_init, 'current_page_idx', getattr(tab_doc_init, 'current_page', 0)) if tab_doc_init else 0
         cur_p_init = (cur_p_idx + 1) if (tab_doc_init and tab_doc_init.doc and len(tab_doc_init.doc) > 0) else 1
-        self.rad_current_page = QRadioButton(f"{LanguageManager.tr('watermark_pages_current', default='Yalnızca Mevcut Sayfa')} ({cur_p_init})")
+        self.rad_current_page = QRadioButton(f"{LanguageManager.tr('watermark_pages_current', default=LanguageManager.tr("background_pages_current"))} ({cur_p_init})")
         self.rad_first_page = QRadioButton(LanguageManager.tr("watermark_pages_first"))
         self.rad_custom_pages = QRadioButton(LanguageManager.tr("watermark_pages_custom"))
         self.txt_custom_pages = QLineEdit()
@@ -5755,7 +5727,7 @@ class PDFWatermarkDialog(QDialog):
         self.sld_img_scale = QSlider(Qt.Orientation.Horizontal)
         self.sld_img_scale.setRange(5, 300)
         self.sld_img_scale.setValue(50)
-        self.spn_img_scale = ModernSpinBox(min_val=5, max_val=300, default_val=50, suffix=" %", parent=self)
+        self.spn_img_scale = AuraSpinBox(min_val=5, max_val=300, default_val=50, suffix=" %", parent=self)
         self.spn_img_scale.setFixedWidth(92)
         self.sld_img_scale.valueChanged.connect(self._on_slider_scale_changed)
         self.spn_img_scale.valueChanged.connect(self._on_spin_scale_changed)
@@ -5779,13 +5751,13 @@ class PDFWatermarkDialog(QDialog):
         v_is.addLayout(g_sp)
         h_dims = QHBoxLayout()
         h_dims.addWidget(QLabel(LanguageManager.tr("watermark_img_w")))
-        self.spn_img_w = ModernSpinBox(min_val=10, max_val=3000, default_val=298, suffix=" pt", parent=self)
+        self.spn_img_w = AuraSpinBox(min_val=10, max_val=3000, default_val=298, suffix=" pt", parent=self)
         self.spn_img_w.setFixedWidth(105)
         self.spn_img_w.valueChanged.connect(self._on_dim_w_changed)
         h_dims.addWidget(self.spn_img_w)
         h_dims.addSpacing(10)
         h_dims.addWidget(QLabel(LanguageManager.tr("watermark_img_h")))
-        self.spn_img_h = ModernSpinBox(min_val=10, max_val=3000, default_val=200, suffix=" pt", parent=self)
+        self.spn_img_h = AuraSpinBox(min_val=10, max_val=3000, default_val=200, suffix=" pt", parent=self)
         self.spn_img_h.setFixedWidth(105)
         self.spn_img_h.valueChanged.connect(self._on_dim_h_changed)
         h_dims.addWidget(self.spn_img_h)
@@ -5810,7 +5782,7 @@ class PDFWatermarkDialog(QDialog):
         self.sld_img_rotation = QSlider(Qt.Orientation.Horizontal)
         self.sld_img_rotation.setRange(-180, 180)
         self.sld_img_rotation.setValue(0)
-        self.spn_img_rotation = ModernSpinBox(min_val=-180, max_val=180, default_val=0, suffix="\u00b0", parent=self)
+        self.spn_img_rotation = AuraSpinBox(min_val=-180, max_val=180, default_val=0, suffix="\u00b0", parent=self)
         self.spn_img_rotation.setFixedWidth(92)
         self.sld_img_rotation.valueChanged.connect(self._on_slider_img_rot_changed)
         self.spn_img_rotation.valueChanged.connect(self._on_spin_img_rot_changed)
@@ -5944,7 +5916,7 @@ class PDFWatermarkDialog(QDialog):
         h_nav.setSpacing(6)
         self.btn_prev_page = QPushButton(LanguageManager.tr("preview_prev"))
         self.btn_prev_page.setProperty("class", "NavBtn")
-        self.btn_prev_page.setIcon(ModernIconFactory.icon_chevron_left())
+        self.btn_prev_page.setIcon(AuraIconFactory.icon_chevron_left())
         self.btn_prev_page.setMinimumWidth(84)
         self.btn_prev_page.clicked.connect(self._preview_prev_page)
         self.spn_preview_page = QSpinBox()
@@ -5955,7 +5927,7 @@ class PDFWatermarkDialog(QDialog):
         self.spn_preview_page.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.spn_preview_page.setFixedWidth(52)
         self.spn_preview_page.setStyleSheet(
-            "QSpinBox#PreviewPageSpin { background-color: #1a1a1e; color: #f1f5f9; border: 1px solid rgba(255, 255, 255, 0.12); "
+            "QSpinBox#PreviewPageSpin { background-color: rgba(0, 0, 0, 0.25); color: #f1f5f9; border: 1px solid rgba(255, 255, 255, 0.12); "
             "border-radius: 4px; padding: 2px; font-size: 12px; font-weight: bold; } "
             "QSpinBox#PreviewPageSpin:focus { border: 1px solid #38bdf8; }"
         )
@@ -5964,7 +5936,7 @@ class PDFWatermarkDialog(QDialog):
         self.lbl_total_preview_pages.setStyleSheet("font-size:11px;font-weight:500;")
         self.btn_next_page = QPushButton(LanguageManager.tr("preview_next"))
         self.btn_next_page.setProperty("class", "NavBtn")
-        self.btn_next_page.setIcon(ModernIconFactory.icon_chevron_right())
+        self.btn_next_page.setIcon(AuraIconFactory.icon_chevron_right())
         self.btn_next_page.setMinimumWidth(84)
         self.btn_next_page.clicked.connect(self._preview_next_page)
         h_nav.addWidget(self.btn_prev_page)
@@ -6430,7 +6402,7 @@ class PDFWatermarkDialog(QDialog):
             self.txt_dst.setText(path)
 
     def _browse_image(self):
-        path, _ = QFileDialog.getOpenFileName(self, "Görsel Seç", "", "Görseller (*.png *.jpg *.jpeg *.bmp *.webp)")
+        path, _ = QFileDialog.getOpenFileName(self, LanguageManager.tr("ui_gorsel_sec"), "", LanguageManager.tr("ui_gorseller_png_jpg_jpeg_bmp_webp"))
         if path:
             self.txt_img_src.setText(path)
             self._sync_dims_from_scale(self.spn_img_scale.value())
@@ -6441,7 +6413,7 @@ class PDFWatermarkDialog(QDialog):
         self.btn_color.setStyleSheet(f"background-color: {hex_c}; border: 1px solid rgba(255, 255, 255, 0.25); border-radius: 4px; min-width: 36px;")
 
     def _pick_color(self):
-        color = QColorDialog.getColor(self.watermark_color, self, "Filigran Rengi Seç")
+        color = QColorDialog.getColor(self.watermark_color, self, LanguageManager.tr("ui_choose_watermark_color"))
         if color.isValid():
             self.watermark_color = color
             self._update_color_btn()
@@ -7137,13 +7109,14 @@ class PDFBackgroundDialog(QDialog):
         self.resize(1040, 680)
         self.setMinimumSize(850, 560)
         self.setSizeGripEnabled(True)
-        apply_modern_dialog_style(self)
+        apply_aura_dialog_style(self)
 
         main_layout = QHBoxLayout(self)
         main_layout.setContentsMargins(16, 16, 16, 16)
         main_layout.setSpacing(16)
 
         left_widget = QWidget()
+        left_widget.setObjectName("TransparentWidget")
         layout = QVBoxLayout(left_widget)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(10)
@@ -7152,7 +7125,7 @@ class PDFBackgroundDialog(QDialog):
         layout.addWidget(QLabel(LanguageManager.tr("encrypt_source_file")))
         h_src = QHBoxLayout()
         self.txt_src = QLineEdit()
-        self.txt_src.setPlaceholderText("PDF Dosyası Seçin...")
+        self.txt_src.setPlaceholderText(LanguageManager.tr("ui_pdf_dosyasi_secin"))
         btn_src = QPushButton(LanguageManager.tr("split_btn_browse"))
         btn_src.clicked.connect(self._browse_source)
         h_src.addWidget(self.txt_src)
@@ -7216,7 +7189,7 @@ class PDFBackgroundDialog(QDialog):
         v_img.addWidget(QLabel(LanguageManager.tr("watermark_image_file")))
         h_img_src = QHBoxLayout()
         self.txt_img_src = QLineEdit()
-        self.txt_img_src.setPlaceholderText("Görsel Dosyası Seçin (PNG, JPG, BMP)...")
+        self.txt_img_src.setPlaceholderText(LanguageManager.tr("ui_gorsel_dosyasi_secin_png_jpg_bmp"))
         btn_img_src = QPushButton(LanguageManager.tr("split_btn_browse"))
         btn_img_src.clicked.connect(self._browse_image)
         h_img_src.addWidget(self.txt_img_src)
@@ -7256,7 +7229,7 @@ class PDFBackgroundDialog(QDialog):
         tab_doc_bg = getattr(self.main_window, 'get_current_tab_doc', lambda: None)()
         cur_p_idx = getattr(tab_doc_bg, 'current_page_idx', getattr(tab_doc_bg, 'current_page', 0)) if tab_doc_bg else 0
         cur_p_num = (cur_p_idx + 1) if (tab_doc_bg and tab_doc_bg.doc and len(tab_doc_bg.doc) > 0) else 1
-        self.rad_current_page = QRadioButton(f"{LanguageManager.tr('background_pages_current', default='Yalnızca Mevcut Sayfa')} (Sayfa {cur_p_num})")
+        self.rad_current_page = QRadioButton(LanguageManager.tr("ui_sayfa_5", value=LanguageManager.tr('background_pages_current', default=LanguageManager.tr("background_pages_current")), cur_p_num=cur_p_num))
 
         self.rad_skip_first = QRadioButton(LanguageManager.tr("background_pages_skip_first"))
         self.rad_first_page = QRadioButton(LanguageManager.tr("background_pages_first"))
@@ -7285,10 +7258,11 @@ class PDFBackgroundDialog(QDialog):
         layout.addLayout(h_dst)
 
         # Alt Butonlar
-        h_bot = QHBoxLayout()
         self.chk_open_tab = QCheckBox(LanguageManager.tr("encrypt_chk_open"))
         self.chk_open_tab.setChecked(True)
-        h_bot.addWidget(self.chk_open_tab)
+        layout.addWidget(self.chk_open_tab)
+
+        h_bot = QHBoxLayout()
         h_bot.addStretch()
 
         btn_cancel = QPushButton(LanguageManager.tr("print_btn_cancel"))
@@ -7315,12 +7289,12 @@ class PDFBackgroundDialog(QDialog):
         self.btn_remove.clicked.connect(self.remove_background)
         h_bot.addWidget(self.btn_remove)
 
-        self.btn_save_as = QPushButton(LanguageManager.tr("watermark_btn_save_as", default="Farklı Kaydet..."))
+        self.btn_save_as = QPushButton(LanguageManager.tr("watermark_btn_save_as", default=LanguageManager.tr("sidebar_save_attachment")))
         self.btn_save_as.setMinimumHeight(30)
         self.btn_save_as.clicked.connect(lambda: self.execute_background(to_file=True))
         h_bot.addWidget(self.btn_save_as)
 
-        self.btn_apply = QPushButton(LanguageManager.tr("watermark_btn_apply_doc", default="Açık Belgeye Uygula"))
+        self.btn_apply = QPushButton(LanguageManager.tr("watermark_btn_apply_doc", default=LanguageManager.tr("watermark_btn_apply_doc")))
         self.btn_apply.setObjectName("PrimaryBtn")
         self.btn_apply.setMinimumHeight(30)
         self.btn_apply.clicked.connect(lambda: self.execute_background(to_file=False))
@@ -7335,24 +7309,7 @@ class PDFBackgroundDialog(QDialog):
         left_scroll = QScrollArea()
         left_scroll.setWidgetResizable(True)
         left_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        left_scroll.setStyleSheet("""
-            QScrollArea { border: none; background: transparent; }
-            QScrollBar:vertical {
-                border: none;
-                background: #1a1a1a;
-                width: 8px;
-                margin: 0px;
-                border-radius: 4px;
-            }
-            QScrollBar::handle:vertical {
-                background: #444444;
-                min-height: 24px;
-                border-radius: 4px;
-            }
-            QScrollBar::handle:vertical:hover {
-                background: #555555;
-            }
-        """)
+        left_scroll.setStyleSheet("QScrollArea { border: none; background: transparent; }")
         left_scroll.setWidget(left_widget)
         v_left.addWidget(left_scroll, 1)
         v_left.addLayout(h_bot)
@@ -7398,7 +7355,7 @@ class PDFBackgroundDialog(QDialog):
         h_nav.setSpacing(6)
         self.btn_prev_page = QPushButton(LanguageManager.tr("preview_prev"))
         self.btn_prev_page.setProperty("class", "NavBtn")
-        self.btn_prev_page.setIcon(ModernIconFactory.icon_chevron_left())
+        self.btn_prev_page.setIcon(AuraIconFactory.icon_chevron_left())
         self.btn_prev_page.setMinimumWidth(84)
         self.btn_prev_page.clicked.connect(self._preview_prev_page)
 
@@ -7411,7 +7368,7 @@ class PDFBackgroundDialog(QDialog):
         self.spn_preview_page.setFixedWidth(56)
         self.spn_preview_page.setStyleSheet("""
             QSpinBox#PreviewPageSpin {
-                background-color: #1a1a1e;
+                background-color: rgba(0, 0, 0, 0.25);
                 color: #f1f5f9;
                 border: 1px solid rgba(255, 255, 255, 0.12);
                 border-radius: 4px;
@@ -7431,7 +7388,7 @@ class PDFBackgroundDialog(QDialog):
 
         self.btn_next_page = QPushButton(LanguageManager.tr("preview_next"))
         self.btn_next_page.setProperty("class", "NavBtn")
-        self.btn_next_page.setIcon(ModernIconFactory.icon_chevron_right())
+        self.btn_next_page.setIcon(AuraIconFactory.icon_chevron_right())
         self.btn_next_page.setMinimumWidth(84)
         self.btn_next_page.clicked.connect(self._preview_next_page)
 
@@ -7500,7 +7457,7 @@ class PDFBackgroundDialog(QDialog):
         self.lbl_color_preview.setStyleSheet(f"background-color: {hex_c}; border: 2px solid rgba(255, 255, 255, 0.3); border-radius: 4px; min-width: 48px; min-height: 24px;")
 
     def _pick_custom_color(self):
-        color = QColorDialog.getColor(self.current_bg_color, self, "Arka Plan Rengi Seç")
+        color = QColorDialog.getColor(self.current_bg_color, self, LanguageManager.tr("ui_choose_background_color"))
         if color.isValid():
             self.current_bg_color = color
             self._update_color_preview()
@@ -7523,7 +7480,7 @@ class PDFBackgroundDialog(QDialog):
             self.txt_dst.setText(path)
 
     def _browse_image(self):
-        path, _ = QFileDialog.getOpenFileName(self, "Görsel Seç", "", "Görseller (*.png *.jpg *.jpeg *.bmp *.webp)")
+        path, _ = QFileDialog.getOpenFileName(self, LanguageManager.tr("ui_gorsel_sec"), "", LanguageManager.tr("ui_gorseller_png_jpg_jpeg_bmp_webp"))
         if path:
             self.txt_img_src.setText(path)
             self.update_preview()
@@ -7733,7 +7690,7 @@ class PDFBackgroundDialog(QDialog):
 
                 if not pages_to_process:
                     doc.close()
-                    QMessageBox.warning(self, LanguageManager.tr("warning"), "Lütfen geçerli en az bir sayfa belirleyin.")
+                    QMessageBox.warning(self, LanguageManager.tr("warning"), LanguageManager.tr("ui_lutfen_gecerli_en_az_bir_sayfa"))
                     return
 
                 if is_color_tab:
@@ -7814,7 +7771,7 @@ class PDFBackgroundDialog(QDialog):
                     "new_order": list(range(len(tab_doc.doc)))
                 })
 
-                QMessageBox.information(self, LanguageManager.tr("success"), LanguageManager.tr("background_success_apply", default="Arka plan açık belgeye başarıyla uygulandı!"))
+                QMessageBox.information(self, LanguageManager.tr("success"), LanguageManager.tr("background_success_apply", default=LanguageManager.tr("background_success_apply")))
                 self.accept()
                 return
             except Exception as e:
@@ -7861,7 +7818,7 @@ class PDFBackgroundDialog(QDialog):
 
             if not pages_to_process:
                 doc.close()
-                QMessageBox.warning(self, LanguageManager.tr("warning"), "Lütfen geçerli en az bir sayfa belirleyin.")
+                QMessageBox.warning(self, LanguageManager.tr("warning"), LanguageManager.tr("ui_lutfen_gecerli_en_az_bir_sayfa"))
                 return
 
             if is_color_tab:
@@ -7949,7 +7906,7 @@ class PDFBackgroundDialog(QDialog):
 
                 if not pages_to_process:
                     doc.close()
-                    QMessageBox.warning(self, LanguageManager.tr("warning"), "Lütfen geçerli en az bir sayfa belirleyin.")
+                    QMessageBox.warning(self, LanguageManager.tr("warning"), LanguageManager.tr("ui_lutfen_gecerli_en_az_bir_sayfa"))
                     return
 
                 for p_idx in pages_to_process:
@@ -8010,7 +7967,7 @@ class PDFPasswordDialog(QDialog):
         self.resize(520, 360 if not hint else 420)
         self.setMinimumSize(420, 280)
         self.setSizeGripEnabled(True)
-        apply_modern_dialog_style(self)
+        apply_aura_dialog_style(self)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(20, 20, 20, 20)
@@ -8025,7 +7982,7 @@ class PDFPasswordDialog(QDialog):
 
         # Şifre İpucu (varsa)
         if self.hint:
-            card_hint = ModernInfoCard(
+            card_hint = AuraInfoCard(
                 text=LanguageManager.tr("password_hint_display", hint=self.hint),
                 parent=self
             )

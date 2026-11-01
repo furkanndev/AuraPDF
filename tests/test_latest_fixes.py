@@ -9,19 +9,19 @@ from PyQt6.QtGui import QColor, QDropEvent
 # Initialize QApplication
 app = QApplication.instance() or QApplication(sys.argv)
 
-from src.ui.icons import ModernIconFactory
-from src.ui.popups import ModernStampPalettePopup, POPUP_THEME_SPECS
+from src.ui.icons import AuraIconFactory
+from src.ui.popups import AuraStampPalettePopup, POPUP_THEME_SPECS
 from src.ui.dialog_theme import THEME_PALETTES, get_current_theme
-from src.ui.dialogs.settings_dialog import ModernSettingsDialog
+from src.ui.dialogs.settings_dialog import AuraSettingsDialog
 from src.ui.dialogs.stamp_dialog import render_stamp_png_bytes
-from src.ui.modern_views import OrganizePagesListWidget, OrganizePagesWorkspace
+from src.ui.aura_views import OrganizePagesListWidget, OrganizePagesWorkspace
 from src.core.i18n import LanguageManager
 
 
 class TestLatestFixes(unittest.TestCase):
     def test_print_icon_color_is_white(self):
         """Yazdır butonu renginin mor yerine beyaz olduğunu doğrula."""
-        icon = ModernIconFactory.icon_print()
+        icon = AuraIconFactory.icon_print()
         self.assertFalse(icon.isNull())
         img = icon.pixmap(24, 24).toImage()
         found_white = False
@@ -39,7 +39,7 @@ class TestLatestFixes(unittest.TestCase):
 
     def test_theme_cleanup(self):
         """Açık ve koyu siyah temaların tamamen kaldırıldığını, gri temanın varsayılan olduğunu doğrula."""
-        dlg = ModernSettingsDialog()
+        dlg = AuraSettingsDialog()
         # Ensure 'light' and 'dark' are not options in theme choices
         self.assertNotIn("light", dlg.theme_radios)
         self.assertNotIn("dark", dlg.theme_radios)
@@ -54,7 +54,7 @@ class TestLatestFixes(unittest.TestCase):
 
     def test_in_place_custom_stamp_creation(self):
         """Damga oluşturmanın ayrı pencere yerine pop-up içinde sekme olduğunu ve renk eşleşmesini doğrula."""
-        popup = ModernStampPalettePopup()
+        popup = AuraStampPalettePopup()
         self.assertTrue(hasattr(popup, 'btn_tab_preset'))
         self.assertTrue(hasattr(popup, 'btn_tab_custom'))
         self.assertTrue(hasattr(popup, 'stack'))

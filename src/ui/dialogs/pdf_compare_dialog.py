@@ -13,7 +13,7 @@ from PIL import Image
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QFileDialog, QTabWidget, QWidget, QFrame, QSplitter,
-    QScrollArea, QSpinBox, QSlider, QTextEdit, QTableWidget,
+    QScrollArea, QSlider, QTextEdit, QTableWidget,
     QTableWidgetItem, QHeaderView, QMessageBox, QProgressBar
 )
 from PyQt6.QtCore import Qt
@@ -21,9 +21,9 @@ from PyQt6.QtGui import QPixmap, QImage, QColor, QFont
 
 import pymupdf as fitz
 from src.core.i18n import LanguageManager
-from src.ui.dialog_theme import get_dialog_theme_stylesheet, apply_dialog_theme
-from src.ui.icons import ModernIconFactory
-from src.ui.modern_stepper import ModernSpinBox
+from src.ui.dialog_theme import apply_dialog_theme
+from src.ui.icons import AuraIconFactory
+from src.ui.aura_stepper import AuraSpinBox
 
 
 class PDFCompareDialog(QDialog):
@@ -31,7 +31,7 @@ class PDFCompareDialog(QDialog):
         super().__init__(parent or main_window)
         self.main_window = main_window
         self.setWindowTitle(LanguageManager.tr("compare_title"))
-        self.setWindowIcon(ModernIconFactory.icon_compare())
+        self.setWindowIcon(AuraIconFactory.icon_compare())
         self.resize(1100, 720)
         self.setMinimumSize(850, 560)
         self.setSizeGripEnabled(True)
@@ -114,7 +114,7 @@ class PDFCompareDialog(QDialog):
         fb_layout.addWidget(self.lbl_doc1, 1)
 
         btn_browse1 = QPushButton(LanguageManager.tr("split_btn_browse"))
-        btn_browse1.setIcon(ModernIconFactory.icon_folder_open())
+        btn_browse1.setIcon(AuraIconFactory.icon_folder_open())
         btn_browse1.clicked.connect(lambda: self._browse_doc(1))
         fb_layout.addWidget(btn_browse1)
 
@@ -130,7 +130,7 @@ class PDFCompareDialog(QDialog):
         fb_layout.addWidget(self.lbl_doc2, 1)
 
         btn_browse2 = QPushButton(LanguageManager.tr("split_btn_browse"))
-        btn_browse2.setIcon(ModernIconFactory.icon_folder_open())
+        btn_browse2.setIcon(AuraIconFactory.icon_folder_open())
         btn_browse2.clicked.connect(lambda: self._browse_doc(2))
         fb_layout.addWidget(btn_browse2)
 
@@ -139,13 +139,13 @@ class PDFCompareDialog(QDialog):
         # 2. Gezinti ve Kontrol Çubuğu
         nav_bar = QHBoxLayout()
         self.btn_prev = QPushButton(LanguageManager.tr("prev_page"))
-        self.btn_prev.setIcon(ModernIconFactory.icon_move_left())
+        self.btn_prev.setIcon(AuraIconFactory.icon_move_left())
         self.btn_prev.clicked.connect(self._prev_page)
         nav_bar.addWidget(self.btn_prev)
 
         tb_prefix = QLabel(LanguageManager.tr("page_prefix_label"))
         nav_bar.addWidget(tb_prefix)
-        self.spn_page = ModernSpinBox(min_val=1, max_val=1, default_val=1, parent=self)
+        self.spn_page = AuraSpinBox(min_val=1, max_val=1, default_val=1, parent=self)
         self.spn_page.setFixedWidth(78)
         self.spn_page.valueChanged.connect(self._on_page_spin_changed)
         nav_bar.addWidget(self.spn_page)
@@ -154,7 +154,7 @@ class PDFCompareDialog(QDialog):
         nav_bar.addWidget(self.lbl_total_pages)
 
         self.btn_next = QPushButton(LanguageManager.tr("next_page"))
-        self.btn_next.setIcon(ModernIconFactory.icon_move_right())
+        self.btn_next.setIcon(AuraIconFactory.icon_move_right())
         self.btn_next.setLayoutDirection(Qt.LayoutDirection.RightToLeft)
         self.btn_next.clicked.connect(self._next_page)
         nav_bar.addWidget(self.btn_next)
@@ -165,7 +165,7 @@ class PDFCompareDialog(QDialog):
         nav_bar.addWidget(QLabel(LanguageManager.tr("zoom_title")))
         btn_zoom_out = QPushButton()
         btn_zoom_out.setObjectName("ZoomBtn")
-        btn_zoom_out.setIcon(ModernIconFactory.icon_zoom_out())
+        btn_zoom_out.setIcon(AuraIconFactory.icon_zoom_out())
         btn_zoom_out.setToolTip(LanguageManager.tr("zoom_out"))
         btn_zoom_out.setFixedSize(36, 32)
         btn_zoom_out.clicked.connect(lambda: self._change_zoom(-1))
@@ -179,14 +179,14 @@ class PDFCompareDialog(QDialog):
 
         btn_zoom_in = QPushButton()
         btn_zoom_in.setObjectName("ZoomBtn")
-        btn_zoom_in.setIcon(ModernIconFactory.icon_zoom_in())
+        btn_zoom_in.setIcon(AuraIconFactory.icon_zoom_in())
         btn_zoom_in.setToolTip(LanguageManager.tr("zoom_in"))
         btn_zoom_in.setFixedSize(36, 32)
         btn_zoom_in.clicked.connect(lambda: self._change_zoom(1))
         nav_bar.addWidget(btn_zoom_in)
 
         btn_zoom_reset = QPushButton(LanguageManager.tr("compare_fit_btn"))
-        btn_zoom_reset.setIcon(ModernIconFactory.icon_fit_page())
+        btn_zoom_reset.setIcon(AuraIconFactory.icon_fit_page())
         btn_zoom_reset.clicked.connect(self._reset_zoom)
         nav_bar.addWidget(btn_zoom_reset)
 
@@ -225,7 +225,7 @@ class PDFCompareDialog(QDialog):
         # 4. Alt Kapat / Rapor Butonları
         bottom_bar = QHBoxLayout()
         self.btn_export_report = QPushButton(LanguageManager.tr("compare_btn_export_report"))
-        self.btn_export_report.setIcon(ModernIconFactory.icon_export_pdf())
+        self.btn_export_report.setIcon(AuraIconFactory.icon_export_pdf())
         self.btn_export_report.clicked.connect(self._export_report)
         bottom_bar.addWidget(self.btn_export_report)
 
@@ -354,7 +354,7 @@ class PDFCompareDialog(QDialog):
 
         top_bar = QHBoxLayout()
         self.btn_scan_all = QPushButton(LanguageManager.tr("compare_btn_scan_all_emoji"))
-        self.btn_scan_all.setIcon(ModernIconFactory.icon_search("#ffffff"))
+        self.btn_scan_all.setIcon(AuraIconFactory.icon_search("#ffffff"))
         self.btn_scan_all.setObjectName("PrimaryBtn")
         self.btn_scan_all.clicked.connect(self._scan_all_pages)
         top_bar.addWidget(self.btn_scan_all)
@@ -368,7 +368,7 @@ class PDFCompareDialog(QDialog):
         layout.addLayout(top_bar)
 
         self.tbl_summary = QTableWidget(0, 4)
-        self.tbl_summary.setHorizontalHeaderLabels(["Sayfa", "Görsel Durum", "Metin Durumu", "Fark Oranı"])
+        self.tbl_summary.setHorizontalHeaderLabels([LanguageManager.tr("cmp_col_page"), LanguageManager.tr("cmp_col_visual"), LanguageManager.tr("cmp_col_text"), LanguageManager.tr("cmp_col_ratio")])
         self.tbl_summary.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         self.tbl_summary.cellDoubleClicked.connect(self._on_summary_row_clicked)
         layout.addWidget(self.tbl_summary)
@@ -378,7 +378,7 @@ class PDFCompareDialog(QDialog):
     # -------------------------------------------------------------------
     def _browse_doc(self, which: int):
         path, _ = QFileDialog.getOpenFileName(
-            self, f"{which}. PDF Belgesini Seç", "", "PDF Dosyaları (*.pdf)"
+            self, LanguageManager.tr("ui_pdf_belgesini_sec", which=which), "", LanguageManager.tr("sidebar_pdf_filter")
         )
         if path and os.path.isfile(path):
             self._load_doc(which, path)
@@ -390,17 +390,17 @@ class PDFCompareDialog(QDialog):
                 self.doc1_path = path
                 self.doc1 = doc
                 self.lbl_doc1.setText(f"{os.path.basename(path)} ({len(doc)} sf)")
-                self.lbl_v1_title.setText(f"1. Belge: {os.path.basename(path)}")
+                self.lbl_v1_title.setText(LanguageManager.tr("ui_1_belge", value=os.path.basename(path)))
             else:
                 self.doc2_path = path
                 self.doc2 = doc
                 self.lbl_doc2.setText(f"{os.path.basename(path)} ({len(doc)} sf)")
-                self.lbl_v2_title.setText(f"2. Belge: {os.path.basename(path)}")
+                self.lbl_v2_title.setText(LanguageManager.tr("ui_2_belge", value=os.path.basename(path)))
 
             self._update_total_pages()
             self._render_current_page()
         except Exception as e:
-            QMessageBox.critical(self, "Hata", f"Belge açılamadı:\n{e}")
+            QMessageBox.critical(self, LanguageManager.tr("error"), LanguageManager.tr("ui_belge_acilamadi", e=e))
 
     def _update_total_pages(self):
         n1 = len(self.doc1) if self.doc1 else 0
@@ -510,9 +510,9 @@ class PDFCompareDialog(QDialog):
             qimg1 = QImage(pix1.samples, pix1.width, pix1.height, pix1.stride, QImage.Format.Format_RGB888)
             self.lbl_view1.setPixmap(QPixmap.fromImage(qimg1))
         elif self.doc1:
-            self.lbl_view1.setText(f"[1. Belgede {self.current_page + 1}. sayfa mevcut değil]")
+            self.lbl_view1.setText(LanguageManager.tr("ui_1_belgede_sayfa_mevcut_degil", value=self.current_page + 1))
         else:
-            self.lbl_view1.setText("1. Belge seçilmedi")
+            self.lbl_view1.setText(LanguageManager.tr("ui_1_belge_secilmedi"))
 
         # Belge 2
         if self.doc2 and 0 <= self.current_page < len(self.doc2):
@@ -521,21 +521,21 @@ class PDFCompareDialog(QDialog):
             qimg2 = QImage(pix2.samples, pix2.width, pix2.height, pix2.stride, QImage.Format.Format_RGB888)
             self.lbl_view2.setPixmap(QPixmap.fromImage(qimg2))
         elif self.doc2:
-            self.lbl_view2.setText(f"[2. Belgede {self.current_page + 1}. sayfa mevcut değil]")
+            self.lbl_view2.setText(LanguageManager.tr("ui_2_belgede_sayfa_mevcut_degil", value=self.current_page + 1))
         else:
-            self.lbl_view2.setText("2. Belge seçilmedi")
+            self.lbl_view2.setText(LanguageManager.tr("ui_2_belge_secilmedi"))
 
     def _render_overlay_page(self):
         if not (self.doc1 and self.doc2):
-            self.lbl_view_overlay.setText("Karşılaştırma için lütfen iki PDF belgesi de seçin.")
+            self.lbl_view_overlay.setText(LanguageManager.tr("ui_karsilastirma_icin_lutfen_iki_pdf_belgesi"))
             return
 
         has_p1 = 0 <= self.current_page < len(self.doc1)
         has_p2 = 0 <= self.current_page < len(self.doc2)
 
         if not has_p1 or not has_p2:
-            self.lbl_view_overlay.setText(f"Sayfa {self.current_page + 1} yalnızca belgelerden birinde mevcut.")
-            self.lbl_diff_badge.setText("Sayfa Eksik (Farklı Uzunluk)")
+            self.lbl_view_overlay.setText(LanguageManager.tr("ui_sayfa_yalnizca_belgelerden_birinde_mevcut", value=self.current_page + 1))
+            self.lbl_diff_badge.setText(LanguageManager.tr("ui_sayfa_eksik_farkli_uzunluk"))
             self.lbl_diff_badge.setStyleSheet("font-weight: bold; padding: 4px 8px; border-radius: 4px;  ")
             return
 
@@ -585,15 +585,15 @@ class PDFCompareDialog(QDialog):
         self.lbl_view_overlay.setPixmap(QPixmap.fromImage(qimg))
 
         if diff_ratio < 0.05:
-            self.lbl_diff_badge.setText("Sayfalar Birebir Aynı (%0 Fark)")
+            self.lbl_diff_badge.setText(LanguageManager.tr("ui_sayfalar_birebir_ayni_0_fark"))
             self.lbl_diff_badge.setStyleSheet("font-weight: bold; padding: 4px 8px; border-radius: 4px;  ")
         else:
-            self.lbl_diff_badge.setText(f"Görsel Fark Bulundu: %{diff_ratio:.1f}")
+            self.lbl_diff_badge.setText(LanguageManager.tr("ui_gorsel_fark_bulundu", diff_ratio=diff_ratio))
             self.lbl_diff_badge.setStyleSheet("font-weight: bold; padding: 4px 8px; border-radius: 4px;  ")
 
     def _render_text_diff_page(self):
         if not (self.doc1 and self.doc2):
-            self.txt_diff.setPlainText("Metin karşılaştırması için her iki belgeyi de seçin.")
+            self.txt_diff.setPlainText(LanguageManager.tr("cmp_select_both_for_text"))
             return
 
         has_p1 = 0 <= self.current_page < len(self.doc1)
@@ -622,18 +622,18 @@ class PDFCompareDialog(QDialog):
                 html_lines.append(f"<div style=' padding: 1px;'>  {content}</div>")
 
         if not html_lines:
-            self.txt_diff.setHtml("<p style=''>Her iki sayfada da çıkarılabilir metin bulunamadı (Taranmış sayfa olabilir).</p>")
-            self.lbl_text_diff_stat.setText("Metin bulunamadı.")
+            self.txt_diff.setHtml(LanguageManager.tr("ui_her_iki_sayfada_da_cikarilabilir_metin"))
+            self.lbl_text_diff_stat.setText(LanguageManager.tr("ui_metin_bulunamadi"))
         else:
             self.txt_diff.setHtml("".join(html_lines))
-            self.lbl_text_diff_stat.setText(f"Sayfa Metin Analizi: {add_cnt} satır eklendi, {del_cnt} satır silindi/değişti.")
+            self.lbl_text_diff_stat.setText(LanguageManager.tr("ui_sayfa_metin_analizi_satir_eklendi_satir", add_cnt=add_cnt, del_cnt=del_cnt))
 
     # -------------------------------------------------------------------
     # TÜM SAYFALARI TARAMA (SCAN ALL)
     # -------------------------------------------------------------------
     def _scan_all_pages(self):
         if not (self.doc1 and self.doc2):
-            QMessageBox.warning(self, "Uyarı", "Lütfen önce iki belgeyi de seçin.")
+            QMessageBox.warning(self, LanguageManager.tr("warning"), LanguageManager.tr("ui_lutfen_once_iki_belgeyi_de_secin"))
             return
 
         n1 = len(self.doc1)
@@ -652,18 +652,18 @@ class PDFCompareDialog(QDialog):
             has_1 = i < n1
             has_2 = i < n2
 
-            item_page = QTableWidgetItem(f"Sayfa {i+1}")
+            item_page = QTableWidgetItem(LanguageManager.tr("ui_sayfa_3", value=i+1))
             item_page.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             self.tbl_summary.setItem(i, 0, item_page)
 
             if not has_1:
-                self.tbl_summary.setItem(i, 1, QTableWidgetItem("Yalnızca 2. Belgede var"))
+                self.tbl_summary.setItem(i, 1, QTableWidgetItem(LanguageManager.tr("ui_yalnizca_2_belgede_var")))
                 self.tbl_summary.setItem(i, 2, QTableWidgetItem("—"))
                 self.tbl_summary.setItem(i, 3, QTableWidgetItem("%100"))
                 diff_count += 1
                 continue
             if not has_2:
-                self.tbl_summary.setItem(i, 1, QTableWidgetItem("Yalnızca 1. Belgede var"))
+                self.tbl_summary.setItem(i, 1, QTableWidgetItem(LanguageManager.tr("ui_yalnizca_1_belgede_var")))
                 self.tbl_summary.setItem(i, 2, QTableWidgetItem("—"))
                 self.tbl_summary.setItem(i, 3, QTableWidgetItem("%100"))
                 diff_count += 1
@@ -690,14 +690,14 @@ class PDFCompareDialog(QDialog):
             ratio_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
 
             if ratio < 0.05 and text_match:
-                v_item = QTableWidgetItem("Birebir Aynı")
+                v_item = QTableWidgetItem(LanguageManager.tr("ui_birebir_ayni"))
                 v_item.setForeground(QColor("#10b981"))
-                t_item = QTableWidgetItem("Aynı")
+                t_item = QTableWidgetItem(LanguageManager.tr("ui_ayni"))
             else:
                 diff_count += 1
-                v_item = QTableWidgetItem("Farklı" if ratio >= 0.05 else "Görsel Benzer")
+                v_item = QTableWidgetItem(LanguageManager.tr("ui_farkli") if ratio >= 0.05 else LanguageManager.tr("ui_gorsel_benzer"))
                 v_item.setForeground(QColor("#f59e0b" if ratio < 10 else "#ef4444"))
-                t_item = QTableWidgetItem("Metin Farklı" if not text_match else "Metin Aynı")
+                t_item = QTableWidgetItem(LanguageManager.tr("ui_metin_farkli") if not text_match else LanguageManager.tr("ui_metin_ayni"))
 
             self.tbl_summary.setItem(i, 1, v_item)
             self.tbl_summary.setItem(i, 2, t_item)
@@ -705,8 +705,8 @@ class PDFCompareDialog(QDialog):
 
         self.progress_scan.setVisible(False)
         QMessageBox.information(
-            self, "Tarama Tamamlandı",
-            f"Toplam {total} sayfa tarandı.\n{diff_count} sayfada fark tespit edildi."
+            self, LanguageManager.tr("ui_tarama_tamamlandi"),
+            LanguageManager.tr("ui_toplam_sayfa_tarandi_sayfada_fark_tespit", total=total, diff_count=diff_count)
         )
 
     def _on_summary_row_clicked(self, row, col):
@@ -717,34 +717,34 @@ class PDFCompareDialog(QDialog):
 
     def _export_report(self):
         save_path, _ = QFileDialog.getSaveFileName(
-            self, "Fark Raporunu Kaydet", "karsilastirma_raporu.txt", "Metin Dosyası (*.txt)"
+            self, LanguageManager.tr("compare_btn_export"), "karsilastirma_raporu.txt", LanguageManager.tr("ui_metin_dosyasi_txt")
         )
         if not save_path:
             return
 
         lines = [
             "==================================================",
-            "AuraPDF - İki PDF Karşılaştırma Raporu",
+            LanguageManager.tr("cmp_report_title"),
             "==================================================",
             f"1. Belge: {self.doc1_path}",
             f"2. Belge: {self.doc2_path}",
-            f"1. Belge Sayfa Sayısı: {len(self.doc1) if self.doc1 else 0}",
-            f"2. Belge Sayfa Sayısı: {len(self.doc2) if self.doc2 else 0}",
+            LanguageManager.tr("cmp_report_doc1_pages", count=len(self.doc1) if self.doc1 else 0),
+            LanguageManager.tr("cmp_report_doc2_pages", count=len(self.doc2) if self.doc2 else 0),
             "--------------------------------------------------\n"
         ]
 
         row_count = self.tbl_summary.rowCount()
         if row_count > 0:
             for r in range(row_count):
-                p = self.tbl_summary.item(r, 0).text() if self.tbl_summary.item(r, 0) else f"Sayfa {r+1}"
+                p = self.tbl_summary.item(r, 0).text() if self.tbl_summary.item(r, 0) else LanguageManager.tr("cmp_page_n", n=r + 1)
                 v = self.tbl_summary.item(r, 1).text() if self.tbl_summary.item(r, 1) else "—"
                 t = self.tbl_summary.item(r, 2).text() if self.tbl_summary.item(r, 2) else "—"
                 d = self.tbl_summary.item(r, 3).text() if self.tbl_summary.item(r, 3) else "—"
-                lines.append(f"{p}: Görsel={v} | Metin={t} | Fark Oranı={d}")
+                lines.append(LanguageManager.tr("cmp_report_row", page=p, visual=v, text=t, ratio=d))
         else:
-            lines.append("Detaylı sayfa taraması çalıştırılmadı.")
+            lines.append(LanguageManager.tr("cmp_report_no_scan"))
 
         with open(save_path, "w", encoding="utf-8") as f:
             f.write("\n".join(lines))
 
-        QMessageBox.information(self, "Başarılı", f"Fark raporu kaydedildi:\n{save_path}")
+        QMessageBox.information(self, LanguageManager.tr("success"), LanguageManager.tr("ui_fark_raporu_kaydedildi", save_path=save_path))

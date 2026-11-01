@@ -3,7 +3,8 @@ AuraPDF - Windows Shell Entegrasyonu (PDF Önizleme ve Temiz Küçük Resim Gör
 ==================================================================================
 Windows Dosya Gezgini'nde (Explorer) PDF dosyalarının ilk sayfasının yüksek çözünürlüklü
 küçük resim (thumbnail) olarak temiz bir şekilde görüntülenmesini sağlar.
-Sağ alt köşedeki gereksiz uygulama logo rozetini (ShowTypeOverlay=0) devre dışı bırakır.
+Sağ alt köşedeki uygulama rozeti yalnızca AuraPDF'in kendi ProgID'sinde (TypeOverlay="") kapatılır;
+Explorer'ın tüm dosya türlerini etkileyen genel ShowTypeOverlay ayarına dokunulmaz.
 """
 
 import os
@@ -236,12 +237,6 @@ def ensure_pdf_shell_integration(force: bool = False) -> bool:
                     "TypeOverlay",
                     "",
                 )
-            set_reg_dword(
-                winreg.HKEY_CURRENT_USER,
-                r"Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced",
-                "ShowTypeOverlay",
-                0,
-            )
         else:
             # AuraPDF varsayılan okuyucu değilse, genel .pdf anahtarlarındaki AuraPDF kayıtlarını temizle
             for assoc_base in [
@@ -257,6 +252,26 @@ def ensure_pdf_shell_integration(force: bool = False) -> bool:
                 except Exception:
                     pass
                 delete_reg_val(winreg.HKEY_CURRENT_USER, assoc_base, "TypeOverlay")
+
+        # 5b. Eski sürümlerin yazdığı genel ShowTypeOverlay=0 değerini bir kez geri al.
+        # Bu değer Explorer'da TÜM dosya türlerinin rozetlerini gizliyordu.
+        migration_key = r"Software\AuraPDF\ShellIntegration"
+        try:
+            already = False
+            try:
+                with winreg.OpenKey(winreg.HKEY_CURRENT_USER, migration_key) as mk:
+                    already = winreg.QueryValueEx(mk, "ShowTypeOverlayRestored")[0] == 1
+            except OSError:
+                already = False
+            if not already:
+                delete_reg_val(
+                    winreg.HKEY_CURRENT_USER,
+                    r"Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced",
+                    "ShowTypeOverlay",
+                )
+                set_reg_dword(winreg.HKEY_CURRENT_USER, migration_key, "ShowTypeOverlayRestored", 1)
+        except Exception:
+            pass
 
         # 6. Değişiklik varsa Shell bildirimini gönder
         if changed:
@@ -320,19 +335,36 @@ def remove_pdf_shell_integration() -> bool:
             r"Software\Classes\SystemFileAssociations\.pdf",
         ]:
             thumb_key = f"{assoc_base}\\ShellEx\\{IID_ITHUMBNAIL_PROVIDER}"
-            delete_reg_tree(winreg.HKEY_CURRENT_USER, thumb_key)
+            # Yalnızca AuraPDF'e ait kaydı sil; başka bir uygulamanın sağlayıcısına dokunma
             try:
-                winreg.DeleteKey(winreg.HKEY_CURRENT_USER, f"{assoc_base}\\ShellEx")
-            except Exception:
+                with winreg.OpenKey(winreg.HKEY_CURRENT_USER, thumb_key) as k:
+                    val, _ = winreg.QueryValueEx(k, "")
+                if str(val).upper() == THUMBNAIL_PROVIDER_CLSID.upper():
+                    delete_reg_tree(winreg.HKEY_CURRENT_USER, thumb_key)
+                    try:
+                        winreg.DeleteKey(winreg.HKEY_CURRENT_USER, f"{assoc_base}\\ShellEx")
+                    except Exception:
+                        pass
+            except OSError:
                 pass
-            delete_reg_val(winreg.HKEY_CURRENT_USER, assoc_base, "TypeOverlay")
+            try:
+                with winreg.OpenKey(winreg.HKEY_CURRENT_USER, assoc_base) as k:
+                    ov, _ = winreg.QueryValueEx(k, "TypeOverlay")
+                if ov == "":
+                    delete_reg_val(winreg.HKEY_CURRENT_USER, assoc_base, "TypeOverlay")
+            except OSError:
+                pass
 
-        # 4. ShowTypeOverlay değerini temizle
-        delete_reg_val(
-            winreg.HKEY_CURRENT_USER,
-            r"Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced",
-            "ShowTypeOverlay",
-        )
+        # 4. Eski sürümlerin yazdığı ShowTypeOverlay=0 değerini temizle
+        try:
+            adv = r"Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced"
+            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, adv) as k:
+                sto, _ = winreg.QueryValueEx(k, "ShowTypeOverlay")
+            if sto == 0:
+                delete_reg_val(winreg.HKEY_CURRENT_USER, adv, "ShowTypeOverlay")
+        except OSError:
+            pass
+        delete_reg_tree(winreg.HKEY_CURRENT_USER, r"Software\AuraPDF\ShellIntegration")
 
         # 5. Local AppData altındaki DLL ve kopyalanmış araçları temizle
         try:

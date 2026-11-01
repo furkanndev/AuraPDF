@@ -11,6 +11,7 @@ import io
 from typing import Dict, Any, Optional, Callable
 import pymupdf as fitz
 from PIL import Image
+from src.core.i18n import LanguageManager
 
 
 class PDFCompressor:
@@ -65,7 +66,7 @@ class PDFCompressor:
 
         for page_idx in range(total_pages):
             if progress_callback:
-                progress_callback(page_idx + 1, total_pages, f"Sayfa {page_idx + 1}/{total_pages} işleniyor...")
+                progress_callback(page_idx + 1, total_pages, LanguageManager.tr("compress_progress_page", page=page_idx + 1, total=total_pages))
 
             page = doc[page_idx]
             image_list = page.get_images(full=True)
@@ -127,7 +128,7 @@ class PDFCompressor:
                     pass
 
         if progress_callback:
-            progress_callback(total_pages, total_pages, "Belge akışları ve nesneler sıkıştırılıyor...")
+            progress_callback(total_pages, total_pages, LanguageManager.tr("compress_progress_streams"))
 
         # Garbage collection ve deflate ile kaydet
         doc.save(

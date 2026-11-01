@@ -9,12 +9,12 @@ from PyQt6.QtWidgets import (
     QFrame, QHBoxLayout, QToolButton, QLineEdit, QSizePolicy
 )
 from PyQt6.QtCore import Qt, pyqtSignal, QEvent, QTimer
-from PyQt6.QtGui import QIntValidator, QDoubleValidator, QWheelEvent, QKeyEvent
+from PyQt6.QtGui import QWheelEvent, QKeyEvent
 
 from src.ui.dialog_theme import get_current_theme, THEME_PALETTES
 
 
-class ModernSpinBox(QFrame):
+class AuraSpinBox(QFrame):
     """
     Standart QSpinBox yerine geçen modern pill-stepper bileşeni.
     [ - ]     Değer     [ + ]
@@ -322,7 +322,7 @@ class ModernSpinBox(QFrame):
         return super().eventFilter(obj, event)
 
 
-class ModernDoubleSpinBox(ModernSpinBox):
+class AuraDoubleSpinBox(AuraSpinBox):
     """
     Ondalıklı sayılar için Modern Stepper (QDoubleSpinBox alternatifi).
     """
@@ -346,7 +346,6 @@ class ModernDoubleSpinBox(ModernSpinBox):
             step=int(step),
             suffix=suffix,
             prefix=prefix,
-            parent=parent
         )
         self._min = float(min_val)
         self._max = float(max_val)
@@ -391,5 +390,3 @@ class ModernDoubleSpinBox(ModernSpinBox):
 
 
 # Takma Adlar (Aliases)
-AuraSpinBox = ModernSpinBox
-AuraDoubleSpinBox = ModernDoubleSpinBox

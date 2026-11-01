@@ -5,16 +5,15 @@ Kullanıcıya mevcut ve en son sürümü gösteren, sürüm notlarını
 listeyen ve kurulum dosyasını doğrudan indirip kurabilen modern diyalog.
 """
 
-import os
 from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel, 
                              QPushButton, QTextBrowser, QProgressBar, QFrame,
-                             QMessageBox, QApplication, QWidget)
-from PyQt6.QtCore import Qt, QUrl, QSettings
-from PyQt6.QtGui import QDesktopServices, QFont
+                             QMessageBox, QWidget)
+from PyQt6.QtCore import Qt, QUrl
+from PyQt6.QtGui import QDesktopServices
 
 from src.core.i18n import LanguageManager
 from src.core.updater import UpdateInfo, UpdateDownloader, launch_installer
-from src.ui.icons import ModernIconFactory
+from src.ui.icons import AuraIconFactory
 from src.ui.dialog_theme import apply_dialog_theme
 
 
@@ -30,7 +29,7 @@ class UpdateDialog(QDialog):
         self.downloaded_path = None
 
         self.setWindowTitle(LanguageManager.tr("updates_section_title"))
-        self.setWindowIcon(ModernIconFactory.icon_update())
+        self.setWindowIcon(AuraIconFactory.icon_update())
         self.resize(560, 480)
         self.setMinimumSize(480, 400)
 
@@ -76,7 +75,7 @@ class UpdateDialog(QDialog):
         h_layout.setSpacing(14)
 
         lbl_icon = QLabel()
-        lbl_icon.setPixmap(ModernIconFactory.icon_update().pixmap(36, 36))
+        lbl_icon.setPixmap(AuraIconFactory.icon_update().pixmap(36, 36))
         h_layout.addWidget(lbl_icon)
 
         title_box = QVBoxLayout()
@@ -120,7 +119,7 @@ class UpdateDialog(QDialog):
         # 2. Sürüm Notları (Changelog) Alanı
         notes_text = self.update_info.get_release_notes(LanguageManager.get_language()) if hasattr(self.update_info, "get_release_notes") else (self.update_info.release_notes or "")
         if self.update_info.has_update and notes_text:
-            lbl_notes_title = QLabel(LanguageManager.tr("updates_release_notes_label", default="Sürüm Notları ve Yenilikler:"))
+            lbl_notes_title = QLabel(LanguageManager.tr("updates_release_notes_label", default=LanguageManager.tr("updates_release_notes_label")))
             lbl_notes_title.setStyleSheet("font-weight: bold; font-size: 13px;")
             layout.addWidget(lbl_notes_title)
 
@@ -142,7 +141,10 @@ class UpdateDialog(QDialog):
         self.lbl_status.hide()
         layout.addWidget(self.lbl_status)
 
-        layout.addStretch() if not (self.update_info.has_update and notes_text) else None
+        if not (self.update_info.has_update and notes_text):
+            layout.addStretch()
+            self.setMinimumSize(480, 210)
+            self.resize(560, 240)
 
         # 4. Alt İşlem Butonları
         btn_layout = QHBoxLayout()
@@ -182,7 +184,13 @@ class UpdateDialog(QDialog):
         self.lbl_status.setText(LanguageManager.tr("updates_downloading", progress=0, mb="0.0"))
 
         filename = self.update_info.asset_name or f"AuraPDF_{self.update_info.latest_version}_Setup.exe"
-        self.downloader = UpdateDownloader(self.update_info.download_url, filename=filename, parent=self)
+        self.downloader = UpdateDownloader(
+            self.update_info.download_url,
+            filename=filename,
+            parent=self,
+            expected_size=getattr(self.update_info, "asset_size", 0),
+            expected_sha256=getattr(self.update_info, "asset_sha256", None),
+        )
         self.downloader.progress.connect(self._on_download_progress)
         self.downloader.download_finished.connect(self._on_download_finished)
         self.downloader.download_failed.connect(self._on_download_failed)
@@ -201,7 +209,7 @@ class UpdateDialog(QDialog):
 
     def _on_download_finished(self, local_path: str):
         self.downloaded_path = local_path
-        self.lbl_status.setText("İndirme tamamlandı!")
+        self.lbl_status.setText(LanguageManager.tr("ui_indirme_tamamlandi"))
         self.progress_bar.setValue(100)
 
         ret = QMessageBox.question(
@@ -216,13 +224,13 @@ class UpdateDialog(QDialog):
             launch_installer(local_path)
             self.accept()
         else:
-            self.btn_download.setText("Kurulumu Başlat")
+            self.btn_download.setText(LanguageManager.tr("ui_kurulumu_baslat"))
             self.btn_download.setEnabled(True)
             self.btn_download.clicked.disconnect()
             self.btn_download.clicked.connect(lambda: launch_installer(local_path))
 
     def _on_download_failed(self, error_msg: str):
-        self.lbl_status.setText(f"Hata: {error_msg}")
+        self.lbl_status.setText(LanguageManager.tr("ui_hata", error_msg=error_msg))
         self.lbl_status.setStyleSheet("color: #f87171;")
         self.btn_download.setEnabled(True)
         QMessageBox.warning(self, LanguageManager.tr("updates_error_title"), error_msg)

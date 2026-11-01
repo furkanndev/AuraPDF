@@ -2,46 +2,45 @@
 AuraPDF - Modern Acrobat UI Redesign Views
 ===========================================
 Bu modül, Adobe Acrobat'ın yeni nesil arayüz tasarımını AuraPDF için sağlar:
-1. ModernTabBarWidget: Üst sekme çubuğu (açık PDF belgeleri, kapatma, yeni sekme).
-2. ModernHeaderBar: Menü, 'Tüm Araçlar / Oku / Düzenle / Dönüştür / E-İmza' mod çubuğu, arama (Ctrl+K) ve hızlı eylemler.
-3. ModernAllToolsPanel: Sol çekmece araç listesi (renkli vektörel ikonlar, daraltılabilir).
+1. AuraTabBarWidget: Üst sekme çubuğu (açık PDF belgeleri, kapatma, yeni sekme).
+2. AuraHeaderBar: Menü, 'Tüm Araçlar / Oku / Düzenle / Dönüştür / E-İmza' mod çubuğu, arama (Ctrl+K) ve hızlı eylemler.
+3. AuraAllToolsPanel: Sol çekmece araç listesi (renkli vektörel ikonlar, daraltılabilir).
 4. OrganizePagesWorkspace: Belge sayfalarını çok sütunlu ızgarada gösteren, döndürme/silme/çıkarma/ekleme araçlarına sahip tam ekran çalışma alanı.
-5. ModernRightSidebar: Sağ çekmece (Yer İmleri, Yorumlar, Küçük Resimler).
-6. ModernUtilityRail: En sağdaki dikey araç çubuğu (panel tetikleyicileri ve alt zoom/sayfa denetimleri).
-7. ModernCommandPaletteDialog: Ctrl+K hızlı araç/komut arama paleti.
+5. AuraRightSidebar: Sağ çekmece (Yer İmleri, Yorumlar, Küçük Resimler).
+6. AuraUtilityRail: En sağdaki dikey araç çubuğu (panel tetikleyicileri ve alt zoom/sayfa denetimleri).
+7. AuraCommandPaletteDialog: Ctrl+K hızlı araç/komut arama paleti.
 """
 
 import os
 import json
 import tempfile
 import math
-from typing import List, Dict, Optional, Set, Any
+from typing import List, Dict, Optional, Any
 import pymupdf as fitz
 
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QTextEdit, QToolButton,
-    QPushButton, QScrollArea, QGridLayout, QFrame, QStackedWidget,
+    QPushButton, QScrollArea, QFrame, QStackedWidget,
     QTreeWidget, QTreeWidgetItem, QListWidget, QListWidgetItem, QListView, QMenu,
     QDialog, QSizePolicy, QApplication, QSlider, QMessageBox, QFileDialog,
     QHeaderView, QGraphicsDropShadowEffect, QAbstractItemView, QStyleOptionViewItem,
-    QProgressBar, QButtonGroup, QLayout, QRubberBand, QComboBox
+    QButtonGroup, QLayout, QRubberBand, QComboBox
 )
-from PyQt6.QtCore import Qt, pyqtSignal, QSize, QPoint, QPointF, QRect, QRectF, QTimer, QThread, QUrl, QEvent, QSettings, QMimeData
+from PyQt6.QtCore import Qt, pyqtSignal, QSize, QPoint, QPointF, QRect, QRectF, QTimer, QEvent, QSettings, QMimeData
 from PyQt6.QtGui import (
     QIcon, QPixmap, QImage, QPainter, QColor, QPen, QBrush, QFont,
-    QPainterPath, QCursor, QKeySequence, QShortcut, QDesktopServices,
-    QFontMetrics, QIntValidator, QLinearGradient, QDrag, QTextCursor, QTextCharFormat
+    QPainterPath, QCursor, QFontMetrics, QIntValidator, QLinearGradient, QDrag, QTextCursor, QTextCharFormat
 )
 
 from src.core.i18n import LanguageManager
-from src.ui.icons import ModernIconFactory
+from src.ui.icons import AuraIconFactory
 from src.ui.dialog_theme import apply_dialog_theme
 
 # Global önbellek: son açılan PDF dosyalarının metaverilerini (mtime -> sayfa sayısı, boyut) saklar
 _RECENT_FILE_INFO_CACHE: Dict[str, Any] = {}
 
 
-def get_modern_theme_colors(theme_name: str = "gray") -> Dict[str, str]:
+def get_aura_theme_colors(theme_name: str = "gray") -> Dict[str, str]:
     """Tüm temalarla kusursuz uyumlu renk paleti."""
     palettes = {
         "light": {
@@ -327,9 +326,9 @@ def build_custom_theme_palette(custom_colors: Optional[Dict[str, str]] = None) -
 
 
 # ==============================================================================
-# 1. MODERN DOKÜMAN SEKME ÇUBUĞU (ModernTabBarWidget)
+# 1. MODERN DOKÜMAN SEKME ÇUBUĞU (AuraTabBarWidget)
 # ==============================================================================
-class ModernTabItem(QWidget):
+class AuraTabItem(QWidget):
     """Tek bir belge sekmesi (İkon, Başlık, Kapat butonu, Seçim efekti)."""
     closeRequested = pyqtSignal(int)
     clicked = pyqtSignal(int)
@@ -354,7 +353,7 @@ class ModernTabItem(QWidget):
         # PDF Doküman İkonu
         self.lbl_icon = QLabel()
         self.lbl_icon.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
-        self.lbl_icon.setPixmap(ModernIconFactory.icon_app().pixmap(14, 14))
+        self.lbl_icon.setPixmap(AuraIconFactory.icon_app().pixmap(14, 14))
         self.lbl_icon.setFixedSize(14, 14)
         layout.addWidget(self.lbl_icon)
 
@@ -367,7 +366,7 @@ class ModernTabItem(QWidget):
         # Kapat Butonu (X)
         self.btn_close = QToolButton(self)
         self.btn_close.setObjectName("TabCloseBtn")
-        self.btn_close.setIcon(ModernIconFactory.icon_close())
+        self.btn_close.setIcon(AuraIconFactory.icon_close())
         self.btn_close.setIconSize(QSize(12, 12))
         self.btn_close.setFixedSize(20, 20)
         self.btn_close.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -416,14 +415,14 @@ class ModernTabItem(QWidget):
         self.lbl_title.setText(elided)
 
     def _apply_style(self, theme_name: str = "light"):
-        c = get_modern_theme_colors(theme_name)
+        c = get_aura_theme_colors(theme_name)
         close_icon_color = c.get('tab_active_text', '#f8fafc') if self.is_active else ('#cbd5e1' if theme_name != 'light' else '#475569')
         if hasattr(self, 'btn_close'):
-            self.btn_close.setIcon(ModernIconFactory.icon_close(close_icon_color, hover_color="#ef4444"))
+            self.btn_close.setIcon(AuraIconFactory.icon_close(close_icon_color, hover_color="#ef4444"))
 
         if self.is_active:
             self.setStyleSheet(f"""
-                ModernTabItem {{
+                AuraTabItem {{
                     background-color: {c['tab_active']};
                     border-top-left-radius: 6px;
                     border-top-right-radius: 6px;
@@ -453,14 +452,14 @@ class ModernTabItem(QWidget):
             """)
         else:
             self.setStyleSheet(f"""
-                ModernTabItem {{
+                AuraTabItem {{
                     background-color: {c['tab_bg']};
                     border-top-left-radius: 6px;
                     border-top-right-radius: 6px;
                     border: 1px solid transparent;
                     border-bottom: 1px solid {c['border']};
                 }}
-                ModernTabItem:hover {{
+                AuraTabItem:hover {{
                     background-color: {c['surface_hover']};
                 }}
                 QLabel {{
@@ -486,7 +485,7 @@ class ModernTabItem(QWidget):
             """)
 
 
-class ModernTabBarWidget(QWidget):
+class AuraTabBarWidget(QWidget):
     """En üstteki sekmeler çubuğu: Home sekmesi, açık PDF belgeleri, yeni sekme ve hızlı bağlantılar."""
     tabCloseRequested = pyqtSignal(int)
     currentChanged = pyqtSignal(int)
@@ -503,7 +502,7 @@ class ModernTabBarWidget(QWidget):
         self.theme_name = "light"
         self.current_index = -1
         self.is_home_active = True
-        self.items: List[ModernTabItem] = []
+        self.items: List[AuraTabItem] = []
 
         self.setFixedHeight(36)
         layout = QHBoxLayout(self)
@@ -512,7 +511,7 @@ class ModernTabBarWidget(QWidget):
 
         # 1. Ana Sayfa (Home) Butonu
         self.btn_home = QToolButton()
-        self.btn_home.setIcon(ModernIconFactory.icon_home())
+        self.btn_home.setIcon(AuraIconFactory.icon_home())
         self.btn_home.setIconSize(QSize(15, 15))
         self.btn_home.setText(" " + LanguageManager.tr("home_tab_text"))
         self.btn_home.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
@@ -525,7 +524,7 @@ class ModernTabBarWidget(QWidget):
 
         # 2. Yeni Dosya Aç (+) Butonu
         self.btn_new_tab = QToolButton()
-        self.btn_new_tab.setIcon(ModernIconFactory.icon_plus())
+        self.btn_new_tab.setIcon(AuraIconFactory.icon_plus())
         self.btn_new_tab.setIconSize(QSize(12, 12))
         self.btn_new_tab.setText(" " + LanguageManager.tr("open"))
         self.btn_new_tab.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
@@ -562,12 +561,14 @@ class ModernTabBarWidget(QWidget):
 
     def apply_theme(self, theme_name: str = "light"):
         self.theme_name = theme_name
-        c = get_modern_theme_colors(theme_name)
+        c = get_aura_theme_colors(theme_name)
+        self.btn_home.setIcon(AuraIconFactory.icon_home(c['text_muted']))
+        self.btn_new_tab.setIcon(AuraIconFactory.icon_plus(c['text_muted']))
         home_active_bg = c['surface'] if self.is_home_active else "transparent"
         home_active_text = c['text'] if self.is_home_active else c['text_muted']
         home_border = f"1px solid {c['border']}" if self.is_home_active else "1px solid transparent"
         self.setStyleSheet(f"""
-            ModernTabBarWidget {{
+            AuraTabBarWidget {{
                 background-color: {c.get('tab_bar_bg', c['bg'])};
                 border-bottom: 1px solid {c['border']};
             }}
@@ -630,7 +631,7 @@ class ModernTabBarWidget(QWidget):
 
     def add_tab(self, title: str) -> int:
         idx = len(self.items)
-        item = ModernTabItem(idx, title, is_active=(idx == 0 and not self.is_home_active), parent=self)
+        item = AuraTabItem(idx, title, is_active=(idx == 0 and not self.is_home_active), parent=self)
         item.clicked.connect(self._on_item_clicked)
         item.closeRequested.connect(self.tabCloseRequested.emit)
         item.hoverEntered.connect(self.tabHoverEntered.emit)
@@ -673,7 +674,7 @@ class ModernTabBarWidget(QWidget):
         self.homeRequested.emit()
 
 
-class ModernTabHoverPreview(QWidget):
+class AuraTabHoverPreview(QWidget):
     """Modern tarayıcı tipi açık sekme küçük resim önizleme kartı (Hover Preview Card)."""
     def __init__(self, parent=None):
         super().__init__(None, Qt.WindowType.ToolTip | Qt.WindowType.FramelessWindowHint | Qt.WindowType.WindowStaysOnTopHint)
@@ -699,7 +700,7 @@ class ModernTabHoverPreview(QWidget):
         header_layout.setSpacing(6)
 
         self.lbl_icon = QLabel()
-        self.lbl_icon.setPixmap(ModernIconFactory.icon_app().pixmap(14, 14))
+        self.lbl_icon.setPixmap(AuraIconFactory.icon_app().pixmap(14, 14))
         self.lbl_icon.setFixedSize(14, 14)
         header_layout.addWidget(self.lbl_icon)
 
@@ -738,7 +739,7 @@ class ModernTabHoverPreview(QWidget):
 
     def apply_theme(self, theme_name: str):
         self._current_theme = theme_name
-        c = get_modern_theme_colors(theme_name)
+        c = get_aura_theme_colors(theme_name)
         is_dark = theme_name != "light"
         bg_col = c.get("surface", "#1e2022") if is_dark else "#ffffff"
         border_col = c.get("border", "#3c3f44")
@@ -803,7 +804,7 @@ class ModernTabHoverPreview(QWidget):
 # ==============================================================================
 # 2. SABİTLENMİŞ VE ÜST GEZİNME ÇUBUĞU BİLEŞENLERİ
 # ==============================================================================
-class ModernPinnedQuickToolsBar(QFrame):
+class AuraPinnedQuickToolsBar(QFrame):
     """
     Üst araç çubuğuna sabitlenmiş minimalist yatay hızlı araçlar kapsülü.
     Hareketli araç çubuğundaki tüm işlevlerle (seçim, vurgulayıcı, yorum, metin, kalem, silgi)
@@ -845,15 +846,15 @@ class ModernPinnedQuickToolsBar(QFrame):
         self.default_order = ["select", "selection", "pen", "highlighter", "eraser", "text", "insert", "comment", "pointer"]
 
         self.tool_specs_factory = {
-            "select": ("quick_tool_select", lambda: ModernIconFactory.icon_cursor()),
-            "selection": ("quick_tool_draw_select", lambda: ModernIconFactory.icon_select_rect("#38bdf8")),
-            "pen": ("quick_tool_pen", lambda: ModernIconFactory.icon_pen("#0284c7")),
-            "highlighter": ("quick_tool_highlighter", lambda: ModernIconFactory.icon_highlighter("#eab308")),
-            "eraser": ("quick_tool_eraser", lambda: ModernIconFactory.icon_eraser("#ef4444")),
-            "text": ("quick_tool_text", lambda: ModernIconFactory.icon_text_tool("#ec4899")),
-            "insert": ("insert_btn_tip", lambda: ModernIconFactory.icon_insert("#10b981")),
-            "comment": ("quick_tool_comment", lambda: ModernIconFactory.icon_comments("#f97316")),
-            "pointer": ("quick_tool_pointer", lambda: ModernIconFactory.icon_pointer("#ef4444")),
+            "select": ("quick_tool_select", lambda: AuraIconFactory.icon_cursor()),
+            "selection": ("quick_tool_draw_select", lambda: AuraIconFactory.icon_select_rect("#38bdf8")),
+            "pen": ("quick_tool_pen", lambda: AuraIconFactory.icon_pen("#0284c7")),
+            "highlighter": ("quick_tool_highlighter", lambda: AuraIconFactory.icon_highlighter("#eab308")),
+            "eraser": ("quick_tool_eraser", lambda: AuraIconFactory.icon_eraser("#ef4444")),
+            "text": ("quick_tool_text", lambda: AuraIconFactory.icon_text_tool("#ec4899")),
+            "insert": ("insert_btn_tip", lambda: AuraIconFactory.icon_insert("#10b981")),
+            "comment": ("quick_tool_comment", lambda: AuraIconFactory.icon_comments("#f97316")),
+            "pointer": ("quick_tool_pointer", lambda: AuraIconFactory.icon_pointer("#ef4444")),
         }
 
         # Kaydedilmiş araç sıralamasını yükle (ve sürüm kontrolüyle gerekirse yeni varsayılana taşı)
@@ -892,7 +893,7 @@ class ModernPinnedQuickToolsBar(QFrame):
         self.sep.setObjectName("PinnedSep")
 
         self.btn_unpin = QToolButton(self)
-        self.btn_unpin.setIcon(ModernIconFactory.icon_unpin())
+        self.btn_unpin.setIcon(AuraIconFactory.icon_unpin())
         self.btn_unpin.setIconSize(QSize(20, 20))
         self.btn_unpin.setFixedSize(38, 38)
         self.btn_unpin.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -999,26 +1000,26 @@ class ModernPinnedQuickToolsBar(QFrame):
         btn = self.buttons.get("select")
         if not btn: return
         if mode == 'pan':
-            btn.setIcon(ModernIconFactory.icon_select_pan())
+            btn.setIcon(AuraIconFactory.icon_select_pan())
             btn.setToolTip(LanguageManager.tr("tb_item_cursor"))
         else:
-            btn.setIcon(ModernIconFactory.icon_cursor())
+            btn.setIcon(AuraIconFactory.icon_cursor())
             btn.setToolTip(LanguageManager.tr("quick_tool_select"))
 
     def update_selection_mode(self, mode: str):
         btn = self.buttons.get("selection")
         if not btn: return
         if mode == 'lasso':
-            btn.setIcon(ModernIconFactory.icon_select_lasso("#38bdf8"))
+            btn.setIcon(AuraIconFactory.icon_select_lasso("#38bdf8"))
             btn.setToolTip(LanguageManager.tr("sel_lasso").strip())
         elif mode == 'move':
-            btn.setIcon(ModernIconFactory.icon_select_move("#38bdf8"))
-            btn.setToolTip(LanguageManager.tr("sel_move").strip() if LanguageManager.tr("sel_move") != "sel_move" else "Seçimi Taşı")
+            btn.setIcon(AuraIconFactory.icon_select_move("#38bdf8"))
+            btn.setToolTip(LanguageManager.tr("sel_move").strip() if LanguageManager.tr("sel_move") != "sel_move" else LanguageManager.tr("ui_secimi_tasi"))
         elif mode == 'ruler':
-            btn.setIcon(ModernIconFactory.icon_ruler("#38bdf8"))
+            btn.setIcon(AuraIconFactory.icon_ruler("#38bdf8"))
             btn.setToolTip(LanguageManager.tr("tb_item_ruler"))
         else:
-            btn.setIcon(ModernIconFactory.icon_select_rect("#38bdf8"))
+            btn.setIcon(AuraIconFactory.icon_select_rect("#38bdf8"))
             btn.setToolTip(LanguageManager.tr("quick_tool_draw_select"))
 
     def retranslate_ui(self):
@@ -1031,11 +1032,11 @@ class ModernPinnedQuickToolsBar(QFrame):
 
     def apply_theme(self, theme_name: str = "gray"):
         self.theme_name = theme_name
-        c = get_modern_theme_colors(theme_name)
+        c = get_aura_theme_colors(theme_name)
         if hasattr(self, 'btn_unpin'):
-            self.btn_unpin.setIcon(ModernIconFactory.icon_unpin(c['text_muted']))
+            self.btn_unpin.setIcon(AuraIconFactory.icon_unpin(c['text_muted']))
         if "select" in self.buttons and getattr(self, 'cursor_mode', 'select') == 'select':
-            self.buttons["select"].setIcon(ModernIconFactory.icon_cursor(c['text']))
+            self.buttons["select"].setIcon(AuraIconFactory.icon_cursor(c['text']))
         
         border_style = (
             f"border: 1px solid {c['border']}; border-radius: 21px;"
@@ -1205,7 +1206,7 @@ class CapsuleZoomLineEdit(QLineEdit):
             self.setText(f"{self._current_zoom}%")
 
 
-class ModernHeaderBar(QWidget):
+class AuraHeaderBar(QWidget):
     pageJumpRequested = pyqtSignal(int)
     prevPageRequested = pyqtSignal()
     nextPageRequested = pyqtSignal()
@@ -1246,7 +1247,7 @@ class ModernHeaderBar(QWidget):
         # 1. Menü Butonu
         self.btn_menu = QToolButton()
         self.btn_menu.setText(" " + LanguageManager.tr("menu_btn_text"))
-        self.btn_menu.setIcon(ModernIconFactory.icon_menu_hamburger())
+        self.btn_menu.setIcon(AuraIconFactory.icon_menu_hamburger())
         self.btn_menu.setIconSize(QSize(16, 16))
         self.btn_menu.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
         self.btn_menu.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -1298,7 +1299,7 @@ class ModernHeaderBar(QWidget):
         h_page.setSpacing(2)
 
         self.btn_prev = QToolButton()
-        self.btn_prev.setIcon(ModernIconFactory.icon_chevron_left())
+        self.btn_prev.setIcon(AuraIconFactory.icon_chevron_left())
         self.btn_prev.setIconSize(QSize(16, 16))
         self.btn_prev.setFixedSize(26, 26)
         self.btn_prev.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -1317,7 +1318,7 @@ class ModernHeaderBar(QWidget):
         h_page.addWidget(self.lbl_total)
 
         self.btn_next = QToolButton()
-        self.btn_next.setIcon(ModernIconFactory.icon_chevron_right())
+        self.btn_next.setIcon(AuraIconFactory.icon_chevron_right())
         self.btn_next.setIconSize(QSize(16, 16))
         self.btn_next.setFixedSize(26, 26)
         self.btn_next.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -1336,7 +1337,7 @@ class ModernHeaderBar(QWidget):
         h_zoom.setSpacing(2)
 
         self.btn_zout = QToolButton()
-        self.btn_zout.setIcon(ModernIconFactory.icon_minus())
+        self.btn_zout.setIcon(AuraIconFactory.icon_minus())
         self.btn_zout.setIconSize(QSize(16, 16))
         self.btn_zout.setFixedSize(26, 26)
         self.btn_zout.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -1350,7 +1351,7 @@ class ModernHeaderBar(QWidget):
         h_zoom.addWidget(self.txt_zoom)
 
         self.btn_zin = QToolButton()
-        self.btn_zin.setIcon(ModernIconFactory.icon_plus())
+        self.btn_zin.setIcon(AuraIconFactory.icon_plus())
         self.btn_zin.setIconSize(QSize(16, 16))
         self.btn_zin.setFixedSize(26, 26)
         self.btn_zin.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -1366,7 +1367,7 @@ class ModernHeaderBar(QWidget):
         h_zoom.addWidget(sep_cap_inner)
 
         self.btn_fit = QToolButton()
-        self.btn_fit.setIcon(ModernIconFactory.icon_fit_page())
+        self.btn_fit.setIcon(AuraIconFactory.icon_fit_page())
         self.btn_fit.setIconSize(QSize(16, 16))
         self.btn_fit.setFixedSize(28, 26)
         self.btn_fit.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -1375,7 +1376,7 @@ class ModernHeaderBar(QWidget):
         h_zoom.addWidget(self.btn_fit)
 
         self.btn_rotate = QToolButton()
-        self.btn_rotate.setIcon(ModernIconFactory.icon_rotate())
+        self.btn_rotate.setIcon(AuraIconFactory.icon_rotate())
         self.btn_rotate.setIconSize(QSize(16, 16))
         self.btn_rotate.setFixedSize(28, 26)
         self.btn_rotate.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -1385,7 +1386,7 @@ class ModernHeaderBar(QWidget):
 
         self.btn_multiview = QToolButton()
         self.btn_multiview.setObjectName("HeaderBtnMultiview")
-        self.btn_multiview.setIcon(ModernIconFactory.icon_multiview())
+        self.btn_multiview.setIcon(AuraIconFactory.icon_multiview())
         self.btn_multiview.setIconSize(QSize(16, 16))
         self.btn_multiview.setFixedSize(28, 26)
         self.btn_multiview.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -1398,7 +1399,7 @@ class ModernHeaderBar(QWidget):
         layout.addStretch(1)
 
         # Sabitlenebilir Minimalist Hızlı Araçlar Kapsülü (Üst çubuğa enjekte edilmez)
-        self.pinned_tools_capsule = ModernPinnedQuickToolsBar(self)
+        self.pinned_tools_capsule = AuraPinnedQuickToolsBar(self)
         self.pinned_tools_capsule.hide()
 
         # 3. Arama Çubuğu (Ctrl+K Pill Input)
@@ -1406,19 +1407,19 @@ class ModernHeaderBar(QWidget):
         self.search_pill.setObjectName("SearchPill")
         self.search_pill.setCursor(Qt.CursorShape.PointingHandCursor)
         self.search_pill.setFixedHeight(32)
-        self.search_pill.setFixedWidth(260)
+        self.search_pill.setFixedWidth(310)
         h_search = QHBoxLayout(self.search_pill)
         h_search.setContentsMargins(10, 0, 10, 0)
         h_search.setSpacing(8)
 
         lbl_s_icon = QLabel()
-        lbl_s_icon.setPixmap(ModernIconFactory.icon_search().pixmap(14, 14))
+        lbl_s_icon.setPixmap(AuraIconFactory.icon_search().pixmap(14, 14))
         h_search.addWidget(lbl_s_icon)
 
         self.lbl_search_text = QLabel(LanguageManager.tr("search_tools_placeholder"))
         h_search.addWidget(self.lbl_search_text, stretch=1)
 
-        badge_shortcut = QLabel("⌘K / Ctrl+K")
+        badge_shortcut = QLabel("Ctrl+K")
         badge_shortcut.setObjectName("BadgeShortcut")
         h_search.addWidget(badge_shortcut)
 
@@ -1437,7 +1438,7 @@ class ModernHeaderBar(QWidget):
         # 4. Hızlı Eylem İkonları
         # Yazdır
         self.btn_print = QToolButton()
-        self.btn_print.setIcon(ModernIconFactory.icon_print())
+        self.btn_print.setIcon(AuraIconFactory.icon_print())
         self.btn_print.setIconSize(QSize(16, 16))
         self.btn_print.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_print.setToolTip(LanguageManager.tr("print_btn"))
@@ -1446,7 +1447,7 @@ class ModernHeaderBar(QWidget):
 
         # Kaydet / Paylaş
         self.btn_save = QToolButton()
-        self.btn_save.setIcon(ModernIconFactory.icon_cloud_share())
+        self.btn_save.setIcon(AuraIconFactory.icon_save())
         self.btn_save.setIconSize(QSize(16, 16))
         self.btn_save.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_save.setToolTip(LanguageManager.tr("save_btn"))
@@ -1455,7 +1456,7 @@ class ModernHeaderBar(QWidget):
 
         # Tam Ekran (F11) - 1. Pozisyon
         self.btn_fullscreen = QToolButton()
-        self.btn_fullscreen.setIcon(ModernIconFactory.icon_fullscreen())
+        self.btn_fullscreen.setIcon(AuraIconFactory.icon_fullscreen())
         self.btn_fullscreen.setIconSize(QSize(16, 16))
         self.btn_fullscreen.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_fullscreen.setCheckable(True)
@@ -1465,7 +1466,7 @@ class ModernHeaderBar(QWidget):
 
         # Ayarlar
         self.btn_settings = QToolButton()
-        self.btn_settings.setIcon(ModernIconFactory.icon_settings())
+        self.btn_settings.setIcon(AuraIconFactory.icon_settings())
         self.btn_settings.setIconSize(QSize(16, 16))
         self.btn_settings.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_settings.setToolTip(LanguageManager.tr("settings_title"))
@@ -1520,9 +1521,9 @@ class ModernHeaderBar(QWidget):
     def set_multiview_active(self, active: bool):
         self._is_multiview_active = active
         if hasattr(self, 'btn_multiview'):
-            c = get_modern_theme_colors(getattr(self, 'theme_name', 'gray'))
+            c = get_aura_theme_colors(getattr(self, 'theme_name', 'gray'))
             if active:
-                self.btn_multiview.setIcon(ModernIconFactory.icon_multiview(c['accent']))
+                self.btn_multiview.setIcon(AuraIconFactory.icon_multiview(c['accent']))
                 self.btn_multiview.setToolTip(LanguageManager.tr("header_btn_multiview_active_tip"))
                 self.btn_multiview.setStyleSheet(f"""
                     QToolButton#HeaderBtnMultiview {{
@@ -1532,7 +1533,7 @@ class ModernHeaderBar(QWidget):
                     }}
                 """)
             else:
-                self.btn_multiview.setIcon(ModernIconFactory.icon_multiview(c['text']))
+                self.btn_multiview.setIcon(AuraIconFactory.icon_multiview(c['text']))
                 self.btn_multiview.setToolTip(LanguageManager.tr("header_btn_multiview_tip"))
                 self.btn_multiview.setStyleSheet("")
 
@@ -1564,30 +1565,30 @@ class ModernHeaderBar(QWidget):
 
     def apply_theme(self, theme_name: str = "gray"):
         self.theme_name = theme_name
-        c = get_modern_theme_colors(theme_name)
+        c = get_aura_theme_colors(theme_name)
         if hasattr(self, 'pinned_tools_capsule'):
             self.pinned_tools_capsule.apply_theme(theme_name)
 
         if hasattr(self, 'btn_prev'):
-            self.btn_prev.setIcon(ModernIconFactory.icon_chevron_left(c['text']))
+            self.btn_prev.setIcon(AuraIconFactory.icon_chevron_left(c['text']))
         if hasattr(self, 'btn_next'):
-            self.btn_next.setIcon(ModernIconFactory.icon_chevron_right(c['text']))
+            self.btn_next.setIcon(AuraIconFactory.icon_chevron_right(c['text']))
         if hasattr(self, 'btn_zout'):
-            self.btn_zout.setIcon(ModernIconFactory.icon_minus(c['text']))
+            self.btn_zout.setIcon(AuraIconFactory.icon_minus(c['text']))
         if hasattr(self, 'btn_zin'):
-            self.btn_zin.setIcon(ModernIconFactory.icon_plus(c['text']))
+            self.btn_zin.setIcon(AuraIconFactory.icon_plus(c['text']))
         if hasattr(self, 'btn_fit'):
-            self.btn_fit.setIcon(ModernIconFactory.icon_fit_page(c['text']))
+            self.btn_fit.setIcon(AuraIconFactory.icon_fit_page(c['text']))
         if hasattr(self, 'btn_rotate'):
-            self.btn_rotate.setIcon(ModernIconFactory.icon_rotate(c['text']))
+            self.btn_rotate.setIcon(AuraIconFactory.icon_rotate(c['text']))
         if hasattr(self, 'btn_multiview'):
             if getattr(self, '_is_multiview_active', False):
-                self.btn_multiview.setIcon(ModernIconFactory.icon_multiview(c['accent']))
+                self.btn_multiview.setIcon(AuraIconFactory.icon_multiview(c['accent']))
             else:
-                self.btn_multiview.setIcon(ModernIconFactory.icon_multiview(c['text']))
+                self.btn_multiview.setIcon(AuraIconFactory.icon_multiview(c['text']))
 
         self.setStyleSheet(f"""
-            ModernHeaderBar {{
+            AuraHeaderBar {{
                 background-color: {c['surface']};
                 border-bottom: 1px solid {c['border']};
             }}
@@ -1699,9 +1700,9 @@ class ModernHeaderBar(QWidget):
 
 
 # ==============================================================================
-# 2B. MULTIVIEW: İKİNCİ BELGE BÖLÜNMÜŞ EKRAN PANELİ (ModernSecondaryDocPane)
+# 2B. MULTIVIEW: İKİNCİ BELGE BÖLÜNMÜŞ EKRAN PANELİ (AuraSecondaryDocPane)
 # ==============================================================================
-class ModernSecondaryDocPane(QWidget):
+class AuraSecondaryDocPane(QWidget):
     """
     Multiview: İkinci PDF Belgesi Bölünmüş Ekran Paneli (Side-by-Side Dual Document Split Pane).
     Kullanıcının ana penceredeki birincil PDF'in yanında ikinci bir PDF'i (veya açık diğer sekmelerden birini,
@@ -1714,7 +1715,7 @@ class ModernSecondaryDocPane(QWidget):
 
     def __init__(self, main_window=None, parent=None):
         super().__init__(parent)
-        self.setObjectName("ModernSecondaryDocPane")
+        self.setObjectName("AuraSecondaryDocPane")
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self.main_window = main_window
         self.theme_name = "gray"
@@ -1740,7 +1741,7 @@ class ModernSecondaryDocPane(QWidget):
 
         # Multiview İkonu
         self.lbl_pane_icon = QLabel(self)
-        self.lbl_pane_icon.setPixmap(ModernIconFactory.icon_multiview().pixmap(16, 16))
+        self.lbl_pane_icon.setPixmap(AuraIconFactory.icon_multiview().pixmap(16, 16))
         self.lbl_pane_icon.setFixedSize(18, 18)
         h_layout.addWidget(self.lbl_pane_icon)
 
@@ -1771,7 +1772,7 @@ class ModernSecondaryDocPane(QWidget):
         h_page.setSpacing(2)
 
         self.btn_prev = QToolButton(self)
-        self.btn_prev.setIcon(ModernIconFactory.icon_chevron_left())
+        self.btn_prev.setIcon(AuraIconFactory.icon_chevron_left())
         self.btn_prev.setIconSize(QSize(14, 14))
         self.btn_prev.setFixedSize(22, 22)
         self.btn_prev.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -1785,7 +1786,7 @@ class ModernSecondaryDocPane(QWidget):
         h_page.addWidget(self.lbl_page)
 
         self.btn_next = QToolButton(self)
-        self.btn_next.setIcon(ModernIconFactory.icon_chevron_right())
+        self.btn_next.setIcon(AuraIconFactory.icon_chevron_right())
         self.btn_next.setIconSize(QSize(14, 14))
         self.btn_next.setFixedSize(22, 22)
         self.btn_next.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -1803,7 +1804,7 @@ class ModernSecondaryDocPane(QWidget):
         h_zoom.setSpacing(2)
 
         self.btn_zout = QToolButton(self)
-        self.btn_zout.setIcon(ModernIconFactory.icon_minus())
+        self.btn_zout.setIcon(AuraIconFactory.icon_minus())
         self.btn_zout.setIconSize(QSize(14, 14))
         self.btn_zout.setFixedSize(22, 22)
         self.btn_zout.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -1817,7 +1818,7 @@ class ModernSecondaryDocPane(QWidget):
         h_zoom.addWidget(self.lbl_zoom)
 
         self.btn_zin = QToolButton(self)
-        self.btn_zin.setIcon(ModernIconFactory.icon_plus())
+        self.btn_zin.setIcon(AuraIconFactory.icon_plus())
         self.btn_zin.setIconSize(QSize(14, 14))
         self.btn_zin.setFixedSize(22, 22)
         self.btn_zin.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -1826,7 +1827,7 @@ class ModernSecondaryDocPane(QWidget):
         h_zoom.addWidget(self.btn_zin)
 
         self.btn_fit = QToolButton(self)
-        self.btn_fit.setIcon(ModernIconFactory.icon_fit_page())
+        self.btn_fit.setIcon(AuraIconFactory.icon_fit_page())
         self.btn_fit.setIconSize(QSize(14, 14))
         self.btn_fit.setFixedSize(22, 22)
         self.btn_fit.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -1841,7 +1842,7 @@ class ModernSecondaryDocPane(QWidget):
         self.btn_sync_scroll = QToolButton(self)
         self.btn_sync_scroll.setObjectName("SecondaryBtnSyncScroll")
         self.btn_sync_scroll.setCheckable(True)
-        self.btn_sync_scroll.setIcon(ModernIconFactory.icon_link())
+        self.btn_sync_scroll.setIcon(AuraIconFactory.icon_link())
         self.btn_sync_scroll.setIconSize(QSize(16, 16))
         self.btn_sync_scroll.setFixedSize(28, 26)
         self.btn_sync_scroll.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -1852,7 +1853,7 @@ class ModernSecondaryDocPane(QWidget):
         # Belgeleri Değiştir (Swap Panes) Butonu
         self.btn_swap = QToolButton(self)
         self.btn_swap.setObjectName("SecondaryBtnSwap")
-        self.btn_swap.setIcon(ModernIconFactory.icon_swap())
+        self.btn_swap.setIcon(AuraIconFactory.icon_swap())
         self.btn_swap.setIconSize(QSize(16, 16))
         self.btn_swap.setFixedSize(28, 26)
         self.btn_swap.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -1863,7 +1864,7 @@ class ModernSecondaryDocPane(QWidget):
         # Kapat Butonu
         self.btn_close = QToolButton(self)
         self.btn_close.setObjectName("SecondaryBtnClose")
-        self.btn_close.setIcon(ModernIconFactory.icon_close())
+        self.btn_close.setIcon(AuraIconFactory.icon_close())
         self.btn_close.setIconSize(QSize(14, 14))
         self.btn_close.setFixedSize(26, 26)
         self.btn_close.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -1892,7 +1893,7 @@ class ModernSecondaryDocPane(QWidget):
         card_layout.setContentsMargins(28, 28, 28, 28)
 
         self.lbl_card_icon = QLabel(card)
-        self.lbl_card_icon.setPixmap(ModernIconFactory.icon_multiview().pixmap(48, 48))
+        self.lbl_card_icon.setPixmap(AuraIconFactory.icon_multiview().pixmap(48, 48))
         self.lbl_card_icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
         card_layout.addWidget(self.lbl_card_icon)
 
@@ -1915,14 +1916,14 @@ class ModernSecondaryDocPane(QWidget):
         self.btn_card_browse = QPushButton(LanguageManager.tr("multiview_select_pdf_btn"), card)
         self.btn_card_browse.setObjectName("SecondaryPrimaryBtn")
         self.btn_card_browse.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.btn_card_browse.setIcon(ModernIconFactory.icon_folder())
+        self.btn_card_browse.setIcon(AuraIconFactory.icon_folder())
         self.btn_card_browse.clicked.connect(self._browse_and_open_pdf)
         btn_row.addWidget(self.btn_card_browse)
 
         self.btn_card_clone = QPushButton(LanguageManager.tr("multiview_clone_current"), card)
         self.btn_card_clone.setObjectName("SecondarySecondaryBtn")
         self.btn_card_clone.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.btn_card_clone.setIcon(ModernIconFactory.icon_copy())
+        self.btn_card_clone.setIcon(AuraIconFactory.icon_copy())
         self.btn_card_clone.clicked.connect(self._clone_current_document)
         btn_row.addWidget(self.btn_card_clone)
 
@@ -1951,13 +1952,13 @@ class ModernSecondaryDocPane(QWidget):
             for i in range(tw.count()):
                 w = tw.widget(i)
                 f_path = getattr(w, 'file_path', None)
-                title = tw.tabText(i) or (os.path.basename(f_path) if f_path else "Adsız")
+                title = tw.tabText(i) or (os.path.basename(f_path) if f_path else LanguageManager.tr("untitled_short"))
                 if f_path:
-                    self.combo_docs.addItem(ModernIconFactory.icon_view_single(), f"[{i + 1}] {title}", f_path)
+                    self.combo_docs.addItem(AuraIconFactory.icon_view_single(), f"[{i + 1}] {title}", f_path)
 
         # Özel aksiyonlar
-        self.combo_docs.addItem(ModernIconFactory.icon_copy(), LanguageManager.tr("multiview_clone_current"), "__CLONE_CURRENT__")
-        self.combo_docs.addItem(ModernIconFactory.icon_folder(), LanguageManager.tr("multiview_open_another"), "__OPEN_FILE__")
+        self.combo_docs.addItem(AuraIconFactory.icon_copy(), LanguageManager.tr("multiview_clone_current"), "__CLONE_CURRENT__")
+        self.combo_docs.addItem(AuraIconFactory.icon_folder(), LanguageManager.tr("multiview_open_another"), "__OPEN_FILE__")
 
         # Mevcut yüklü dosyayı seçili yap
         if self.file_path:
@@ -2091,11 +2092,11 @@ class ModernSecondaryDocPane(QWidget):
 
     def _on_sync_scroll_toggled(self, checked: bool):
         self.is_sync_scroll_enabled = checked
-        c = get_modern_theme_colors(self.theme_name)
+        c = get_aura_theme_colors(self.theme_name)
         if checked:
-            self.btn_sync_scroll.setIcon(ModernIconFactory.icon_link(c['accent']))
+            self.btn_sync_scroll.setIcon(AuraIconFactory.icon_link(c['accent']))
         else:
-            self.btn_sync_scroll.setIcon(ModernIconFactory.icon_link(c['text']))
+            self.btn_sync_scroll.setIcon(AuraIconFactory.icon_link(c['text']))
         self.syncScrollToggled.emit(checked)
 
     def retranslate_ui(self):
@@ -2116,27 +2117,27 @@ class ModernSecondaryDocPane(QWidget):
 
     def apply_theme(self, theme_name: str = "gray"):
         self.theme_name = theme_name
-        c = get_modern_theme_colors(theme_name)
+        c = get_aura_theme_colors(theme_name)
 
-        self.lbl_pane_icon.setPixmap(ModernIconFactory.icon_multiview(c['accent']).pixmap(16, 16))
-        self.lbl_card_icon.setPixmap(ModernIconFactory.icon_multiview(c['accent']).pixmap(48, 48))
-        self.btn_prev.setIcon(ModernIconFactory.icon_chevron_left(c['text']))
-        self.btn_next.setIcon(ModernIconFactory.icon_chevron_right(c['text']))
-        self.btn_zout.setIcon(ModernIconFactory.icon_minus(c['text']))
-        self.btn_zin.setIcon(ModernIconFactory.icon_plus(c['text']))
-        self.btn_fit.setIcon(ModernIconFactory.icon_fit_page(c['text']))
-        self.btn_sync_scroll.setIcon(ModernIconFactory.icon_link(c['accent'] if self.is_sync_scroll_enabled else c['text']))
-        self.btn_swap.setIcon(ModernIconFactory.icon_swap(c['text']))
-        self.btn_close.setIcon(ModernIconFactory.icon_close(c['text']))
-        self.btn_card_browse.setIcon(ModernIconFactory.icon_folder())
-        self.btn_card_clone.setIcon(ModernIconFactory.icon_copy())
+        self.lbl_pane_icon.setPixmap(AuraIconFactory.icon_multiview(c['accent']).pixmap(16, 16))
+        self.lbl_card_icon.setPixmap(AuraIconFactory.icon_multiview(c['accent']).pixmap(48, 48))
+        self.btn_prev.setIcon(AuraIconFactory.icon_chevron_left(c['text']))
+        self.btn_next.setIcon(AuraIconFactory.icon_chevron_right(c['text']))
+        self.btn_zout.setIcon(AuraIconFactory.icon_minus(c['text']))
+        self.btn_zin.setIcon(AuraIconFactory.icon_plus(c['text']))
+        self.btn_fit.setIcon(AuraIconFactory.icon_fit_page(c['text']))
+        self.btn_sync_scroll.setIcon(AuraIconFactory.icon_link(c['accent'] if self.is_sync_scroll_enabled else c['text']))
+        self.btn_swap.setIcon(AuraIconFactory.icon_swap(c['text']))
+        self.btn_close.setIcon(AuraIconFactory.icon_close(c['text']))
+        self.btn_card_browse.setIcon(AuraIconFactory.icon_folder())
+        self.btn_card_clone.setIcon(AuraIconFactory.icon_copy())
 
         if self.tab_doc and self.main_window and hasattr(self.main_window, 'get_theme_view_bg'):
             view_bg = self.main_window.get_theme_view_bg()
             self.tab_doc.view.setStyleSheet(f"background-color: {view_bg}; border: none;")
 
         self.setStyleSheet(f"""
-            ModernSecondaryDocPane {{
+            AuraSecondaryDocPane {{
                 background-color: {c['bg']};
             }}
             QFrame#SecondaryDocHeader {{
@@ -2255,15 +2256,41 @@ class ModernSecondaryDocPane(QWidget):
 
 
 # ==============================================================================
-# 3. SOL ÇEKMECE ARAÇ PANELİ (ModernAllToolsPanel)
+# 3. SOL ÇEKMECE ARAÇ PANELİ (AuraAllToolsPanel)
 # ==============================================================================
-class ModernToolItemWidget(QFrame):
+class ElidedLabel(QLabel):
+    """Genişliğe sığmayan metni taşırmadan üç nokta ile kısaltır; tam metin ipucunda görünür."""
+
+    def __init__(self, text: str = "", parent=None):
+        super().__init__(text, parent)
+        self._full_text = text
+        self.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+
+    def setText(self, text: str):
+        self._full_text = text
+        self._refresh_elide()
+
+    def setStyleSheet(self, css: str):
+        super().setStyleSheet(css)
+        self._refresh_elide()
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._refresh_elide()
+
+    def _refresh_elide(self):
+        elided = self.fontMetrics().elidedText(self._full_text, Qt.TextElideMode.ElideRight, max(1, self.width()))
+        super().setText(elided)
+        self.setToolTip(self._full_text if elided != self._full_text else "")
+
+
+class AuraToolItemWidget(QFrame):
     """'Tüm araçlar' listesindeki modern, temaya duyarlı ve dinamik buton öğesi."""
     clicked = pyqtSignal(str)
 
     def __init__(self, tool_id: str, label_text: str, icon: QIcon, accent_color: str, parent=None):
         super().__init__(parent)
-        self.setObjectName("ModernToolItemWidget")
+        self.setObjectName("AuraToolItemWidget")
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self.setAttribute(Qt.WidgetAttribute.WA_Hover, True)
         self.tool_id = tool_id
@@ -2302,7 +2329,7 @@ class ModernToolItemWidget(QFrame):
         h.addWidget(self.icon_box)
 
         # 3. Metin
-        self.lbl_text = QLabel(label_text, self)
+        self.lbl_text = ElidedLabel(label_text, self)
         self.lbl_text.setObjectName("DrawerItemText")
         self.lbl_text.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
         h.addWidget(self.lbl_text, stretch=1)
@@ -2331,8 +2358,8 @@ class ModernToolItemWidget(QFrame):
     def _apply_style(self, theme_name: str = "light"):
         self.theme_name = theme_name
         self._style_applied = True
-        c = get_modern_theme_colors(theme_name)
-        item_accent = self.accent_color if (self.accent_color and QColor.isValidColor(self.accent_color)) else c.get('accent', '#38bdf8')
+        c = get_aura_theme_colors(theme_name)
+        item_accent = c['accent']
         ac = QColor(item_accent)
         is_dark = QColor(c.get('surface', '#1c1c1c')).lightness() < 128
 
@@ -2350,12 +2377,12 @@ class ModernToolItemWidget(QFrame):
                 border: none;
             """)
             self.setStyleSheet(f"""
-                QFrame#ModernToolItemWidget {{
+                QFrame#AuraToolItemWidget {{
                     background-color: transparent;
                     border: 1px solid transparent;
                     border-radius: 8px;
                 }}
-                QFrame#ModernToolItemWidget:hover {{
+                QFrame#AuraToolItemWidget:hover {{
                     background-color: {c['surface_hover']};
                     border: 1px solid transparent;
                 }}
@@ -2365,8 +2392,8 @@ class ModernToolItemWidget(QFrame):
             tint_start = f"rgba({ac.red()}, {ac.green()}, {ac.blue()}, 0.22)"
             tint_end = f"rgba({ac.red()}, {ac.green()}, {ac.blue()}, 0.08)"
             border_col = f"rgba({ac.red()}, {ac.green()}, {ac.blue()}, 0.65)"
-            icon_bg = f"rgba({ac.red()}, {ac.green()}, {ac.blue()}, 0.20)"
-            icon_border = f"rgba({ac.red()}, {ac.green()}, {ac.blue()}, 0.40)"
+            icon_bg = "transparent"
+            icon_border = "transparent"
             active_text = "#ffffff" if is_dark else (item_accent if ac.lightness() < 100 else "#0f172a")
 
             self.indicator_pill.setStyleSheet(f"""
@@ -2379,31 +2406,24 @@ class ModernToolItemWidget(QFrame):
                 border-radius: 7px;
             """)
             self.lbl_icon.setStyleSheet("background: transparent; border: none;")
-            self.lbl_active_indicator.setStyleSheet(f"""
-                background-color: {item_accent};
-                border-radius: 3px;
-            """)
+            self.lbl_active_indicator.setStyleSheet("background: transparent; border: none;")
             self.lbl_text.setStyleSheet(f"""
                 color: {active_text};
                 font-size: 13px;
-                font-weight: 700;
+                font-weight: 600;
                 background: transparent;
                 border: none;
             """)
             self.setStyleSheet(f"""
-                QFrame#ModernToolItemWidget {{
-                    background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 {tint_start}, stop:1 {tint_end});
-                    border: 1.5px solid {border_col};
+                QFrame#AuraToolItemWidget {{
+                    background-color: {c['accent_light']};
+                    border: none;
                     border-radius: 8px;
-                }}
-                QFrame#ModernToolItemWidget:hover {{
-                    background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 rgba({ac.red()}, {ac.green()}, {ac.blue()}, 0.28), stop:1 rgba({ac.red()}, {ac.green()}, {ac.blue()}, 0.12));
-                    border: 1.5px solid {item_accent};
                 }}
             """)
 
 
-class ModernNoticeCard(QFrame):
+class AuraNoticeCard(QFrame):
     """
     Tüm sol panel ve çekmecelerde ortak kullanılan ultra-modern, tema duyarlı
     Callout / Bilgilendirme ve Rehber Kartı bileşeni.
@@ -2414,7 +2434,7 @@ class ModernNoticeCard(QFrame):
     """
     def __init__(self, badge_key: str, notice_key: str, icon_factory_func, parent=None):
         super().__init__(parent)
-        self.setObjectName("ModernNoticeCard")
+        self.setObjectName("AuraNoticeCard")
         self.badge_key = badge_key
         self.notice_key = notice_key
         self.icon_factory_func = icon_factory_func
@@ -2462,7 +2482,7 @@ class ModernNoticeCard(QFrame):
 
     def apply_theme(self, theme_name: str = "light"):
         self.theme_name = theme_name
-        c = get_modern_theme_colors(theme_name)
+        c = get_aura_theme_colors(theme_name)
         accent = c.get('accent', '#38bdf8')
         ac = QColor(accent) if QColor.isValidColor(accent) else QColor("#38bdf8")
 
@@ -2477,15 +2497,14 @@ class ModernNoticeCard(QFrame):
         body_text_col = "#f8fafc" if is_dark else "#0f172a"
 
         self.setStyleSheet(f"""
-            QFrame#ModernNoticeCard {{
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                    stop:0 {tint_top}, stop:1 {tint_bot});
-                border: 1px solid {border_col};
+            QFrame#AuraNoticeCard {{
+                background-color: {c['surface_hover']};
+                border: 1px solid {c['border_subtle']};
                 border-radius: 9px;
             }}
             QFrame#NoticeIconBox {{
-                background-color: {icon_bg};
-                border: 1px solid {icon_border};
+                background-color: transparent;
+                border: none;
                 border-radius: 7px;
             }}
             QLabel#NoticeBadgeLabel {{
@@ -2512,7 +2531,7 @@ class ModernNoticeCard(QFrame):
         self.lbl_notice_icon.setPixmap(icon.pixmap(18, 18))
 
 
-class ModernAllToolsPanel(QWidget):
+class AuraAllToolsPanel(QWidget):
     """
     Ekranın solunda yer alan 'Tüm Araçlar' paneli:
     - Başlık: 'Tüm araçlar' + Kapatma (✕)
@@ -2547,7 +2566,7 @@ class ModernAllToolsPanel(QWidget):
         h_head.addStretch(1)
 
         self.btn_close = QToolButton()
-        self.btn_close.setIcon(ModernIconFactory.icon_close())
+        self.btn_close.setIcon(AuraIconFactory.icon_close())
         self.btn_close.setIconSize(QSize(12, 12))
         self.btn_close.setFixedSize(22, 22)
         self.btn_close.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -2556,7 +2575,7 @@ class ModernAllToolsPanel(QWidget):
         main_layout.addLayout(h_head)
 
         # Bilgilendirme ve Rehber Kartı (Modern Callout Card)
-        self.notice_box = ModernNoticeCard("drawer_tools_badge", "drawer_tools_notice", ModernIconFactory.icon_toolbox, self)
+        self.notice_box = AuraNoticeCard("drawer_tools_badge", "drawer_tools_notice", AuraIconFactory.icon_toolbox, self)
         main_layout.addWidget(self.notice_box)
 
         # Kaydırılabilir Araçlar Listesi
@@ -2571,28 +2590,28 @@ class ModernAllToolsPanel(QWidget):
         self.v_tools.setContentsMargins(2, 4, 2, 4)
         self.v_tools.setSpacing(3)
 
-        self.items: Dict[str, ModernToolItemWidget] = {}
+        self.items: Dict[str, AuraToolItemWidget] = {}
         self.tool_keys: Dict[str, str] = {}
         standard_tool_specs = [
-            ("export_pdf", "tool_export_pdf", ModernIconFactory.icon_export_pdf("#0ea5e9"), "#0ea5e9"),
-            ("fill_sign", "tool_fill_sign", ModernIconFactory.icon_fill_sign("#a855f7"), "#a855f7"),
-            ("edit_pdf", "tool_edit_pdf", ModernIconFactory.icon_edit_content("#ec4899"), "#ec4899"),
-            ("create_pdf", "tool_create_pdf", ModernIconFactory.icon_new_document("#ef4444"), "#ef4444"),
-            ("combine_files", "tool_combine_files", ModernIconFactory.icon_combine_files("#38bdf8"), "#38bdf8"),
-            ("organize_pages", "tool_organize_pages", ModernIconFactory.icon_organize("#22c55e"), "#22c55e"),
-            ("add_comments", "tool_add_comments", ModernIconFactory.icon_comments("#f59e0b"), "#f59e0b"),
-            ("scan_ocr", "tool_scan_ocr", ModernIconFactory.icon_ocr("#10b981"), "#10b981"),
-            ("protect_pdf", "tool_protect_pdf", ModernIconFactory.icon_lock("#3b82f6"), "#3b82f6"),
-            ("redact_pdf", "tool_redact_pdf", ModernIconFactory.icon_redact("#ef4444"), "#ef4444"),
-            ("compress_pdf", "tool_compress_pdf", ModernIconFactory.icon_compress("#ef4444"), "#ef4444"),
-            ("compare_files", "tool_compare_files", ModernIconFactory.icon_compare("#a855f7"), "#a855f7"),
-            ("prepare_form", "tool_prepare_form", ModernIconFactory.icon_prepare_form("#a855f7"), "#a855f7"),
-            ("add_stamp", "tool_add_stamp", ModernIconFactory.icon_stamp("#06b6d4"), "#06b6d4"),
+            ("export_pdf", "tool_export_pdf", AuraIconFactory.icon_export_pdf("#0ea5e9"), "#0ea5e9"),
+            ("fill_sign", "tool_fill_sign", AuraIconFactory.icon_fill_sign("#a855f7"), "#a855f7"),
+            ("edit_pdf", "tool_edit_pdf", AuraIconFactory.icon_edit_content("#ec4899"), "#ec4899"),
+            ("create_pdf", "tool_create_pdf", AuraIconFactory.icon_new_document("#ef4444"), "#ef4444"),
+            ("combine_files", "tool_combine_files", AuraIconFactory.icon_combine_files("#38bdf8"), "#38bdf8"),
+            ("organize_pages", "tool_organize_pages", AuraIconFactory.icon_organize("#22c55e"), "#22c55e"),
+            ("add_comments", "tool_add_comments", AuraIconFactory.icon_comments("#f59e0b"), "#f59e0b"),
+            ("scan_ocr", "tool_scan_ocr", AuraIconFactory.icon_ocr("#10b981"), "#10b981"),
+            ("protect_pdf", "tool_protect_pdf", AuraIconFactory.icon_lock("#3b82f6"), "#3b82f6"),
+            ("redact_pdf", "tool_redact_pdf", AuraIconFactory.icon_redact("#ef4444"), "#ef4444"),
+            ("compress_pdf", "tool_compress_pdf", AuraIconFactory.icon_compress("#ef4444"), "#ef4444"),
+            ("compare_files", "tool_compare_files", AuraIconFactory.icon_compare("#a855f7"), "#a855f7"),
+            ("prepare_form", "tool_prepare_form", AuraIconFactory.icon_prepare_form("#a855f7"), "#a855f7"),
+            ("add_stamp", "tool_add_stamp", AuraIconFactory.icon_stamp("#06b6d4"), "#06b6d4"),
         ]
 
         for tid, key, icon, col in standard_tool_specs:
             self.tool_keys[tid] = key
-            item = ModernToolItemWidget(tid, LanguageManager.tr(key), icon, col, parent=tools_container)
+            item = AuraToolItemWidget(tid, LanguageManager.tr(key), icon, col, parent=tools_container)
             item.clicked.connect(self._on_item_clicked)
             self.v_tools.addWidget(item)
             self.items[tid] = item
@@ -2604,12 +2623,12 @@ class ModernAllToolsPanel(QWidget):
         v_extra.setSpacing(2)
 
         extra_tool_specs = [
-            ("print_production", "tool_print_production", ModernIconFactory.icon_print("#6366f1"), "#6366f1"),
+            ("print_production", "tool_print_production", AuraIconFactory.icon_print("#6366f1"), "#6366f1"),
         ]
 
         for tid, key, icon, col in extra_tool_specs:
             self.tool_keys[tid] = key
-            item = ModernToolItemWidget(tid, LanguageManager.tr(key), icon, col, parent=self.extra_tools_container)
+            item = AuraToolItemWidget(tid, LanguageManager.tr(key), icon, col, parent=self.extra_tools_container)
             item.clicked.connect(self._on_item_clicked)
             v_extra.addWidget(item)
             self.items[tid] = item
@@ -2669,12 +2688,12 @@ class ModernAllToolsPanel(QWidget):
 
     def apply_theme(self, theme_name: str = "light"):
         self.theme_name = theme_name
-        c = get_modern_theme_colors(theme_name)
+        c = get_aura_theme_colors(theme_name)
         if hasattr(self, 'notice_box'):
             self.notice_box.apply_theme(theme_name)
         border_css = f"border-right: 1px solid {c['border']};" if getattr(self, 'dock_side', 'left') == "left" else f"border-left: 1px solid {c['border']};"
         self.setStyleSheet(f"""
-            ModernAllToolsPanel {{
+            AuraAllToolsPanel {{
                 background-color: {c['surface']};
                 {border_css}
             }}
@@ -2736,15 +2755,15 @@ class ModernAllToolsPanel(QWidget):
             }}
         """)
         if hasattr(self, 'btn_close'):
-            self.btn_close.setIcon(ModernIconFactory.icon_close(c['text']))
+            self.btn_close.setIcon(AuraIconFactory.icon_close(c['text']))
         for item in self.items.values():
             item._apply_style(theme_name)
 
 
 # ==============================================================================
-# 3A. BAĞLAMSAL ÇEKMECELER (ModernExportDrawer & ModernEditDrawer)
+# 3A. BAĞLAMSAL ÇEKMECELER (AuraExportDrawer & AuraEditDrawer)
 # ==============================================================================
-class ModernDrawerItemWidget(QFrame):
+class AuraDrawerItemWidget(QFrame):
     """
     Bağlamsal sol çekmecelerdeki (Dışa Aktar, Düzenle, Okuma, E-İmza, Form)
     seçim belirginliği ve görsel hiyerarşisi tam uyumlu modern öğe bileşeni.
@@ -2756,7 +2775,7 @@ class ModernDrawerItemWidget(QFrame):
 
     def __init__(self, item_id: str, title: str, icon: Any, badge_text: str = "", is_ready: bool = True, accent_color: Optional[str] = None, parent=None):
         super().__init__(parent)
-        self.setObjectName("ModernDrawerItemWidget")
+        self.setObjectName("AuraDrawerItemWidget")
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self.item_id = item_id
         self.title = title
@@ -2800,7 +2819,7 @@ class ModernDrawerItemWidget(QFrame):
         h.addWidget(self.icon_box)
 
         # 3. Metin
-        self.lbl_text = QLabel(title, self)
+        self.lbl_text = ElidedLabel(title, self)
         self.lbl_text.setObjectName("DrawerItemText")
         self.lbl_text.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
         h.addWidget(self.lbl_text, stretch=1)
@@ -2858,13 +2877,13 @@ class ModernDrawerItemWidget(QFrame):
     def _apply_style(self, theme_name: str = "light"):
         self.theme_name = theme_name
         self._style_applied = True
-        c = get_modern_theme_colors(theme_name)
-        item_accent = self.accent_color if (getattr(self, 'accent_color', None) and QColor.isValidColor(self.accent_color)) else c.get('accent', '#38bdf8')
+        c = get_aura_theme_colors(theme_name)
+        item_accent = c['accent']
         ac = QColor(item_accent)
         is_dark = QColor(c.get('surface', '#1c1c1c')).lightness() < 128
 
         badge_css = """
-            QFrame#ModernDrawerItemWidget QLabel#DrawerItemBadge {
+            QFrame#AuraDrawerItemWidget QLabel#DrawerItemBadge {
                 background-color: rgba(34, 197, 94, 0.15);
                 color: #4ade80;
                 border: 1px solid rgba(34, 197, 94, 0.35);
@@ -2889,12 +2908,12 @@ class ModernDrawerItemWidget(QFrame):
                 border: none;
             """)
             self.setStyleSheet(f"""
-                QFrame#ModernDrawerItemWidget {{
+                QFrame#AuraDrawerItemWidget {{
                     background-color: transparent;
                     border: 1px solid transparent;
                     border-radius: 8px;
                 }}
-                QFrame#ModernDrawerItemWidget:hover {{
+                QFrame#AuraDrawerItemWidget:hover {{
                     background-color: {c['surface_hover']};
                     border: 1px solid transparent;
                 }}
@@ -2905,8 +2924,8 @@ class ModernDrawerItemWidget(QFrame):
             tint_start = f"rgba({ac.red()}, {ac.green()}, {ac.blue()}, 0.22)"
             tint_end = f"rgba({ac.red()}, {ac.green()}, {ac.blue()}, 0.08)"
             border_col = f"rgba({ac.red()}, {ac.green()}, {ac.blue()}, 0.65)"
-            icon_bg = f"rgba({ac.red()}, {ac.green()}, {ac.blue()}, 0.20)"
-            icon_border = f"rgba({ac.red()}, {ac.green()}, {ac.blue()}, 0.40)"
+            icon_bg = "transparent"
+            icon_border = "transparent"
             active_text = "#ffffff" if is_dark else (item_accent if ac.lightness() < 100 else "#0f172a")
 
             self.indicator_pill.setStyleSheet(f"""
@@ -2919,32 +2938,25 @@ class ModernDrawerItemWidget(QFrame):
                 border-radius: 7px;
             """)
             self.lbl_icon.setStyleSheet("background: transparent; border: none;")
-            self.lbl_active_indicator.setStyleSheet(f"""
-                background-color: {item_accent};
-                border-radius: 3px;
-            """)
+            self.lbl_active_indicator.setStyleSheet("background: transparent; border: none;")
             self.lbl_text.setStyleSheet(f"""
                 color: {active_text};
                 font-size: 13px;
-                font-weight: 700;
+                font-weight: 600;
                 background: transparent;
                 border: none;
             """)
             self.setStyleSheet(f"""
-                QFrame#ModernDrawerItemWidget {{
-                    background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 {tint_start}, stop:1 {tint_end});
-                    border: 1.5px solid {border_col};
+                QFrame#AuraDrawerItemWidget {{
+                    background-color: {c['accent_light']};
+                    border: none;
                     border-radius: 8px;
-                }}
-                QFrame#ModernDrawerItemWidget:hover {{
-                    background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 rgba({ac.red()}, {ac.green()}, {ac.blue()}, 0.28), stop:1 rgba({ac.red()}, {ac.green()}, {ac.blue()}, 0.12));
-                    border: 1.5px solid {item_accent};
                 }}
                 {badge_css}
             """)
 
 
-class ModernExportDrawer(QWidget):
+class AuraExportDrawer(QWidget):
     """
     Ekranın solundaki 'Export a PDF' çekmecesi:
     - Geri butonu (<) ve Başlık 'Export a PDF' + Kapatma (✕)
@@ -2972,7 +2984,7 @@ class ModernExportDrawer(QWidget):
         h_head.setContentsMargins(2, 0, 2, 4)
 
         btn_back = QToolButton()
-        btn_back.setIcon(ModernIconFactory.icon_nav_back())
+        btn_back.setIcon(AuraIconFactory.icon_nav_back())
         btn_back.setIconSize(QSize(12, 12))
         btn_back.setFixedSize(22, 22)
         btn_back.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -2985,7 +2997,7 @@ class ModernExportDrawer(QWidget):
         h_head.addStretch(1)
 
         self.btn_close = QToolButton()
-        self.btn_close.setIcon(ModernIconFactory.icon_close())
+        self.btn_close.setIcon(AuraIconFactory.icon_close())
         self.btn_close.setIconSize(QSize(12, 12))
         self.btn_close.setFixedSize(22, 22)
         self.btn_close.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -2994,7 +3006,7 @@ class ModernExportDrawer(QWidget):
         main_layout.addLayout(h_head)
 
         # Bilgilendirme ve Rehber Kartı (Modern Callout Card)
-        self.notice_box = ModernNoticeCard("drawer_export_badge", "drawer_export_notice", ModernIconFactory.icon_export_pdf, self)
+        self.notice_box = AuraNoticeCard("drawer_export_badge", "drawer_export_notice", AuraIconFactory.icon_export_pdf, self)
         main_layout.addWidget(self.notice_box)
 
         # Kategori Başlığı: EXPORT TO
@@ -3014,21 +3026,21 @@ class ModernExportDrawer(QWidget):
         v_items.setContentsMargins(2, 4, 2, 4)
         v_items.setSpacing(3)
 
-        self.items: List[ModernDrawerItemWidget] = []
+        self.items: List[AuraDrawerItemWidget] = []
         self.specs = [
-            ("word", "drawer_export_word", ModernIconFactory.icon_word("#0284c7"), "", True, "#0284c7"),
-            ("xlsx", "drawer_export_xlsx", ModernIconFactory.icon_excel("#10b981"), "", True, "#10b981"),
-            ("pptx", "drawer_export_pptx", ModernIconFactory.icon_pptx("#ea580c"), "", True, "#ea580c"),
-            ("png", "drawer_export_png", ModernIconFactory.icon_image("#0ea5e9"), "", True, "#0ea5e9"),
-            ("all_images", "drawer_export_all_images", ModernIconFactory.icon_image_gallery("#38bdf8"), "", True, "#38bdf8"),
-            ("html", "drawer_export_html", ModernIconFactory.icon_html("#f97316"), "", True, "#f97316"),
-            ("rtf", "drawer_export_rtf", ModernIconFactory.icon_txt("#14b8a6"), "", True, "#14b8a6"),
-            ("txt", "drawer_export_txt", ModernIconFactory.icon_txt("#64748b"), "", True, "#64748b"),
-            ("eps", "drawer_export_eps", ModernIconFactory.icon_eps("#8b5cf6"), "", True, "#8b5cf6"),
+            ("word", "drawer_export_word", AuraIconFactory.icon_word("#0284c7"), "", True, "#0284c7"),
+            ("xlsx", "drawer_export_xlsx", AuraIconFactory.icon_excel("#10b981"), "", True, "#10b981"),
+            ("pptx", "drawer_export_pptx", AuraIconFactory.icon_pptx("#ea580c"), "", True, "#ea580c"),
+            ("png", "drawer_export_png", AuraIconFactory.icon_image("#0ea5e9"), "", True, "#0ea5e9"),
+            ("all_images", "drawer_export_all_images", AuraIconFactory.icon_image_gallery("#38bdf8"), "", True, "#38bdf8"),
+            ("html", "drawer_export_html", AuraIconFactory.icon_html("#f97316"), "", True, "#f97316"),
+            ("rtf", "drawer_export_rtf", AuraIconFactory.icon_txt("#14b8a6"), "", True, "#14b8a6"),
+            ("txt", "drawer_export_txt", AuraIconFactory.icon_txt("#64748b"), "", True, "#64748b"),
+            ("eps", "drawer_export_eps", AuraIconFactory.icon_eps("#8b5cf6"), "", True, "#8b5cf6"),
         ]
 
         for cid, key, icon, badge, is_ready, col in self.specs:
-            it = ModernDrawerItemWidget(cid, LanguageManager.tr(key), icon, badge, is_ready, accent_color=col, parent=container)
+            it = AuraDrawerItemWidget(cid, LanguageManager.tr(key), icon, badge, is_ready, accent_color=col, parent=container)
             it.clicked.connect(self._on_item_clicked)
             v_items.addWidget(it)
             self.items.append(it)
@@ -3069,13 +3081,13 @@ class ModernExportDrawer(QWidget):
 
     def apply_theme(self, theme_name: str = "light"):
         self.theme_name = theme_name
-        c = get_modern_theme_colors(theme_name)
+        c = get_aura_theme_colors(theme_name)
         if hasattr(self, 'notice_box'):
             self.notice_box.apply_theme(theme_name)
         self._update_item_active_states()
         border_css = f"border-right: 1px solid {c['border']};" if getattr(self, 'dock_side', 'left') == "left" else f"border-left: 1px solid {c['border']};"
         self.setStyleSheet(f"""
-            ModernExportDrawer {{
+            AuraExportDrawer {{
                 background-color: {c['surface']};
                 {border_css}
             }}
@@ -3131,11 +3143,11 @@ class ModernExportDrawer(QWidget):
             }}
         """)
         if hasattr(self, 'btn_close'):
-            self.btn_close.setIcon(ModernIconFactory.icon_close(c['text']))
+            self.btn_close.setIcon(AuraIconFactory.icon_close(c['text']))
         self._update_item_active_states()
 
 
-class ModernEditDrawer(QWidget):
+class AuraEditDrawer(QWidget):
     """
     Ekranın solundaki 'Edit a PDF' çekmecesi:
     - Geri butonu (<) ve Başlık 'Edit a PDF' + Kapatma (✕)
@@ -3164,7 +3176,7 @@ class ModernEditDrawer(QWidget):
         h_head.setContentsMargins(2, 0, 2, 4)
 
         btn_back = QToolButton()
-        btn_back.setIcon(ModernIconFactory.icon_nav_back())
+        btn_back.setIcon(AuraIconFactory.icon_nav_back())
         btn_back.setIconSize(QSize(12, 12))
         btn_back.setFixedSize(22, 22)
         btn_back.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -3177,7 +3189,7 @@ class ModernEditDrawer(QWidget):
         h_head.addStretch(1)
 
         self.btn_close = QToolButton()
-        self.btn_close.setIcon(ModernIconFactory.icon_close())
+        self.btn_close.setIcon(AuraIconFactory.icon_close())
         self.btn_close.setIconSize(QSize(12, 12))
         self.btn_close.setFixedSize(22, 22)
         self.btn_close.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -3186,7 +3198,7 @@ class ModernEditDrawer(QWidget):
         main_layout.addLayout(h_head)
 
         # Bilgilendirme ve Rehber Kartı (Modern Callout Card)
-        self.notice_box = ModernNoticeCard("drawer_edit_badge", "drawer_edit_notice", ModernIconFactory.icon_edit_content, self)
+        self.notice_box = AuraNoticeCard("drawer_edit_badge", "drawer_edit_notice", AuraIconFactory.icon_edit_content, self)
         main_layout.addWidget(self.notice_box)
 
         # Kaydırma Alanı
@@ -3201,7 +3213,7 @@ class ModernEditDrawer(QWidget):
         v_items.setContentsMargins(2, 4, 2, 4)
         v_items.setSpacing(3)
 
-        self.items: List[ModernDrawerItemWidget] = []
+        self.items: List[AuraDrawerItemWidget] = []
 
         # Grup 1: MODIFY PAGE
         self.lbl_g1 = QLabel(LanguageManager.tr("drawer_group_modify_page"))
@@ -3209,14 +3221,14 @@ class ModernEditDrawer(QWidget):
         v_items.addWidget(self.lbl_g1)
 
         self.specs_modify = [
-            ("rotate", "drawer_edit_rotate", ModernIconFactory.icon_rotate("#0ea5e9"), "", True, "#0ea5e9"),
-            ("insert", "drawer_edit_insert", ModernIconFactory.icon_insert("#22c55e"), "", True, "#22c55e"),
-            ("delete", "drawer_edit_delete", ModernIconFactory.icon_trash("#ef4444"), "", True, "#ef4444"),
-            ("extract", "drawer_edit_extract", ModernIconFactory.icon_extract("#f59e0b"), "", True, "#f59e0b"),
-            ("organize", "tool_organize_pages", ModernIconFactory.icon_organize("#10b981"), "", True, "#10b981"),
+            ("rotate", "drawer_edit_rotate", AuraIconFactory.icon_rotate("#0ea5e9"), "", True, "#0ea5e9"),
+            ("insert", "drawer_edit_insert", AuraIconFactory.icon_insert("#22c55e"), "", True, "#22c55e"),
+            ("delete", "drawer_edit_delete", AuraIconFactory.icon_trash("#ef4444"), "", True, "#ef4444"),
+            ("extract", "drawer_edit_extract", AuraIconFactory.icon_extract("#f59e0b"), "", True, "#f59e0b"),
+            ("organize", "tool_organize_pages", AuraIconFactory.icon_organize("#10b981"), "", True, "#10b981"),
         ]
         for cid, key, icon, badge, is_ready, col in self.specs_modify:
-            it = ModernDrawerItemWidget(cid, LanguageManager.tr(key), icon, badge, is_ready, accent_color=col, parent=container)
+            it = AuraDrawerItemWidget(cid, LanguageManager.tr(key), icon, badge, is_ready, accent_color=col, parent=container)
             it.clicked.connect(self._on_item_clicked)
             v_items.addWidget(it)
             self.items.append(it)
@@ -3227,19 +3239,19 @@ class ModernEditDrawer(QWidget):
         v_items.addWidget(self.lbl_g2)
 
         self.specs_add = [
-            ("edit_text_images", "drawer_edit_text_images", ModernIconFactory.icon_edit_content("#ec4899"), "", True, "#ec4899"),
-            ("text", "drawer_edit_text", ModernIconFactory.icon_text_tool("#8b5cf6"), "", True, "#8b5cf6"),
-            ("image", "drawer_edit_image", ModernIconFactory.icon_image("#38bdf8"), "", True, "#38bdf8"),
-            ("add_gif", "drawer_edit_gif", ModernIconFactory.icon_gif("#f59e0b"), "", True, "#f59e0b"),
-            ("header_footer", "drawer_edit_header_footer", ModernIconFactory.icon_header_footer("#06b6d4"), "", True, "#06b6d4"),
-            ("watermark", "drawer_edit_watermark", ModernIconFactory.icon_watermark("#0284c7"), "", True, "#0284c7"),
-            ("link", "drawer_edit_link", ModernIconFactory.icon_link("#6366f1"), "", True, "#6366f1"),
-            ("bates", "drawer_edit_bates", ModernIconFactory.icon_bates("#a855f7"), "", True, "#a855f7"),
-            ("background", "drawer_edit_background", ModernIconFactory.icon_background("#d946ef"), "", True, "#d946ef"),
-            ("attach", "drawer_edit_attach", ModernIconFactory.icon_attachment("#ea580c"), "", True, "#ea580c"),
+            ("edit_text_images", "drawer_edit_text_images", AuraIconFactory.icon_edit_content("#ec4899"), "", True, "#ec4899"),
+            ("text", "drawer_edit_text", AuraIconFactory.icon_text_tool("#8b5cf6"), "", True, "#8b5cf6"),
+            ("image", "drawer_edit_image", AuraIconFactory.icon_image("#38bdf8"), "", True, "#38bdf8"),
+            ("add_gif", "drawer_edit_gif", AuraIconFactory.icon_gif("#f59e0b"), "", True, "#f59e0b"),
+            ("header_footer", "drawer_edit_header_footer", AuraIconFactory.icon_header_footer("#06b6d4"), "", True, "#06b6d4"),
+            ("watermark", "drawer_edit_watermark", AuraIconFactory.icon_watermark("#0284c7"), "", True, "#0284c7"),
+            ("link", "drawer_edit_link", AuraIconFactory.icon_link("#6366f1"), "", True, "#6366f1"),
+            ("bates", "drawer_edit_bates", AuraIconFactory.icon_bates("#a855f7"), "", True, "#a855f7"),
+            ("background", "drawer_edit_background", AuraIconFactory.icon_background("#d946ef"), "", True, "#d946ef"),
+            ("attach", "drawer_edit_attach", AuraIconFactory.icon_attachment("#ea580c"), "", True, "#ea580c"),
         ]
         for cid, key, icon, badge, is_ready, col in self.specs_add:
-            it = ModernDrawerItemWidget(cid, LanguageManager.tr(key), icon, badge, is_ready, accent_color=col, parent=container)
+            it = AuraDrawerItemWidget(cid, LanguageManager.tr(key), icon, badge, is_ready, accent_color=col, parent=container)
             it.clicked.connect(self._on_item_clicked)
             v_items.addWidget(it)
             self.items.append(it)
@@ -3282,13 +3294,13 @@ class ModernEditDrawer(QWidget):
 
     def apply_theme(self, theme_name: str = "light"):
         self.theme_name = theme_name
-        c = get_modern_theme_colors(theme_name)
+        c = get_aura_theme_colors(theme_name)
         if hasattr(self, 'notice_box'):
             self.notice_box.apply_theme(theme_name)
         self._update_item_active_states()
         border_css = f"border-right: 1px solid {c['border']};" if getattr(self, 'dock_side', 'left') == "left" else f"border-left: 1px solid {c['border']};"
         self.setStyleSheet(f"""
-            ModernEditDrawer {{
+            AuraEditDrawer {{
                 background-color: {c['surface']};
                 {border_css}
             }}
@@ -3344,11 +3356,11 @@ class ModernEditDrawer(QWidget):
             }}
         """)
         if hasattr(self, 'btn_close'):
-            self.btn_close.setIcon(ModernIconFactory.icon_close(c['text']))
+            self.btn_close.setIcon(AuraIconFactory.icon_close(c['text']))
         self._update_item_active_states()
 
 
-class ModernReadDrawer(QFrame):
+class AuraReadDrawer(QFrame):
     """
     Sadece okuma ve renk modlarını barındıran modern sol çekmece.
     - Grup 1: SAYFA DÜZENİ (Tekli, İkili, Tam Ekran)
@@ -3378,7 +3390,7 @@ class ModernReadDrawer(QFrame):
         h_head.setSpacing(6)
 
         btn_back = QToolButton(self)
-        btn_back.setIcon(ModernIconFactory.icon_nav_back())
+        btn_back.setIcon(AuraIconFactory.icon_nav_back())
         btn_back.setIconSize(QSize(12, 12))
         btn_back.setFixedSize(22, 22)
         btn_back.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -3392,7 +3404,7 @@ class ModernReadDrawer(QFrame):
         h_head.addStretch(1)
 
         self.btn_close = QToolButton(self)
-        self.btn_close.setIcon(ModernIconFactory.icon_close())
+        self.btn_close.setIcon(AuraIconFactory.icon_close())
         self.btn_close.setIconSize(QSize(12, 12))
         self.btn_close.setFixedSize(22, 22)
         self.btn_close.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -3401,7 +3413,7 @@ class ModernReadDrawer(QFrame):
         main_layout.addLayout(h_head)
 
         # Bilgilendirme ve Rehber Kartı (Modern Callout Card)
-        self.notice_box = ModernNoticeCard("drawer_read_badge", "drawer_read_notice", ModernIconFactory.icon_reading_mode, self)
+        self.notice_box = AuraNoticeCard("drawer_read_badge", "drawer_read_notice", AuraIconFactory.icon_reading_mode, self)
         main_layout.addWidget(self.notice_box)
 
         # Kaydırma Alanı
@@ -3416,7 +3428,7 @@ class ModernReadDrawer(QFrame):
         v_items.setContentsMargins(2, 4, 2, 4)
         v_items.setSpacing(3)
 
-        self.items: List[ModernDrawerItemWidget] = []
+        self.items: List[AuraDrawerItemWidget] = []
 
         # Grup 1: SAYFA DÜZENİ
         self.lbl_g1 = QLabel(LanguageManager.tr("view_mode_group"))
@@ -3424,12 +3436,12 @@ class ModernReadDrawer(QFrame):
         v_items.addWidget(self.lbl_g1)
 
         self.specs_layout = [
-            ("view_single", "view_mode_single", lambda: ModernIconFactory.icon_view_single("#38bdf8"), "", True, "#38bdf8"),
-            ("view_double", "view_mode_double", lambda: ModernIconFactory.icon_view_double("#0ea5e9"), "", True, "#0ea5e9"),
-            ("view_fullscreen", "tb_item_fullscreen", lambda: ModernIconFactory.icon_fullscreen("#8b5cf6"), "", True, "#8b5cf6"),
+            ("view_single", "view_mode_single", lambda: AuraIconFactory.icon_view_single("#38bdf8"), "", True, "#38bdf8"),
+            ("view_double", "view_mode_double", lambda: AuraIconFactory.icon_view_double("#0ea5e9"), "", True, "#0ea5e9"),
+            ("view_fullscreen", "tb_item_fullscreen", lambda: AuraIconFactory.icon_fullscreen("#8b5cf6"), "", True, "#8b5cf6"),
         ]
         for cid, key, icon_func, badge, is_ready, col in self.specs_layout:
-            it = ModernDrawerItemWidget(cid, LanguageManager.tr(key), icon_func, badge, is_ready, accent_color=col, parent=container)
+            it = AuraDrawerItemWidget(cid, LanguageManager.tr(key), icon_func, badge, is_ready, accent_color=col, parent=container)
             it.clicked.connect(self._on_item_clicked)
             v_items.addWidget(it)
             self.items.append(it)
@@ -3440,12 +3452,12 @@ class ModernReadDrawer(QFrame):
         v_items.addWidget(self.lbl_g2)
 
         self.specs_color = [
-            ("color_normal", "reading_mode_normal", lambda: ModernIconFactory.icon_reading_mode("#fbbf24"), "", True, "#fbbf24"),
-            ("color_dark", "reading_mode_dark", lambda: ModernIconFactory.icon_reading_dark("#a855f7"), "", True, "#a855f7"),
-            ("color_sepia", "reading_mode_sepia", lambda: ModernIconFactory.icon_reading_sepia("#f97316"), "", True, "#f97316"),
+            ("color_normal", "reading_mode_normal", lambda: AuraIconFactory.icon_reading_mode("#fbbf24"), "", True, "#fbbf24"),
+            ("color_dark", "reading_mode_dark", lambda: AuraIconFactory.icon_reading_dark("#a855f7"), "", True, "#a855f7"),
+            ("color_sepia", "reading_mode_sepia", lambda: AuraIconFactory.icon_reading_sepia("#f97316"), "", True, "#f97316"),
         ]
         for cid, key, icon_func, badge, is_ready, col in self.specs_color:
-            it = ModernDrawerItemWidget(cid, LanguageManager.tr(key), icon_func, badge, is_ready, accent_color=col, parent=container)
+            it = AuraDrawerItemWidget(cid, LanguageManager.tr(key), icon_func, badge, is_ready, accent_color=col, parent=container)
             it.clicked.connect(self._on_item_clicked)
             v_items.addWidget(it)
             self.items.append(it)
@@ -3483,7 +3495,7 @@ class ModernReadDrawer(QFrame):
         tab_doc = self.main_window.get_current_tab_doc()
         if not tab_doc:
             return
-        layout_mode = getattr(tab_doc, 'page_layout', 'single')
+        layout_mode = getattr(tab_doc, 'page_view_mode', 'single')
         if layout_mode == 'single':
             self._current_layout_mode = 'view_single'
         elif layout_mode == 'double':
@@ -3519,14 +3531,14 @@ class ModernReadDrawer(QFrame):
 
     def apply_theme(self, theme_name: str = "light"):
         self.theme_name = theme_name
-        c = get_modern_theme_colors(theme_name)
+        c = get_aura_theme_colors(theme_name)
         if hasattr(self, 'notice_box'):
             self.notice_box.apply_theme(theme_name)
         self._update_item_active_states()
 
         border_css = f"border-right: 1px solid {c['border']};" if getattr(self, 'dock_side', 'left') == "left" else f"border-left: 1px solid {c['border']};"
         self.setStyleSheet(f"""
-            ModernReadDrawer {{
+            AuraReadDrawer {{
                 background-color: {c['surface']};
                 {border_css}
             }}
@@ -3583,13 +3595,13 @@ class ModernReadDrawer(QFrame):
             }}
         """)
         if hasattr(self, 'btn_close'):
-            self.btn_close.setIcon(ModernIconFactory.icon_close(c['text']))
+            self.btn_close.setIcon(AuraIconFactory.icon_close(c['text']))
         if hasattr(self, 'btn_back'):
-            self.btn_back.setIcon(ModernIconFactory.icon_nav_back(c['text']))
+            self.btn_back.setIcon(AuraIconFactory.icon_nav_back(c['text']))
         self._update_item_active_states()
 
 
-class ModernFillSignDrawer(QWidget):
+class AuraFillSignDrawer(QWidget):
     """
     Ekranın solundaki 'Fill & Sign' (Doldur ve İmzala / E-İmza) çekmecesi:
     - Geri butonu (<) ve Başlık 'Fill & Sign' + Kapatma (✕)
@@ -3624,7 +3636,7 @@ class ModernFillSignDrawer(QWidget):
         h_head.setContentsMargins(2, 0, 2, 4)
 
         btn_back = QToolButton()
-        btn_back.setIcon(ModernIconFactory.icon_nav_back())
+        btn_back.setIcon(AuraIconFactory.icon_nav_back())
         btn_back.setIconSize(QSize(12, 12))
         btn_back.setFixedSize(22, 22)
         btn_back.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -3637,7 +3649,7 @@ class ModernFillSignDrawer(QWidget):
         h_head.addStretch(1)
 
         self.btn_close = QToolButton()
-        self.btn_close.setIcon(ModernIconFactory.icon_close())
+        self.btn_close.setIcon(AuraIconFactory.icon_close())
         self.btn_close.setIconSize(QSize(12, 12))
         self.btn_close.setFixedSize(22, 22)
         self.btn_close.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -3646,7 +3658,7 @@ class ModernFillSignDrawer(QWidget):
         main_layout.addLayout(h_head)
 
         # Bilgilendirme ve Rehber Kartı (Modern Callout Card)
-        self.notice_box = ModernNoticeCard("drawer_fillsign_badge", "drawer_fillsign_notice", ModernIconFactory.icon_signature, self)
+        self.notice_box = AuraNoticeCard("drawer_fillsign_badge", "drawer_fillsign_notice", AuraIconFactory.icon_signature, self)
         main_layout.addWidget(self.notice_box)
 
         # Kategori Başlığı: FILL
@@ -3666,20 +3678,20 @@ class ModernFillSignDrawer(QWidget):
         v_items.setContentsMargins(2, 4, 2, 4)
         v_items.setSpacing(3)
 
-        self.items: List[ModernDrawerItemWidget] = []
+        self.items: List[AuraDrawerItemWidget] = []
         self.specs = [
-            ("add_text", "drawer_fillsign_add_text", lambda: ModernIconFactory.icon_text_tool("#38bdf8"), "#38bdf8"),
-            ("checkmark", "drawer_fillsign_checkmark", lambda: ModernIconFactory.icon_check("#22c55e"), "#22c55e"),
-            ("cross", "drawer_fillsign_cross", lambda: ModernIconFactory.icon_cross("#ef4444"), "#ef4444"),
-            ("dot", "drawer_fillsign_dot", lambda: ModernIconFactory.icon_dot("#f59e0b"), "#f59e0b"),
-            ("line", "drawer_fillsign_line", lambda: ModernIconFactory.icon_line("#8b5cf6"), "#8b5cf6"),
-            ("date", "drawer_fillsign_date", lambda: ModernIconFactory.icon_date("#06b6d4"), "#06b6d4"),
-            ("signature", "drawer_fillsign_signature", lambda: ModernIconFactory.icon_signature("#a855f7"), "#a855f7"),
-            ("initials", "drawer_fillsign_initials", lambda: ModernIconFactory.icon_initials("#ec4899"), "#ec4899"),
+            ("add_text", "drawer_fillsign_add_text", lambda: AuraIconFactory.icon_text_tool("#38bdf8"), "#38bdf8"),
+            ("checkmark", "drawer_fillsign_checkmark", lambda: AuraIconFactory.icon_check("#22c55e"), "#22c55e"),
+            ("cross", "drawer_fillsign_cross", lambda: AuraIconFactory.icon_cross("#ef4444"), "#ef4444"),
+            ("dot", "drawer_fillsign_dot", lambda: AuraIconFactory.icon_dot("#f59e0b"), "#f59e0b"),
+            ("line", "drawer_fillsign_line", lambda: AuraIconFactory.icon_line("#8b5cf6"), "#8b5cf6"),
+            ("date", "drawer_fillsign_date", lambda: AuraIconFactory.icon_date("#06b6d4"), "#06b6d4"),
+            ("signature", "drawer_fillsign_signature", lambda: AuraIconFactory.icon_signature("#a855f7"), "#a855f7"),
+            ("initials", "drawer_fillsign_initials", lambda: AuraIconFactory.icon_initials("#ec4899"), "#ec4899"),
         ]
 
         for cid, key, icon_func, col in self.specs:
-            it = ModernDrawerItemWidget(cid, LanguageManager.tr(key), icon_func, badge_text="", is_ready=True, accent_color=col, parent=container)
+            it = AuraDrawerItemWidget(cid, LanguageManager.tr(key), icon_func, badge_text="", is_ready=True, accent_color=col, parent=container)
             it.clicked.connect(self._on_item_clicked)
             v_items.addWidget(it)
             self.items.append(it)
@@ -3720,13 +3732,13 @@ class ModernFillSignDrawer(QWidget):
 
     def apply_theme(self, theme_name: str = "gray"):
         self.theme_name = theme_name
-        c = get_modern_theme_colors(theme_name)
+        c = get_aura_theme_colors(theme_name)
         if hasattr(self, 'notice_box'):
             self.notice_box.apply_theme(theme_name)
         self._update_item_active_states()
         border_css = f"border-right: 1px solid {c['border']};" if getattr(self, 'dock_side', 'left') == "left" else f"border-left: 1px solid {c['border']};"
         self.setStyleSheet(f"""
-            ModernFillSignDrawer {{
+            AuraFillSignDrawer {{
                 background-color: {c['surface']};
                 {border_css}
             }}
@@ -3782,11 +3794,11 @@ class ModernFillSignDrawer(QWidget):
             }}
         """)
         if hasattr(self, 'btn_close'):
-            self.btn_close.setIcon(ModernIconFactory.icon_close(c['text']))
+            self.btn_close.setIcon(AuraIconFactory.icon_close(c['text']))
         self._update_item_active_states()
 
 
-class ModernPrepareFormDrawer(QWidget):
+class AuraPrepareFormDrawer(QWidget):
     """
     Ekranın solundaki 'Form Hazırla' (Prepare Form) çekmecesi:
     - Geri butonu (<), Başlık 'Form Hazırla', Kapatma butonu (✕)
@@ -3825,7 +3837,7 @@ class ModernPrepareFormDrawer(QWidget):
         h_head.setContentsMargins(2, 0, 2, 4)
 
         btn_back = QToolButton()
-        btn_back.setIcon(ModernIconFactory.icon_nav_back())
+        btn_back.setIcon(AuraIconFactory.icon_nav_back())
         btn_back.setIconSize(QSize(12, 12))
         btn_back.setFixedSize(22, 22)
         btn_back.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -3838,7 +3850,7 @@ class ModernPrepareFormDrawer(QWidget):
         h_head.addStretch(1)
 
         self.btn_close = QToolButton()
-        self.btn_close.setIcon(ModernIconFactory.icon_close())
+        self.btn_close.setIcon(AuraIconFactory.icon_close())
         self.btn_close.setIconSize(QSize(12, 12))
         self.btn_close.setFixedSize(22, 22)
         self.btn_close.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -3847,14 +3859,14 @@ class ModernPrepareFormDrawer(QWidget):
         main_layout.addLayout(h_head)
 
         # Bilgilendirme ve Rehber Kartı (Modern Callout Card)
-        self.notice_box = ModernNoticeCard("drawer_prepare_form_badge", "drawer_prepare_form_notice", ModernIconFactory.icon_prepare_form, self)
+        self.notice_box = AuraNoticeCard("drawer_prepare_form_badge", "drawer_prepare_form_notice", AuraIconFactory.icon_prepare_form, self)
         main_layout.addWidget(self.notice_box)
 
         # Mod Değiştirme Butonu (Tasarım Modu <-> Önizleme & Doldur)
         self.btn_mode_toggle = QPushButton(LanguageManager.tr("form_mode_preview"))
         self.btn_mode_toggle.setCheckable(True)
         self.btn_mode_toggle.setChecked(False)
-        self.btn_mode_toggle.setIcon(ModernIconFactory.icon_view_single())
+        self.btn_mode_toggle.setIcon(AuraIconFactory.icon_view_single())
         self.btn_mode_toggle.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_mode_toggle.clicked.connect(self._on_mode_toggled)
         main_layout.addWidget(self.btn_mode_toggle)
@@ -3876,17 +3888,17 @@ class ModernPrepareFormDrawer(QWidget):
         self.lbl_add_group.setObjectName("CategoryHeader")
         v_items.addWidget(self.lbl_add_group)
 
-        self.items: List[ModernDrawerItemWidget] = []
+        self.items: List[AuraDrawerItemWidget] = []
         self.specs = [
-            ("form_text", "form_field_text", lambda: ModernIconFactory.icon_text_tool("#38bdf8"), "#38bdf8"),
-            ("form_checkbox", "form_field_checkbox", lambda: ModernIconFactory.icon_check("#22c55e"), "#22c55e"),
-            ("form_radio", "form_field_radio", lambda: ModernIconFactory.icon_dot("#f59e0b"), "#f59e0b"),
-            ("form_combobox", "form_field_combobox", lambda: ModernIconFactory.icon_menu_hamburger("#8b5cf6"), "#8b5cf6"),
-            ("form_signature", "form_field_signature", lambda: ModernIconFactory.icon_signature("#ec4899"), "#ec4899"),
+            ("form_text", "form_field_text", lambda: AuraIconFactory.icon_text_tool("#38bdf8"), "#38bdf8"),
+            ("form_checkbox", "form_field_checkbox", lambda: AuraIconFactory.icon_check("#22c55e"), "#22c55e"),
+            ("form_radio", "form_field_radio", lambda: AuraIconFactory.icon_dot("#f59e0b"), "#f59e0b"),
+            ("form_combobox", "form_field_combobox", lambda: AuraIconFactory.icon_menu_hamburger("#8b5cf6"), "#8b5cf6"),
+            ("form_signature", "form_field_signature", lambda: AuraIconFactory.icon_signature("#ec4899"), "#ec4899"),
         ]
 
         for cid, key, icon_func, col in self.specs:
-            it = ModernDrawerItemWidget(cid, LanguageManager.tr(key), icon_func, badge_text="", is_ready=True, accent_color=col, parent=container)
+            it = AuraDrawerItemWidget(cid, LanguageManager.tr(key), icon_func, badge_text="", is_ready=True, accent_color=col, parent=container)
             it.clicked.connect(self._on_item_clicked)
             v_items.addWidget(it)
             self.items.append(it)
@@ -3905,13 +3917,13 @@ class ModernPrepareFormDrawer(QWidget):
         h_field_btns = QHBoxLayout()
         h_field_btns.setSpacing(4)
         self.btn_edit_field = QPushButton(LanguageManager.tr("form_action_edit_selected"))
-        self.btn_edit_field.setIcon(ModernIconFactory.icon_settings())
+        self.btn_edit_field.setIcon(AuraIconFactory.icon_settings())
         self.btn_edit_field.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_edit_field.clicked.connect(lambda: self.toolTriggered.emit("form_edit_selected"))
         h_field_btns.addWidget(self.btn_edit_field)
 
         self.btn_del_field = QPushButton(LanguageManager.tr("form_action_delete_selected"))
-        self.btn_del_field.setIcon(ModernIconFactory.icon_trash("#ef4444"))
+        self.btn_del_field.setIcon(AuraIconFactory.icon_trash("#ef4444"))
         self.btn_del_field.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_del_field.clicked.connect(lambda: self.toolTriggered.emit("form_delete_selected"))
         h_field_btns.addWidget(self.btn_del_field)
@@ -3923,13 +3935,13 @@ class ModernPrepareFormDrawer(QWidget):
         v_items.addWidget(self.lbl_actions_group)
 
         self.action_specs = [
-            ("form_clear", "form_action_clear", lambda: ModernIconFactory.icon_trash("#ef4444"), "#ef4444"),
-            ("form_export", "form_action_export", lambda: ModernIconFactory.icon_export_pdf("#38bdf8"), "#38bdf8"),
-            ("form_import", "form_action_import", lambda: ModernIconFactory.icon_folder_open("#10b981"), "#10b981"),
+            ("form_clear", "form_action_clear", lambda: AuraIconFactory.icon_trash("#ef4444"), "#ef4444"),
+            ("form_export", "form_action_export", lambda: AuraIconFactory.icon_export_pdf("#38bdf8"), "#38bdf8"),
+            ("form_import", "form_action_import", lambda: AuraIconFactory.icon_folder_open("#10b981"), "#10b981"),
         ]
-        self.action_items: List[ModernDrawerItemWidget] = []
+        self.action_items: List[AuraDrawerItemWidget] = []
         for cid, key, icon_func, col in self.action_specs:
-            it = ModernDrawerItemWidget(cid, LanguageManager.tr(key), icon_func, badge_text="", is_ready=True, accent_color=col, parent=container)
+            it = AuraDrawerItemWidget(cid, LanguageManager.tr(key), icon_func, badge_text="", is_ready=True, accent_color=col, parent=container)
             it.clicked.connect(self.toolTriggered.emit)
             v_items.addWidget(it)
             self.action_items.append(it)
@@ -3985,7 +3997,7 @@ class ModernPrepareFormDrawer(QWidget):
 
         for f in fields:
             txt = f"[{f['type']}] {f['name']} (S.{f['page'] + 1})"
-            item = QListWidgetItem(ModernIconFactory.icon_prepare_form(), txt)
+            item = QListWidgetItem(AuraIconFactory.icon_prepare_form(), txt)
             item.setData(Qt.ItemDataRole.UserRole, f)
             self.list_fields.addItem(item)
 
@@ -4037,13 +4049,13 @@ class ModernPrepareFormDrawer(QWidget):
 
     def apply_theme(self, theme_name: str = "gray"):
         self.theme_name = theme_name
-        c = get_modern_theme_colors(theme_name)
+        c = get_aura_theme_colors(theme_name)
         if hasattr(self, 'notice_box'):
             self.notice_box.apply_theme(theme_name)
         self._update_item_active_states()
         border_css = f"border-right: 1px solid {c['border']};" if getattr(self, 'dock_side', 'left') == "left" else f"border-left: 1px solid {c['border']};"
         self.setStyleSheet(f"""
-            ModernPrepareFormDrawer {{
+            AuraPrepareFormDrawer {{
                 background-color: {c['surface']};
                 {border_css}
             }}
@@ -4116,11 +4128,11 @@ class ModernPrepareFormDrawer(QWidget):
             }}
         """)
         if hasattr(self, 'btn_close'):
-            self.btn_close.setIcon(ModernIconFactory.icon_close(c['text']))
+            self.btn_close.setIcon(AuraIconFactory.icon_close(c['text']))
         self._update_item_active_states()
 
 
-class ModernLeftSidebar(QStackedWidget):
+class AuraLeftSidebar(QStackedWidget):
     """Sol panel yığını: 0=Tüm Araçlar, 1=Export Çekmecesi, 2=Edit Çekmecesi, 3=Read Çekmecesi, 4=Fill & Sign Çekmecesi, 5=Form Hazırla Çekmecesi."""
     pageChanged = pyqtSignal(str)
     toolTriggered = pyqtSignal(str)
@@ -4137,7 +4149,7 @@ class ModernLeftSidebar(QStackedWidget):
         self.dock_side = "left"
         self.setFixedWidth(248)
 
-        self.all_tools_panel = ModernAllToolsPanel(self)
+        self.all_tools_panel = AuraAllToolsPanel(self)
         self.all_tools_panel.toolTriggered.connect(self._on_tool_triggered)
         self.all_tools_panel.closeRequested.connect(self.closeRequested.emit)
         self.addWidget(self.all_tools_panel)
@@ -4173,7 +4185,7 @@ class ModernLeftSidebar(QStackedWidget):
 
     def _ensure_export_drawer(self):
         if self._export_drawer is None:
-            self._export_drawer = ModernExportDrawer(self)
+            self._export_drawer = AuraExportDrawer(self)
             self._export_drawer.backRequested.connect(lambda: self.set_page("all_tools"))
             self._export_drawer.closeRequested.connect(self.closeRequested.emit)
             self._export_drawer.exportTriggered.connect(self.exportTriggered.emit)
@@ -4194,7 +4206,7 @@ class ModernLeftSidebar(QStackedWidget):
 
     def _ensure_edit_drawer(self):
         if self._edit_drawer is None:
-            self._edit_drawer = ModernEditDrawer(self)
+            self._edit_drawer = AuraEditDrawer(self)
             self._edit_drawer.backRequested.connect(lambda: self.set_page("all_tools"))
             self._edit_drawer.closeRequested.connect(self.closeRequested.emit)
             self._edit_drawer.editTriggered.connect(self.editTriggered.emit)
@@ -4215,7 +4227,7 @@ class ModernLeftSidebar(QStackedWidget):
 
     def _ensure_read_drawer(self):
         if self._read_drawer is None:
-            self._read_drawer = ModernReadDrawer(self)
+            self._read_drawer = AuraReadDrawer(self)
             self._read_drawer.backRequested.connect(lambda: self.set_page("all_tools"))
             self._read_drawer.closeRequested.connect(self.closeRequested.emit)
             self._read_drawer.readTriggered.connect(self.readTriggered.emit)
@@ -4236,7 +4248,7 @@ class ModernLeftSidebar(QStackedWidget):
 
     def _ensure_fill_sign_drawer(self):
         if self._fill_sign_drawer is None:
-            self._fill_sign_drawer = ModernFillSignDrawer(self)
+            self._fill_sign_drawer = AuraFillSignDrawer(self)
             self._fill_sign_drawer.backRequested.connect(lambda: self.set_page("all_tools"))
             self._fill_sign_drawer.closeRequested.connect(self.closeRequested.emit)
             self._fill_sign_drawer.toolTriggered.connect(self.fillSignTriggered.emit)
@@ -4257,7 +4269,7 @@ class ModernLeftSidebar(QStackedWidget):
 
     def _ensure_prepare_form_drawer(self):
         if self._prepare_form_drawer is None:
-            self._prepare_form_drawer = ModernPrepareFormDrawer(self.main_window, self)
+            self._prepare_form_drawer = AuraPrepareFormDrawer(self.main_window, self)
             self._prepare_form_drawer.backRequested.connect(self._on_prepare_form_back)
             self._prepare_form_drawer.closeRequested.connect(self._on_prepare_form_close)
             self._prepare_form_drawer.toolTriggered.connect(self.prepareFormTriggered.emit)
@@ -4381,8 +4393,8 @@ class ModernLeftSidebar(QStackedWidget):
             5: "all_tools",
         }
         target_mode = page_to_mode.get(self.currentIndex(), "all_tools")
-        if self.main_window and hasattr(self.main_window, 'modern_header_bar') and self.main_window.modern_header_bar:
-            self.main_window.modern_header_bar.set_mode(target_mode, notify=False)
+        if self.main_window and hasattr(self.main_window, 'aura_header_bar') and self.main_window.aura_header_bar:
+            self.main_window.aura_header_bar.set_mode(target_mode, notify=False)
         self.pageChanged.emit(target_mode)
 
     def set_active_tool(self, tool_id: Optional[str]):
@@ -4495,7 +4507,7 @@ class FloatingQuickToolsCapsule(QFrame):
         l_grip.addWidget(self.grip_bar)
 
         self.btn_pin = QToolButton(self.grip_handle)
-        self.btn_pin.setIcon(ModernIconFactory.icon_pin())
+        self.btn_pin.setIcon(AuraIconFactory.icon_pin())
         self.btn_pin.setIconSize(QSize(13, 13))
         self.btn_pin.setFixedSize(18, 18)
         self.btn_pin.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -4512,15 +4524,15 @@ class FloatingQuickToolsCapsule(QFrame):
 
         # Tüm araçların fabrika tanımları
         self.tool_specs_factory = {
-            "select": ("quick_tool_select", lambda: ModernIconFactory.icon_cursor()),
-            "selection": ("quick_tool_draw_select", lambda: ModernIconFactory.icon_select_rect("#38bdf8")),
-            "pen": ("quick_tool_pen", lambda: ModernIconFactory.icon_pen("#0284c7")),
-            "highlighter": ("quick_tool_highlighter", lambda: ModernIconFactory.icon_highlighter("#eab308")),
-            "eraser": ("quick_tool_eraser", lambda: ModernIconFactory.icon_eraser("#ef4444")),
-            "text": ("quick_tool_text", lambda: ModernIconFactory.icon_text_tool("#ec4899")),
-            "insert": ("insert_btn_tip", lambda: ModernIconFactory.icon_insert("#10b981")),
-            "comment": ("quick_tool_comment", lambda: ModernIconFactory.icon_comments("#f97316")),
-            "pointer": ("quick_tool_pointer", lambda: ModernIconFactory.icon_pointer("#ef4444")),
+            "select": ("quick_tool_select", lambda: AuraIconFactory.icon_cursor()),
+            "selection": ("quick_tool_draw_select", lambda: AuraIconFactory.icon_select_rect("#38bdf8")),
+            "pen": ("quick_tool_pen", lambda: AuraIconFactory.icon_pen("#0284c7")),
+            "highlighter": ("quick_tool_highlighter", lambda: AuraIconFactory.icon_highlighter("#eab308")),
+            "eraser": ("quick_tool_eraser", lambda: AuraIconFactory.icon_eraser("#ef4444")),
+            "text": ("quick_tool_text", lambda: AuraIconFactory.icon_text_tool("#ec4899")),
+            "insert": ("insert_btn_tip", lambda: AuraIconFactory.icon_insert("#10b981")),
+            "comment": ("quick_tool_comment", lambda: AuraIconFactory.icon_comments("#f97316")),
+            "pointer": ("quick_tool_pointer", lambda: AuraIconFactory.icon_pointer("#ef4444")),
         }
         self.default_order = ["select", "selection", "pen", "highlighter", "eraser", "text", "insert", "comment", "pointer"]
 
@@ -4596,10 +4608,10 @@ class FloatingQuickToolsCapsule(QFrame):
         if not btn:
             return
         if mode == 'pan':
-            btn.setIcon(ModernIconFactory.icon_select_pan())
+            btn.setIcon(AuraIconFactory.icon_select_pan())
             btn.setToolTip(LanguageManager.tr("tb_item_cursor"))
         else:
-            btn.setIcon(ModernIconFactory.icon_cursor())
+            btn.setIcon(AuraIconFactory.icon_cursor())
             btn.setToolTip(LanguageManager.tr("quick_tool_select"))
 
     def update_selection_mode(self, mode: str):
@@ -4609,16 +4621,16 @@ class FloatingQuickToolsCapsule(QFrame):
         if not btn:
             return
         if mode == 'lasso':
-            btn.setIcon(ModernIconFactory.icon_select_lasso("#38bdf8"))
+            btn.setIcon(AuraIconFactory.icon_select_lasso("#38bdf8"))
             btn.setToolTip(LanguageManager.tr("sel_lasso").strip())
         elif mode == 'move':
-            btn.setIcon(ModernIconFactory.icon_select_move("#38bdf8"))
-            btn.setToolTip(LanguageManager.tr("sel_move").strip() if LanguageManager.tr("sel_move") != "sel_move" else "Seçimi Taşı")
+            btn.setIcon(AuraIconFactory.icon_select_move("#38bdf8"))
+            btn.setToolTip(LanguageManager.tr("sel_move").strip() if LanguageManager.tr("sel_move") != "sel_move" else LanguageManager.tr("ui_secimi_tasi"))
         elif mode == 'ruler':
-            btn.setIcon(ModernIconFactory.icon_ruler("#38bdf8"))
+            btn.setIcon(AuraIconFactory.icon_ruler("#38bdf8"))
             btn.setToolTip(LanguageManager.tr("tb_item_ruler"))
         else:
-            btn.setIcon(ModernIconFactory.icon_select_rect("#38bdf8"))
+            btn.setIcon(AuraIconFactory.icon_select_rect("#38bdf8"))
             btn.setToolTip(LanguageManager.tr("quick_tool_draw_select"))
 
     def eventFilter(self, watched, event):
@@ -4729,7 +4741,7 @@ class FloatingQuickToolsCapsule(QFrame):
                 background-color: #388bfd;
             }
         """)
-        act_reset = menu.addAction(ModernIconFactory.icon_refresh(), LanguageManager.tr("hud_reset_pos"))
+        act_reset = menu.addAction(AuraIconFactory.icon_refresh(), LanguageManager.tr("hud_reset_pos"))
         act_reset.triggered.connect(self.reset_to_default_pos)
         menu.exec(event.globalPos())
 
@@ -4799,11 +4811,11 @@ class FloatingQuickToolsCapsule(QFrame):
 
     def apply_theme(self, theme_name: str = "light"):
         self.theme_name = theme_name
-        c = get_modern_theme_colors(theme_name)
+        c = get_aura_theme_colors(theme_name)
         if hasattr(self, 'btn_pin'):
-            self.btn_pin.setIcon(ModernIconFactory.icon_pin(c['text_muted']))
+            self.btn_pin.setIcon(AuraIconFactory.icon_pin(c['text_muted']))
         if "select" in self.buttons and getattr(self, 'cursor_mode', 'select') == 'select':
-            self.buttons["select"].setIcon(ModernIconFactory.icon_cursor(c['text']))
+            self.buttons["select"].setIcon(AuraIconFactory.icon_cursor(c['text']))
         self.setStyleSheet(f"""
             FloatingQuickToolsCapsule {{
                 background-color: {c['surface']};
@@ -4878,7 +4890,7 @@ class HomeRecommendedCard(QFrame):
 
     def apply_theme(self, theme_name: str):
         self.theme_name = theme_name
-        c = get_modern_theme_colors(theme_name)
+        c = get_aura_theme_colors(theme_name)
         self.setStyleSheet(f"""
             HomeRecommendedCard {{
                 background-color: {c['card_bg']};
@@ -4923,7 +4935,7 @@ class HomeOpenFileCard(QFrame):
         layout.setSpacing(8)
 
         lbl_icon = QLabel()
-        lbl_icon.setPixmap(ModernIconFactory.icon_folder_open("#64748b").pixmap(30, 30))
+        lbl_icon.setPixmap(AuraIconFactory.icon_folder_open("#64748b").pixmap(30, 30))
         lbl_icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(lbl_icon)
 
@@ -4943,7 +4955,7 @@ class HomeOpenFileCard(QFrame):
 
     def apply_theme(self, theme_name: str):
         self.theme_name = theme_name
-        c = get_modern_theme_colors(theme_name)
+        c = get_aura_theme_colors(theme_name)
         self.setStyleSheet(f"""
             HomeOpenFileCard {{
                 background-color: {c['surface_hover']};
@@ -4982,7 +4994,7 @@ class RecentFileRowWidget(QFrame):
         layout.setSpacing(14)
 
         lbl_icon = QLabel()
-        lbl_icon.setPixmap(ModernIconFactory.icon_pdf("#ef4444").pixmap(22, 22))
+        lbl_icon.setPixmap(AuraIconFactory.icon_pdf("#ef4444").pixmap(22, 22))
         layout.addWidget(lbl_icon)
 
         v_info = QVBoxLayout()
@@ -5011,7 +5023,7 @@ class RecentFileRowWidget(QFrame):
         self.btn_fav.setFixedSize(30, 30)
         self.btn_fav.setIconSize(QSize(16, 16))
         self.btn_fav.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.btn_fav.setIcon(ModernIconFactory.icon_star(filled=self.is_favorite))
+        self.btn_fav.setIcon(AuraIconFactory.icon_star(filled=self.is_favorite))
         self.btn_fav.setToolTip(LanguageManager.tr("favorite_remove") if self.is_favorite else LanguageManager.tr("favorite_add"))
         self.btn_fav.clicked.connect(self._on_fav_clicked)
         layout.addWidget(self.btn_fav)
@@ -5021,20 +5033,20 @@ class RecentFileRowWidget(QFrame):
 
     def _on_fav_clicked(self):
         self.is_favorite = not self.is_favorite
-        self.btn_fav.setIcon(ModernIconFactory.icon_star(filled=self.is_favorite))
+        self.btn_fav.setIcon(AuraIconFactory.icon_star(filled=self.is_favorite))
         self.btn_fav.setToolTip(LanguageManager.tr("favorite_remove") if self.is_favorite else LanguageManager.tr("favorite_add"))
         self.favoriteToggled.emit(self.file_path)
 
     def contextMenuEvent(self, event):
         menu = QMenu(self)
         apply_dialog_theme(menu, self)
-        act_open = menu.addAction(ModernIconFactory.icon_pdf("#ef4444"), LanguageManager.tr("home_open_file"))
-        fav_icon = ModernIconFactory.icon_star(filled=not self.is_favorite)
+        act_open = menu.addAction(AuraIconFactory.icon_pdf("#ef4444"), LanguageManager.tr("home_open_file"))
+        fav_icon = AuraIconFactory.icon_star(filled=not self.is_favorite)
         fav_text = LanguageManager.tr("favorite_remove") if self.is_favorite else LanguageManager.tr("favorite_add")
         act_fav = menu.addAction(fav_icon, fav_text)
-        folder_text = LanguageManager.tr("sidebar_open_containing_folder") if LanguageManager.tr("sidebar_open_containing_folder") != "sidebar_open_containing_folder" else "Dosya Konumunu Aç"
-        act_folder = menu.addAction(ModernIconFactory.icon_search(), folder_text)
-        act_remove = menu.addAction(ModernIconFactory.icon_trash(), LanguageManager.tr("remove_from_list"))
+        folder_text = LanguageManager.tr("sidebar_open_containing_folder")
+        act_folder = menu.addAction(AuraIconFactory.icon_search(), folder_text)
+        act_remove = menu.addAction(AuraIconFactory.icon_trash(), LanguageManager.tr("remove_from_list"))
 
         action = menu.exec(event.globalPos())
         if action == act_open:
@@ -5064,7 +5076,7 @@ class RecentFileRowWidget(QFrame):
 
     def apply_theme(self, theme_name: str):
         self.theme_name = theme_name
-        c = get_modern_theme_colors(theme_name)
+        c = get_aura_theme_colors(theme_name)
         self.setStyleSheet(f"""
             RecentFileRowWidget {{
                 background-color: transparent;
@@ -5211,7 +5223,7 @@ class HomeQuickActionCard(QFrame):
         self._update_style()
 
     def _update_style(self):
-        c = get_modern_theme_colors(self.theme_name)
+        c = get_aura_theme_colors(self.theme_name)
         is_light = self.theme_name in ["emerald", "purple", "crimson", "apple"]
 
         badge_bg = f"{self.accent_color}22"
@@ -5241,7 +5253,7 @@ class HomeQuickActionCard(QFrame):
 
         arrow_color = self.accent_color if not is_light else c['text_muted']
         try:
-            self.lbl_arrow.setPixmap(ModernIconFactory.icon_skip_forward(arrow_color).pixmap(12, 12))
+            self.lbl_arrow.setPixmap(AuraIconFactory.icon_skip_forward(arrow_color).pixmap(12, 12))
         except Exception:
             pass
 
@@ -5326,10 +5338,10 @@ class HomeQuickActionsHub(QFrame):
         h_cards.setContentsMargins(0, 0, 0, 0)
 
         self.cards_data = [
-            ("merge_pdf", "home_qa_merge_title", "home_qa_merge_desc", lambda col: ModernIconFactory.icon_merge(), "#10b981"),
-            ("compress_pdf", "home_qa_compress_title", "home_qa_compress_desc", lambda col: ModernIconFactory.icon_compress(col), "#f59e0b"),
-            ("ocr_pdf", "home_qa_ocr_title", "home_qa_ocr_desc", lambda col: ModernIconFactory.icon_ocr(col), "#06b6d4"),
-            ("convert_word", "home_qa_convert_title", "home_qa_convert_desc", lambda col: ModernIconFactory.icon_word(), "#3b82f6"),
+            ("merge_pdf", "home_qa_merge_title", "home_qa_merge_desc", lambda col: AuraIconFactory.icon_merge(), "#10b981"),
+            ("compress_pdf", "home_qa_compress_title", "home_qa_compress_desc", lambda col: AuraIconFactory.icon_compress(col), "#f59e0b"),
+            ("ocr_pdf", "home_qa_ocr_title", "home_qa_ocr_desc", lambda col: AuraIconFactory.icon_ocr(col), "#06b6d4"),
+            ("convert_word", "home_qa_convert_title", "home_qa_convert_desc", lambda col: AuraIconFactory.icon_word(), "#3b82f6"),
         ]
 
         self.action_cards = []
@@ -5346,7 +5358,7 @@ class HomeQuickActionsHub(QFrame):
 
     def apply_theme(self, theme_name):
         self.theme_name = theme_name
-        c = get_modern_theme_colors(theme_name)
+        c = get_aura_theme_colors(theme_name)
         is_light = theme_name in ["emerald", "purple", "crimson", "apple"]
 
         if is_light:
@@ -5364,7 +5376,7 @@ class HomeQuickActionsHub(QFrame):
             hint_color = c['text_muted']
             icon_col = "#38bdf8"
 
-        self.lbl_hub_icon.setPixmap(ModernIconFactory.icon_toolbox(icon_col).pixmap(18, 18))
+        self.lbl_hub_icon.setPixmap(AuraIconFactory.icon_toolbox(icon_col).pixmap(18, 18))
 
         self.setStyleSheet(f"""
             HomeQuickActionsHub {{
@@ -5497,7 +5509,7 @@ class HomeAiHeroCard(QFrame):
         # 3. Sag: Birincil Aksiyon Butonu ("AI ile Belge Aç")
         self.btn_open_ai = QPushButton(LanguageManager.tr("home_ai_btn_open"), self)
         self.btn_open_ai.setObjectName("AiHeroCtaBtn")
-        self.btn_open_ai.setIcon(ModernIconFactory.icon_sparkle("#ffffff"))
+        self.btn_open_ai.setIcon(AuraIconFactory.icon_sparkle("#ffffff"))
         self.btn_open_ai.setIconSize(QSize(15, 15))
         self.btn_open_ai.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_open_ai.clicked.connect(self.openRequested.emit)
@@ -5544,7 +5556,7 @@ class HomeAiHeroCard(QFrame):
         self.btn_open_ai.setText(LanguageManager.tr("home_ai_btn_open"))
 
     def _update_drag_state(self):
-        c = get_modern_theme_colors(self.theme_name)
+        c = get_aura_theme_colors(self.theme_name)
         if self.is_drag_active:
             self.setStyleSheet(f"""
                 HomeAiHeroCard {{
@@ -5591,14 +5603,14 @@ class HomeAiHeroCard(QFrame):
                     padding: 9px 18px;
                 }}
             """)
-            self.icon_badge.setPixmap(ModernIconFactory.icon_upload("#ffffff").pixmap(24, 24))
+            self.icon_badge.setPixmap(AuraIconFactory.icon_upload("#ffffff").pixmap(24, 24))
             self.lbl_title.setText(LanguageManager.tr("home_dropzone_hover"))
         else:
             self.apply_theme(self.theme_name)
 
     def apply_theme(self, theme_name: str):
         self.theme_name = theme_name
-        c = get_modern_theme_colors(theme_name)
+        c = get_aura_theme_colors(theme_name)
         is_light = theme_name in ("light", "apple")
 
         if is_light:
@@ -5622,10 +5634,10 @@ class HomeAiHeroCard(QFrame):
             chip_text = c['text']
             sparkle_col = "#a855f7"
 
-        self.icon_badge.setPixmap(ModernIconFactory.icon_sparkle(sparkle_col).pixmap(24, 24))
-        self.btn_chip_summary.setIcon(ModernIconFactory.icon_sparkle(sparkle_col))
-        self.btn_chip_risks.setIcon(ModernIconFactory.icon_search(sparkle_col))
-        self.btn_chip_qa.setIcon(ModernIconFactory.icon_comments(sparkle_col))
+        self.icon_badge.setPixmap(AuraIconFactory.icon_sparkle(sparkle_col).pixmap(24, 24))
+        self.btn_chip_summary.setIcon(AuraIconFactory.icon_sparkle(sparkle_col))
+        self.btn_chip_risks.setIcon(AuraIconFactory.icon_search(sparkle_col))
+        self.btn_chip_qa.setIcon(AuraIconFactory.icon_comments(sparkle_col))
 
         self.retranslate_ui()
 
@@ -5841,7 +5853,7 @@ class HomeTemplateCard(QFrame):
         self.theme_name = theme_name
         self.miniature.theme_name = theme_name
         self.miniature.update()
-        c = get_modern_theme_colors(theme_name)
+        c = get_aura_theme_colors(theme_name)
 
         self.setStyleSheet(f"""
             HomeTemplateCard {{
@@ -5944,7 +5956,7 @@ class HomeTemplatesHub(QFrame):
 
     def apply_theme(self, theme_name):
         self.theme_name = theme_name
-        c = get_modern_theme_colors(theme_name)
+        c = get_aura_theme_colors(theme_name)
 
         hub_bg = f"qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 {c['surface']}, stop:1 {c['bg']})"
         hub_border = c['border']
@@ -5952,7 +5964,7 @@ class HomeTemplatesHub(QFrame):
         badge_color = c['accent']
         icon_col = c['accent']
 
-        self.lbl_hub_icon.setPixmap(ModernIconFactory.icon_new_document(icon_col).pixmap(18, 18))
+        self.lbl_hub_icon.setPixmap(AuraIconFactory.icon_new_document(icon_col).pixmap(18, 18))
 
         self.setStyleSheet(f"""
             HomeTemplatesHub {{
@@ -6073,11 +6085,11 @@ class HomeDashboardWorkspace(QWidget):
         h_cards.setSpacing(12)
 
         self.rec_tool_specs = [
-            ("organize_pages", "tool_organize_pages", "tool_sub_organize", ModernIconFactory.icon_organize("#10b981")),
-            ("add_comments", "tool_add_comments", "tool_sub_comments", ModernIconFactory.icon_comments("#f97316")),
-            ("prepare_form", "tool_prepare_form", "tool_sub_prepare_form", ModernIconFactory.icon_prepare_form("#9333ea")),
-            ("edit_pdf", "tool_edit_pdf", "tool_sub_edit", ModernIconFactory.icon_edit_content("#ec4899")),
-            ("protect_pdf", "tool_protect_pdf", "tool_sub_protect", ModernIconFactory.icon_lock("#0284c7")),
+            ("organize_pages", "tool_organize_pages", "tool_sub_organize", AuraIconFactory.icon_organize("#10b981")),
+            ("add_comments", "tool_add_comments", "tool_sub_comments", AuraIconFactory.icon_comments("#f97316")),
+            ("prepare_form", "tool_prepare_form", "tool_sub_prepare_form", AuraIconFactory.icon_prepare_form("#9333ea")),
+            ("edit_pdf", "tool_edit_pdf", "tool_sub_edit", AuraIconFactory.icon_edit_content("#ec4899")),
+            ("protect_pdf", "tool_protect_pdf", "tool_sub_protect", AuraIconFactory.icon_lock("#0284c7")),
         ]
 
         self.recommended_cards = []
@@ -6124,7 +6136,7 @@ class HomeDashboardWorkspace(QWidget):
 
         self.btn_tab_favorites = QPushButton()
         self.btn_tab_favorites.setObjectName("BtnTabFavorites")
-        self.btn_tab_favorites.setIcon(ModernIconFactory.icon_star(filled=True, color="#f59e0b"))
+        self.btn_tab_favorites.setIcon(AuraIconFactory.icon_star(filled=True, color="#f59e0b"))
         self.btn_tab_favorites.setIconSize(QSize(14, 14))
         self.btn_tab_favorites.setText(" " + LanguageManager.tr("home_favorites_title"))
         self.btn_tab_favorites.setCheckable(True)
@@ -6137,7 +6149,7 @@ class HomeDashboardWorkspace(QWidget):
         # Favorilere Ekle Butonu
         self.btn_add_favorite = QPushButton()
         self.btn_add_favorite.setObjectName("BtnAddFavorite")
-        self.btn_add_favorite.setIcon(ModernIconFactory.icon_plus())
+        self.btn_add_favorite.setIcon(AuraIconFactory.icon_plus())
         self.btn_add_favorite.setIconSize(QSize(12, 12))
         self.btn_add_favorite.setText(" " + LanguageManager.tr("home_add_favorite"))
         self.btn_add_favorite.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -6148,7 +6160,7 @@ class HomeDashboardWorkspace(QWidget):
         # Temizle Butonu (Son açılanlar veya Favoriler için)
         self.btn_clear_recent = QPushButton()
         self.btn_clear_recent.setObjectName("BtnClearRecent")
-        self.btn_clear_recent.setIcon(ModernIconFactory.icon_trash())
+        self.btn_clear_recent.setIcon(AuraIconFactory.icon_trash())
         self.btn_clear_recent.setIconSize(QSize(13, 13))
         self.btn_clear_recent.setText(" " + LanguageManager.tr("clear_recent_files"))
         self.btn_clear_recent.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -6343,10 +6355,6 @@ class HomeDashboardWorkspace(QWidget):
         self.lbl_sub.setText(LanguageManager.tr("home_welcome_subtitle"))
         if hasattr(self, 'templates_hub'):
             self.templates_hub.retranslate_ui()
-        if hasattr(self, 'quick_actions_hub'):
-            self.quick_actions_hub.retranslate_ui()
-        if hasattr(self, 'ai_hero_card'):
-            self.ai_hero_card.retranslate_ui()
         self.lbl_rec_title.setText(LanguageManager.tr("home_recommended_tools"))
         for card, (_, title_key, sub_key, _) in zip(self.recommended_cards, self.rec_tool_specs):
             card.retranslate(LanguageManager.tr(title_key), LanguageManager.tr(sub_key))
@@ -6369,11 +6377,7 @@ class HomeDashboardWorkspace(QWidget):
         self.theme_name = theme_name
         if hasattr(self, 'templates_hub'):
             self.templates_hub.apply_theme(theme_name)
-        if hasattr(self, 'quick_actions_hub'):
-            self.quick_actions_hub.apply_theme(theme_name)
-        if hasattr(self, 'ai_hero_card'):
-            self.ai_hero_card.apply_theme(theme_name)
-        c = get_modern_theme_colors(theme_name)
+        c = get_aura_theme_colors(theme_name)
         self.setStyleSheet(f"""
             HomeDashboardWorkspace, QScrollArea, #HomeContentContainer, #HomeInnerWrapper, #RecentListContainer {{
                 background-color: {c['bg']};
@@ -6479,10 +6483,8 @@ class HomeDashboardWorkspace(QWidget):
     def _on_qa_file_dropped(self, action_id: str, file_path: str):
         if self.main_window:
             if action_id == "merge_pdf":
-                self.main_window.open_merge_dialog()
-                if hasattr(self.main_window, 'merge_dialog') and self.main_window.merge_dialog:
-                    if hasattr(self.main_window.merge_dialog, 'add_files'):
-                        self.main_window.merge_dialog.add_files([file_path])
+                # Dosya, modal diyalog açılmadan ÖNCE listeye eklenir
+                self.main_window.open_merge_dialog(initial_files=[file_path])
             elif action_id == "compress_pdf":
                 self.main_window.add_pdf_tab(file_path)
                 self.main_window.open_compress_dialog()
@@ -6552,7 +6554,7 @@ class PageThumbnailCard(QFrame):
 
         # Kart üzerine gelindiğinde görünen hızlı silme butonu
         self.btn_quick_del = QToolButton(self)
-        self.btn_quick_del.setIcon(ModernIconFactory.icon_trash("#ef4444"))
+        self.btn_quick_del.setIcon(AuraIconFactory.icon_trash("#ef4444"))
         self.btn_quick_del.setIconSize(QSize(13, 13))
         self.btn_quick_del.setFixedSize(24, 24)
         self.btn_quick_del.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -6596,9 +6598,9 @@ class PageThumbnailCard(QFrame):
     def contextMenuEvent(self, event):
         menu = QMenu(self)
         apply_dialog_theme(menu, self.window())
-        act_del = menu.addAction(ModernIconFactory.icon_trash("#ef4444"), "  " + LanguageManager.tr("sidebar_delete_page"))
-        act_rot_cw = menu.addAction(ModernIconFactory.icon_rotate(), "  " + LanguageManager.tr("organize_rotate_cw"))
-        act_rot_ccw = menu.addAction(ModernIconFactory.icon_rotate_ccw(), "  " + LanguageManager.tr("organize_rotate_ccw"))
+        act_del = menu.addAction(AuraIconFactory.icon_trash("#ef4444"), "  " + LanguageManager.tr("sidebar_delete_page"))
+        act_rot_cw = menu.addAction(AuraIconFactory.icon_rotate(), "  " + LanguageManager.tr("organize_rotate_cw"))
+        act_rot_ccw = menu.addAction(AuraIconFactory.icon_rotate_ccw(), "  " + LanguageManager.tr("organize_rotate_ccw"))
         act = menu.exec(event.globalPos())
         if act == act_del:
             self.deleteRequested.emit(self.page_index)
@@ -6621,7 +6623,7 @@ class PageThumbnailCard(QFrame):
 
     def _apply_style(self, theme_name: str = "light"):
         self.theme_name = theme_name
-        c = get_modern_theme_colors(theme_name)
+        c = get_aura_theme_colors(theme_name)
         if self.is_selected:
             self.setStyleSheet(f"""
                 PageThumbnailCard {{
@@ -7016,7 +7018,7 @@ class OrganizePagesWorkspace(QWidget):
 
         # Sayfa Konumunu Değiştirme (Sola / Sağa Taşı)
         self.btn_move_left = QToolButton()
-        self.btn_move_left.setIcon(ModernIconFactory.icon_move_left())
+        self.btn_move_left.setIcon(AuraIconFactory.icon_move_left())
         self.btn_move_left.setIconSize(QSize(16, 16))
         self.btn_move_left.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_move_left.setToolTip(LanguageManager.tr("organize_move_left"))
@@ -7024,7 +7026,7 @@ class OrganizePagesWorkspace(QWidget):
         h_top.addWidget(self.btn_move_left)
 
         self.btn_move_right = QToolButton()
-        self.btn_move_right.setIcon(ModernIconFactory.icon_move_right())
+        self.btn_move_right.setIcon(AuraIconFactory.icon_move_right())
         self.btn_move_right.setIconSize(QSize(16, 16))
         self.btn_move_right.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_move_right.setToolTip(LanguageManager.tr("organize_move_right"))
@@ -7035,7 +7037,7 @@ class OrganizePagesWorkspace(QWidget):
 
         # Döndürme & Silme
         self.btn_rot_ccw = QToolButton()
-        self.btn_rot_ccw.setIcon(ModernIconFactory.icon_rotate_ccw())
+        self.btn_rot_ccw.setIcon(AuraIconFactory.icon_rotate_ccw())
         self.btn_rot_ccw.setIconSize(QSize(16, 16))
         self.btn_rot_ccw.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_rot_ccw.setToolTip(LanguageManager.tr("organize_rotate_ccw"))
@@ -7043,7 +7045,7 @@ class OrganizePagesWorkspace(QWidget):
         h_top.addWidget(self.btn_rot_ccw)
 
         self.btn_rot_cw = QToolButton()
-        self.btn_rot_cw.setIcon(ModernIconFactory.icon_rotate())
+        self.btn_rot_cw.setIcon(AuraIconFactory.icon_rotate())
         self.btn_rot_cw.setIconSize(QSize(16, 16))
         self.btn_rot_cw.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_rot_cw.setToolTip(LanguageManager.tr("organize_rotate_cw"))
@@ -7051,7 +7053,7 @@ class OrganizePagesWorkspace(QWidget):
         h_top.addWidget(self.btn_rot_cw)
 
         self.btn_delete = QToolButton()
-        self.btn_delete.setIcon(ModernIconFactory.icon_trash())
+        self.btn_delete.setIcon(AuraIconFactory.icon_trash())
         self.btn_delete.setIconSize(QSize(16, 16))
         self.btn_delete.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_delete.setToolTip(LanguageManager.tr("organize_delete_pages"))
@@ -7062,7 +7064,7 @@ class OrganizePagesWorkspace(QWidget):
 
         # Ekleme & Çoğaltma
         self.btn_insert_pdf = QToolButton()
-        self.btn_insert_pdf.setIcon(ModernIconFactory.icon_insert_pdf())
+        self.btn_insert_pdf.setIcon(AuraIconFactory.icon_insert_pdf())
         self.btn_insert_pdf.setIconSize(QSize(16, 16))
         self.btn_insert_pdf.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_insert_pdf.setToolTip(LanguageManager.tr("organize_insert_pdf"))
@@ -7070,7 +7072,7 @@ class OrganizePagesWorkspace(QWidget):
         h_top.addWidget(self.btn_insert_pdf)
 
         self.btn_insert = QToolButton()
-        self.btn_insert.setIcon(ModernIconFactory.icon_add_page())
+        self.btn_insert.setIcon(AuraIconFactory.icon_add_page())
         self.btn_insert.setIconSize(QSize(16, 16))
         self.btn_insert.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_insert.setToolTip(LanguageManager.tr("organize_insert_page"))
@@ -7078,7 +7080,7 @@ class OrganizePagesWorkspace(QWidget):
         h_top.addWidget(self.btn_insert)
 
         self.btn_duplicate = QToolButton()
-        self.btn_duplicate.setIcon(ModernIconFactory.icon_duplicate())
+        self.btn_duplicate.setIcon(AuraIconFactory.icon_duplicate())
         self.btn_duplicate.setIconSize(QSize(16, 16))
         self.btn_duplicate.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_duplicate.setToolTip(LanguageManager.tr("organize_duplicate_page"))
@@ -7089,7 +7091,7 @@ class OrganizePagesWorkspace(QWidget):
 
         # Sayfa Etiketi & Kırpma
         self.btn_page_label = QToolButton()
-        self.btn_page_label.setIcon(ModernIconFactory.icon_page_label())
+        self.btn_page_label.setIcon(AuraIconFactory.icon_page_label())
         self.btn_page_label.setIconSize(QSize(16, 16))
         self.btn_page_label.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_page_label.setToolTip(LanguageManager.tr("organize_page_label"))
@@ -7097,7 +7099,7 @@ class OrganizePagesWorkspace(QWidget):
         h_top.addWidget(self.btn_page_label)
 
         self.btn_crop = QToolButton()
-        self.btn_crop.setIcon(ModernIconFactory.icon_crop())
+        self.btn_crop.setIcon(AuraIconFactory.icon_crop())
         self.btn_crop.setIconSize(QSize(16, 16))
         self.btn_crop.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_crop.setToolTip(LanguageManager.tr("organize_crop_page"))
@@ -7108,7 +7110,7 @@ class OrganizePagesWorkspace(QWidget):
 
         # Çıkar, Böl, Değiştir, Tümünü Seç
         self.btn_extract = QToolButton()
-        self.btn_extract.setIcon(ModernIconFactory.icon_extract())
+        self.btn_extract.setIcon(AuraIconFactory.icon_extract())
         self.btn_extract.setIconSize(QSize(16, 16))
         self.btn_extract.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_extract.setToolTip(LanguageManager.tr("organize_extract_pages"))
@@ -7116,7 +7118,7 @@ class OrganizePagesWorkspace(QWidget):
         h_top.addWidget(self.btn_extract)
 
         self.btn_split = QToolButton()
-        self.btn_split.setIcon(ModernIconFactory.icon_split())
+        self.btn_split.setIcon(AuraIconFactory.icon_split())
         self.btn_split.setIconSize(QSize(16, 16))
         self.btn_split.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_split.setToolTip(LanguageManager.tr("organize_split_doc"))
@@ -7124,7 +7126,7 @@ class OrganizePagesWorkspace(QWidget):
         h_top.addWidget(self.btn_split)
 
         self.btn_replace = QToolButton()
-        self.btn_replace.setIcon(ModernIconFactory.icon_replace_page())
+        self.btn_replace.setIcon(AuraIconFactory.icon_replace_page())
         self.btn_replace.setIconSize(QSize(16, 16))
         self.btn_replace.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_replace.setToolTip(LanguageManager.tr("organize_replace_pages"))
@@ -7132,7 +7134,7 @@ class OrganizePagesWorkspace(QWidget):
         h_top.addWidget(self.btn_replace)
 
         self.btn_select_all = QToolButton()
-        self.btn_select_all.setIcon(ModernIconFactory.icon_select_rect())
+        self.btn_select_all.setIcon(AuraIconFactory.icon_select_rect())
         self.btn_select_all.setIconSize(QSize(16, 16))
         self.btn_select_all.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_select_all.setToolTip(LanguageManager.tr("organize_select_all"))
@@ -7142,7 +7144,7 @@ class OrganizePagesWorkspace(QWidget):
         h_top.addStretch(1)
 
         self.btn_close = QPushButton(" " + LanguageManager.tr("organize_close_btn"))
-        self.btn_close.setIcon(ModernIconFactory.icon_close())
+        self.btn_close.setIcon(AuraIconFactory.icon_close())
         self.btn_close.setIconSize(QSize(12, 12))
         self.btn_close.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_close.setStyleSheet("""
@@ -7682,19 +7684,19 @@ class OrganizePagesWorkspace(QWidget):
         menu = QMenu(self)
         apply_dialog_theme(menu, self)
 
-        act_del = menu.addAction(ModernIconFactory.icon_trash("#ef4444"), "  " + LanguageManager.tr("sidebar_delete_page"))
-        act_rot_cw = menu.addAction(ModernIconFactory.icon_rotate(), "  " + LanguageManager.tr("organize_rotate_cw"))
-        act_rot_ccw = menu.addAction(ModernIconFactory.icon_rotate_ccw(), "  " + LanguageManager.tr("organize_rotate_ccw"))
+        act_del = menu.addAction(AuraIconFactory.icon_trash("#ef4444"), "  " + LanguageManager.tr("sidebar_delete_page"))
+        act_rot_cw = menu.addAction(AuraIconFactory.icon_rotate(), "  " + LanguageManager.tr("organize_rotate_cw"))
+        act_rot_ccw = menu.addAction(AuraIconFactory.icon_rotate_ccw(), "  " + LanguageManager.tr("organize_rotate_ccw"))
         menu.addSeparator()
-        act_move_left = menu.addAction(ModernIconFactory.icon_move_left(), "  " + LanguageManager.tr("organize_move_left"))
-        act_move_right = menu.addAction(ModernIconFactory.icon_move_right(), "  " + LanguageManager.tr("organize_move_right"))
+        act_move_left = menu.addAction(AuraIconFactory.icon_move_left(), "  " + LanguageManager.tr("organize_move_left"))
+        act_move_right = menu.addAction(AuraIconFactory.icon_move_right(), "  " + LanguageManager.tr("organize_move_right"))
         menu.addSeparator()
-        act_dup = menu.addAction(ModernIconFactory.icon_duplicate(), "  " + LanguageManager.tr("organize_duplicate_page"))
-        act_insert_pdf = menu.addAction(ModernIconFactory.icon_insert_pdf(), "  " + LanguageManager.tr("organize_insert_pdf"))
-        act_crop = menu.addAction(ModernIconFactory.icon_crop(), "  " + LanguageManager.tr("organize_crop_page"))
-        act_label = menu.addAction(ModernIconFactory.icon_page_label(), "  " + LanguageManager.tr("organize_page_label"))
+        act_dup = menu.addAction(AuraIconFactory.icon_duplicate(), "  " + LanguageManager.tr("organize_duplicate_page"))
+        act_insert_pdf = menu.addAction(AuraIconFactory.icon_insert_pdf(), "  " + LanguageManager.tr("organize_insert_pdf"))
+        act_crop = menu.addAction(AuraIconFactory.icon_crop(), "  " + LanguageManager.tr("organize_crop_page"))
+        act_label = menu.addAction(AuraIconFactory.icon_page_label(), "  " + LanguageManager.tr("organize_page_label"))
         menu.addSeparator()
-        act_extract = menu.addAction(ModernIconFactory.icon_extract(), "  " + LanguageManager.tr("organize_extract_pages"))
+        act_extract = menu.addAction(AuraIconFactory.icon_extract(), "  " + LanguageManager.tr("organize_extract_pages"))
 
         act = menu.exec(self.list_widget.viewport().mapToGlobal(pos))
         if not act or idx < 0:
@@ -7951,7 +7953,7 @@ class OrganizePagesWorkspace(QWidget):
 
     def apply_theme(self, theme_name: str = "light"):
         self.theme_name = theme_name
-        c = get_modern_theme_colors(theme_name)
+        c = get_aura_theme_colors(theme_name)
         self.setStyleSheet(f"""
             OrganizePagesWorkspace {{
                 background-color: {c['bg']};
@@ -8011,7 +8013,7 @@ class OrganizePagesWorkspace(QWidget):
             }}
         """)
         if hasattr(self, 'btn_close'):
-            self.btn_close.setIcon(ModernIconFactory.icon_close(c['text']))
+            self.btn_close.setIcon(AuraIconFactory.icon_close(c['text']))
 
 
 
@@ -8067,7 +8069,7 @@ class WaveformWidget(QWidget):
         p.end()
 
 
-class ModernAccessibilityPanel(QWidget):
+class AuraAccessibilityPanel(QWidget):
     """
     Gelişmiş Erişilebilirlik ve Sesli Okuma (EMA Lightning TTS) Paneli.
     - Cümle takibi ve canlı metin vurgulama (Karaoke tarzı okuma)
@@ -8120,7 +8122,7 @@ class ModernAccessibilityPanel(QWidget):
 
         self.btn_model_info = QToolButton()
         self.btn_model_info.setObjectName("TTSInfoBtn")
-        self.btn_model_info.setIcon(ModernIconFactory.icon_info())
+        self.btn_model_info.setIcon(AuraIconFactory.icon_info())
         self.btn_model_info.setIconSize(QSize(13, 13))
         self.btn_model_info.setFixedSize(22, 22)
         self.btn_model_info.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -8128,7 +8130,7 @@ class ModernAccessibilityPanel(QWidget):
 
         self.btn_download_model = QPushButton(" " + LanguageManager.tr("tts_btn_download_model"))
         self.btn_download_model.setObjectName("TTSDownloadBtn")
-        self.btn_download_model.setIcon(ModernIconFactory.icon_recovery())
+        self.btn_download_model.setIcon(AuraIconFactory.icon_recovery())
         self.btn_download_model.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_download_model.clicked.connect(self._on_download_model_clicked)
         self.btn_download_model.hide()
@@ -8155,7 +8157,7 @@ class ModernAccessibilityPanel(QWidget):
         self.btn_mode_page.setObjectName("TTSSegBtn")
         self.btn_mode_page.setCheckable(True)
         self.btn_mode_page.setChecked(True)
-        self.btn_mode_page.setIcon(ModernIconFactory.icon_view_single())
+        self.btn_mode_page.setIcon(AuraIconFactory.icon_view_single())
         self.btn_mode_page.setIconSize(QSize(12, 12))
         self.btn_mode_page.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_mode_page.clicked.connect(lambda: self._set_source_mode("page"))
@@ -8165,7 +8167,7 @@ class ModernAccessibilityPanel(QWidget):
         self.btn_mode_all = QPushButton(" " + LanguageManager.tr("tts_read_all_short"))
         self.btn_mode_all.setObjectName("TTSSegBtn")
         self.btn_mode_all.setCheckable(True)
-        self.btn_mode_all.setIcon(ModernIconFactory.icon_organize())
+        self.btn_mode_all.setIcon(AuraIconFactory.icon_organize())
         self.btn_mode_all.setIconSize(QSize(12, 12))
         self.btn_mode_all.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_mode_all.clicked.connect(lambda: self._set_source_mode("all"))
@@ -8175,7 +8177,7 @@ class ModernAccessibilityPanel(QWidget):
         self.btn_mode_sel = QPushButton(" " + LanguageManager.tr("tts_read_selection_short"))
         self.btn_mode_sel.setObjectName("TTSSegBtn")
         self.btn_mode_sel.setCheckable(True)
-        self.btn_mode_sel.setIcon(ModernIconFactory.icon_cursor())
+        self.btn_mode_sel.setIcon(AuraIconFactory.icon_cursor())
         self.btn_mode_sel.setIconSize(QSize(12, 12))
         self.btn_mode_sel.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_mode_sel.clicked.connect(lambda: self._set_source_mode("selection"))
@@ -8203,7 +8205,7 @@ class ModernAccessibilityPanel(QWidget):
 
         self.btn_page_prev = QToolButton()
         self.btn_page_prev.setObjectName("TTSPageNavBtn")
-        self.btn_page_prev.setIcon(ModernIconFactory.icon_chevron_left())
+        self.btn_page_prev.setIcon(AuraIconFactory.icon_chevron_left())
         self.btn_page_prev.setIconSize(QSize(11, 11))
         self.btn_page_prev.setFixedSize(20, 20)
         self.btn_page_prev.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -8218,7 +8220,7 @@ class ModernAccessibilityPanel(QWidget):
 
         self.btn_page_next = QToolButton()
         self.btn_page_next.setObjectName("TTSPageNavBtn")
-        self.btn_page_next.setIcon(ModernIconFactory.icon_chevron_right())
+        self.btn_page_next.setIcon(AuraIconFactory.icon_chevron_right())
         self.btn_page_next.setIconSize(QSize(11, 11))
         self.btn_page_next.setFixedSize(20, 20)
         self.btn_page_next.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -8231,7 +8233,7 @@ class ModernAccessibilityPanel(QWidget):
 
         self.btn_paste_clipboard = QToolButton()
         self.btn_paste_clipboard.setObjectName("TTSToolBtn")
-        self.btn_paste_clipboard.setIcon(ModernIconFactory.icon_paste())
+        self.btn_paste_clipboard.setIcon(AuraIconFactory.icon_paste())
         self.btn_paste_clipboard.setIconSize(QSize(12, 12))
         self.btn_paste_clipboard.setFixedSize(22, 22)
         self.btn_paste_clipboard.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -8241,7 +8243,7 @@ class ModernAccessibilityPanel(QWidget):
 
         self.btn_export_audio = QToolButton()
         self.btn_export_audio.setObjectName("TTSToolBtn")
-        self.btn_export_audio.setIcon(ModernIconFactory.icon_export_audio())
+        self.btn_export_audio.setIcon(AuraIconFactory.icon_export_audio())
         self.btn_export_audio.setIconSize(QSize(12, 12))
         self.btn_export_audio.setFixedSize(22, 22)
         self.btn_export_audio.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -8251,7 +8253,7 @@ class ModernAccessibilityPanel(QWidget):
 
         self.btn_clear_text = QToolButton()
         self.btn_clear_text.setObjectName("TTSToolBtn")
-        self.btn_clear_text.setIcon(ModernIconFactory.icon_trash())
+        self.btn_clear_text.setIcon(AuraIconFactory.icon_trash())
         self.btn_clear_text.setIconSize(QSize(12, 12))
         self.btn_clear_text.setFixedSize(22, 22)
         self.btn_clear_text.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -8281,7 +8283,7 @@ class ModernAccessibilityPanel(QWidget):
         h_chead.setSpacing(6)
 
         self.lbl_canvas_icon = QLabel()
-        self.lbl_canvas_icon.setPixmap(ModernIconFactory.icon_reading_mode().pixmap(13, 13))
+        self.lbl_canvas_icon.setPixmap(AuraIconFactory.icon_reading_mode().pixmap(13, 13))
         h_chead.addWidget(self.lbl_canvas_icon)
 
         self.lbl_canvas_title = QLabel(LanguageManager.tr("tts_reading_canvas_title"))
@@ -8346,7 +8348,7 @@ class ModernAccessibilityPanel(QWidget):
 
         self.btn_prev_chunk = QToolButton()
         self.btn_prev_chunk.setObjectName("TTSRoundBtn")
-        self.btn_prev_chunk.setIcon(ModernIconFactory.icon_media_prev())
+        self.btn_prev_chunk.setIcon(AuraIconFactory.icon_media_prev())
         self.btn_prev_chunk.setIconSize(QSize(13, 13))
         self.btn_prev_chunk.setFixedSize(30, 30)
         self.btn_prev_chunk.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -8356,7 +8358,7 @@ class ModernAccessibilityPanel(QWidget):
 
         self.btn_tts_play = QPushButton(" " + LanguageManager.tr("tts_play_btn"))
         self.btn_tts_play.setObjectName("TTSHeroPlayBtn")
-        self.btn_tts_play.setIcon(ModernIconFactory.icon_play("#ffffff"))
+        self.btn_tts_play.setIcon(AuraIconFactory.icon_play("#ffffff"))
         self.btn_tts_play.setIconSize(QSize(14, 14))
         self.btn_tts_play.setFixedSize(112, 34)
         self.btn_tts_play.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -8365,7 +8367,7 @@ class ModernAccessibilityPanel(QWidget):
 
         self.btn_next_chunk = QToolButton()
         self.btn_next_chunk.setObjectName("TTSRoundBtn")
-        self.btn_next_chunk.setIcon(ModernIconFactory.icon_media_next())
+        self.btn_next_chunk.setIcon(AuraIconFactory.icon_media_next())
         self.btn_next_chunk.setIconSize(QSize(13, 13))
         self.btn_next_chunk.setFixedSize(30, 30)
         self.btn_next_chunk.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -8375,7 +8377,7 @@ class ModernAccessibilityPanel(QWidget):
 
         self.btn_tts_stop = QToolButton()
         self.btn_tts_stop.setObjectName("TTSRoundBtn")
-        self.btn_tts_stop.setIcon(ModernIconFactory.icon_stop())
+        self.btn_tts_stop.setIcon(AuraIconFactory.icon_stop())
         self.btn_tts_stop.setIconSize(QSize(13, 13))
         self.btn_tts_stop.setFixedSize(30, 30)
         self.btn_tts_stop.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -8406,7 +8408,7 @@ class ModernAccessibilityPanel(QWidget):
 
         self.btn_speed = QPushButton("1.0x ▾")
         self.btn_speed.setObjectName("TTSPillBtn")
-        self.btn_speed.setIcon(ModernIconFactory.icon_speed())
+        self.btn_speed.setIcon(AuraIconFactory.icon_speed())
         self.btn_speed.setIconSize(QSize(12, 12))
         self.btn_speed.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_speed.setToolTip(LanguageManager.tr("tts_speed"))
@@ -8414,9 +8416,9 @@ class ModernAccessibilityPanel(QWidget):
         self._setup_speed_menu()
         h_util.addWidget(self.btn_speed)
 
-        self.btn_audio_device = QPushButton("Ses ▾")
+        self.btn_audio_device = QPushButton(LanguageManager.tr("ui_ses"))
         self.btn_audio_device.setObjectName("TTSPillBtn")
-        self.btn_audio_device.setIcon(ModernIconFactory.icon_speech())
+        self.btn_audio_device.setIcon(AuraIconFactory.icon_speech())
         self.btn_audio_device.setIconSize(QSize(12, 12))
         self.btn_audio_device.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_audio_device.setToolTip(LanguageManager.tr("tts_device"))
@@ -8432,7 +8434,7 @@ class ModernAccessibilityPanel(QWidget):
         h_util.addStretch(1)
 
         lbl_vol_icon = QLabel()
-        lbl_vol_icon.setPixmap(ModernIconFactory.icon_speech().pixmap(12, 12))
+        lbl_vol_icon.setPixmap(AuraIconFactory.icon_speech().pixmap(12, 12))
         h_util.addWidget(lbl_vol_icon)
 
         self.slider_tts_vol = QSlider(Qt.Orientation.Horizontal)
@@ -8686,7 +8688,7 @@ class ModernAccessibilityPanel(QWidget):
         for d in devices:
             name = d["name"]
             is_bt = any(k in name.lower() for k in ("bluetooth", "headphone", "earphone", "buds", "airpods", "kulaklık"))
-            icon = ModernIconFactory.icon_headphones() if is_bt else ModernIconFactory.icon_speech()
+            icon = AuraIconFactory.icon_headphones() if is_bt else AuraIconFactory.icon_speech()
             act = menu.addAction(icon, name)
             act.setCheckable(True)
             is_active = (curr_id == d["id"])
@@ -8705,8 +8707,8 @@ class ModernAccessibilityPanel(QWidget):
             return
         desc = self.speech_engine.get_current_audio_device_desc()
         is_bt = any(k in desc.lower() for k in ("bluetooth", "headphone", "earphone", "buds", "airpods", "kulaklık"))
-        c = get_modern_theme_colors(self.theme_name)
-        icon = ModernIconFactory.icon_headphones(c.get('accent', '#38bdf8')) if is_bt else ModernIconFactory.icon_speech(c.get('accent', '#38bdf8'))
+        c = get_aura_theme_colors(self.theme_name)
+        icon = AuraIconFactory.icon_headphones(c.get('accent', '#38bdf8')) if is_bt else AuraIconFactory.icon_speech(c.get('accent', '#38bdf8'))
         self.btn_audio_device.setIcon(icon)
 
         def _elide(text: str, max_len: int = 14) -> str:
@@ -8985,7 +8987,7 @@ class ModernAccessibilityPanel(QWidget):
         self._reading_doc_path = None
         if hasattr(self, 'btn_tts_play'):
             self.btn_tts_play.setText(" " + LanguageManager.tr("tts_play_btn"))
-            self.btn_tts_play.setIcon(ModernIconFactory.icon_play("#ffffff"))
+            self.btn_tts_play.setIcon(AuraIconFactory.icon_play("#ffffff"))
         if hasattr(self, 'slider_tts_progress'):
             self.slider_tts_progress.setValue(0)
         if hasattr(self, 'lbl_tts_time'):
@@ -9071,11 +9073,11 @@ class ModernAccessibilityPanel(QWidget):
         self.waveform.set_active(is_speaking)
         if is_speaking:
             self.btn_tts_play.setText(" " + LanguageManager.tr("tts_pause_btn"))
-            self.btn_tts_play.setIcon(ModernIconFactory.icon_pause("#ffffff"))
+            self.btn_tts_play.setIcon(AuraIconFactory.icon_pause("#ffffff"))
             self.lbl_tts_playback_status.setText(LanguageManager.tr("tts_status_reading"))
         else:
             self.btn_tts_play.setText(" " + LanguageManager.tr("tts_play_btn"))
-            self.btn_tts_play.setIcon(ModernIconFactory.icon_play("#ffffff"))
+            self.btn_tts_play.setIcon(AuraIconFactory.icon_play("#ffffff"))
             if self.speech_engine.is_paused():
                 self.lbl_tts_playback_status.setText(LanguageManager.tr("tts_status_paused"))
             else:
@@ -9093,7 +9095,7 @@ class ModernAccessibilityPanel(QWidget):
 
     def _on_tts_reading_finished(self):
         self.btn_tts_play.setText(" " + LanguageManager.tr("tts_play_btn"))
-        self.btn_tts_play.setIcon(ModernIconFactory.icon_play("#ffffff"))
+        self.btn_tts_play.setIcon(AuraIconFactory.icon_play("#ffffff"))
         self.lbl_tts_playback_status.setText(LanguageManager.tr("tts_status_ready"))
         self.slider_tts_progress.setValue(0)
         self.lbl_tts_time.setText("00:00")
@@ -9139,7 +9141,7 @@ class ModernAccessibilityPanel(QWidget):
             found_cursor.setPosition(found_cursor.anchor())
             found_cursor.setPosition(min(end_pos, doc.characterCount() - 1), QTextCursor.MoveMode.KeepAnchor)
             fmt = QTextCharFormat()
-            c = get_modern_theme_colors(self.theme_name)
+            c = get_aura_theme_colors(self.theme_name)
             accent_col = QColor(c.get('accent', '#38bdf8'))
             accent_col.setAlpha(70)
             fmt.setBackground(accent_col)
@@ -9222,47 +9224,47 @@ class ModernAccessibilityPanel(QWidget):
 
     def apply_theme(self, theme_name: str = "light"):
         self.theme_name = theme_name
-        c = get_modern_theme_colors(theme_name)
+        c = get_aura_theme_colors(theme_name)
         if hasattr(self, 'waveform'):
             self.waveform.set_color(c.get('accent', '#38bdf8'))
         if hasattr(self, 'lbl_canvas_icon'):
-            self.lbl_canvas_icon.setPixmap(ModernIconFactory.icon_reading_mode(c.get('accent', '#38bdf8')).pixmap(13, 13))
+            self.lbl_canvas_icon.setPixmap(AuraIconFactory.icon_reading_mode(c.get('accent', '#38bdf8')).pixmap(13, 13))
         if hasattr(self, 'btn_download_model'):
-            self.btn_download_model.setIcon(ModernIconFactory.icon_recovery(c['accent']))
+            self.btn_download_model.setIcon(AuraIconFactory.icon_recovery(c['accent']))
         if hasattr(self, 'btn_model_info'):
-            self.btn_model_info.setIcon(ModernIconFactory.icon_info(c['text_muted']))
+            self.btn_model_info.setIcon(AuraIconFactory.icon_info(c['text_muted']))
         if hasattr(self, 'btn_page_prev'):
-            self.btn_page_prev.setIcon(ModernIconFactory.icon_chevron_left(c['text']))
+            self.btn_page_prev.setIcon(AuraIconFactory.icon_chevron_left(c['text']))
         if hasattr(self, 'btn_page_next'):
-            self.btn_page_next.setIcon(ModernIconFactory.icon_chevron_right(c['text']))
+            self.btn_page_next.setIcon(AuraIconFactory.icon_chevron_right(c['text']))
         if hasattr(self, 'btn_read_page'):
-            self.btn_read_page.setIcon(ModernIconFactory.icon_view_single(c['accent']))
+            self.btn_read_page.setIcon(AuraIconFactory.icon_view_single(c['accent']))
         if hasattr(self, 'btn_read_all'):
-            self.btn_read_all.setIcon(ModernIconFactory.icon_organize(c['text']))
+            self.btn_read_all.setIcon(AuraIconFactory.icon_organize(c['text']))
         if hasattr(self, 'btn_read_selection'):
-            self.btn_read_selection.setIcon(ModernIconFactory.icon_cursor(c['text']))
+            self.btn_read_selection.setIcon(AuraIconFactory.icon_cursor(c['text']))
         if hasattr(self, 'btn_paste_clipboard'):
-            self.btn_paste_clipboard.setIcon(ModernIconFactory.icon_paste(c['text']))
+            self.btn_paste_clipboard.setIcon(AuraIconFactory.icon_paste(c['text']))
         if hasattr(self, 'btn_export_audio'):
-            self.btn_export_audio.setIcon(ModernIconFactory.icon_export_audio(c['text']))
+            self.btn_export_audio.setIcon(AuraIconFactory.icon_export_audio(c['text']))
         if hasattr(self, 'btn_clear_text'):
-            self.btn_clear_text.setIcon(ModernIconFactory.icon_trash(c.get('danger', '#ef4444')))
+            self.btn_clear_text.setIcon(AuraIconFactory.icon_trash(c.get('danger', '#ef4444')))
         if hasattr(self, 'btn_skip_back'):
-            self.btn_skip_back.setIcon(ModernIconFactory.icon_skip_back(c['text']))
+            self.btn_skip_back.setIcon(AuraIconFactory.icon_skip_back(c['text']))
         if hasattr(self, 'btn_prev_chunk'):
-            self.btn_prev_chunk.setIcon(ModernIconFactory.icon_media_prev(c['text']))
+            self.btn_prev_chunk.setIcon(AuraIconFactory.icon_media_prev(c['text']))
         if hasattr(self, 'btn_next_chunk'):
-            self.btn_next_chunk.setIcon(ModernIconFactory.icon_media_next(c['text']))
+            self.btn_next_chunk.setIcon(AuraIconFactory.icon_media_next(c['text']))
         if hasattr(self, 'btn_skip_fwd'):
-            self.btn_skip_fwd.setIcon(ModernIconFactory.icon_skip_forward(c['text']))
+            self.btn_skip_fwd.setIcon(AuraIconFactory.icon_skip_forward(c['text']))
         if hasattr(self, 'btn_tts_stop'):
-            self.btn_tts_stop.setIcon(ModernIconFactory.icon_stop(c.get('danger', '#ef4444')))
+            self.btn_tts_stop.setIcon(AuraIconFactory.icon_stop(c.get('danger', '#ef4444')))
         if hasattr(self, 'btn_speed'):
-            self.btn_speed.setIcon(ModernIconFactory.icon_speed(c['accent']))
+            self.btn_speed.setIcon(AuraIconFactory.icon_speed(c['accent']))
         self._refresh_audio_devices()
 
 
-class ModernAttachmentsListWidget(QListWidget):
+class AuraAttachmentsListWidget(QListWidget):
     """
     Ekler (Attachments) paneli liste bileşeni.
     Delete ve Backspace tuşları ile seçili eki doğrudan silmeyi destekler.
@@ -9280,7 +9282,7 @@ class ModernAttachmentsListWidget(QListWidget):
         super().keyPressEvent(event)
 
 
-class ModernRightSidebar(QWidget):
+class AuraRightSidebar(QWidget):
     """
     Ekranın sağındaki çekmece panel (Yer İmleri ve Adobe benzeri Yorumlar paneli):
     - Yer İmleri: İçindekiler hiyerarşisi, hızlı sayfa atlama, yeni yer imi ekleme.
@@ -9330,7 +9332,7 @@ class ModernRightSidebar(QWidget):
         h_head.setContentsMargins(4, 0, 4, 2)
 
         self.lbl_head_icon = QLabel()
-        self.lbl_head_icon.setPixmap(ModernIconFactory.icon_thumbnails().pixmap(16, 16))
+        self.lbl_head_icon.setPixmap(AuraIconFactory.icon_thumbnails().pixmap(16, 16))
         h_head.addWidget(self.lbl_head_icon)
 
         self.lbl_head_title = QLabel(LanguageManager.tr("dock_title"))
@@ -9339,7 +9341,7 @@ class ModernRightSidebar(QWidget):
         h_head.addStretch(1)
 
         self.btn_add = QToolButton()
-        self.btn_add.setIcon(ModernIconFactory.icon_plus("#ffffff"))
+        self.btn_add.setIcon(AuraIconFactory.icon_plus("#ffffff"))
         self.btn_add.setIconSize(QSize(16, 16))
         self.btn_add.setFixedSize(28, 28)
         self.btn_add.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -9359,7 +9361,7 @@ class ModernRightSidebar(QWidget):
         h_head.addWidget(self.btn_add)
 
         self.btn_close = QToolButton()
-        self.btn_close.setIcon(ModernIconFactory.icon_close())
+        self.btn_close.setIcon(AuraIconFactory.icon_close())
         self.btn_close.setIconSize(QSize(12, 12))
         self.btn_close.setFixedSize(22, 22)
         self.btn_close.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -9376,7 +9378,7 @@ class ModernRightSidebar(QWidget):
 
         self.btn_tab_thumbs = QToolButton()
         self.btn_tab_thumbs.setProperty("class", "SidebarTabButton")
-        self.btn_tab_thumbs.setIcon(ModernIconFactory.icon_thumbnails())
+        self.btn_tab_thumbs.setIcon(AuraIconFactory.icon_thumbnails())
         self.btn_tab_thumbs.setIconSize(QSize(14, 14))
         self.btn_tab_thumbs.setText(" " + LanguageManager.tr("sidebar_thumbnails"))
         self.btn_tab_thumbs.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
@@ -9388,7 +9390,7 @@ class ModernRightSidebar(QWidget):
 
         self.btn_tab_bookmarks = QToolButton()
         self.btn_tab_bookmarks.setProperty("class", "SidebarTabButton")
-        self.btn_tab_bookmarks.setIcon(ModernIconFactory.icon_bookmark())
+        self.btn_tab_bookmarks.setIcon(AuraIconFactory.icon_bookmark())
         self.btn_tab_bookmarks.setIconSize(QSize(14, 14))
         self.btn_tab_bookmarks.setText(" " + LanguageManager.tr("sidebar_bookmarks"))
         self.btn_tab_bookmarks.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
@@ -9399,7 +9401,7 @@ class ModernRightSidebar(QWidget):
 
         self.btn_tab_attachments = QToolButton()
         self.btn_tab_attachments.setProperty("class", "SidebarTabButton")
-        self.btn_tab_attachments.setIcon(ModernIconFactory.icon_attachment())
+        self.btn_tab_attachments.setIcon(AuraIconFactory.icon_attachment())
         self.btn_tab_attachments.setIconSize(QSize(14, 14))
         self.btn_tab_attachments.setText(" " + LanguageManager.tr("sidebar_attachments"))
         self.btn_tab_attachments.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
@@ -9410,7 +9412,7 @@ class ModernRightSidebar(QWidget):
 
         self.btn_tab_comments = QToolButton()
         self.btn_tab_comments.setProperty("class", "SidebarTabButton")
-        self.btn_tab_comments.setIcon(ModernIconFactory.icon_comments())
+        self.btn_tab_comments.setIcon(AuraIconFactory.icon_comments())
         self.btn_tab_comments.setIconSize(QSize(14, 14))
         self.btn_tab_comments.setText(" " + LanguageManager.tr("sidebar_comments"))
         self.btn_tab_comments.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
@@ -9454,7 +9456,7 @@ class ModernRightSidebar(QWidget):
         v_empty.setSpacing(12)
 
         lbl_big_icon = QLabel()
-        lbl_big_icon.setPixmap(ModernIconFactory.icon_bookmark("#94a3b8").pixmap(36, 36))
+        lbl_big_icon.setPixmap(AuraIconFactory.icon_bookmark("#94a3b8").pixmap(36, 36))
         lbl_big_icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
         v_empty.addWidget(lbl_big_icon)
 
@@ -9526,7 +9528,7 @@ class ModernRightSidebar(QWidget):
         v_empty_c.setSpacing(8)
 
         lbl_com_empty_icon = QLabel()
-        lbl_com_empty_icon.setPixmap(ModernIconFactory.icon_comments("#94a3b8").pixmap(36, 36))
+        lbl_com_empty_icon.setPixmap(AuraIconFactory.icon_comments("#94a3b8").pixmap(36, 36))
         lbl_com_empty_icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
         v_empty_c.addWidget(lbl_com_empty_icon)
 
@@ -9574,7 +9576,7 @@ class ModernRightSidebar(QWidget):
         v_empty_th.setSpacing(10)
 
         lbl_th_icon = QLabel()
-        lbl_th_icon.setPixmap(ModernIconFactory.icon_thumbnails("#94a3b8").pixmap(40, 40))
+        lbl_th_icon.setPixmap(AuraIconFactory.icon_thumbnails("#94a3b8").pixmap(40, 40))
         lbl_th_icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
         v_empty_th.addWidget(lbl_th_icon)
 
@@ -9591,7 +9593,7 @@ class ModernRightSidebar(QWidget):
 
         self.btn_empty_insert_pdf = QPushButton(" " + LanguageManager.tr("sidebar_btn_add_pdf"))
         self.btn_empty_insert_pdf.setObjectName("PrimaryActionBtn")
-        self.btn_empty_insert_pdf.setIcon(ModernIconFactory.icon_new_document("#ffffff"))
+        self.btn_empty_insert_pdf.setIcon(AuraIconFactory.icon_new_document("#ffffff"))
         self.btn_empty_insert_pdf.setIconSize(QSize(14, 14))
         self.btn_empty_insert_pdf.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_empty_insert_pdf.clicked.connect(lambda: self._on_add_pdf_clicked())
@@ -9599,7 +9601,7 @@ class ModernRightSidebar(QWidget):
 
         self.btn_empty_add_blank = QPushButton(" " + LanguageManager.tr("sidebar_btn_add_blank"))
         self.btn_empty_add_blank.setObjectName("PrimaryActionBtn")
-        self.btn_empty_add_blank.setIcon(ModernIconFactory.icon_add_page("#ffffff"))
+        self.btn_empty_add_blank.setIcon(AuraIconFactory.icon_add_page("#ffffff"))
         self.btn_empty_add_blank.setIconSize(QSize(14, 14))
         self.btn_empty_add_blank.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_empty_add_blank.clicked.connect(lambda: self._on_add_blank_page_clicked())
@@ -9646,7 +9648,7 @@ class ModernRightSidebar(QWidget):
         v_empty_att.setSpacing(12)
 
         lbl_att_icon = QLabel()
-        lbl_att_icon.setPixmap(ModernIconFactory.icon_attachment("#94a3b8").pixmap(36, 36))
+        lbl_att_icon.setPixmap(AuraIconFactory.icon_attachment("#94a3b8").pixmap(36, 36))
         lbl_att_icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
         v_empty_att.addWidget(lbl_att_icon)
 
@@ -9656,7 +9658,7 @@ class ModernRightSidebar(QWidget):
         v_empty_att.addWidget(self.lbl_empty_att)
 
         self.empty_att_btn = QPushButton(" " + LanguageManager.tr("sidebar_add_attachment"))
-        self.empty_att_btn.setIcon(ModernIconFactory.icon_plus())
+        self.empty_att_btn.setIcon(AuraIconFactory.icon_plus())
         self.empty_att_btn.setObjectName("PrimaryActionBtn")
         self.empty_att_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.empty_att_btn.clicked.connect(self._add_attachment_action)
@@ -9665,7 +9667,7 @@ class ModernRightSidebar(QWidget):
         self.stack_attachments.addWidget(self.empty_att_widget)
 
         # Görünüm 1: Ekler Listesi
-        self.list_attachments = ModernAttachmentsListWidget(self)
+        self.list_attachments = AuraAttachmentsListWidget(self)
         self.list_attachments.setObjectName("RightRailAttachmentsList")
         self.list_attachments.setSpacing(4)
         self.list_attachments.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
@@ -9692,7 +9694,7 @@ class ModernRightSidebar(QWidget):
 
     def _ensure_accessibility_panel(self):
         if self.panel_accessibility is None:
-            self.panel_accessibility = ModernAccessibilityPanel(main_window=self.main_window, parent=self)
+            self.panel_accessibility = AuraAccessibilityPanel(main_window=self.main_window, parent=self)
             self.panel_accessibility.apply_theme(self.theme_name)
             if self._panel_accessibility_placeholder is not None:
                 idx = self.main_stack.indexOf(self._panel_accessibility_placeholder)
@@ -9715,7 +9717,7 @@ class ModernRightSidebar(QWidget):
             self.tab_container.hide()
             self.main_stack.setCurrentIndex(4)
             self.lbl_head_title.setText(LanguageManager.tr("accessibility_panel_title"))
-            self.lbl_head_icon.setPixmap(ModernIconFactory.icon_accessibility().pixmap(16, 16))
+            self.lbl_head_icon.setPixmap(AuraIconFactory.icon_accessibility().pixmap(16, 16))
             self.btn_add.hide()
             self.setFixedWidth(270)
             self.panel_accessibility.load_accessibility()
@@ -9728,7 +9730,7 @@ class ModernRightSidebar(QWidget):
             self.btn_tab_comments.setChecked(True)
             self.main_stack.setCurrentIndex(1)
             self.lbl_head_title.setText(LanguageManager.tr("sidebar_comments"))
-            self.lbl_head_icon.setPixmap(ModernIconFactory.icon_comments().pixmap(16, 16))
+            self.lbl_head_icon.setPixmap(AuraIconFactory.icon_comments().pixmap(16, 16))
             self.btn_add.hide()
             self.load_comments()
         elif panel_name == "thumbnails":
@@ -9736,7 +9738,7 @@ class ModernRightSidebar(QWidget):
             self.btn_tab_thumbs.setChecked(True)
             self.main_stack.setCurrentIndex(2)
             self.lbl_head_title.setText(LanguageManager.tr("sidebar_thumbnails"))
-            self.lbl_head_icon.setPixmap(ModernIconFactory.icon_thumbnails().pixmap(16, 16))
+            self.lbl_head_icon.setPixmap(AuraIconFactory.icon_thumbnails().pixmap(16, 16))
             self.btn_add.show()
             self.btn_add.setToolTip(LanguageManager.tr("sidebar_add_page"))
             self.load_thumbnails()
@@ -9745,7 +9747,7 @@ class ModernRightSidebar(QWidget):
             self.btn_tab_attachments.setChecked(True)
             self.main_stack.setCurrentIndex(3)
             self.lbl_head_title.setText(LanguageManager.tr("sidebar_attachments"))
-            self.lbl_head_icon.setPixmap(ModernIconFactory.icon_attachment().pixmap(16, 16))
+            self.lbl_head_icon.setPixmap(AuraIconFactory.icon_attachment().pixmap(16, 16))
             self.btn_add.show()
             self.btn_add.setToolTip(LanguageManager.tr("sidebar_add_attachment"))
             self.load_attachments()
@@ -9754,7 +9756,7 @@ class ModernRightSidebar(QWidget):
             self.btn_tab_bookmarks.setChecked(True)
             self.main_stack.setCurrentIndex(0)
             self.lbl_head_title.setText(LanguageManager.tr("sidebar_bookmarks"))
-            self.lbl_head_icon.setPixmap(ModernIconFactory.icon_bookmark().pixmap(16, 16))
+            self.lbl_head_icon.setPixmap(AuraIconFactory.icon_bookmark().pixmap(16, 16))
             self.btn_add.show()
             self.btn_add.setToolTip(LanguageManager.tr("bookmarks_add_btn"))
             self.load_bookmarks()
@@ -9890,7 +9892,7 @@ class ModernRightSidebar(QWidget):
         return super().eventFilter(source, event)
 
     def _create_placeholder_pixmap(self, is_bookmarked: bool = False) -> QPixmap:
-        c = get_modern_theme_colors(self.theme_name)
+        c = get_aura_theme_colors(self.theme_name)
         pix = QPixmap(140, 190)
         pix.fill(QColor(c.get('card_bg', '#242426')))
         if is_bookmarked:
@@ -10470,26 +10472,26 @@ class ModernRightSidebar(QWidget):
         act_label = None
 
         if item and idx >= 0:
-            act_goto = menu.addAction(ModernIconFactory.icon_cursor(), LanguageManager.tr("sidebar_goto_page", page=idx + 1))
+            act_goto = menu.addAction(AuraIconFactory.icon_cursor(), LanguageManager.tr("sidebar_goto_page", page=idx + 1))
             if idx in self.get_bookmarked_pages():
-                act_show_bm = menu.addAction(ModernIconFactory.icon_bookmark(), LanguageManager.tr("sidebar_show_in_toc"))
+                act_show_bm = menu.addAction(AuraIconFactory.icon_bookmark(), LanguageManager.tr("sidebar_show_in_toc"))
             menu.addSeparator()
-            act_rotate_cw = menu.addAction(ModernIconFactory.icon_rotate(), LanguageManager.tr("sidebar_rotate_cw"))
-            act_rotate_ccw = menu.addAction(ModernIconFactory.icon_rotate_ccw(), LanguageManager.tr("sidebar_rotate_ccw"))
+            act_rotate_cw = menu.addAction(AuraIconFactory.icon_rotate(), LanguageManager.tr("sidebar_rotate_cw"))
+            act_rotate_ccw = menu.addAction(AuraIconFactory.icon_rotate_ccw(), LanguageManager.tr("sidebar_rotate_ccw"))
             menu.addSeparator()
-            act_crop = menu.addAction(ModernIconFactory.icon_crop(), LanguageManager.tr("organize_crop_page_title"))
-            act_label = menu.addAction(ModernIconFactory.icon_page_label(), LanguageManager.tr("organize_page_label_title"))
+            act_crop = menu.addAction(AuraIconFactory.icon_crop(), LanguageManager.tr("organize_crop_page_title"))
+            act_label = menu.addAction(AuraIconFactory.icon_page_label(), LanguageManager.tr("organize_page_label_title"))
             menu.addSeparator()
 
-        act_blank = menu.addAction(ModernIconFactory.icon_add_page(), LanguageManager.tr("sidebar_btn_add_blank"))
-        act_pdf = menu.addAction(ModernIconFactory.icon_new_document(), LanguageManager.tr("sidebar_btn_add_pdf"))
+        act_blank = menu.addAction(AuraIconFactory.icon_add_page(), LanguageManager.tr("sidebar_btn_add_blank"))
+        act_pdf = menu.addAction(AuraIconFactory.icon_new_document(), LanguageManager.tr("sidebar_btn_add_pdf"))
 
         if item and idx >= 0:
             if hasattr(self.main_window, 'show_change_page_style_dialog'):
-                act_style = menu.addAction(ModernIconFactory.icon_brush(), LanguageManager.tr("change_page_style_action"))
-            act_dup = menu.addAction(ModernIconFactory.icon_new_document(), LanguageManager.tr("sidebar_duplicate_page"))
+                act_style = menu.addAction(AuraIconFactory.icon_brush(), LanguageManager.tr("change_page_style_action"))
+            act_dup = menu.addAction(AuraIconFactory.icon_new_document(), LanguageManager.tr("sidebar_duplicate_page"))
             menu.addSeparator()
-            act_del = menu.addAction(ModernIconFactory.icon_trash(), LanguageManager.tr("sidebar_delete_page"))
+            act_del = menu.addAction(AuraIconFactory.icon_trash(), LanguageManager.tr("sidebar_delete_page"))
 
         chosen = menu.exec(self.list_thumbnails.mapToGlobal(pos))
         if not chosen:
@@ -10528,8 +10530,8 @@ class ModernRightSidebar(QWidget):
     def _on_add_page_menu_requested(self):
         menu = QMenu(self)
         apply_dialog_theme(menu, self)
-        act_blank = menu.addAction(ModernIconFactory.icon_add_page(), LanguageManager.tr("sidebar_btn_add_blank"))
-        act_pdf = menu.addAction(ModernIconFactory.icon_new_document(), LanguageManager.tr("sidebar_btn_add_pdf"))
+        act_blank = menu.addAction(AuraIconFactory.icon_add_page(), LanguageManager.tr("sidebar_btn_add_blank"))
+        act_pdf = menu.addAction(AuraIconFactory.icon_new_document(), LanguageManager.tr("sidebar_btn_add_pdf"))
         pos = self.btn_add.mapToGlobal(QPoint(0, self.btn_add.height() + 2)) if hasattr(self, 'btn_add') else QCursor.pos()
         chosen = menu.exec(pos)
         if chosen == act_blank:
@@ -10739,7 +10741,7 @@ class ModernRightSidebar(QWidget):
             parent_item = items_by_level.get(level - 1, self.tree_bookmarks.invisibleRootItem())
             tree_item = QTreeWidgetItem(parent_item)
             tree_item.setText(0, title)
-            tree_item.setIcon(0, ModernIconFactory.icon_bookmark())
+            tree_item.setIcon(0, AuraIconFactory.icon_bookmark())
             tree_item.setText(1, str(page_1_based))
             tree_item.setTextAlignment(1, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
             tree_item.setData(0, Qt.ItemDataRole.UserRole, page_idx)
@@ -10761,7 +10763,7 @@ class ModernRightSidebar(QWidget):
             return
         curr = getattr(tab_doc, 'current_page', 0)
         from PyQt6.QtWidgets import QInputDialog
-        title, ok = QInputDialog.getText(self, LanguageManager.tr("bookmarks_add_btn"), "Yer İmi Başlığı:")
+        title, ok = QInputDialog.getText(self, LanguageManager.tr("bookmarks_add_btn"), LanguageManager.tr("ui_yer_imi_basligi"))
         if ok and title.strip():
             toc = tab_doc.doc.get_toc(simple=False)
             toc.append([1, title.strip(), curr + 1])
@@ -10833,12 +10835,12 @@ class ModernRightSidebar(QWidget):
         for p_idx in sorted(pages_dict.keys()):
             annots = pages_dict[p_idx]
             page_group = QTreeWidgetItem(self.tree_comments)
-            page_group.setText(0, f"Sayfa {p_idx + 1} ({len(annots)})")
+            page_group.setText(0, LanguageManager.tr("ui_sayfa", value=p_idx + 1, len_annots=len(annots)))
             page_group.setExpanded(True)
 
             for a in annots:
                 item = QTreeWidgetItem(page_group)
-                icon = ModernIconFactory.icon_highlighter() if "high" in a['type'].lower() else ModernIconFactory.icon_comments()
+                icon = AuraIconFactory.icon_highlighter() if "high" in a['type'].lower() else AuraIconFactory.icon_comments()
                 item.setIcon(0, icon)
                 author_title = f"{a['author']}: {a['content'][:45]}"
                 item.setText(0, author_title)
@@ -10895,8 +10897,8 @@ class ModernRightSidebar(QWidget):
 
         menu = QMenu(self)
         apply_dialog_theme(menu, self)
-        act_edit = menu.addAction(ModernIconFactory.icon_edit(), LanguageManager.tr("comment_edit_btn"))
-        act_del = menu.addAction(ModernIconFactory.icon_trash(), LanguageManager.tr("comments_delete_tooltip"))
+        act_edit = menu.addAction(AuraIconFactory.icon_edit(), LanguageManager.tr("comment_edit_btn"))
+        act_del = menu.addAction(AuraIconFactory.icon_trash(), LanguageManager.tr("comments_delete_tooltip"))
         act = menu.exec(self.tree_comments.mapToGlobal(pos))
         if act == act_edit:
             self._edit_comment_item(data)
@@ -11063,7 +11065,7 @@ class ModernRightSidebar(QWidget):
             display_text = f"{name}"
             if size_str:
                 display_text += f"  ({size_str})"
-            item = QListWidgetItem(ModernIconFactory.icon_attachment(), display_text)
+            item = QListWidgetItem(AuraIconFactory.icon_attachment(), display_text)
             item.setData(Qt.ItemDataRole.UserRole, name)
             self.list_attachments.addItem(item)
 
@@ -11173,10 +11175,10 @@ class ModernRightSidebar(QWidget):
         if not name:
             return
         menu = QMenu(self)
-        act_open = menu.addAction(ModernIconFactory.icon_attachment(), LanguageManager.tr("sidebar_open_attachment"))
-        act_save = menu.addAction(ModernIconFactory.icon_save(), LanguageManager.tr("sidebar_save_attachment"))
+        act_open = menu.addAction(AuraIconFactory.icon_attachment(), LanguageManager.tr("sidebar_open_attachment"))
+        act_save = menu.addAction(AuraIconFactory.icon_save(), LanguageManager.tr("sidebar_save_attachment"))
         menu.addSeparator()
-        act_del = menu.addAction(ModernIconFactory.icon_trash("#ef4444"), LanguageManager.tr("sidebar_delete_attachment"))
+        act_del = menu.addAction(AuraIconFactory.icon_trash("#ef4444"), LanguageManager.tr("sidebar_delete_attachment"))
 
         action = menu.exec(self.list_attachments.mapToGlobal(pos))
         if action == act_open:
@@ -11191,10 +11193,10 @@ class ModernRightSidebar(QWidget):
 
     def apply_theme(self, theme_name: str = "light"):
         self.theme_name = theme_name
-        c = get_modern_theme_colors(theme_name)
+        c = get_aura_theme_colors(theme_name)
         border_css = f"border-right: 1px solid {c['border']};" if getattr(self, 'dock_side', 'right') == "left" else f"border-left: 1px solid {c['border']};"
         self.setStyleSheet(f"""
-            ModernRightSidebar {{
+            AuraRightSidebar {{
                 background-color: {c['surface']};
                 {border_css}
             }}
@@ -11622,7 +11624,7 @@ class ModernRightSidebar(QWidget):
             }}
         """)
         if hasattr(self, 'btn_close'):
-            self.btn_close.setIcon(ModernIconFactory.icon_close(c['text']))
+            self.btn_close.setIcon(AuraIconFactory.icon_close(c['text']))
         if hasattr(self, 'panel_accessibility') and self.panel_accessibility is not None:
             self.panel_accessibility.apply_theme(theme_name)
 
@@ -11705,7 +11707,7 @@ class ModernRightSidebar(QWidget):
         if self._is_resizing or self._hovering_resize_edge:
             p.setPen(QPen(QColor("#38bdf8"), 2))
         else:
-            c = get_modern_theme_colors(self.theme_name)
+            c = get_aura_theme_colors(self.theme_name)
             p.setPen(QPen(QColor(c.get('border', 'rgba(255, 255, 255, 0.12)')), 1))
         p.drawLine(rx, 0, rx, self.height())
         p.end()
@@ -11736,9 +11738,9 @@ class ModernRightSidebar(QWidget):
 
 
 # ==============================================================================
-# 6. EN SAĞ DİKEY ARAÇ ÇUBUĞU (ModernUtilityRail)
+# 6. EN SAĞ DİKEY ARAÇ ÇUBUĞU (AuraUtilityRail)
 # ==============================================================================
-class ModernUtilityRail(QWidget):
+class AuraUtilityRail(QWidget):
     """
     En sağ kenardaki dikey araç çubuğu (Kullanıcı görselindeki sağ ikon rayı):
     - Üst grup:
@@ -11772,10 +11774,10 @@ class ModernUtilityRail(QWidget):
         # Üst Panel Tetikleyicileri
         self.buttons: Dict[str, QToolButton] = {}
         top_items = [
-            ("thumbnails", ModernIconFactory.icon_thumbnails(), "dock_title"),
-            ("bookmarks", ModernIconFactory.icon_bookmark(), "sidebar_bookmarks"),
-            ("comments", ModernIconFactory.icon_comments(), "sidebar_comments"),
-            ("attachments", ModernIconFactory.icon_attachment(), "sidebar_attachments"),
+            ("thumbnails", AuraIconFactory.icon_thumbnails(), "dock_title"),
+            ("bookmarks", AuraIconFactory.icon_bookmark(), "sidebar_bookmarks"),
+            ("comments", AuraIconFactory.icon_comments(), "sidebar_comments"),
+            ("attachments", AuraIconFactory.icon_attachment(), "sidebar_attachments"),
         ]
 
         for rid, icon, tip_key in top_items:
@@ -11794,7 +11796,7 @@ class ModernUtilityRail(QWidget):
 
         # Alt Panel Tetikleyicisi (En alt kısım): Erişilebilirlik ve Sesli Okuma
         btn_acc = QToolButton()
-        btn_acc.setIcon(ModernIconFactory.icon_accessibility())
+        btn_acc.setIcon(AuraIconFactory.icon_accessibility())
         btn_acc.setIconSize(QSize(18, 18))
         btn_acc.setFixedSize(40, 36)
         btn_acc.setCheckable(True)
@@ -11851,10 +11853,10 @@ class ModernUtilityRail(QWidget):
 
     def apply_theme(self, theme_name: str = "light"):
         self.theme_name = theme_name
-        c = get_modern_theme_colors(theme_name)
+        c = get_aura_theme_colors(theme_name)
         border_css = f"border-right: 1px solid {c['border']};" if getattr(self, 'dock_side', 'right') == "left" else f"border-left: 1px solid {c['border']};"
         self.setStyleSheet(f"""
-            ModernUtilityRail {{
+            AuraUtilityRail {{
                 background-color: {c['surface']};
                 {border_css}
             }}
@@ -11904,9 +11906,9 @@ class ModernUtilityRail(QWidget):
 
 
 # ==============================================================================
-# 7. HIZLI KOMUT VE ARAÇ PALETİ (ModernCommandPaletteDialog)
+# 7. HIZLI KOMUT VE ARAÇ PALETİ (AuraCommandPaletteDialog)
 # ==============================================================================
-class ModernCommandPaletteDialog(QDialog):
+class AuraCommandPaletteDialog(QDialog):
     """Ctrl+K ile açılan modern araç arama kutusu."""
     commandTriggered = pyqtSignal(str)
 
@@ -11937,21 +11939,21 @@ class ModernCommandPaletteDialog(QDialog):
         layout.addWidget(self.list_widget, stretch=1)
 
         self.commands = [
-            ("organize_pages", "tool_organize_pages", ModernIconFactory.icon_organize("#22c55e")),
-            ("edit_pdf", "tool_edit_pdf", ModernIconFactory.icon_edit_content("#ec4899")),
-            ("combine_files", "tool_combine_files", ModernIconFactory.icon_combine_files("#38bdf8")),
-            ("compress_pdf", "tool_compress_pdf", ModernIconFactory.icon_compress("#ef4444")),
-            ("scan_ocr", "tool_scan_ocr", ModernIconFactory.icon_ocr("#10b981")),
-            ("export_pdf", "tool_export_pdf", ModernIconFactory.icon_export_pdf("#0ea5e9")),
-            ("protect_pdf", "tool_protect_pdf", ModernIconFactory.icon_lock("#3b82f6")),
-            ("redact_pdf", "tool_redact_pdf", ModernIconFactory.icon_redact("#ef4444")),
-            ("fill_sign", "tool_fill_sign", ModernIconFactory.icon_fill_sign("#a855f7")),
-            ("compare_files", "tool_compare_files", ModernIconFactory.icon_compare("#a855f7")),
-            ("add_gif", "tool_add_gif", ModernIconFactory.icon_gif("#10b981")),
-            ("print", "print_btn", ModernIconFactory.icon_print("#ffffff")),
-            ("save", "save_btn", ModernIconFactory.icon_save()),
-            ("settings", "settings_title", ModernIconFactory.icon_settings()),
-            ("shortcuts", "shortcuts_title", ModernIconFactory.icon_info()),
+            ("organize_pages", "tool_organize_pages", AuraIconFactory.icon_organize("#22c55e")),
+            ("edit_pdf", "tool_edit_pdf", AuraIconFactory.icon_edit_content("#ec4899")),
+            ("combine_files", "tool_combine_files", AuraIconFactory.icon_combine_files("#38bdf8")),
+            ("compress_pdf", "tool_compress_pdf", AuraIconFactory.icon_compress("#ef4444")),
+            ("scan_ocr", "tool_scan_ocr", AuraIconFactory.icon_ocr("#10b981")),
+            ("export_pdf", "tool_export_pdf", AuraIconFactory.icon_export_pdf("#0ea5e9")),
+            ("protect_pdf", "tool_protect_pdf", AuraIconFactory.icon_lock("#3b82f6")),
+            ("redact_pdf", "tool_redact_pdf", AuraIconFactory.icon_redact("#ef4444")),
+            ("fill_sign", "tool_fill_sign", AuraIconFactory.icon_fill_sign("#a855f7")),
+            ("compare_files", "tool_compare_files", AuraIconFactory.icon_compare("#a855f7")),
+            ("add_gif", "tool_add_gif", AuraIconFactory.icon_gif("#10b981")),
+            ("print", "print_btn", AuraIconFactory.icon_print("#ffffff")),
+            ("save", "save_btn", AuraIconFactory.icon_save()),
+            ("settings", "settings_title", AuraIconFactory.icon_settings()),
+            ("shortcuts", "shortcuts_title", AuraIconFactory.icon_info()),
         ]
 
         self._filter_commands("")
@@ -12014,9 +12016,9 @@ class ModernCommandPaletteDialog(QDialog):
         self.close()
 
     def _apply_style(self):
-        c = get_modern_theme_colors(getattr(self.main_window, 'current_theme', 'light'))
+        c = get_aura_theme_colors(getattr(self.main_window, 'current_theme', 'light'))
         self.setStyleSheet(f"""
-            ModernCommandPaletteDialog {{
+            AuraCommandPaletteDialog {{
                 background-color: {c['surface']};
                 border: 1.5px solid {c['border']};
                 border-radius: 10px;

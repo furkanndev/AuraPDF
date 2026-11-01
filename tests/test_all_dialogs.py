@@ -45,7 +45,7 @@ def test_dialogs():
         ("src.ui.dialogs.pdf_ocr_dialog", "PDFOCRDialog", lambda: (parent,)),
         ("src.ui.dialogs.pdf_redaction_dialog", "PDFRedactionDialog", lambda: (parent,)),
         ("src.ui.dialogs.print_dialog", "AuraPrintDialog", lambda: (tab_doc, parent)),
-        ("src.ui.dialogs.print_dialog", "ModernPrintDialog", lambda: (tab_doc, parent)),
+        ("src.ui.dialogs.print_dialog", "AuraPrintDialog", lambda: (tab_doc, parent)),
         ("src.ui.dialogs.settings_dialog", "AuraSettingsDialog", lambda: (parent,)),
         ("src.ui.dialogs.settings_dialog", "SettingsDialog", lambda: (parent,)),
         ("src.ui.dialogs.pdf_compare_dialog", "PDFCompareDialog", lambda: (parent,)),
@@ -57,9 +57,9 @@ def test_dialogs():
         ("src.ui.dialogs.page_organize_dialogs", "PageLabelDialog", lambda: (parent, 1)),
         ("src.ui.dialogs.page_organize_dialogs", "CropPageDialog", lambda: (parent, parent.doc[0])),
         ("src.ui.dialogs.pdf_signature_dialog", "PDFSignatureDialog", lambda: (parent,)),
-        ("src.ui.dialogs.stamp_dialog", "ModernStampDialog", lambda: (parent,)),
+        ("src.ui.dialogs.stamp_dialog", "AuraStampDialog", lambda: (parent,)),
         ("src.ui.dialogs.stamp_dialog", "DateStampDialog", lambda: (parent,)),
-        ("src.ui.popups", "ModernStampPalettePopup", lambda: (parent,)),
+        ("src.ui.popups", "AuraStampPalettePopup", lambda: (parent,)),
         ("src.ui.dialogs.update_dialog", "UpdateDialog", lambda: (None, parent)),
         
         # media_dialogs

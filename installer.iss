@@ -64,6 +64,7 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 Name: "assocpdf"; Description: "{cm:AssocPdf}"; GroupDescription: "{cm:FileAssociations}"
 
 [Files]
+Source: "THIRD_PARTY_NOTICES.txt"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#MyAppIcon}"; DestDir: "{app}"; Flags: ignoreversion
 Source: "assets\pdf_file.ico"; DestDir: "{app}"; Flags: ignoreversion
 Source: "assets\PdfThumbnailProvider.dll"; DestDir: "{app}"; Flags: ignoreversion
@@ -81,32 +82,24 @@ Root: HKA; Subkey: "Software\Classes\.pdf\OpenWithProgids"; ValueType: string; V
 Root: HKA; Subkey: "Software\Classes\AuraPDF.AssocFile.PDF"; ValueType: string; ValueName: ""; ValueData: "{cm:PdfDocType}"; Flags: uninsdeletekey; Tasks: assocpdf
 Root: HKA; Subkey: "Software\Classes\AuraPDF.AssocFile.PDF\DefaultIcon"; ValueType: string; ValueName: ""; ValueData: "{app}\pdf_file.ico,0"; Tasks: assocpdf
 Root: HKA; Subkey: "Software\Classes\AuraPDF.AssocFile.PDF\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\{#MyAppExeName}"" ""%1"""; Tasks: assocpdf
-Root: HKA; Subkey: "Software\Classes\AuraPDF.AssocFile.PDF\ShellEx\{{8895b1c6-b41f-4c1c-a562-0d564250836f}"; ValueType: string; ValueName: ""; ValueData: "{{3A84F9C2-6164-485C-A7D9-4B27F8AC009E}"; Flags: uninsdeletekey; Tasks: assocpdf
-; PDF Onizleme (Thumbnail Provider) - Sag-Alt Rozet Kapali (TypeOverlay = "" ve ShowTypeOverlay = 0)
+; PDF Onizleme (Thumbnail Provider) - yalnizca AuraPDF ProgID kapsaminda.
+; Genel .pdf / SystemFileAssociations anahtarlarina ve Explorer'in ShowTypeOverlay ayarina
+; kurulum yazmaz; AuraPDF varsayilan okuyucu oldugunda uygulama bunu HKCU altinda kendisi yapar.
 Root: HKA; Subkey: "Software\Classes\AuraPDF.AssocFile.PDF"; ValueType: string; ValueName: "TypeOverlay"; ValueData: ""; Flags: uninsdeletevalue; Tasks: assocpdf
-Root: HKA; Subkey: "Software\Classes\.pdf"; ValueType: string; ValueName: "TypeOverlay"; ValueData: ""; Flags: uninsdeletevalue; Tasks: assocpdf
-Root: HKA; Subkey: "Software\Classes\SystemFileAssociations\.pdf"; ValueType: string; ValueName: "TypeOverlay"; ValueData: ""; Flags: uninsdeletevalue; Tasks: assocpdf
 Root: HKA; Subkey: "Software\Classes\CLSID\{{D8BB9942-93BD-412D-87E4-33FAB214DC1A}"; ValueType: string; ValueName: ""; ValueData: "AuraPDF Thumbnail Provider"; Flags: uninsdeletekey; Tasks: assocpdf
 Root: HKA; Subkey: "Software\Classes\CLSID\{{D8BB9942-93BD-412D-87E4-33FAB214DC1A}"; ValueType: dword; ValueName: "DisableProcessIsolation"; ValueData: "1"; Flags: uninsdeletekey; Tasks: assocpdf
 Root: HKA; Subkey: "Software\Classes\CLSID\{{D8BB9942-93BD-412D-87E4-33FAB214DC1A}\InprocServer32"; ValueType: string; ValueName: ""; ValueData: "{app}\PdfThumbnailProvider.dll"; Flags: uninsdeletekey; Tasks: assocpdf
 Root: HKA; Subkey: "Software\Classes\CLSID\{{D8BB9942-93BD-412D-87E4-33FAB214DC1A}\InprocServer32"; ValueType: string; ValueName: "ThreadingModel"; ValueData: "Apartment"; Flags: uninsdeletekey; Tasks: assocpdf
 Root: HKA; Subkey: "Software\Classes\AuraPDF.AssocFile.PDF\ShellEx\{{e357fccd-a995-4576-b01f-234630154e96}"; ValueType: string; ValueName: ""; ValueData: "{{D8BB9942-93BD-412D-87E4-33FAB214DC1A}"; Flags: uninsdeletekey; Tasks: assocpdf
-Root: HKA; Subkey: "Software\Classes\.pdf\ShellEx\{{e357fccd-a995-4576-b01f-234630154e96}"; ValueType: string; ValueName: ""; ValueData: "{{D8BB9942-93BD-412D-87E4-33FAB214DC1A}"; Flags: uninsdeletekey; Tasks: assocpdf
-Root: HKA; Subkey: "Software\Classes\SystemFileAssociations\.pdf\ShellEx\{{e357fccd-a995-4576-b01f-234630154e96}"; ValueType: string; ValueName: ""; ValueData: "{{D8BB9942-93BD-412D-87E4-33FAB214DC1A}"; Flags: uninsdeletekey; Tasks: assocpdf
-Root: HKLM; Subkey: "Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced"; ValueType: dword; ValueName: "ShowTypeOverlay"; ValueData: "0"; Flags: uninsdeletevalue; Tasks: assocpdf
-Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced"; ValueType: dword; ValueName: "ShowTypeOverlay"; ValueData: "0"; Flags: uninsdeletevalue; Tasks: assocpdf
 ; Windows Birlikte Ac (Open With) ve Uygulama Kaydi
 Root: HKA; Subkey: "Software\Classes\Applications\{#MyAppExeName}\SupportedTypes"; ValueType: string; ValueName: ".pdf"; ValueData: ""; Flags: uninsdeletevalue; Tasks: assocpdf
 Root: HKA; Subkey: "Software\Classes\Applications\{#MyAppExeName}\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\{#MyAppExeName}"" ""%1"""; Flags: uninsdeletekey; Tasks: assocpdf
 
-; Program kaldirildiginda kullanici (HKCU) kabuk kayitlarinin da eksiksiz temizlenmesi
-Root: HKCU; Subkey: "Software\Classes\.pdf\ShellEx\{{e357fccd-a995-4576-b01f-234630154e96}"; Flags: dontcreatekey uninsdeletekey
-Root: HKCU; Subkey: "Software\Classes\SystemFileAssociations\.pdf\ShellEx\{{e357fccd-a995-4576-b01f-234630154e96}"; Flags: dontcreatekey uninsdeletekey
+; Program kaldirildiginda kullanici (HKCU) kabuk kayitlarinin temizlenmesi.
+; .pdf / SystemFileAssociations altindaki paylasilan anahtarlar [Code] bolumunde
+; yalnizca AuraPDF'e ait oldugu dogrulanirsa silinir.
 Root: HKCU; Subkey: "Software\Classes\CLSID\{{D8BB9942-93BD-412D-87E4-33FAB214DC1A}"; Flags: dontcreatekey uninsdeletekey
 Root: HKCU; Subkey: "Software\Classes\AuraPDF.AssocFile.PDF"; Flags: dontcreatekey uninsdeletekey
-Root: HKCU; Subkey: "Software\Classes\.pdf"; ValueType: none; ValueName: "TypeOverlay"; Flags: dontcreatekey uninsdeletevalue
-Root: HKCU; Subkey: "Software\Classes\SystemFileAssociations\.pdf"; ValueType: none; ValueName: "TypeOverlay"; Flags: dontcreatekey uninsdeletevalue
-Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced"; ValueType: none; ValueName: "ShowTypeOverlay"; Flags: dontcreatekey uninsdeletevalue
 
 [UninstallRun]
 Filename: "{app}\{#MyAppExeName}"; Parameters: "--uninstall-cleanup"; Flags: runhidden skipifdoesntexist
@@ -116,3 +109,74 @@ Type: filesandordirs; Name: "{localappdata}\{#MyAppName}"
 
 [Run]
 Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; Flags: nowait postinstall skipifsilent
+
+[Code]
+const
+  AuraThumbClsid = '{D8BB9942-93BD-412D-87E4-33FAB214DC1A}';
+  ThumbShellEx = '\ShellEx\{e357fccd-a995-4576-b01f-234630154e96}';
+
+{ Yalnizca AuraPDF'e ait oldugu dogrulanan kayitlari siler; baska uygulamalarinkine dokunmaz. }
+procedure RemoveAuraThumbKey(RootKey: Integer; BaseKey: String);
+var
+  Val: String;
+begin
+  if RegQueryStringValue(RootKey, BaseKey + ThumbShellEx, '', Val) then
+    if CompareText(Val, AuraThumbClsid) = 0 then
+      RegDeleteKeyIncludingSubkeys(RootKey, BaseKey + ThumbShellEx);
+end;
+
+procedure RemoveEmptyTypeOverlay(RootKey: Integer; BaseKey: String);
+var
+  Val: String;
+begin
+  if RegQueryStringValue(RootKey, BaseKey, 'TypeOverlay', Val) then
+    if Val = '' then
+      RegDeleteValue(RootKey, BaseKey, 'TypeOverlay');
+end;
+
+procedure RemoveShowTypeOverlay(RootKey: Integer);
+var
+  D: Cardinal;
+begin
+  if RegQueryDWordValue(RootKey, 'Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced', 'ShowTypeOverlay', D) then
+    if D = 0 then
+      RegDeleteValue(RootKey, 'Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced', 'ShowTypeOverlay');
+end;
+
+{ Eski surumlerin sistem geneline yazdigi kayitlari temizler (yukseltmede ve kaldirmada). }
+procedure CleanupLegacyGlobalKeys();
+begin
+  RemoveAuraThumbKey(HKLM, 'Software\Classes\.pdf');
+  RemoveAuraThumbKey(HKLM, 'Software\Classes\SystemFileAssociations\.pdf');
+  RemoveEmptyTypeOverlay(HKLM, 'Software\Classes\.pdf');
+  RemoveEmptyTypeOverlay(HKLM, 'Software\Classes\SystemFileAssociations\.pdf');
+  RemoveShowTypeOverlay(HKLM);
+  RegDeleteKeyIncludingSubkeys(HKLM, 'Software\Classes\AuraPDF.AssocFile.PDF\ShellEx\{8895b1c6-b41f-4c1c-a562-0d564250836f}');
+end;
+
+procedure CleanupUserKeys();
+begin
+  RemoveAuraThumbKey(HKCU, 'Software\Classes\.pdf');
+  RemoveAuraThumbKey(HKCU, 'Software\Classes\SystemFileAssociations\.pdf');
+  RemoveEmptyTypeOverlay(HKCU, 'Software\Classes\.pdf');
+  RemoveEmptyTypeOverlay(HKCU, 'Software\Classes\SystemFileAssociations\.pdf');
+  RemoveShowTypeOverlay(HKCU);
+end;
+
+procedure CurStepChanged(CurStep: TSetupStep);
+begin
+  if CurStep = ssPostInstall then
+  begin
+    CleanupLegacyGlobalKeys();
+    RemoveShowTypeOverlay(HKCU);
+  end;
+end;
+
+procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
+begin
+  if CurUninstallStep = usPostUninstall then
+  begin
+    CleanupLegacyGlobalKeys();
+    CleanupUserKeys();
+  end;
+end;

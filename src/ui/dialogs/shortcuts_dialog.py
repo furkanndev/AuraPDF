@@ -7,14 +7,14 @@ kolayca inceleyebilmesini sağlayan modern, filtreli yardım penceresi.
 
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QTableWidget, QTableWidgetItem,
-    QLabel, QPushButton, QHeaderView, QLineEdit, QTabWidget, QWidget
+    QLabel, QPushButton, QHeaderView, QTabWidget
 )
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QFont
 
 from src.core.i18n import LanguageManager
 from src.ui.dialog_theme import apply_dialog_theme
-from src.ui.icons import ModernIconFactory
+from src.ui.icons import AuraIconFactory
 
 
 class KeyboardShortcutsDialog(QDialog):
@@ -119,7 +119,7 @@ class KeyboardShortcutsDialog(QDialog):
         # Başlık
         header_layout = QHBoxLayout()
         icon_lbl = QLabel(self)
-        icon_lbl.setPixmap(ModernIconFactory.icon_keyboard_shortcuts().pixmap(30, 30))
+        icon_lbl.setPixmap(AuraIconFactory.icon_keyboard_shortcuts().pixmap(30, 30))
         header_layout.addWidget(icon_lbl)
 
         title_vbox = QVBoxLayout()

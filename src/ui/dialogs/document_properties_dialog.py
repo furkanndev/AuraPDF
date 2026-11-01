@@ -8,14 +8,12 @@ sayfa boyutlarını, şifreleme/izin durumlarını görüntüleyen ve düzenleye
 import os
 import datetime
 from typing import Optional
-import pymupdf as fitz
 from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel, 
                              QPushButton, QTabWidget, QWidget, QFormLayout,
-                             QLineEdit, QTextEdit, QMessageBox, QGroupBox,
-                             QScrollArea, QFrame)
+                             QLineEdit, QMessageBox, QGroupBox)
 from PyQt6.QtCore import Qt
 from src.core.i18n import LanguageManager
-from src.ui.dialog_theme import get_dialog_theme_stylesheet, apply_dialog_theme
+from src.ui.dialog_theme import apply_dialog_theme
 
 
 class AuraDocumentPropertiesDialog(QDialog):
@@ -247,7 +245,7 @@ class AuraDocumentPropertiesDialog(QDialog):
 
             paper_name = self._detect_paper_name(pw_mm, ph_mm)
             self.lbl_page_size.setText(f"{paper_name} ({pw_mm:.1f} x {ph_mm:.1f} mm)")
-            self.lbl_page_dims.setText(f"{pw_pt:.0f} x {ph_pt:.0f} pt / {pw_in:.2f} x {ph_in:.2f} inç")
+            self.lbl_page_dims.setText(LanguageManager.tr("ui_x_pt_x_inc", pw_pt=pw_pt, ph_pt=ph_pt, pw_in=pw_in, ph_in=ph_in))
 
         # Güvenlik
         is_enc = self.doc.is_encrypted
@@ -306,5 +304,4 @@ class AuraDocumentPropertiesDialog(QDialog):
         except Exception as e:
             QMessageBox.critical(self, LanguageManager.tr("error"), f"{LanguageManager.tr('error')}: {e}")
 
-ModernDocumentPropertiesDialog = AuraDocumentPropertiesDialog
 DocumentPropertiesDialog = AuraDocumentPropertiesDialog

@@ -23,17 +23,17 @@ def test_default_theme():
     print("[PASS] Default theme is verified as 'gray'")
 
 def test_rotate_icons():
-    from src.ui.icons import ModernIconFactory
-    cw = ModernIconFactory.icon_rotate("#60a5fa")
-    ccw = ModernIconFactory.icon_rotate_ccw("#60a5fa")
+    from src.ui.icons import AuraIconFactory
+    cw = AuraIconFactory.icon_rotate("#60a5fa")
+    ccw = AuraIconFactory.icon_rotate_ccw("#60a5fa")
     assert not cw.isNull(), "CW rotate icon is null"
     assert not ccw.isNull(), "CCW rotate icon is null"
     print("[PASS] Full-turn 360-degree rotate icons verified")
 
 def test_stamp_palette():
-    from src.ui.popups import ModernStampPalettePopup
+    from src.ui.popups import AuraStampPalettePopup
     selected = []
-    popup = ModernStampPalettePopup(on_stamp_selected=lambda d, t, w, h: selected.append((d, t, w, h)))
+    popup = AuraStampPalettePopup(on_stamp_selected=lambda d, t, w, h: selected.append((d, t, w, h)))
     assert len(popup._preset_btns) == 8, f"Expected 8 presets, got {len(popup._preset_btns)}"
     btn, k, col = popup._preset_btns[0]
     btn.click()
@@ -42,7 +42,7 @@ def test_stamp_palette():
     assert len(selected) == 2, "Date stamp click did not trigger callback"
     for th in ["dark", "gray", "emerald", "purple", "crimson", "nord", "vice_city", "apple"]:
         popup.apply_theme(th)
-    print("[PASS] ModernStampPalettePopup presets & 8 themes verified")
+    print("[PASS] AuraStampPalettePopup presets & 8 themes verified")
 
 def test_horizontal_centering():
     from src.document.tab_document import PDFTabDocument
@@ -56,8 +56,8 @@ def test_horizontal_centering():
     print("[PASS] Document auto-centering on resize verified", flush=True)
 
 def test_minimalist_thumbnails():
-    from src.ui.modern_views import ModernRightSidebar
-    sb = ModernRightSidebar()
+    from src.ui.aura_views import AuraRightSidebar
+    sb = AuraRightSidebar()
     assert sb.list_thumbnails.iconSize() == QSize(140, 190), f"Wrong icon size {sb.list_thumbnails.iconSize()}"
     assert sb.list_thumbnails.spacing() == 6, f"Wrong spacing {sb.list_thumbnails.spacing()}"
     pix = sb._create_placeholder_pixmap()

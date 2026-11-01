@@ -1,8 +1,9 @@
 import os
-import sys
+import tempfile
 from typing import Optional, Any
-from PyQt6.QtCore import QSettings, Qt, QObject, QEvent
-from PyQt6.QtWidgets import QWidget, QFrame, QLabel, QHBoxLayout, QVBoxLayout
+from PyQt6.QtCore import QPointF, QSettings, Qt, QObject, QEvent
+from PyQt6.QtGui import QColor, QPainter, QPen, QPixmap
+from PyQt6.QtWidgets import QFrame, QLabel, QHBoxLayout, QVBoxLayout
 
 THEME_PALETTES = {
     "gray": {
@@ -73,10 +74,75 @@ THEME_PALETTES = {
 THEME_PALETTES["light"] = THEME_PALETTES["gray"]
 THEME_PALETTES["dark"] = THEME_PALETTES["gray"]
 
+def _combo_arrow_path(color: str) -> str:
+    """Açılır kutu okunu tema rengiyle bir kez çizer ve stil sayfasının kullanacağı yolu döner."""
+    name = f"aura_combo_arrow_{color.lstrip('#')}.png"
+    path = os.path.join(tempfile.gettempdir(), name)
+    if not os.path.exists(path):
+        pix = QPixmap(36, 36)
+        pix.fill(Qt.GlobalColor.transparent)
+        painter = QPainter(pix)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.setPen(QPen(QColor(color), 3.2, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
+        painter.drawPolyline([QPointF(9, 14), QPointF(18, 23), QPointF(27, 14)])
+        painter.end()
+        pix.save(path, "PNG")
+    return path.replace("\\", "/")
+
+
+def get_surface_css(pal: dict) -> str:
+    """Tüm pencerelerde kaydırma zemini, açılır kutu ve kaydırma çubuğu görünümünü eşitler."""
+    return f"""
+        QScrollArea, QScrollArea > QWidget#qt_scrollarea_viewport, QWidget#TransparentWidget {{
+            background: transparent;
+            border: none;
+        }}
+        QComboBox {{
+            padding-right: 26px;
+        }}
+        QComboBox::drop-down {{
+            subcontrol-origin: padding;
+            subcontrol-position: center right;
+            width: 24px;
+            border: none;
+            background: transparent;
+        }}
+        QComboBox::down-arrow {{
+            image: url({_combo_arrow_path(pal['muted'])});
+            width: 12px;
+            height: 12px;
+        }}
+        QScrollBar:vertical {{
+            background: transparent;
+            width: 10px;
+            margin: 2px;
+        }}
+        QScrollBar:horizontal {{
+            background: transparent;
+            height: 10px;
+            margin: 2px;
+        }}
+        QScrollBar::handle:vertical, QScrollBar::handle:horizontal {{
+            background: {pal['border']};
+            border-radius: 3px;
+        }}
+        QScrollBar::handle:vertical:hover, QScrollBar::handle:horizontal:hover {{
+            background: {pal['muted']};
+        }}
+        QScrollBar::add-page, QScrollBar::sub-page {{
+            background: transparent;
+        }}
+        QScrollBar::add-line, QScrollBar::sub-line {{
+            width: 0px;
+            height: 0px;
+        }}
+    """
+
+
 def get_custom_dialog_palette() -> dict:
     try:
-        from src.ui.modern_views import get_modern_theme_colors
-        c = get_modern_theme_colors("custom")
+        from src.ui.aura_views import get_aura_theme_colors
+        c = get_aura_theme_colors("custom")
         return {
             "bg": c["bg"],
             "card": c["surface"],
@@ -139,7 +205,7 @@ def get_theme_palette(parent_or_theme: Optional[Any] = None) -> dict:
     return THEME_PALETTES.get(theme, THEME_PALETTES["gray"])
 
 
-class ModernInfoCard(QFrame):
+class AuraInfoCard(QFrame):
     """
     Tüm temalarla (dark, gray, emerald, purple, crimson, nord, vice_city, apple, light)
     tam uyumlu, otomatik metin kaydırmalı (wordWrap=True),
@@ -156,7 +222,7 @@ class ModernInfoCard(QFrame):
         super().__init__(parent)
         self.is_warning = is_warning
         self.icon_type = icon_type
-        self.setObjectName("ModernInfoCard")
+        self.setObjectName("AuraInfoCard")
         self.setProperty("class", "info-card")
         
         layout = QHBoxLayout(self)
@@ -198,18 +264,18 @@ class ModernInfoCard(QFrame):
             self.lbl_title.setVisible(False)
 
     def apply_theme(self, theme_name: str = "gray"):
-        from src.ui.icons import ModernIconFactory
+        from src.ui.icons import AuraIconFactory
         pal = THEME_PALETTES.get(theme_name, THEME_PALETTES["gray"])
         accent = pal["accent"] if not self.is_warning else "#f59e0b"
         
-        if self.icon_type == "ocr" and hasattr(ModernIconFactory, "icon_ocr"):
-            icon = ModernIconFactory.icon_ocr(accent)
-        elif self.icon_type == "redact" and hasattr(ModernIconFactory, "icon_redact"):
-            icon = ModernIconFactory.icon_redact(accent)
+        if self.icon_type == "ocr" and hasattr(AuraIconFactory, "icon_ocr"):
+            icon = AuraIconFactory.icon_ocr(accent)
+        elif self.icon_type == "redact" and hasattr(AuraIconFactory, "icon_redact"):
+            icon = AuraIconFactory.icon_redact(accent)
         elif self.is_warning or self.icon_type == "warning":
-            icon = ModernIconFactory.icon_warning(accent)
+            icon = AuraIconFactory.icon_warning(accent)
         else:
-            icon = ModernIconFactory.icon_info(accent)
+            icon = AuraIconFactory.icon_info(accent)
         self.lbl_icon.setPixmap(icon.pixmap(22, 22))
         
         card_bg = pal["card"]
@@ -217,7 +283,7 @@ class ModernInfoCard(QFrame):
         text_col = pal["text"]
         
         self.setStyleSheet(f"""
-            QFrame#ModernInfoCard {{
+            QFrame#AuraInfoCard {{
                 background-color: {card_bg};
                 border: 1px solid {border_col};
                 border-left: 3.5px solid {accent};
@@ -260,7 +326,7 @@ def get_dialog_theme_stylesheet(parent: Optional[Any] = None, extra_css: str = "
                 border: 1px solid #2e3340;
                 border-radius: 8px;
             }
-            QFrame[class="info-card"], QFrame.InfoCard, QFrame#InfoCard, QFrame#InfoBox, QFrame#ModernInfoCard {
+            QFrame[class="info-card"], QFrame.InfoCard, QFrame#InfoCard, QFrame#InfoBox, QFrame#AuraInfoCard {
                 background-color: #1a1d24;
                 border: 1px solid #2e3340;
                 border-left: 3.5px solid #38bdf8;
@@ -582,7 +648,7 @@ def get_dialog_theme_stylesheet(parent: Optional[Any] = None, extra_css: str = "
                 border: 1px solid {pal['border']};
                 border-radius: 8px;
             }}
-            QFrame[class="info-card"], QFrame.InfoCard, QFrame#InfoCard, QFrame#InfoBox, QFrame#ModernInfoCard {{
+            QFrame[class="info-card"], QFrame.InfoCard, QFrame#InfoCard, QFrame#InfoBox, QFrame#AuraInfoCard {{
                 background-color: {pal['card']};
                 border: 1px solid {pal['border']};
                 border-left: 3.5px solid {pal['accent']};
@@ -853,23 +919,25 @@ def apply_dialog_theme(dialog: Any, parent: Optional[Any] = None, extra_css: str
             dialog.setFont(f)
     except Exception:
         pass
-    dialog.setStyleSheet(get_dialog_theme_stylesheet(parent, extra_css))
+    pal = get_theme_palette(parent)
+    caption_css = f"QLabel#DialogCaption {{ color: {pal['muted']}; font-size: 11px; }}\n"
+    dialog.setStyleSheet(get_dialog_theme_stylesheet(parent, get_surface_css(pal) + caption_css + extra_css))
 
     curr_theme = get_current_theme(parent)
 
-    # 1. ModernStepper / ModernSpinBox / ModernDoubleSpinBox çocuk bileşenlerini tema ile senkronize et
+    # 1. AuraStepper / AuraSpinBox / AuraDoubleSpinBox çocuk bileşenlerini tema ile senkronize et
     try:
-        from src.ui.modern_stepper import ModernSpinBox, ModernDoubleSpinBox
-        for sp in dialog.findChildren(ModernSpinBox):
+        from src.ui.aura_stepper import AuraSpinBox, AuraDoubleSpinBox
+        for sp in dialog.findChildren(AuraSpinBox):
             sp.apply_theme(curr_theme)
-        for dsp in dialog.findChildren(ModernDoubleSpinBox):
+        for dsp in dialog.findChildren(AuraDoubleSpinBox):
             dsp.apply_theme(curr_theme)
     except Exception:
         pass
 
-    # 2. ModernInfoCard çocuk bileşenlerini tema ile senkronize et
+    # 2. AuraInfoCard çocuk bileşenlerini tema ile senkronize et
     try:
-        for card in dialog.findChildren(ModernInfoCard):
+        for card in dialog.findChildren(AuraInfoCard):
             card.apply_theme(curr_theme)
     except Exception:
         pass
@@ -916,4 +984,4 @@ def apply_dialog_theme(dialog: Any, parent: Optional[Any] = None, extra_css: str
         pass
 
 apply_aura_dialog_style = apply_dialog_theme
-apply_modern_dialog_style = apply_dialog_theme
+apply_aura_dialog_style = apply_dialog_theme

@@ -6,8 +6,7 @@ arayüzde gösterimi ve olay eşleştirmelerini yönetir.
 """
 
 from typing import Optional, Tuple, Dict, Any, List
-from PyQt6.QtCore import Qt, QEvent
-from PyQt6.QtGui import QKeySequence
+from PyQt6.QtCore import Qt
 from src.core.i18n import LanguageManager
 
 

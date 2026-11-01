@@ -6,23 +6,23 @@ Sayfaları organize etme çalışma alanında kullanılan:
 2. CropPageDialog: Sayfa kırpma, kenar boşlukları, görsel önizleme ve beyaz alan kırpma diyaloğu.
 """
 
-from typing import List, Optional, Set, Any
+from typing import List, Optional, Any
 import pymupdf as fitz
 
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QGridLayout, QLabel, QLineEdit,
-    QSpinBox, QComboBox, QPushButton, QRadioButton, QButtonGroup,
-    QGroupBox, QFrame, QMessageBox, QWidget, QToolButton, QSizePolicy
+    QComboBox, QPushButton, QRadioButton, QButtonGroup,
+    QGroupBox, QMessageBox, QWidget, QToolButton, QSizePolicy
 )
-from PyQt6.QtCore import Qt, QRect, QRectF, QPoint, QPointF, QSize, pyqtSignal, QLineF
+from PyQt6.QtCore import Qt, QRectF, QPointF, QSize, pyqtSignal, QLineF
 from PyQt6.QtGui import (
     QFont, QImage, QPixmap, QPainter, QPen, QBrush, QColor, QPainterPath
 )
 
 from src.core.i18n import LanguageManager
-from src.ui.icons import ModernIconFactory
+from src.ui.icons import AuraIconFactory
 from src.ui.dialog_theme import apply_dialog_theme
-from src.ui.modern_stepper import ModernSpinBox
+from src.ui.aura_stepper import AuraSpinBox
 
 
 def apply_page_labels_to_doc(
@@ -175,12 +175,12 @@ class PageLabelDialog(QDialog):
 
         h_custom.addSpacing(10)
         h_custom.addWidget(QLabel(LanguageManager.tr("organize_page_label_from")))
-        self.spn_from = ModernSpinBox(min_val=1, max_val=max(1, self.total_pages), default_val=1, parent=self)
+        self.spn_from = AuraSpinBox(min_val=1, max_val=max(1, self.total_pages), default_val=1, parent=self)
         self.spn_from.setFixedWidth(70)
         h_custom.addWidget(self.spn_from)
 
         h_custom.addWidget(QLabel(LanguageManager.tr("organize_page_label_to")))
-        self.spn_to = ModernSpinBox(min_val=1, max_val=max(1, self.total_pages), default_val=max(1, self.total_pages), parent=self)
+        self.spn_to = AuraSpinBox(min_val=1, max_val=max(1, self.total_pages), default_val=max(1, self.total_pages), parent=self)
         self.spn_to.setFixedWidth(70)
         h_custom.addWidget(self.spn_to)
         h_custom.addStretch(1)
@@ -227,7 +227,7 @@ class PageLabelDialog(QDialog):
 
         # Başlangıç Numarası
         grid_style.addWidget(QLabel(LanguageManager.tr("organize_page_label_start")), 2, 0)
-        self.spn_start = ModernSpinBox(min_val=1, max_val=99999, default_val=1, parent=self)
+        self.spn_start = AuraSpinBox(min_val=1, max_val=99999, default_val=1, parent=self)
         self.spn_start.setFixedWidth(100)
         self.spn_start.valueChanged.connect(self._update_preview)
         grid_style.addWidget(self.spn_start, 2, 1)
@@ -395,7 +395,6 @@ class PageLabelDialog(QDialog):
                 end_p=end_p,
                 style_code=style_code,
                 prefix=prefix,
-                start_num=start_num
             )
             self.accept()
         except Exception as e:
@@ -864,7 +863,7 @@ class CropPageDialog(QDialog):
         h_nav.setSpacing(8)
 
         self.btn_prev_page = QToolButton()
-        self.btn_prev_page.setIcon(ModernIconFactory.icon_move_left())
+        self.btn_prev_page.setIcon(AuraIconFactory.icon_move_left())
         self.btn_prev_page.setIconSize(QSize(14, 14))
         self.btn_prev_page.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_prev_page.setEnabled(self.preview_page_idx > 0)
@@ -877,7 +876,7 @@ class CropPageDialog(QDialog):
         h_nav.addWidget(self.lbl_page_nav, stretch=1)
 
         self.btn_next_page = QToolButton()
-        self.btn_next_page.setIcon(ModernIconFactory.icon_move_right())
+        self.btn_next_page.setIcon(AuraIconFactory.icon_move_right())
         self.btn_next_page.setIconSize(QSize(14, 14))
         self.btn_next_page.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_next_page.setEnabled(self.preview_page_idx < self.total_pages - 1)
@@ -909,7 +908,7 @@ class CropPageDialog(QDialog):
 
         # Üst
         grid_m.addWidget(QLabel(LanguageManager.tr("organize_crop_top")), 0, 1, alignment=Qt.AlignmentFlag.AlignRight)
-        self.spn_top = ModernSpinBox()
+        self.spn_top = AuraSpinBox()
         self.spn_top.setRange(0, 1000)
         self.spn_top.setValue(init_t)
         self.spn_top.valueChanged.connect(self._on_margins_changed)
@@ -917,14 +916,14 @@ class CropPageDialog(QDialog):
 
         # Sol & Sağ
         grid_m.addWidget(QLabel(LanguageManager.tr("organize_crop_left")), 1, 0, alignment=Qt.AlignmentFlag.AlignRight)
-        self.spn_left = ModernSpinBox()
+        self.spn_left = AuraSpinBox()
         self.spn_left.setRange(0, 1000)
         self.spn_left.setValue(init_l)
         self.spn_left.valueChanged.connect(self._on_margins_changed)
         grid_m.addWidget(self.spn_left, 1, 1)
 
         grid_m.addWidget(QLabel(LanguageManager.tr("organize_crop_right")), 1, 2, alignment=Qt.AlignmentFlag.AlignRight)
-        self.spn_right = ModernSpinBox()
+        self.spn_right = AuraSpinBox()
         self.spn_right.setRange(0, 1000)
         self.spn_right.setValue(init_r)
         self.spn_right.valueChanged.connect(self._on_margins_changed)
@@ -932,16 +931,17 @@ class CropPageDialog(QDialog):
 
         # Alt
         grid_m.addWidget(QLabel(LanguageManager.tr("organize_crop_bottom")), 2, 1, alignment=Qt.AlignmentFlag.AlignRight)
-        self.spn_bottom = ModernSpinBox()
+        self.spn_bottom = AuraSpinBox()
         self.spn_bottom.setRange(0, 1000)
         self.spn_bottom.setValue(init_b)
         self.spn_bottom.valueChanged.connect(self._on_margins_changed)
         grid_m.addWidget(self.spn_bottom, 2, 2)
 
         # Hızlı Eylem Butonları
-        h_quick = QHBoxLayout()
+        h_quick = QVBoxLayout()
+        h_quick.setSpacing(6)
         self.btn_auto_crop = QPushButton(" " + LanguageManager.tr("organize_crop_auto_margins"))
-        self.btn_auto_crop.setIcon(ModernIconFactory.icon_auto_crop())
+        self.btn_auto_crop.setIcon(AuraIconFactory.icon_auto_crop())
         self.btn_auto_crop.clicked.connect(self._on_auto_detect)
         h_quick.addWidget(self.btn_auto_crop)
 

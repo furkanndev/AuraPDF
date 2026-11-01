@@ -5,31 +5,25 @@ poster, kitapçık ve hassas ölçeklendirme destekli yazdırma motoru.
 """
 from typing import List, Dict, Optional, Any, Tuple
 import os
-import sys
-import math
-import tempfile
 import pymupdf as fitz
 
 from PyQt6.QtWidgets import (
     QDialog, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QLabel,
     QPushButton, QRadioButton, QButtonGroup, QLineEdit, QComboBox,
-    QSpinBox, QDoubleSpinBox, QCheckBox, QStackedWidget, QScrollArea,
-    QFrame, QMessageBox, QFileDialog, QSizePolicy
+    QCheckBox, QStackedWidget, QMessageBox, QFileDialog, QSizePolicy
 )
 from PyQt6.QtGui import (
-    QPainter, QImage, QPixmap, QColor, QPen, QBrush, QFont,
-    QPainterPath, QRadialGradient, QPageSize, QPageLayout
+    QPainter, QImage, QColor, QPen, QPageSize, QPageLayout
 )
-from PyQt6.QtCore import Qt, QRectF, QPointF, QSize, QTimer, pyqtSignal
+from PyQt6.QtCore import Qt, QRectF, QPointF, QTimer, pyqtSignal
 from PyQt6.QtPrintSupport import QPrinter, QPrinterInfo, QPrintDialog
 
 from src.core.i18n import LanguageManager
-from src.ui.icons import ModernIconFactory
+from src.ui.icons import AuraIconFactory
 from src.ui.dialog_theme import (
-    apply_dialog_theme, get_dialog_theme_stylesheet,
-    get_current_theme, THEME_PALETTES
+    apply_dialog_theme
 )
-from src.ui.modern_stepper import ModernSpinBox, ModernDoubleSpinBox
+from src.ui.aura_stepper import AuraSpinBox, AuraDoubleSpinBox
 
 
 # --- KAĞIT BOYUTU VE ÖLÇÜ TANIMLARI (Puan, İnç, Milimetre) ---
@@ -566,7 +560,7 @@ class AuraPrintDialog(QDialog):
 
         # Satır 1: Kopya + Harmanla + Gri Tonlama
         lbl_copies = QLabel(LanguageManager.tr("print_lbl_copies"))
-        self.spn_copies = ModernSpinBox(min_val=1, max_val=999, default_val=1, parent=self)
+        self.spn_copies = AuraSpinBox(min_val=1, max_val=999, default_val=1, parent=self)
         self.spn_copies.setFixedWidth(84)
 
         self.chk_collate = QCheckBox(LanguageManager.tr("print_chk_collate"))
@@ -707,7 +701,7 @@ class AuraPrintDialog(QDialog):
         h_custom_scale.setSpacing(8)
         self.rb_size_custom = QRadioButton(LanguageManager.tr("print_size_custom"))
         self.btn_grp_size.addButton(self.rb_size_custom, 3)
-        self.spn_custom_scale = ModernSpinBox(min_val=10, max_val=1000, default_val=100, suffix=" %", parent=self)
+        self.spn_custom_scale = AuraSpinBox(min_val=10, max_val=1000, default_val=100, suffix=" %", parent=self)
         self.spn_custom_scale.setEnabled(False)
         self.spn_custom_scale.setFixedWidth(92)
 
@@ -726,11 +720,11 @@ class AuraPrintDialog(QDialog):
         h_poster_row1 = QHBoxLayout()
         h_poster_row1.setSpacing(12)
         lbl_tile = QLabel(LanguageManager.tr("print_poster_tile_scale"))
-        self.spn_tile_scale = ModernSpinBox(min_val=10, max_val=1000, default_val=100, suffix=" %", parent=self)
+        self.spn_tile_scale = AuraSpinBox(min_val=10, max_val=1000, default_val=100, suffix=" %", parent=self)
         self.spn_tile_scale.setFixedWidth(92)
 
         lbl_overlap = QLabel(LanguageManager.tr("print_poster_overlap"))
-        self.spn_overlap = ModernDoubleSpinBox(min_val=0.0, max_val=50.0, default_val=0.0, suffix=" pt", parent=self)
+        self.spn_overlap = AuraDoubleSpinBox(min_val=0.0, max_val=50.0, default_val=0.0, suffix=" pt", parent=self)
         self.spn_overlap.setFixedWidth(92)
 
         h_poster_row1.addWidget(lbl_tile)
@@ -876,7 +870,7 @@ class AuraPrintDialog(QDialog):
 
         self.btn_sheet_prev = QPushButton()
         self.btn_sheet_prev.setFixedSize(28, 28)
-        self.btn_sheet_prev.setIcon(ModernIconFactory.icon_chevron_left())
+        self.btn_sheet_prev.setIcon(AuraIconFactory.icon_chevron_left())
         self.btn_sheet_prev.clicked.connect(self._goto_prev_sheet)
 
         self.lbl_sheet_info = QLabel(LanguageManager.tr("print_sheet_of", curr=1, total=self.total_pages))
@@ -884,7 +878,7 @@ class AuraPrintDialog(QDialog):
 
         self.btn_sheet_next = QPushButton()
         self.btn_sheet_next.setFixedSize(28, 28)
-        self.btn_sheet_next.setIcon(ModernIconFactory.icon_chevron_right())
+        self.btn_sheet_next.setIcon(AuraIconFactory.icon_chevron_right())
         self.btn_sheet_next.clicked.connect(self._goto_next_sheet)
 
         h_sheet_nav.addWidget(self.btn_sheet_prev)
@@ -1373,4 +1367,3 @@ class AuraPrintDialog(QDialog):
 
 
 # Geriye Dönük Uyumluluk için Takma Ad (Alias)
-ModernPrintDialog = AuraPrintDialog

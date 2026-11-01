@@ -17,19 +17,68 @@ MAIN_SCRIPT = os.path.join(BASE_DIR, "main.py")
 ISS_SCRIPT = os.path.join(BASE_DIR, "installer.iss")
 KURULUM_DIR = os.path.join(BASE_DIR, "Kurulum")
 
+# Uygulamanın çalışma anında gerçekten okuduğu varlık dosyaları.
+# Thumbnail sağlayıcı DLL/EXE ve .pdb dosyaları pakete GİRMEZ: kurulum programı
+# bunları ayrıca {app} klasörüne kopyalar (çift kopya ve ~20 MB şişme önlenir).
+RUNTIME_ASSETS = [
+    "app_icon.ico",
+    "app_icon.png",
+    "pdf_file.ico",
+    "spin_up.png",
+    "spin_down.png",
+]
+
+
+def stage_runtime_assets() -> str:
+    """Yalnızca çalışma anında gereken varlıkları geçici bir klasöre kopyalar."""
+    stage_dir = os.path.join(BUILD_DIR, "_assets_stage")
+    if os.path.isdir(stage_dir):
+        shutil.rmtree(stage_dir, ignore_errors=True)
+    os.makedirs(stage_dir, exist_ok=True)
+    for name in RUNTIME_ASSETS:
+        src = os.path.join(BASE_DIR, "assets", name)
+        if os.path.isfile(src):
+            shutil.copy2(src, os.path.join(stage_dir, name))
+        else:
+            print(f"[UYARI] Varlik bulunamadi: {src}")
+    return stage_dir
+
+
+def sign_file(path: str) -> None:
+    """İsteğe bağlı Authenticode imzalama.
+
+    AURAPDF_SIGN_CERT (.pfx yolu) ve AURAPDF_SIGN_PASSWORD ortam değişkenleri
+    tanımlıysa signtool ile imzalar. İmzasız dağıtım Windows SmartScreen
+    uyarısına ve antivirüs yanlış pozitiflerine yol açar.
+    """
+    cert = os.environ.get("AURAPDF_SIGN_CERT", "").strip()
+    if not cert or not os.path.isfile(cert):
+        print(f"[BILGI] Kod imzalama atlandi (AURAPDF_SIGN_CERT tanimli degil): {os.path.basename(path)}")
+        return
+    signtool = os.environ.get("AURAPDF_SIGNTOOL", "").strip() or shutil.which("signtool.exe") or shutil.which("signtool")
+    if not signtool:
+        print("[UYARI] signtool bulunamadi; imzalama atlandi.")
+        return
+    cmd = [signtool, "sign", "/fd", "SHA256", "/f", cert,
+           "/tr", os.environ.get("AURAPDF_TIMESTAMP_URL", "http://timestamp.digicert.com"), "/td", "SHA256"]
+    pwd = os.environ.get("AURAPDF_SIGN_PASSWORD", "")
+    if pwd:
+        cmd += ["/p", pwd]
+    cmd.append(path)
+    res = subprocess.run(cmd)
+    if res.returncode != 0:
+        print(f"[HATA] Imzalama basarisiz: {path}")
+        sys.exit(res.returncode)
+
 # Masaüstü dizinini dinamik ve güvenli belirle
 _desktop_candidates = [
     os.path.join(os.environ.get("USERPROFILE", ""), "Desktop"),
     os.path.expanduser("~/Desktop"),
-    r"C:\Users\MRF4 ROG\Desktop",
-    r"C:\Users\MRF4\Desktop",
 ]
 DESKTOP_DIR = next((d for d in _desktop_candidates if os.path.isdir(d)), _desktop_candidates[0])
 
 ISCC_CANDIDATES = [
     os.path.join(os.environ.get("LOCALAPPDATA", ""), r"Programs\Inno Setup 6\ISCC.exe"),
-    r"C:\Users\MRF4\AppData\Local\Programs\Inno Setup 6\ISCC.exe",
-    r"C:\Users\MRF4 ROG\AppData\Local\Programs\Inno Setup 6\ISCC.exe",
     r"C:\Program Files (x86)\Inno Setup 6\ISCC.exe",
     r"C:\Program Files\Inno Setup 6\ISCC.exe",
     shutil.which("ISCC.exe") or ""
@@ -103,8 +152,11 @@ def build(skip_pyinstaller: bool = False):
             f"--icon={ICON_PATH}",
             f"--distpath={DIST_DIR}",
             f"--workpath={BUILD_DIR}",
-            f"--add-data={os.path.join(BASE_DIR, 'src')};src",
-            f"--add-data={os.path.join(BASE_DIR, 'assets')};assets",
+            # Kaynak kod (.py ve __pycache__) veri olarak kopyalanmaz; modüller PyInstaller
+            # tarafından derlenir. Yalnızca çalışma anında okunan dosyalar eklenir.
+            f"--add-data={os.path.join(BASE_DIR, 'src', 'assets')};src/assets",
+            f"--add-data={stage_runtime_assets()};assets",
+            "--collect-submodules", "src",
             f"--add-data={ICON_PATH};.",
             "--collect-all", "pdf2docx",
             "--collect-all", "docx",
@@ -121,6 +173,7 @@ def build(skip_pyinstaller: bool = False):
             "--hidden-import", "PyQt6.QtPrintSupport",
             "--hidden-import", "PyQt6.QtMultimedia",
             "--hidden-import", "PyQt6.QtMultimediaWidgets",
+            "--hidden-import", "PyQt6.QtTextToSpeech",
             "--hidden-import", "pdf2docx",
             "--hidden-import", "docx",
             "--hidden-import", "pptx",
@@ -145,6 +198,7 @@ def build(skip_pyinstaller: bool = False):
     if not os.path.isfile(exe_path):
         print(f"[HATA] Beklenen exe bulunamadi: {exe_path}")
         sys.exit(1)
+    sign_file(exe_path)
 
     print("\n" + "=" * 60)
     print("2. Inno Setup ile Setup.exe olusturuluyor...")
@@ -189,6 +243,8 @@ def build(skip_pyinstaller: bool = False):
         else:
             print(f"[HATA] Beklenen setup bulunamadi: {setup_src}")
             sys.exit(1)
+
+    sign_file(setup_src)
 
     target_desktop = os.path.join(DESKTOP_DIR, os.path.basename(setup_src))
     try:

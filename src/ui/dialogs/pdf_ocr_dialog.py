@@ -9,7 +9,6 @@ olarak dönüştüren profesyonel araç.
 """
 
 import os
-import io
 
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
@@ -21,8 +20,8 @@ from PyQt6.QtGui import QFont
 
 import pymupdf as fitz
 from src.core.i18n import LanguageManager
-from src.ui.dialog_theme import apply_dialog_theme, get_dialog_theme_stylesheet, ModernInfoCard
-from src.ui.icons import ModernIconFactory
+from src.ui.dialog_theme import apply_dialog_theme, AuraInfoCard
+from src.ui.icons import AuraIconFactory
 
 
 class OCRWorker(QThread):
@@ -47,7 +46,7 @@ class OCRWorker(QThread):
             from rapidocr_onnxruntime import RapidOCR
             ocr_engine = RapidOCR()
         except Exception as e:
-            self.finished_all.emit(False, f"RapidOCR motoru başlatılamadı:\n{e}")
+            self.finished_all.emit(False, LanguageManager.tr("ui_rapidocr_motoru_baslatilamadi", e=e))
             return
 
         total = len(self.page_indices)
@@ -61,10 +60,10 @@ class OCRWorker(QThread):
 
         for step, p_idx in enumerate(self.page_indices):
             if self._is_cancelled:
-                self.finished_all.emit(False, "İşlem kullanıcı tarafından iptal edildi.")
+                self.finished_all.emit(False, LanguageManager.tr("ui_islem_kullanici_tarafindan_iptal_edildi"))
                 return
 
-            self.progress.emit(step + 1, total, f"Sayfa {p_idx + 1} taranıyor ve metin tanınıyor...")
+            self.progress.emit(step + 1, total, LanguageManager.tr("ui_sayfa_taraniyor_ve_metin_taniniyor", value=p_idx + 1))
 
             try:
                 page = self.doc[p_idx]
@@ -117,7 +116,7 @@ class OCRWorker(QThread):
                 if self.output_path and target_doc:
                     target_doc.save(self.output_path, garbage=4, deflate=True)
                     target_doc.close()
-                self.finished_all.emit(True, f"Aranabilir ve kopyalanabilir PDF oluşturuldu:\n{self.output_path}")
+                self.finished_all.emit(True, LanguageManager.tr("ui_aranabilir_ve_kopyalanabilir_pdf_olusturuldu", output_path=self.output_path))
 
             elif self.mode == "docx":
                 import docx
@@ -129,15 +128,15 @@ class OCRWorker(QThread):
                         elif p_line.strip():
                             doc_out.add_paragraph(p_line)
                 doc_out.save(self.output_path)
-                self.finished_all.emit(True, f"Düzenlenebilir Word belgesi oluşturuldu:\n{self.output_path}")
+                self.finished_all.emit(True, LanguageManager.tr("ui_duzenlenebilir_word_belgesi_olusturuldu", output_path=self.output_path))
 
             elif self.mode == "txt":
                 with open(self.output_path, "w", encoding="utf-8") as f:
                     f.write("\n\n".join(all_extracted_text))
-                self.finished_all.emit(True, f"Metin dosyası kaydedildi:\n{self.output_path}")
+                self.finished_all.emit(True, LanguageManager.tr("ui_metin_dosyasi_kaydedildi_2", output_path=self.output_path))
 
         except Exception as e:
-            self.finished_all.emit(False, f"Dosya kaydedilirken hata oluştu:\n{e}")
+            self.finished_all.emit(False, LanguageManager.tr("ui_dosya_kaydedilirken_hata_olustu", e=e))
 
 
 class PDFScanOCRDialog(QDialog):
@@ -145,7 +144,7 @@ class PDFScanOCRDialog(QDialog):
         super().__init__(parent or main_window)
         self.main_window = main_window
         self.setWindowTitle(LanguageManager.tr("ocr_dialog_title"))
-        self.setWindowIcon(ModernIconFactory.icon_ocr())
+        self.setWindowIcon(AuraIconFactory.icon_ocr())
         self.resize(950, 660)
         self.setMinimumSize(780, 520)
         self.setSizeGripEnabled(True)
@@ -192,7 +191,7 @@ class PDFScanOCRDialog(QDialog):
         root.setSpacing(10)
 
         # Üst Bilgi Kartı
-        header = ModernInfoCard(
+        header = AuraInfoCard(
             text=LanguageManager.tr("ocr_desc"),
             title=LanguageManager.tr("ocr_dialog_header_title"),
             icon_type="ocr",
@@ -300,22 +299,21 @@ class PDFScanOCRDialog(QDialog):
 
         # Alt Butonlar
         bottom_bar = QHBoxLayout()
+        bottom_bar.addStretch()
 
-        self.btn_start = QPushButton(LanguageManager.tr("ocr_btn_start"))
-        self.btn_start.setObjectName("PrimaryBtn")
-        self.btn_start.clicked.connect(self._start_ocr_process)
-        bottom_bar.addWidget(self.btn_start)
+        btn_close = QPushButton(LanguageManager.tr("btn_cancel_settings"))
+        btn_close.clicked.connect(self.reject)
+        bottom_bar.addWidget(btn_close)
 
         self.btn_cancel_process = QPushButton(LanguageManager.tr("ocr_btn_stop"))
         self.btn_cancel_process.setVisible(False)
         self.btn_cancel_process.clicked.connect(self._cancel_ocr_process)
         bottom_bar.addWidget(self.btn_cancel_process)
 
-        bottom_bar.addStretch()
-
-        btn_close = QPushButton(LanguageManager.tr("btn_cancel_settings"))
-        btn_close.clicked.connect(self.reject)
-        bottom_bar.addWidget(btn_close)
+        self.btn_start = QPushButton(LanguageManager.tr("ocr_btn_start"))
+        self.btn_start.setObjectName("PrimaryBtn")
+        self.btn_start.clicked.connect(self._start_ocr_process)
+        bottom_bar.addWidget(self.btn_start)
 
         root.addLayout(bottom_bar)
 
@@ -335,7 +333,7 @@ class PDFScanOCRDialog(QDialog):
         elif self.rb_scope_range.isChecked():
             raw = self.txt_page_range.text().strip()
             if not raw:
-                QMessageBox.warning(self, "Uyarı", "Lütfen geçerli bir sayfa aralığı girin (örn: 1-5).")
+                QMessageBox.warning(self, LanguageManager.tr("warning"), LanguageManager.tr("ui_lutfen_gecerli_bir_sayfa_araligi_girin"))
                 return
             try:
                 for part in raw.split(","):
@@ -347,16 +345,16 @@ class PDFScanOCRDialog(QDialog):
                         pages_to_process.append(int(part) - 1)
                 pages_to_process = [p for p in sorted(set(pages_to_process)) if 0 <= p < total_pages]
             except Exception:
-                QMessageBox.warning(self, "Uyarı", "Sayfa aralığı formatı geçersiz.")
+                QMessageBox.warning(self, LanguageManager.tr("warning"), LanguageManager.tr("ui_sayfa_araligi_formati_gecersiz"))
                 return
 
         if not pages_to_process:
-            QMessageBox.warning(self, "Uyarı", "İşlenecek sayfa bulunamadı.")
+            QMessageBox.warning(self, LanguageManager.tr("warning"), LanguageManager.tr("ui_islenecek_sayfa_bulunamadi"))
             return
 
         # Mod ve Hedef dosya seçimi
         mode = "sandwich"
-        filter_str = "PDF Dosyaları (*.pdf)"
+        filter_str = LanguageManager.tr("file_filter_pdf")
         default_ext = "_aranabilir.pdf"
 
         if self.rb_docx.isChecked():
@@ -372,7 +370,7 @@ class PDFScanOCRDialog(QDialog):
         out_name = f"{base_name}{default_ext}"
 
         save_path, _ = QFileDialog.getSaveFileName(
-            self, "Dönüştürülen Dosyayı Kaydet", out_name, filter_str
+            self, LanguageManager.tr("ui_donusturulen_dosyayi_kaydet"), out_name, filter_str
         )
         if not save_path:
             return

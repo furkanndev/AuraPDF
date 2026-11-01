@@ -10,16 +10,16 @@ ve biçimlendirme araçlarını açan ve değişiklikleri doğrudan PDF belgesin
 import os
 from typing import Optional, Dict, Any, List, Tuple
 from PyQt6.QtWidgets import (
-    QWidget, QFrame, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
+    QWidget, QFrame, QHBoxLayout, QLabel, QPushButton,
     QTextEdit, QColorDialog, QMessageBox, QGraphicsRectItem, QGraphicsItem,
     QGraphicsDropShadowEffect, QApplication
 )
-from PyQt6.QtCore import Qt, QRect, QRectF, QPoint, QPointF, QSettings, QEvent
-from PyQt6.QtGui import QColor, QFont, QPen, QBrush, QPainter, QCursor, QTextCursor, QTextCharFormat
+from PyQt6.QtCore import Qt, QPoint, QPointF, QEvent
+from PyQt6.QtGui import QColor, QFont, QPen, QBrush, QPainter, QTextCursor, QTextCharFormat
 
 import pymupdf as fitz
 from src.core.i18n import LanguageManager
-from src.ui.icons import ModernIconFactory
+from src.ui.icons import AuraIconFactory
 from src.ui.dialog_theme import THEME_PALETTES, get_current_theme
 
 
@@ -385,7 +385,7 @@ class DirectEditBanner(QFrame):
 
         # İkon
         self.lbl_icon = QLabel(self)
-        self.lbl_icon.setPixmap(ModernIconFactory.icon_edit_content().pixmap(18, 18))
+        self.lbl_icon.setPixmap(AuraIconFactory.icon_edit_content().pixmap(18, 18))
         layout.addWidget(self.lbl_icon)
 
         # Başlık
@@ -402,7 +402,7 @@ class DirectEditBanner(QFrame):
         # 1. Alt Araç: Metin Düzenle / Taşı
         self.btn_tool_text = QPushButton(self)
         self.btn_tool_text.setObjectName("ToolTextBtn")
-        self.btn_tool_text.setIcon(ModernIconFactory.icon_text_box())
+        self.btn_tool_text.setIcon(AuraIconFactory.icon_text_box())
         self.btn_tool_text.setText(LanguageManager.tr("direct_edit_subtool_text"))
         self.btn_tool_text.setCheckable(True)
         self.btn_tool_text.setChecked(True)
@@ -414,7 +414,7 @@ class DirectEditBanner(QFrame):
         # 2. Alt Araç: Görsel Ekle
         self.btn_tool_image = QPushButton(self)
         self.btn_tool_image.setObjectName("ToolImageBtn")
-        self.btn_tool_image.setIcon(ModernIconFactory.icon_image())
+        self.btn_tool_image.setIcon(AuraIconFactory.icon_image())
         self.btn_tool_image.setText(LanguageManager.tr("direct_edit_subtool_image"))
         self.btn_tool_image.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_tool_image.setToolTip(LanguageManager.tr("direct_edit_subtool_image"))
@@ -424,7 +424,7 @@ class DirectEditBanner(QFrame):
         # 3. Alt Araç: Çizim Yap
         self.btn_tool_draw = QPushButton(self)
         self.btn_tool_draw.setObjectName("ToolDrawBtn")
-        self.btn_tool_draw.setIcon(ModernIconFactory.icon_pen())
+        self.btn_tool_draw.setIcon(AuraIconFactory.icon_pen())
         self.btn_tool_draw.setText(LanguageManager.tr("direct_edit_subtool_draw"))
         self.btn_tool_draw.setCheckable(True)
         self.btn_tool_draw.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -440,7 +440,7 @@ class DirectEditBanner(QFrame):
 
         # Gelişmiş Düzenleyici (Pencere) Butonu
         self.btn_legacy = QPushButton(self)
-        self.btn_legacy.setIcon(ModernIconFactory.icon_ocr())
+        self.btn_legacy.setIcon(AuraIconFactory.icon_ocr())
         self.btn_legacy.setText(LanguageManager.tr("direct_edit_open_legacy"))
         self.btn_legacy.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_legacy.clicked.connect(self._on_open_legacy)
@@ -451,7 +451,7 @@ class DirectEditBanner(QFrame):
         # Moddan Çık Butonu
         self.btn_exit = QPushButton(self)
         self.btn_exit.setObjectName("ExitBtn")
-        self.btn_exit.setIcon(ModernIconFactory.icon_close())
+        self.btn_exit.setIcon(AuraIconFactory.icon_close())
         self.btn_exit.setText(LanguageManager.tr("direct_edit_exit_btn"))
         self.btn_exit.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_exit.clicked.connect(self._on_exit_clicked)
@@ -679,7 +679,7 @@ class DirectTextInplaceEditor(QWidget):
         # 0. Taşıma Tutamacı (Grip / Move Handle)
         self.btn_move = QPushButton(self.bar_frame)
         self.btn_move.setObjectName("MoveHandleBtn")
-        self.btn_move.setIcon(ModernIconFactory.icon_select_move())
+        self.btn_move.setIcon(AuraIconFactory.icon_select_move())
         self.btn_move.setText(LanguageManager.tr("direct_edit_move"))
         self.btn_move.setFixedSize(58, 22)
         self.btn_move.setCursor(Qt.CursorShape.SizeAllCursor)
@@ -758,7 +758,7 @@ class DirectTextInplaceEditor(QWidget):
         # [✓ Uygula / Kaydet]
         self.btn_apply = QPushButton(LanguageManager.tr("direct_edit_apply"), self.bar_frame)
         self.btn_apply.setObjectName("ApplyBtn")
-        self.btn_apply.setIcon(ModernIconFactory.icon_check())
+        self.btn_apply.setIcon(AuraIconFactory.icon_check())
         self.btn_apply.setToolTip(f"{LanguageManager.tr('direct_edit_apply')} (Ctrl+Enter)")
         self.btn_apply.clicked.connect(self.apply_changes)
         bar_layout.addWidget(self.btn_apply)
@@ -767,7 +767,7 @@ class DirectTextInplaceEditor(QWidget):
         if not self.is_new:
             self.btn_delete = QPushButton(self.bar_frame)
             self.btn_delete.setObjectName("DeleteBtn")
-            self.btn_delete.setIcon(ModernIconFactory.icon_trash())
+            self.btn_delete.setIcon(AuraIconFactory.icon_trash())
             self.btn_delete.setFixedSize(24, 22)
             self.btn_delete.setToolTip(LanguageManager.tr("direct_edit_delete"))
             self.btn_delete.clicked.connect(self.delete_block)
@@ -778,7 +778,7 @@ class DirectTextInplaceEditor(QWidget):
         # [✕ Vazgeç]
         self.btn_cancel = QPushButton(self.bar_frame)
         self.btn_cancel.setObjectName("CancelBtn")
-        self.btn_cancel.setIcon(ModernIconFactory.icon_close())
+        self.btn_cancel.setIcon(AuraIconFactory.icon_close())
         self.btn_cancel.setFixedSize(24, 22)
         self.btn_cancel.setToolTip(LanguageManager.tr("direct_edit_cancel"))
         self.btn_cancel.clicked.connect(self.cancel_edit)

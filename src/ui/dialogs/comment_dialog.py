@@ -5,29 +5,28 @@ Kullanıcının belge üzerine tıkladığı noktaya standart PDF yapışkan not
 eklemesini veya mevcut notu düzenlemesini sağlar.
 """
 
-from typing import Optional, Tuple
+from typing import Tuple
 from PyQt6.QtCore import Qt, QSettings, QSize
-from PyQt6.QtGui import QColor, QFont
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
     QTextEdit, QPushButton, QToolButton, QFrame, QButtonGroup
 )
 
 from src.core.i18n import LanguageManager
-from src.ui.icons import ModernIconFactory
-from src.ui.dialog_theme import apply_dialog_theme, get_dialog_theme_stylesheet
+from src.ui.icons import AuraIconFactory
+from src.ui.dialog_theme import apply_dialog_theme
 
 
 class AuraCommentInputDialog(QDialog):
     """Adobe Acrobat benzeri modern, tema duyarlı yapışkan not / yorum giriş diyaloğu."""
 
     COLOR_PRESETS = [
-        ("#f97316", "Turuncu / Klasik"),
-        ("#eab308", "Sarı"),
-        ("#0ea5e9", "Mavi"),
-        ("#10b981", "Yeşil"),
-        ("#a855f7", "Mor"),
-        ("#ef4444", "Kırmızı"),
+        ("#f97316", "clr_orange_classic"),
+        ("#eab308", "clr_yellow"),
+        ("#0ea5e9", "clr_blue"),
+        ("#10b981", "clr_green"),
+        ("#a855f7", "clr_purple"),
+        ("#ef4444", "clr_red"),
     ]
 
     def __init__(self, parent=None, initial_text: str = "", initial_author: str = "", initial_color: str = "#f97316"):
@@ -59,7 +58,7 @@ class AuraCommentInputDialog(QDialog):
         h_head.setContentsMargins(0, 0, 0, 0)
 
         lbl_icon = QLabel()
-        lbl_icon.setPixmap(ModernIconFactory.icon_comments(self.selected_color).pixmap(18, 18))
+        lbl_icon.setPixmap(AuraIconFactory.icon_comments(self.selected_color).pixmap(18, 18))
         self.lbl_icon = lbl_icon
         h_head.addWidget(lbl_icon)
 
@@ -69,7 +68,7 @@ class AuraCommentInputDialog(QDialog):
         h_head.addWidget(lbl_title, stretch=1)
 
         btn_close = QToolButton()
-        btn_close.setIcon(ModernIconFactory.icon_close())
+        btn_close.setIcon(AuraIconFactory.icon_close())
         btn_close.setIconSize(QSize(12, 12))
         btn_close.setFixedSize(22, 22)
         btn_close.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -103,7 +102,8 @@ class AuraCommentInputDialog(QDialog):
 
         self.color_group = QButtonGroup(self)
         self.color_buttons = []
-        for hex_code, desc in self.COLOR_PRESETS:
+        for hex_code, desc_key in self.COLOR_PRESETS:
+            desc = LanguageManager.tr(desc_key)
             btn_col = QToolButton()
             btn_col.setFixedSize(18, 18)
             btn_col.setCheckable(True)
@@ -190,7 +190,7 @@ class AuraCommentInputDialog(QDialog):
 
     def _on_color_selected(self, hex_code: str, clicked_btn: QToolButton):
         self.selected_color = hex_code
-        self.lbl_icon.setPixmap(ModernIconFactory.icon_comments(self.selected_color).pixmap(18, 18))
+        self.lbl_icon.setPixmap(AuraIconFactory.icon_comments(self.selected_color).pixmap(18, 18))
         for btn, h in self.color_buttons:
             self._style_color_btn(btn, h, btn == clicked_btn)
 
@@ -209,7 +209,7 @@ class AuraCommentInputDialog(QDialog):
             self.txt_comment.setFocus()
             return
 
-        author = self.txt_author.text().strip() or "Kullanıcı"
+        author = self.txt_author.text().strip() or LanguageManager.tr("default_author_name")
         # Yazar adını gelecekteki notlar için hatırla
         try:
             settings = QSettings("AuraPDF", "PDFViewer")
@@ -222,9 +222,8 @@ class AuraCommentInputDialog(QDialog):
     def get_comment_data(self) -> Tuple[str, str, str]:
         """(comment_text, author, hex_color) döndürür."""
         text = self.txt_comment.toPlainText().strip()
-        author = self.txt_author.text().strip() or "Kullanıcı"
+        author = self.txt_author.text().strip() or LanguageManager.tr("default_author_name")
         return text, author, self.selected_color
 
 
 CommentDialog = AuraCommentInputDialog
-ModernCommentInputDialog = AuraCommentInputDialog

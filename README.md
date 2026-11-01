@@ -262,7 +262,7 @@ AuraPDF/
 │   └── ui/                    # Graphical user interface layer
 │       ├── dialogs/           # Toolbox dialogs, OCR, signatures, settings
 │       ├── popups/            # Floating HUDs, tool settings, stamp palettes
-│       ├── modern_views.py    # Acrobat-style modern tab bar, header, drawers, workspaces
+│       ├── aura_views.py    # Acrobat-style modern tab bar, header, drawers, workspaces
 │       ├── icons.py           # Vector QPainterPath AuraIconFactory engine
 │       ├── widgets.py         # Custom segmented zoom controllers, toolbars, docks
 │       └── direct_text_editor.py # Direct on-canvas text editing engine

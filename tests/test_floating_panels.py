@@ -8,10 +8,10 @@ from PyQt6.QtGui import QMouseEvent
 
 app = QApplication.instance() or QApplication(sys.argv)
 
-from src.ui.icons import ModernIconFactory
+from src.ui.icons import AuraIconFactory
 from src.core.i18n import LanguageManager
 from src.ui.widgets import FullscreenReadingHUD, FullscreenSlideToolbar
-from src.ui.modern_views import FloatingQuickToolsCapsule
+from src.ui.aura_views import FloatingQuickToolsCapsule
 
 
 class MockMainWindow(QWidget):
@@ -78,9 +78,9 @@ class TestFloatingPanels(unittest.TestCase):
 
     def test_icons_valid(self):
         """icon_refresh ve icon_grip simgelerinin geçerli olduğunu doğrula."""
-        icon_ref = ModernIconFactory.icon_refresh()
+        icon_ref = AuraIconFactory.icon_refresh()
         self.assertFalse(icon_ref.isNull())
-        icon_grip = ModernIconFactory.icon_grip()
+        icon_grip = AuraIconFactory.icon_grip()
         self.assertFalse(icon_grip.isNull())
 
     def test_fullscreen_hud_4_edges(self):

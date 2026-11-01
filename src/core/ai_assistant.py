@@ -11,11 +11,12 @@ import re
 import json
 import urllib.request
 import urllib.error
-from typing import Dict, List, Optional, Any
+from typing import Dict, Optional, Any
 from collections import Counter
 
 import pymupdf as fitz
 from PyQt6.QtCore import QThread, pyqtSignal, QSettings
+from src.core.i18n import LanguageManager
 
 
 class LocalDocumentIntelligence:
@@ -274,7 +275,8 @@ class GeminiApiClient:
     @classmethod
     def get_api_key(cls) -> str:
         """Kayıtlı Gemini API anahtarını QSettings veya ortam değişkeninden okur."""
-        key = QSettings("AuraPDF", "AI").value("gemini_api_key", "", type=str)
+        from src.core.secure_store import read_secret
+        key = read_secret(QSettings("AuraPDF", "AI"), "gemini_api_key")
         if not key:
             key = os.getenv("GEMINI_API_KEY", "")
         return key.strip()
@@ -282,7 +284,8 @@ class GeminiApiClient:
     @classmethod
     def set_api_key(cls, key: str):
         """Gemini API anahtarını güvenli şekilde kaydeder."""
-        QSettings("AuraPDF", "AI").setValue("gemini_api_key", key.strip())
+        from src.core.secure_store import write_secret
+        write_secret(QSettings("AuraPDF", "AI"), "gemini_api_key", key)
 
     @classmethod
     def call_gemini(cls, prompt: str, system_instruction: str = "", model: str = "gemini-2.5-flash") -> str:
@@ -291,7 +294,8 @@ class GeminiApiClient:
         if not api_key:
             raise ValueError("Gemini API key is not configured.")
 
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
+        # Anahtar URL'ye değil başlığa konur: URL'ler proxy/günlük kayıtlarında görünebilir
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
 
         payload = {
             "contents": [
@@ -315,7 +319,7 @@ class GeminiApiClient:
         req = urllib.request.Request(
             url,
             data=data_bytes,
-            headers={"Content-Type": "application/json"},
+            headers={"Content-Type": "application/json", "x-goog-api-key": api_key},
             method="POST"
         )
 
@@ -376,16 +380,16 @@ class AuraAiWorker(QThread):
                 self.errorOccurred.emit(str(e))
 
     def _run_analyze(self):
-        self.progressChanged.emit(10, "Belge sayfaları taranıyor...")
+        self.progressChanged.emit(10, LanguageManager.tr("ui_belge_sayfalari_taraniyor"))
         if self._is_aborted:
             return
 
         doc_info = LocalDocumentIntelligence.extract_document_text(self.doc_path)
-        self.progressChanged.emit(40, "Metin katmanı çözümleniyor...")
+        self.progressChanged.emit(40, LanguageManager.tr("ui_metin_katmani_cozumleniyor"))
         if self._is_aborted:
             return
 
-        self.progressChanged.emit(60, "Yönetici özeti ve ana maddeler çıkarılıyor...")
+        self.progressChanged.emit(60, LanguageManager.tr("ui_yonetici_ozeti_ve_ana_maddeler_cikariliyor"))
         summary = LocalDocumentIntelligence.generate_executive_summary(doc_info, lang=self.lang)
         if self._is_aborted:
             return
@@ -399,7 +403,7 @@ class AuraAiWorker(QThread):
         gemini_summary = None
         if GeminiApiClient.get_api_key() and doc_info.get("has_text", False):
             try:
-                self.progressChanged.emit(90, "Google Gemini AI ile derin analiz yapılıyor...")
+                self.progressChanged.emit(90, LanguageManager.tr("ui_google_gemini_ai_ile_derin_analiz"))
                 prompt = (
                     f"Aşağıdaki PDF metnini incele ve profesyonel bir yönetici özeti çıkar. "
                     f"Belgenin amacını, en önemli 3-5 maddesini ve varsa kritik riskleri belirt:\n\n"
@@ -413,7 +417,7 @@ class AuraAiWorker(QThread):
                 # Gemini başarısız olursa yerel analiz kusursuz çalışmaya devam eder
                 pass
 
-        self.progressChanged.emit(100, "Analiz tamamlandı!")
+        self.progressChanged.emit(100, LanguageManager.tr("ui_analiz_tamamlandi"))
 
         result = {
             "doc_info": doc_info,
@@ -433,7 +437,7 @@ class AuraAiWorker(QThread):
         api_key = GeminiApiClient.get_api_key()
         if api_key and self.doc_info and self.doc_info.get("has_text", False):
             try:
-                self.progressChanged.emit(60, "Gemini AI yanıt hazırlıyor...")
+                self.progressChanged.emit(60, LanguageManager.tr("ui_gemini_ai_yanit_hazirliyor"))
                 prompt = (
                     f"Belge İçeriği (Özet Kesit):\n{self.doc_info['full_text'][:7000]}\n\n"
                     f"Kullanıcı Sorusu: {self.query}\n\n"
@@ -443,7 +447,7 @@ class AuraAiWorker(QThread):
                     prompt,
                     system_instruction="Sen AuraPDF Belge Asistanısın. Belgeye dayalı kesin ve nazik yanıtlar ver."
                 )
-                self.progressChanged.emit(100, "Tamamlandı!")
+                self.progressChanged.emit(100, LanguageManager.tr("ui_tamamlandi"))
                 self.chatFinished.emit(ans)
                 return
             except Exception as e:
@@ -451,11 +455,11 @@ class AuraAiWorker(QThread):
                 pass
 
         # 2. Yerel Akıllı Motor
-        self.progressChanged.emit(70, "Belge içinde anlamsal eşleşmeler aranıyor...")
+        self.progressChanged.emit(70, LanguageManager.tr("ui_belge_icinde_anlamsal_eslesmeler_araniyor"))
         ans = LocalDocumentIntelligence.answer_document_query(
             self.query,
             self.doc_info or {},
             lang=self.lang
         )
-        self.progressChanged.emit(100, "Tamamlandı!")
+        self.progressChanged.emit(100, LanguageManager.tr("ui_tamamlandi"))
         self.chatFinished.emit(ans)

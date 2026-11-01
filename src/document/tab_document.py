@@ -1,12 +1,14 @@
 import os
 import math
 import uuid
-import hashlib
 import random
 import json
 import base64
 import pymupdf as fitz
-from typing import List, Dict, Optional, Any, Tuple
+from typing import List, Dict, Optional, Any, Tuple, TYPE_CHECKING
+
+if TYPE_CHECKING:  # yalnızca tip denetimi için; döngüsel importu önler
+    from src.viewer import AuraPDFViewer
 import urllib.parse
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QGraphicsView, QGraphicsScene, 
                              QGraphicsTextItem, QMessageBox, QGraphicsItem, QMenu, QInputDialog,
@@ -15,12 +17,13 @@ from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QGraphicsView, QGraphicsScene
                              QGraphicsPixmapItem)
 from PyQt6.QtGui import (QImage, QPixmap, QPen, QColor, QPainter, QPainterPath, QPainterPathStroker,
                          QBrush, QLinearGradient, QRadialGradient, QFont,
-                         QFontMetrics, QFontMetricsF, QTransform, QDesktopServices, QCursor, QPolygonF)
+                         QFontMetrics, QTransform, QDesktopServices, QCursor, QPolygonF)
 from PyQt6.QtCore import (Qt, QRectF, QPointF, QPoint, QTimer, QLineF, QEvent, QSettings, QUrl,
                           QThread, pyqtSignal as _pyqtSignal, QMutex, QMutexLocker, QBuffer, QIODevice)
 
+from src.document.pencil_stroke import AuraPencilStrokeItem, build_brush_path, stroke_seed
 from src.core.i18n import LanguageManager
-from src.ui.icons import ModernIconFactory
+from src.ui.icons import AuraIconFactory
 from src.ui.cursors import CursorFactory
 from src.ui.widgets import EditableInlineTextItem
 from src.document.media_items import PDFTableItem, PDFResizableImageItem, PDFAudioItem, PDFVideoItem
@@ -200,13 +203,24 @@ def build_fountain_pen_path(raw_pts: List[QPointF], base_width: float = 6.0, min
         left_pts.append(QPointF(pt.x() + nx, pt.y() + ny))
         right_pts.append(QPointF(pt.x() - nx, pt.y() - ny))
 
-    path.moveTo(left_pts[0])
-    for lp in left_pts[1:]:
-        path.lineTo(lp)
-    for rp in reversed(right_pts):
-        path.lineTo(rp)
+    outline = left_pts + right_pts[::-1]
+    path.moveTo(outline[0])
+    for ctrl, nxt in zip(outline[1:], outline[2:]):
+        path.quadTo(ctrl, QPointF((ctrl.x() + nxt.x()) / 2.0, (ctrl.y() + nxt.y()) / 2.0))
+    path.lineTo(outline[-1])
     path.closeSubpath()
     return path
+
+
+OUTLINE_PEN_STYLES = ("calligraphy", "brush")
+PENCIL_DASH_PATTERNS = {"dash": [2.2, 1.5], "dot": [0.01, 1.9], "dashdot": [2.2, 1.4, 0.01, 1.4]}
+
+
+def build_pen_outline(line_style: str, rel_pts: List[QPointF], width: float, dpi: float) -> QPainterPath:
+    """Dolu şerit olarak çizilen kalemlerin (dolma kalem, fırça) anahat yolunu üretir."""
+    if line_style == "brush":
+        return build_brush_path(rel_pts, width / dpi)
+    return build_fountain_pen_path(rel_pts, base_width=width / dpi, min_width=1.8 / dpi)
 
 
 _PENCIL_TEXTURE_CACHE = {}
@@ -548,8 +562,8 @@ class BookmarkRibbonItem(QGraphicsItem):
         target_page_1_based = self.page_idx + 1
 
         if self.is_bookmarked:
-            act_add_sub = menu.addAction(ModernIconFactory.icon_bookmark(), LanguageManager.tr("bookmark_ribbon_add_sub"))
-            act_rename = menu.addAction(ModernIconFactory.icon_bookmark(), LanguageManager.tr("bookmark_ribbon_rename"))
+            act_add_sub = menu.addAction(AuraIconFactory.icon_bookmark(), LanguageManager.tr("bookmark_ribbon_add_sub"))
+            act_rename = menu.addAction(AuraIconFactory.icon_bookmark(), LanguageManager.tr("bookmark_ribbon_rename"))
             act_remove = menu.addAction(LanguageManager.tr("bookmark_ribbon_remove"))
             chosen = menu.exec(global_pos)
             if chosen == act_add_sub:
@@ -559,7 +573,7 @@ class BookmarkRibbonItem(QGraphicsItem):
             elif chosen == act_remove:
                 self.tab_doc.toggle_page_bookmark(self.page_idx)
         else:
-            act_add = menu.addAction(ModernIconFactory.icon_bookmark(), LanguageManager.tr("bookmark_ribbon_add_page", page=target_page_1_based))
+            act_add = menu.addAction(AuraIconFactory.icon_bookmark(), LanguageManager.tr("bookmark_ribbon_add_page", page=target_page_1_based))
             act_add_custom = menu.addAction(LanguageManager.tr("bookmark_ribbon_add_custom"))
             chosen = menu.exec(global_pos)
             if chosen == act_add:
@@ -674,7 +688,6 @@ class AuraLaserPointerItem(QGraphicsItem):
         painter.setBrush(QBrush(QColor(255, 255, 255, 255)))
         painter.drawEllipse(QRectF(-1.8, -1.8, 3.6, 3.6))
 
-ModernLaserPointerItem = AuraLaserPointerItem
 
 
 class AuraMeasurementItem(QGraphicsItem):
@@ -822,7 +835,7 @@ class AuraMeasurementItem(QGraphicsItem):
             QMenu::item { padding: 6px 18px; border-radius: 4px; font-size: 12px; }
             QMenu::item:selected { background-color: #dc2626; color: #ffffff; }
         """)
-        act_del = menu.addAction("Ölçümü Sil / Kaldır")
+        act_del = menu.addAction(LanguageManager.tr("ui_olcumu_sil_kaldir"))
         chosen = menu.exec(event.screenPos())
         if chosen == act_del:
             self.delete_self()
@@ -919,7 +932,6 @@ class AuraMeasurementItem(QGraphicsItem):
         painter.setPen(QPen(QColor("#ffffff")))
         painter.drawText(badge_rect, Qt.AlignmentFlag.AlignCenter, label_text)
 
-ModernMeasurementItem = AuraMeasurementItem
 
 
 # --- 9. TEKİL SEKME BELGE YÖNETİCİSİ (TAB DOCUMENT) ---
@@ -1073,8 +1085,8 @@ class PDFTabDocument(QWidget):
         self.search_active_item = None
 
         # Ölçüm Cetveli Durumu (Adobe Acrobat Pro Measuring Tool)
-        self.measurements: List[ModernMeasurementItem] = []
-        self.active_measurement_item: Optional[ModernMeasurementItem] = None
+        self.measurements: List[AuraMeasurementItem] = []
+        self.active_measurement_item: Optional[AuraMeasurementItem] = None
         self.measurement_start_pos: Optional[QPointF] = None
         self.measurement_unit: str = "cm"
         self.measurement_scale: float = 1.0
@@ -1538,12 +1550,12 @@ class PDFTabDocument(QWidget):
         # Sesli okuma (TTS) aktifse ve bu belge okunuyorsa güvenle durdur
         try:
             mw = getattr(self, 'main_window', None)
-            if mw and hasattr(mw, 'modern_right_sidebar') and mw.modern_right_sidebar:
-                panel_acc = getattr(mw.modern_right_sidebar, 'panel_accessibility', None)
+            if mw and hasattr(mw, 'aura_right_sidebar') and mw.aura_right_sidebar:
+                panel_acc = getattr(mw.aura_right_sidebar, 'panel_accessibility', None)
                 if panel_acc:
                     panel_acc.on_document_closed(self)
                 else:
-                    se = getattr(mw.modern_right_sidebar, 'speech_engine', None)
+                    se = getattr(mw.aura_right_sidebar, 'speech_engine', None)
                     if se and (se.is_speaking() or se.is_paused()):
                         tw = getattr(mw, 'tab_widget', None)
                         if tw is None or tw.count() <= 1:
@@ -1559,14 +1571,9 @@ class PDFTabDocument(QWidget):
         self.clear_form_designer_items()
 
         # Async render worker'ı güvenli şekilde durdur
-        if hasattr(self, '_render_worker') and self._render_worker:
-            try:
-                self._render_worker.abort()
-                if self._render_worker.isRunning():
-                    self._render_worker.quit()
-                    self._render_worker.wait(500)
-            except Exception:
-                pass
+        # Belge kapatılmadan önce render thread'inin o anki sayfayı bitirmesini bekle;
+        # aksi halde yavaş makinelerde kapanmış belgeye erişim olabilir.
+        self.stop_render_worker()
 
         if hasattr(self, 'active_fade_controllers') and self.active_fade_controllers:
             for c in self.active_fade_controllers:
@@ -2368,19 +2375,6 @@ class PDFTabDocument(QWidget):
         self.close_document()
         super().closeEvent(event)
 
-    def showEvent(self, event):
-        super().showEvent(event)
-        self.rerender_visible_pages()
-
-    def resizeEvent(self, event):
-        super().resizeEvent(event)
-        self.center_current_page_horizontal()
-        self.rerender_visible_pages()
-        if hasattr(self, 'direct_edit_banner') and self.direct_edit_banner:
-            self.direct_edit_banner.reposition()
-        if hasattr(self, 'direct_edit_editor') and self.direct_edit_editor:
-            self.direct_edit_editor.reposition()
-
     def center_current_page_horizontal(self):
         """Panel açılıp kapandığında veya pencere boyutu değiştiğinde açık sayfanın yatayda tam ortalanmasını sağlar."""
         if not hasattr(self, 'view') or not self.view or not hasattr(self, 'doc') or not self.doc:
@@ -2513,6 +2507,7 @@ class PDFTabDocument(QWidget):
             res["italic"] = bool(d.get("italic", False))
             res["underline"] = bool(d.get("underline", False))
             res["alignment"] = str(d.get("alignment", "left"))
+            res["bg_color"] = d.get("bg_color")
             res["link_url"] = str(d.get("link_url", ""))
             res["link_type"] = str(d.get("link_type", "url"))
             res["link_raw"] = str(d.get("link_raw", ""))
@@ -2663,6 +2658,7 @@ class PDFTabDocument(QWidget):
             rec["italic"] = bool(d.get("italic", False))
             rec["underline"] = bool(d.get("underline", False))
             rec["alignment"] = str(d.get("alignment", "left"))
+            rec["bg_color"] = d.get("bg_color")
             rec["link_url"] = str(d.get("link_url", ""))
             rec["link_type"] = str(d.get("link_type", "url"))
             rec["link_raw"] = str(d.get("link_raw", ""))
@@ -2873,9 +2869,6 @@ class PDFTabDocument(QWidget):
                 dashes = None
                 alpha_val = float(d.get("alpha", 1.0))
                 is_pencil = (d.get("type") == "pencil" or d.get("pen_type") == "pencil" or line_style == "pencil")
-                if is_pencil:
-                    alpha_val = min(1.0, alpha_val * 0.78)
-                    pdf_width = max(0.5, (d.get("width", 3.0) * 0.85) / self.base_render_dpi)
 
                 if line_style == "dash":
                     dashes = [6, 4]
@@ -2919,8 +2912,6 @@ class PDFTabDocument(QWidget):
                     stroke_col = (0.0, 0.0, 0.0)
 
                 alpha_val = float(d.get("alpha", 1.0))
-                if d.get("line_style") == "pencil":
-                    alpha_val = min(1.0, alpha_val * 0.78)
 
                 for poly in polys:
                     pts = []
@@ -3008,6 +2999,11 @@ class PDFTabDocument(QWidget):
                     rel_y = float(d.get("y", 50.0))
                     w_pt = float(d.get("w", max(80.0, len(content) * fs * 0.7)))
                     h_pt = float(d.get("h", max(24.0, fs * 1.6)))
+
+                if d.get("bg_color"):
+                    box_col = QColor(d["bg_color"])
+                    box_rect = fitz.Rect(rel_x, rel_y, rel_x + w_pt, rel_y + h_pt) * page.derotation_matrix
+                    page.draw_rect(box_rect.normalize(), color=None, fill=(box_col.redF(), box_col.greenF(), box_col.blueF()), width=0, overlay=True)
 
                 vis_rect = fitz.Rect(rel_x, rel_y, rel_x + w_pt, rel_y + h_pt)
                 pdf_rect = (vis_rect * page.derotation_matrix)
@@ -3114,7 +3110,7 @@ class PDFTabDocument(QWidget):
                         if align_val in ("center", "right", "hcenter"):
                             blk_total_w = 0.0
                             for frag in blk_frags:
-                                f_txt = frag["text"]
+                                f_txt = frag["text"].replace("\xa0", " ")
                                 f_s = float(frag.get("font_size", blk_max_fs))
                                 f_b = frag.get("bold", False)
                                 f_i = frag.get("italic", False)
@@ -3131,7 +3127,7 @@ class PDFTabDocument(QWidget):
                             curr_x = rel_x + (4.0 / self.base_render_dpi)
 
                         for frag in blk_frags:
-                            frag_txt = frag["text"]
+                            frag_txt = frag["text"].replace("\xa0", " ")
                             f_sz = float(frag.get("font_size", blk_max_fs))
                             f_bold = frag.get("bold", False)
                             f_italic = frag.get("italic", False)
@@ -3184,6 +3180,15 @@ class PDFTabDocument(QWidget):
                                     u_p1 = fitz.Point(curr_x, line_baseline_y + 1.5) * page.derotation_matrix
                                     u_p2 = fitz.Point(curr_x + frag_w, line_baseline_y + 1.5) * page.derotation_matrix
                                     page.draw_line(u_p1, u_p2, color=u_col, width=max(0.7, f_sz * 0.05))
+                                except Exception:
+                                    pass
+
+                            if frag.get("strikeout"):
+                                try:
+                                    s_y = line_baseline_y - f_sz * 0.28
+                                    s_p1 = fitz.Point(curr_x, s_y) * page.derotation_matrix
+                                    s_p2 = fitz.Point(curr_x + frag_w, s_y) * page.derotation_matrix
+                                    page.draw_line(s_p1, s_p2, color=f_rgb, width=max(0.7, f_sz * 0.05))
                                 except Exception:
                                     pass
 
@@ -3892,8 +3897,8 @@ class PDFTabDocument(QWidget):
                         dock.update_thumbnail(page_idx)
                     else:
                         dock.update_all_thumbnails()
-        if hasattr(self.main_window, 'modern_right_sidebar') and self.main_window.modern_right_sidebar:
-            sidebar = self.main_window.modern_right_sidebar
+        if hasattr(self.main_window, 'aura_right_sidebar') and self.main_window.aura_right_sidebar:
+            sidebar = self.main_window.aura_right_sidebar
             if getattr(sidebar, 'current_panel', '') == 'thumbnails' and sidebar.isVisible():
                 if page_idx is not None:
                     sidebar.update_thumbnail(page_idx)
@@ -3934,10 +3939,10 @@ class PDFTabDocument(QWidget):
         if mode == "rainbow":
             self.pointer_hue = (self.pointer_hue + 0.04) % 1.0
 
-        if not self.laser_pointer_item or not isinstance(self.laser_pointer_item, ModernLaserPointerItem):
+        if not self.laser_pointer_item or not isinstance(self.laser_pointer_item, AuraLaserPointerItem):
             if self.laser_pointer_item and self.laser_pointer_item.scene() == self.scene:
                 self.scene.removeItem(self.laser_pointer_item)
-            self.laser_pointer_item = ModernLaserPointerItem()
+            self.laser_pointer_item = AuraLaserPointerItem()
             self.scene.addItem(self.laser_pointer_item)
 
         self.laser_pointer_item.update_settings(mode, color, self.pointer_hue)
@@ -4016,6 +4021,50 @@ class PDFTabDocument(QWidget):
         self._schedule_pointer_fadeout(delay_ms)
 
     # --- Belge Değişiklik Durumu (Dirty State) ---
+    def stop_render_worker(self, wait_ms: int = -1):
+        """Arka plan render iş parçacığını durdurur ve mevcut sayfanın bitmesini bekler.
+
+        PyMuPDF belge nesneleri thread-safe değildir. self.doc üzerinde değişiklik
+        (kaydetme, karartma, sayfa ekleme/silme vb.) yapılmadan veya belge
+        kapatılmadan önce çağrılmalıdır. wait_ms < 0 ise süresiz bekler (iş kuyruğu
+        abort ile boşaltıldığı için en fazla bir sayfanın render süresi kadar sürer).
+        """
+        worker = getattr(self, '_render_worker', None)
+        if not worker:
+            return
+        try:
+            worker.abort()
+            if worker.isRunning():
+                if wait_ms is None or wait_ms < 0:
+                    worker.wait()
+                else:
+                    worker.wait(wait_ms)
+        except RuntimeError:
+            # C++ nesnesi zaten silinmiş
+            pass
+        except Exception:
+            pass
+
+    def refresh_after_external_edit(self, page_idx: Optional[int] = None):
+        """Belge bir diyalog tarafından değiştirildikten sonra (karartma, içerik
+        düzenleme vb.) ana görünümü, küçük resimleri ve sekme başlığını günceller."""
+        self.set_modified(True)
+        try:
+            self.rerender_visible_pages(force=True)
+        except Exception:
+            pass
+        target = page_idx if page_idx is not None else getattr(self, 'current_page_idx', None)
+        try:
+            dock = getattr(self.main_window, 'thumbnails_dock', None)
+            if dock is not None and page_idx is not None and hasattr(dock, 'update_thumbnail'):
+                dock.update_thumbnail(page_idx)
+        except Exception:
+            pass
+        try:
+            self.notify_thumbnails_updated(target)
+        except Exception:
+            pass
+
     def set_modified(self, modified: bool = True):
         if self.is_modified != modified:
             self.is_modified = modified
@@ -4034,8 +4083,8 @@ class PDFTabDocument(QWidget):
             idx = self.main_window.tab_widget.indexOf(self)
             if idx >= 0:
                 self.main_window.tab_widget.setTabText(idx, display_name)
-                if hasattr(self.main_window, 'modern_tab_bar'):
-                    self.main_window.modern_tab_bar.set_tab_text(idx, display_name)
+                if hasattr(self.main_window, 'aura_tab_bar'):
+                    self.main_window.aura_tab_bar.set_tab_text(idx, display_name)
 
         if hasattr(self, 'main_window') and hasattr(self.main_window, 'get_current_tab_doc'):
             if self.main_window.get_current_tab_doc() == self:
@@ -4054,6 +4103,22 @@ class PDFTabDocument(QWidget):
         if hasattr(self.main_window, 'update_undo_redo_state'):
             self.main_window.update_undo_redo_state()
 
+    def _apply_text_box_background(self, record: dict, color):
+        record["bg_color"] = color
+        item = record.get("item_ref")
+        if item and hasattr(item, 'set_box_background'):
+            item.set_box_background(color, commit=False)
+
+    def commit_text_box_background(self, item, color):
+        """Kutu arka planı değişikliğini kayda işler ve geri alınabilir yapar."""
+        record = next((d for d in self.drawings if d.get("item_ref") is item), None)
+        if record is None:
+            return
+        old_color = record.get("bg_color")
+        record["bg_color"] = color
+        self.push_undo_action({"type": "text_box_bg", "record": record, "old_color": old_color, "new_color": color})
+        self.set_modified(True)
+
     def undo(self):
         if not hasattr(self, 'undo_stack') or not self.undo_stack: return
         if not hasattr(self, 'redo_stack') or self.redo_stack is None:
@@ -4067,6 +4132,10 @@ class PDFTabDocument(QWidget):
                     self.drawings.remove(item_data)
                 if item_data.get("item_ref") and item_data["item_ref"].scene() == self.scene:
                     self.scene.removeItem(item_data["item_ref"])
+            self.redo_stack.append(action)
+
+        elif action["type"] == "text_box_bg":
+            self._apply_text_box_background(action["record"], action["old_color"])
             self.redo_stack.append(action)
 
         elif action["type"] == "edit_text":
@@ -4178,6 +4247,10 @@ class PDFTabDocument(QWidget):
             for item_data in items:
                 self.drawings.append(item_data)
                 self.restore_drawing_item(item_data)
+            self.undo_stack.append(action)
+
+        elif action["type"] == "text_box_bg":
+            self._apply_text_box_background(action["record"], action["new_color"])
             self.undo_stack.append(action)
 
         elif action["type"] == "edit_text":
@@ -4571,9 +4644,9 @@ class PDFTabDocument(QWidget):
 
     def notify_thumbnails_updated(self, target_page: Optional[int] = None):
         """Sağ çekmecedeki modern sayfa önizlemelerini ve varsa kenetlenmiş dock'u günceller."""
-        if hasattr(self.main_window, 'modern_right_sidebar') and self.main_window.modern_right_sidebar:
+        if hasattr(self.main_window, 'aura_right_sidebar') and self.main_window.aura_right_sidebar:
             try:
-                sidebar = self.main_window.modern_right_sidebar
+                sidebar = self.main_window.aura_right_sidebar
                 if sidebar.isVisible() and getattr(sidebar, 'current_panel', '') == 'thumbnails':
                     sidebar.load_thumbnails()
                     if target_page is not None and self.doc and len(self.doc) > 0 and 0 <= target_page < len(self.doc):
@@ -5145,42 +5218,12 @@ class PDFTabDocument(QWidget):
                 p_lead.lineTo(ah_pts[1])
                 p_lead.lineTo(ah_pts[2])
 
-        pen_style = Qt.PenStyle.SolidLine
-        dash_pattern = None
-        if line_style == "dash":
-            pen_style = Qt.PenStyle.CustomDashLine
-            dash_pattern = [2.2, 1.5]
-        elif line_style == "dot":
-            pen_style = Qt.PenStyle.CustomDashLine
-            dash_pattern = [0.01, 1.9]
-        elif line_style == "dashdot":
-            pen_style = Qt.PenStyle.CustomDashLine
-            dash_pattern = [2.2, 1.4, 0.01, 1.4]
+        dash_pattern = PENCIL_DASH_PATTERNS.get(line_style)
 
-        # 3 katmanlı zengin kurşun kalem grafit dokusu (vektörel ve kristal netlikte, pikselleşme yapmaz)
-        col_fringe = QColor(base_col)
-        col_fringe.setAlphaF(min(1.0, alpha_base * 0.28))
-        pen_fringe = QPen(col_fringe, base_w * 1.35, pen_style, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin)
-        if dash_pattern: pen_fringe.setDashPattern(dash_pattern)
-        item_fringe = self.scene.addPath(p_lead, pen_fringe)
-        group.addToGroup(item_fringe)
-
-        col_lead = QColor(base_col)
-        col_lead.setAlphaF(min(1.0, alpha_base * 0.72))
-        pen_lead = QPen(col_lead, base_w, pen_style, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin)
-        if dash_pattern: pen_lead.setDashPattern(dash_pattern)
-        item_lead = self.scene.addPath(p_lead, pen_lead)
-        group.addToGroup(item_lead)
-
-        col_core = QColor(base_col)
-        col_core.setAlphaF(min(1.0, alpha_base * 0.96))
-        pen_core = QPen(col_core, max(0.6, base_w * 0.52), pen_style, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin)
-        if dash_pattern: pen_core.setDashPattern(dash_pattern)
-        item_core = self.scene.addPath(p_lead, pen_core)
-        group.addToGroup(item_core)
-
-        # Caching kapalı tutulur - böylece zoom yapıldığında pikseller esnemez, vektörel render edilir
-        group.setCacheMode(QGraphicsItemGroup.CacheMode.NoCache)
+        item = AuraPencilStrokeItem(p_lead, base_col, base_w, dash_pattern, seed=stroke_seed(pts))
+        self.scene.addItem(item)
+        group.addToGroup(item)
+        item.finalize()
         return group
 
     def restore_drawing_item(self, d):
@@ -5210,11 +5253,9 @@ class PDFTabDocument(QWidget):
             else:
                 pen_col = QColor(0, 0, 0, int(float(d.get("alpha", 1.0)) * 255))
 
-            if line_style == 'calligraphy':
+            if line_style in OUTLINE_PEN_STYLES:
                 rel_pts = [QPointF(x, y) for x, y in d["points"]]
-                rel_w = float(d.get("width", 6.0)) / self.base_render_dpi
-                min_w_rel = 1.8 / self.base_render_dpi
-                rel_path = build_fountain_pen_path(rel_pts, base_width=rel_w, min_width=min_w_rel)
+                rel_path = build_pen_outline(line_style, rel_pts, float(d.get("width", 6.0)), self.base_render_dpi)
                 transform = QTransform()
                 transform.translate(page_left, page_top)
                 transform.scale(self.base_render_dpi, self.base_render_dpi)
@@ -5647,9 +5688,9 @@ class PDFTabDocument(QWidget):
             except Exception:
                 pass
 
-        if hasattr(self.main_window, 'modern_right_sidebar') and self.main_window.modern_right_sidebar:
-            if hasattr(self.main_window.modern_right_sidebar, 'refresh_bookmark_indicators'):
-                self.main_window.modern_right_sidebar.refresh_bookmark_indicators()
+        if hasattr(self.main_window, 'aura_right_sidebar') and self.main_window.aura_right_sidebar:
+            if hasattr(self.main_window.aura_right_sidebar, 'refresh_bookmark_indicators'):
+                self.main_window.aura_right_sidebar.refresh_bookmark_indicators()
 
     def toggle_page_bookmark(self, page_idx: int):
         if self.doc is None or page_idx < 0 or page_idx >= len(self.doc):
@@ -5668,7 +5709,7 @@ class PDFTabDocument(QWidget):
             if matching_indices:
                 for i in reversed(matching_indices):
                     del toc[i]
-                msg = f"Sayfa {target_page_1_based} yer imlerinden kaldırıldı"
+                msg = LanguageManager.tr("bm_removed_page", page=target_page_1_based)
             else:
                 insert_idx = len(toc)
                 for i, entry in enumerate(toc):
@@ -5710,7 +5751,7 @@ class PDFTabDocument(QWidget):
                 old_title = str(entry[1] or "")
                 break
 
-        title, ok = QInputDialog.getText(self, "Yer İmini Yeniden Adlandır", "Başlık:", text=old_title)
+        title, ok = QInputDialog.getText(self, LanguageManager.tr("ui_yer_imini_yeniden_adlandir"), LanguageManager.tr("ui_baslik"), text=old_title)
         if not ok or not title.strip():
             return
 
@@ -5749,13 +5790,13 @@ class PDFTabDocument(QWidget):
         ]
 
         if existing_indices:
-            prompt_title = "Alt Yer İmi Ekle"
-            prompt_label = f"Sayfa {target_page_1_based} için Alt Yer İmi Başlığı:"
-            default_title = f"Sayfa {target_page_1_based} - Not {len(existing_indices)}"
+            prompt_title = LanguageManager.tr("bm_add_sub_title")
+            prompt_label = LanguageManager.tr("bm_add_sub_label", page=target_page_1_based)
+            default_title = LanguageManager.tr("bm_sub_default", page=target_page_1_based, n=len(existing_indices))
         else:
-            prompt_title = "Özel Yer İmi Ekle"
-            prompt_label = "Başlık:"
-            default_title = f"Sayfa {target_page_1_based}"
+            prompt_title = LanguageManager.tr("bm_add_custom_title")
+            prompt_label = LanguageManager.tr("ui_baslik")
+            default_title = LanguageManager.tr("bm_page_default", page=target_page_1_based)
 
         title, ok = QInputDialog.getText(self, prompt_title, prompt_label, text=default_title)
         if not ok or not title.strip():
@@ -5964,11 +6005,38 @@ class PDFTabDocument(QWidget):
 
     def showEvent(self, event):
         super().showEvent(event)
+        self.rerender_visible_pages()
         # Sekme ilk kez görünür olduğunda veya başka bir monitöre taşındığında netliği garanti et
         QTimer.singleShot(60, self._check_dpr_and_rerender)
 
     def resizeEvent(self, event):
+        # NOT: Bu sınıfta daha önce iki ayrı showEvent/resizeEvent tanımı vardı ve ikincisi
+        # birincisini sessizce eziyordu (sayfa ortalama ve düzenleme bandı konumlandırma
+        # hiç çalışmıyordu). İki davranış burada birleştirildi.
         super().resizeEvent(event)
+        try:
+            self.center_current_page_horizontal()
+        except Exception:
+            pass
+        if hasattr(self, 'direct_edit_banner') and self.direct_edit_banner:
+            try:
+                self.direct_edit_banner.reposition()
+            except Exception:
+                pass
+        if hasattr(self, 'direct_edit_editor') and self.direct_edit_editor:
+            try:
+                self.direct_edit_editor.reposition()
+            except Exception:
+                pass
+        # Canlı yeniden boyutlandırmada her olayda render etmemek için debounce
+        timer = getattr(self, 'rerender_timer', None)
+        if timer is not None:
+            try:
+                timer.start(60)
+            except Exception:
+                self.rerender_visible_pages()
+        else:
+            self.rerender_visible_pages()
         self._check_dpr_and_rerender()
 
     def _check_dpr_and_rerender(self):
@@ -6286,6 +6354,7 @@ class PDFTabDocument(QWidget):
             italic=getattr(popup, 'italic', False),
             underline=getattr(popup, 'underline', False),
         )
+        item.set_box_background(getattr(popup, 'box_bg_color', None), commit=False)
         self.scene.addItem(item)
         self.active_text_item = item
 
@@ -6423,10 +6492,12 @@ class PDFTabDocument(QWidget):
             item_data = {
                 "type": "text", "page": item.page_idx, "text": content,
                 "html": new_html, "fragments": frags,
+                "bg_color": getattr(item, 'box_bg_color', None),
                 "font_size": item.font_size, "font_family": item.font_family,
                 "color": item.text_color, "x": rel_x, "y": rel_y,
                 "w": w_pt, "h": h_pt, "item_ref": item,
                 "bold": getattr(item, 'bold', False),
+                "bg_color": getattr(item, 'box_bg_color', None),
                 "italic": getattr(item, 'italic', False),
                 "underline": getattr(item, 'underline', False),
                 "alignment": getattr(item, 'alignment_str', 'left'),
@@ -6933,6 +7004,7 @@ class PDFTabDocument(QWidget):
             alignment=record.get("alignment", "left"),
         )
         record["item_ref"] = item
+        item.set_box_background(record.get("bg_color"), commit=False)
         if record.get("html"):
             item.setHtml(record["html"])
         item.set_alignment(record.get("alignment", "left"), commit=False)
@@ -6946,14 +7018,14 @@ class PDFTabDocument(QWidget):
             item.link_range = record.get("link_range", None)
             item.manual_link = record.get("manual_link", False)
             if item.link_type == "tc":
-                item.setToolTip(f"T.C. Kimlik No: {item.link_raw or record.get('text', '')}\n(Tıklayarak panoya kopyalayın)")
+                item.setToolTip(LanguageManager.tr("ui_t_c_kimlik_no_tiklayarak_panoya_2", value=item.link_raw or record.get('text', '')))
             elif item.link_url:
                 if item.link_text:
-                    item.setToolTip(f"Bağlantı: {item.link_url}\n('{item.link_text}' üzerine tıklayarak siteye gidin)")
+                    item.setToolTip(LanguageManager.tr("ui_baglanti_uzerine_tiklayarak_siteye_gidin_2", link_url=item.link_url, link_text=item.link_text))
                     if not record.get("html"):
                         item.format_link_substring(item.link_text, item.link_url, char_range=item.link_range)
                 else:
-                    item.setToolTip(f"Bağlantı: {item.link_url}\n(Tıklayarak siteye gidin)")
+                    item.setToolTip(LanguageManager.tr("ui_baglanti_tiklayarak_siteye_gidin_3", link_url=item.link_url))
                     if not record.get("html"):
                         item.format_entire_text_as_link(item.link_url)
         elif not record.get("html"):
@@ -7078,7 +7150,7 @@ class PDFTabDocument(QWidget):
             cell_data = [["" for _ in range(cols)] for _ in range(rows)]
             if has_header and rows > 0:
                 for c in range(cols):
-                    cell_data[0][c] = f"Başlık {c + 1}"
+                    cell_data[0][c] = LanguageManager.tr("table_header_n", n=c + 1)
 
             if not alt_cell_bg:
                 c_cell = QColor(cell_bg)
@@ -7237,7 +7309,6 @@ class PDFTabDocument(QWidget):
         p.drawText(QRectF(0, 0, 140, 140), Qt.AlignmentFlag.AlignCenter, emoji_str)
         p.end()
 
-        from PyQt6.QtCore import QBuffer, QIODevice
         buf = QBuffer()
         buf.open(QIODevice.OpenModeFlag.WriteOnly)
         pix.save(buf, "PNG")
@@ -7550,8 +7621,8 @@ class PDFTabDocument(QWidget):
             target_annot.update()
             self.set_modified(True)
             self.render_all_pages()
-            if hasattr(self.main_window, 'modern_right_sidebar') and self.main_window.modern_right_sidebar:
-                self.main_window.modern_right_sidebar.load_comments()
+            if hasattr(self.main_window, 'aura_right_sidebar') and self.main_window.aura_right_sidebar:
+                self.main_window.aura_right_sidebar.load_comments()
             if hasattr(self.main_window, 'statusBar') and self.main_window.statusBar():
                 self.main_window.statusBar().showMessage(
                     LanguageManager.tr("comment_moved_msg", page=page_idx + 1), 3500
@@ -7616,8 +7687,8 @@ class PDFTabDocument(QWidget):
                     target_annot.update()
                     self.set_modified(True)
                     self.render_all_pages()
-                    if hasattr(self.main_window, 'modern_right_sidebar') and self.main_window.modern_right_sidebar:
-                        self.main_window.modern_right_sidebar.load_comments()
+                    if hasattr(self.main_window, 'aura_right_sidebar') and self.main_window.aura_right_sidebar:
+                        self.main_window.aura_right_sidebar.load_comments()
         except Exception as e:
             import traceback
             traceback.print_exc()
@@ -7668,8 +7739,8 @@ class PDFTabDocument(QWidget):
                 pass
             self._stamp_ghost_item = None
         self.pending_stamp = None
-        if hasattr(self, 'main_window') and hasattr(self.main_window, 'modern_left_sidebar') and hasattr(self.main_window.modern_left_sidebar, 'fill_sign_drawer'):
-            self.main_window.modern_left_sidebar.fill_sign_drawer.clear_active_state()
+        if hasattr(self, 'main_window') and hasattr(self.main_window, 'aura_left_sidebar') and hasattr(self.main_window.aura_left_sidebar, 'fill_sign_drawer'):
+            self.main_window.aura_left_sidebar.fill_sign_drawer.clear_active_state()
         if hasattr(self, 'main_window') and hasattr(self.main_window, 'update_viewport_cursor'):
             self.main_window.update_viewport_cursor()
         else:
@@ -8058,11 +8129,11 @@ class PDFTabDocument(QWidget):
                 self.main_window.txt_page.setText(str(self.current_page_idx + 1))
             if getattr(self.main_window, 'thumbnails_dock', None) and hasattr(self.main_window.thumbnails_dock, 'select_page'):
                 self.main_window.thumbnails_dock.select_page(self.current_page_idx)
-            if getattr(self.main_window, 'modern_right_sidebar', None) and hasattr(self.main_window.modern_right_sidebar, 'select_page'):
-                self.main_window.modern_right_sidebar.select_page(self.current_page_idx)
+            if getattr(self.main_window, 'aura_right_sidebar', None) and hasattr(self.main_window.aura_right_sidebar, 'select_page'):
+                self.main_window.aura_right_sidebar.select_page(self.current_page_idx)
             total_p = len(self.doc) if self.doc is not None else 1
-            if getattr(self.main_window, 'modern_header_bar', None):
-                self.main_window.modern_header_bar.update_page_info(self.current_page_idx + 1, total_p)
+            if getattr(self.main_window, 'aura_header_bar', None):
+                self.main_window.aura_header_bar.update_page_info(self.current_page_idx + 1, total_p)
             if hasattr(self.main_window, 'isFullScreen') and self.main_window.isFullScreen():
                 lbl_str = None
                 try:
@@ -8101,15 +8172,15 @@ class PDFTabDocument(QWidget):
             self.main_window.lbl_total.setText(LanguageManager.tr("page_of", total=len(self.doc)))
         if getattr(self.main_window, 'txt_page', None):
             self.main_window.txt_page.setText(str(self.current_page_idx + 1 if len(self.doc) > 0 else 0))
-        if getattr(self.main_window, 'modern_header_bar', None):
+        if getattr(self.main_window, 'aura_header_bar', None):
             try:
-                self.main_window.modern_header_bar.update_page_info(self.current_page_idx + 1, len(self.doc))
+                self.main_window.aura_header_bar.update_page_info(self.current_page_idx + 1, len(self.doc))
             except Exception:
                 pass
-        if getattr(self.main_window, 'modern_right_sidebar', None):
+        if getattr(self.main_window, 'aura_right_sidebar', None):
             try:
-                if self.main_window.modern_right_sidebar.isVisible():
-                    self.main_window.modern_right_sidebar.load_thumbnails()
+                if self.main_window.aura_right_sidebar.isVisible():
+                    self.main_window.aura_right_sidebar.load_thumbnails()
             except Exception:
                 pass
         if getattr(self.main_window, 'thumbnails_dock', None):
@@ -8730,8 +8801,8 @@ class PDFTabDocument(QWidget):
                         self.cancel_form_field_placement()
                         fname = self.add_acroform_field(f_type, page_idx=p_idx, rect=rect)
                         main_win = getattr(self, 'main_window', None)
-                        if main_win and hasattr(main_win, 'modern_left_sidebar'):
-                            drawer = getattr(main_win.modern_left_sidebar, 'prepare_form_drawer', None)
+                        if main_win and hasattr(main_win, 'aura_left_sidebar'):
+                            drawer = getattr(main_win.aura_left_sidebar, 'prepare_form_drawer', None)
                             if drawer:
                                 drawer.refresh_fields_list()
                                 if fname:
@@ -9180,14 +9251,14 @@ class PDFTabDocument(QWidget):
             QMenu::item:selected { background-color: #0284c7; color: #ffffff; }
         """)
 
-        act_copy = menu.addAction(ModernIconFactory.icon_copy(), LanguageManager.tr("copy") + " (Ctrl+C)")
-        act_hl = menu.addAction(ModernIconFactory.icon_highlighter(), LanguageManager.tr("text_markup_highlight"))
-        act_ul = menu.addAction(ModernIconFactory.icon_underline(), LanguageManager.tr("text_markup_underline"))
-        act_so = menu.addAction(ModernIconFactory.icon_strikethrough(), LanguageManager.tr("text_markup_strikeout"))
-        act_speak = menu.addAction(ModernIconFactory.icon_speech(), LanguageManager.tr("text_read_aloud"))
+        act_copy = menu.addAction(AuraIconFactory.icon_copy(), LanguageManager.tr("copy") + " (Ctrl+C)")
+        act_hl = menu.addAction(AuraIconFactory.icon_highlighter(), LanguageManager.tr("text_markup_highlight"))
+        act_ul = menu.addAction(AuraIconFactory.icon_underline(), LanguageManager.tr("text_markup_underline"))
+        act_so = menu.addAction(AuraIconFactory.icon_strikethrough(), LanguageManager.tr("text_markup_strikeout"))
+        act_speak = menu.addAction(AuraIconFactory.icon_speech(), LanguageManager.tr("text_read_aloud"))
         menu.addSeparator()
-        act_search = menu.addAction(ModernIconFactory.icon_search(), LanguageManager.tr("text_search_google"))
-        act_trans = menu.addAction(ModernIconFactory.icon_translate(), LanguageManager.tr("text_translate_google"))
+        act_search = menu.addAction(AuraIconFactory.icon_search(), LanguageManager.tr("text_search_google"))
+        act_trans = menu.addAction(AuraIconFactory.icon_translate(), LanguageManager.tr("text_translate_google"))
 
         chosen = menu.exec(global_pos)
         if chosen == act_copy:
@@ -9273,9 +9344,7 @@ class PDFTabDocument(QWidget):
         self.scene.update()
         self.view.viewport().update()
 
-        if hasattr(self.main_window, 'dock_thumbs') and self.main_window.dock_thumbs:
-            self.main_window.dock_thumbs.load_comments()
-        elif hasattr(self.main_window, 'thumbnails_dock') and self.main_window.thumbnails_dock:
+        if hasattr(self.main_window, 'thumbnails_dock') and self.main_window.thumbnails_dock:
             self.main_window.thumbnails_dock.load_comments()
 
     def highlight_selected_text(self, color=(1.0, 0.9, 0.2)):
@@ -9303,12 +9372,12 @@ class PDFTabDocument(QWidget):
         if not getattr(self, 'selected_text', '').strip():
             return
         mw = getattr(self, 'main_window', None)
-        if mw and hasattr(mw, 'modern_right_sidebar') and mw.modern_right_sidebar:
-            panel_acc = getattr(mw.modern_right_sidebar, 'panel_accessibility', None)
+        if mw and hasattr(mw, 'aura_right_sidebar') and mw.aura_right_sidebar:
+            panel_acc = getattr(mw.aura_right_sidebar, 'panel_accessibility', None)
             if panel_acc:
                 panel_acc.speak_text(self.selected_text, source_doc=self)
             else:
-                se = getattr(mw.modern_right_sidebar, 'speech_engine', None)
+                se = getattr(mw.aura_right_sidebar, 'speech_engine', None)
                 if se:
                     se.speak(self.selected_text)
 
@@ -9705,8 +9774,8 @@ class PDFTabDocument(QWidget):
         rect = fitz.Rect(new_x, new_y, new_x + pdf_w, new_y + pdf_h)
 
         fname = self.add_acroform_field(designer_item.field_type, page_idx=p_idx, rect=rect)
-        if self.main_window and hasattr(self.main_window, 'modern_left_sidebar'):
-            drawer = getattr(self.main_window.modern_left_sidebar, 'prepare_form_drawer', None)
+        if self.main_window and hasattr(self.main_window, 'aura_left_sidebar'):
+            drawer = getattr(self.main_window.aura_left_sidebar, 'prepare_form_drawer', None)
             if drawer:
                 drawer.refresh_fields_list()
                 if fname:
@@ -9762,8 +9831,8 @@ class PDFTabDocument(QWidget):
             widget.field_value = False
         elif field_type == "combobox":
             widget.field_type = fitz.PDF_WIDGET_TYPE_COMBOBOX
-            widget.choice_values = ["Seçenek 1", "Seçenek 2", "Seçenek 3"]
-            widget.field_value = "Seçenek 1"
+            widget.choice_values = [LanguageManager.tr("form_choice_n", n=i) for i in (1, 2, 3)]
+            widget.field_value = widget.choice_values[0]
         elif field_type == "signature":
             widget.field_type = fitz.PDF_WIDGET_TYPE_SIGNATURE
         else:
@@ -9855,8 +9924,8 @@ class PDFTabDocument(QWidget):
         if not self.is_form_design_mode:
             self._load_interactive_form_widgets()
 
-        if self.main_window and hasattr(self.main_window, 'modern_left_sidebar'):
-            drawer = getattr(self.main_window.modern_left_sidebar, 'prepare_form_drawer', None)
+        if self.main_window and hasattr(self.main_window, 'aura_left_sidebar'):
+            drawer = getattr(self.main_window.aura_left_sidebar, 'prepare_form_drawer', None)
             if drawer:
                 drawer.refresh_fields_list()
 
@@ -10177,8 +10246,8 @@ class PDFTabDocument(QWidget):
                             self.rerender_page(page_idx)
                         elif hasattr(self, 'rerender_visible_pages'):
                             self.rerender_visible_pages(force=True)
-                        if hasattr(self.main_window, 'modern_right_sidebar') and self.main_window.modern_right_sidebar:
-                            self.main_window.modern_right_sidebar.load_comments()
+                        if hasattr(self.main_window, 'aura_right_sidebar') and self.main_window.aura_right_sidebar:
+                            self.main_window.aura_right_sidebar.load_comments()
                         if hasattr(self.main_window, 'statusBar') and self.main_window.statusBar():
                             self.main_window.statusBar().showMessage(LanguageManager.tr("comment_added_msg", page=page_idx + 1), 3500)
             except Exception as e:
@@ -10224,28 +10293,19 @@ class PDFTabDocument(QWidget):
             rel_y = (pos.y() - top_y) / self.base_render_dpi
             self.current_stroke_pts = [(rel_x, rel_y)]
 
-            if tool == 'pen' and line_style == 'calligraphy':
-                rel_path = build_fountain_pen_path([QPointF(rel_x, rel_y)], base_width=float(popup.thickness) / self.base_render_dpi, min_width=1.8 / self.base_render_dpi)
+            if tool == 'pen' and line_style in OUTLINE_PEN_STYLES:
+                rel_path = build_pen_outline(line_style, [QPointF(rel_x, rel_y)], float(popup.thickness), self.base_render_dpi)
                 transform = QTransform()
                 transform.translate(page_left, top_y)
                 transform.scale(self.base_render_dpi, self.base_render_dpi)
                 self.current_path = transform.map(rel_path)
                 self.current_path_item = self.scene.addPath(self.current_path, QPen(Qt.PenStyle.NoPen), QBrush(popup.color))
             elif is_pencil:
-                p_col = QColor(popup.color)
-                tex = get_graphite_lead_texture(p_col)
-                pencil_pen = QPen(QBrush(tex), popup.thickness, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin)
-                if line_style == 'dash':
-                    pencil_pen.setStyle(Qt.PenStyle.CustomDashLine)
-                    pencil_pen.setDashPattern([2.2, 1.5])
-                elif line_style == 'dot':
-                    pencil_pen.setStyle(Qt.PenStyle.CustomDashLine)
-                    pencil_pen.setDashPattern([0.01, 1.9])
-                elif line_style == 'dashdot':
-                    pencil_pen.setStyle(Qt.PenStyle.CustomDashLine)
-                    pencil_pen.setDashPattern([2.2, 1.4, 0.01, 1.4])
                 self.current_path = QPainterPath(pos)
-                self.current_path_item = self.scene.addPath(self.current_path, pencil_pen)
+                self.current_path_item = AuraPencilStrokeItem(
+                    self.current_path, QColor(popup.color), popup.thickness,
+                    PENCIL_DASH_PATTERNS.get(line_style), seed=stroke_seed([pos]))
+                self.scene.addItem(self.current_path_item)
             else:
                 self.current_path = QPainterPath(pos)
                 self.current_path_item = self.scene.addPath(self.current_path, pen)
@@ -10354,9 +10414,9 @@ class PDFTabDocument(QWidget):
                     ((self.stroke_start_pos.x() - page_left) / self.base_render_dpi, (self.stroke_start_pos.y() - top_y) / self.base_render_dpi),
                     ((snap_end_x - page_left) / self.base_render_dpi, (snap_end_y - top_y) / self.base_render_dpi)
                 ]
-                if tool == 'pen' and line_style == 'calligraphy':
+                if tool == 'pen' and line_style in OUTLINE_PEN_STYLES:
                     rel_pts = [QPointF(rx, ry) for rx, ry in self.current_stroke_pts]
-                    rel_path = build_fountain_pen_path(rel_pts, base_width=float(popup.thickness) / self.base_render_dpi, min_width=1.8 / self.base_render_dpi)
+                    rel_path = build_pen_outline(line_style, rel_pts, float(popup.thickness), self.base_render_dpi)
                     transform = QTransform()
                     transform.translate(page_left, top_y)
                     transform.scale(self.base_render_dpi, self.base_render_dpi)
@@ -10378,9 +10438,9 @@ class PDFTabDocument(QWidget):
                 min_step = (1.5 / max(0.25, zoom)) if is_pencil else (0.8 / max(0.25, zoom))
                 if dist >= min_step:
                     self.current_stroke_pts.append(((clamped_pos.x() - page_left) / self.base_render_dpi, (clamped_pos.y() - top_y) / self.base_render_dpi))
-                    if tool == 'pen' and line_style == 'calligraphy':
+                    if tool == 'pen' and line_style in OUTLINE_PEN_STYLES:
                         rel_pts = [QPointF(rx, ry) for rx, ry in self.current_stroke_pts]
-                        rel_path = build_fountain_pen_path(rel_pts, base_width=float(popup.thickness) / self.base_render_dpi, min_width=1.8 / self.base_render_dpi)
+                        rel_path = build_pen_outline(line_style, rel_pts, float(popup.thickness), self.base_render_dpi)
                         transform = QTransform()
                         transform.translate(page_left, top_y)
                         transform.scale(self.base_render_dpi, self.base_render_dpi)
@@ -10698,10 +10758,10 @@ class PDFTabDocument(QWidget):
                             end_y = self.current_stroke_pts[1][1] * self.base_render_dpi + top_y
                         end_pt = QPointF(self.current_stroke_pts[1][0] * self.base_render_dpi + page_left, end_y)
 
-                    if tool == 'pen' and line_style == 'calligraphy':
+                    if tool == 'pen' and line_style in OUTLINE_PEN_STYLES:
                         rel_pts = [QPointF(self.current_stroke_pts[0][0], self.current_stroke_pts[0][1]),
                                    QPointF(self.current_stroke_pts[1][0], (end_y - top_y) / self.base_render_dpi)]
-                        rel_path = build_fountain_pen_path(rel_pts, base_width=float(popup.thickness) / self.base_render_dpi, min_width=1.8 / self.base_render_dpi)
+                        rel_path = build_pen_outline(line_style, rel_pts, float(popup.thickness), self.base_render_dpi)
                         transform = QTransform()
                         transform.translate(page_left, top_y)
                         transform.scale(self.base_render_dpi, self.base_render_dpi)
@@ -10756,9 +10816,9 @@ class PDFTabDocument(QWidget):
                             ((right_sx - page_left) / self.base_render_dpi, (right_sy - top_y) / self.base_render_dpi)
                         ]
 
-                if tool == 'pen' and line_style == 'calligraphy':
+                if tool == 'pen' and line_style in OUTLINE_PEN_STYLES:
                     rel_pts = [QPointF(rx, ry) for rx, ry in self.current_stroke_pts]
-                    rel_path = build_fountain_pen_path(rel_pts, base_width=float(popup.thickness) / self.base_render_dpi, min_width=1.8 / self.base_render_dpi)
+                    rel_path = build_pen_outline(line_style, rel_pts, float(popup.thickness), self.base_render_dpi)
                     transform = QTransform()
                     transform.translate(page_left, top_y)
                     transform.scale(self.base_render_dpi, self.base_render_dpi)
@@ -10773,7 +10833,7 @@ class PDFTabDocument(QWidget):
                         "color": (popup.color.redF(), popup.color.greenF(), popup.color.blueF()),
                         "alpha": popup.color.alphaF(),
                         "width": popup.thickness,
-                        "line_style": "calligraphy",
+                        "line_style": line_style,
                         "rel_path": rel_path,
                         "path": self.current_path,
                         "item_ref": self.current_path_item
@@ -10833,7 +10893,7 @@ class PDFTabDocument(QWidget):
         self.measurement_start_pos = pos
         unit = getattr(self.main_window, 'measurement_unit', getattr(self, 'measurement_unit', 'cm'))
         scale_ratio = getattr(self.main_window, 'measurement_scale', getattr(self, 'measurement_scale', 1.0))
-        item = ModernMeasurementItem(pos, pos, self.base_render_dpi, unit, scale_ratio, page_idx)
+        item = AuraMeasurementItem(pos, pos, self.base_render_dpi, unit, scale_ratio, page_idx)
         self.scene.addItem(item)
         self.active_measurement_item = item
 

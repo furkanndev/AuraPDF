@@ -7,18 +7,17 @@ Cornell Not, Müzik Portesi, Karanlık Mod, Kapak) stil, yön, boyut ve
 ekleme konumu seçebilmesini sağlayan modern diyalog penceresi.
 """
 
-from typing import Optional, Dict, Any, List, Tuple
+from typing import Optional, Dict, Any, Tuple
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QFrame, QGridLayout, QComboBox, QSpinBox, QRadioButton,
-    QButtonGroup, QScrollArea, QWidget, QGraphicsDropShadowEffect
+    QScrollArea, QWidget
 )
-from PyQt6.QtCore import Qt, QSize, QRectF, QPointF
-from PyQt6.QtGui import QPainter, QColor, QPen, QBrush, QFont, QPainterPath
+from PyQt6.QtCore import Qt, QRectF, QPointF
+from PyQt6.QtGui import QPainter, QColor, QPen, QBrush, QFont
 
 from src.core.i18n import LanguageManager
-from src.ui.dialog_theme import get_dialog_theme_stylesheet, get_current_theme, THEME_PALETTES
-from src.ui.icons import ModernIconFactory
+from src.ui.dialog_theme import get_current_theme, THEME_PALETTES
 
 
 PAGE_SIZES_PT: Dict[str, Tuple[float, float]] = {
@@ -468,6 +467,7 @@ class NewPageDialog(QDialog):
         orient_box.addWidget(self.rb_landscape)
         orient_box.addStretch()
         opts_layout.addLayout(orient_box, 0, 1)
+        opts_layout.setColumnMinimumWidth(1, 200)
 
         # Boyut (Paper Size)
         lbl_size = QLabel(LanguageManager.tr("page_size_lbl"))

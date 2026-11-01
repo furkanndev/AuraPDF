@@ -1,18 +1,17 @@
 import json
 import uuid
 import math
-import hashlib
 import random
 from typing import Optional
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QLabel, 
                              QPushButton, QSlider, QFrame, QColorDialog, 
-                             QFontComboBox, QComboBox, QCheckBox, QApplication, QInputDialog, QMessageBox,
+                             QComboBox, QCheckBox, QApplication, QMessageBox,
                              QStackedWidget, QScrollArea, QButtonGroup, QLineEdit, QToolButton, QGraphicsDropShadowEffect,
                              QMenu)
-from PyQt6.QtGui import (QColor, QFont, QPainter, QPen, QBrush, QLinearGradient, QRadialGradient, QPainterPath, QTextCursor, QFontMetricsF, QPixmap, QImage)
+from PyQt6.QtGui import (QColor, QFont, QPainter, QPen, QBrush, QLinearGradient, QPainterPath, QTextCursor, QFontMetricsF, QPixmap, QImage)
 from PyQt6.QtCore import Qt, QPoint, QPointF, QRect, QRectF, QTimer, QSettings, QEvent, QSize
 from src.core.i18n import LanguageManager
-from src.ui.icons import ModernIconFactory
+from src.ui.icons import AuraIconFactory
 
 # --- 0. POPUP TEMA ŞABLONLARI ---
 POPUP_THEME_SPECS = {
@@ -74,8 +73,8 @@ def get_popup_theme_spec(theme_name: str = "gray") -> dict:
         theme_name = "gray"
     if theme_name == "custom":
         try:
-            from src.ui.modern_views import get_modern_theme_colors
-            c = get_modern_theme_colors("custom")
+            from src.ui.aura_views import get_aura_theme_colors
+            c = get_aura_theme_colors("custom")
             spec = {
                 "main_bg": c["bg"], "main_text": c["text"], "tb_bg": c["surface"], "tb_border": c["border"],
                 "btn_hover": c["surface_hover"], "accent": c["accent"], "page_bg": c["card_bg"], "page_border": c["card_border"],
@@ -317,18 +316,18 @@ class SelectionSettingsPopup(BaseSettingsPopup):
         layout.addWidget(self.lbl_sec_sel)
 
         self.btn_rect = QPushButton(LanguageManager.tr("sel_rect"))
-        self.btn_rect.setIcon(ModernIconFactory.icon_select_rect())
+        self.btn_rect.setIcon(AuraIconFactory.icon_select_rect())
         self.btn_rect.setCheckable(True)
         self.btn_rect.setChecked(True)
         self.btn_rect.clicked.connect(lambda: self._select_mode("rect"))
 
         self.btn_lasso = QPushButton(LanguageManager.tr("sel_lasso"))
-        self.btn_lasso.setIcon(ModernIconFactory.icon_select_lasso())
+        self.btn_lasso.setIcon(AuraIconFactory.icon_select_lasso())
         self.btn_lasso.setCheckable(True)
         self.btn_lasso.clicked.connect(lambda: self._select_mode("lasso"))
 
         self.btn_move = QPushButton(LanguageManager.tr("sel_move"))
-        self.btn_move.setIcon(ModernIconFactory.icon_select_move())
+        self.btn_move.setIcon(AuraIconFactory.icon_select_move())
         self.btn_move.setCheckable(True)
         self.btn_move.clicked.connect(lambda: self._select_mode("move"))
 
@@ -348,7 +347,7 @@ class SelectionSettingsPopup(BaseSettingsPopup):
         layout.addWidget(self.lbl_sec_ruler)
 
         self.btn_ruler = QPushButton(LanguageManager.tr("sel_ruler"))
-        self.btn_ruler.setIcon(ModernIconFactory.icon_ruler())
+        self.btn_ruler.setIcon(AuraIconFactory.icon_ruler())
         self.btn_ruler.setCheckable(True)
         self.btn_ruler.clicked.connect(lambda: self._select_mode("ruler"))
         layout.addWidget(self.btn_ruler)
@@ -383,7 +382,7 @@ class SelectionSettingsPopup(BaseSettingsPopup):
         h_scale.addWidget(self.lbl_scale)
 
         self.cmb_scale = QComboBox()
-        self.cmb_scale.addItem("1:1 (Varsayılan)", 1.0)
+        self.cmb_scale.addItem(LanguageManager.tr("ui_1_1_varsayilan"), 1.0)
         self.cmb_scale.addItem("1:2", 2.0)
         self.cmb_scale.addItem("1:5", 5.0)
         self.cmb_scale.addItem("1:10", 10.0)
@@ -398,7 +397,7 @@ class SelectionSettingsPopup(BaseSettingsPopup):
         # Ölçümleri Temizle Butonu
         self.btn_clear_ruler = QPushButton(LanguageManager.tr("ruler_clear_all"))
         self.btn_clear_ruler.setObjectName("ClearBtn")
-        self.btn_clear_ruler.setIcon(ModernIconFactory.icon_eraser())
+        self.btn_clear_ruler.setIcon(AuraIconFactory.icon_eraser())
         self.btn_clear_ruler.clicked.connect(self._on_clear_ruler_clicked)
         l_ro.addWidget(self.btn_clear_ruler)
 
@@ -483,7 +482,6 @@ class SelectionSettingsPopup(BaseSettingsPopup):
             curr_tool = getattr(parent_mw, 'current_tool', 'select')
             if curr_tool == 'ruler':
                 self.current_mode = 'ruler'
-                if hasattr(self, 'btn_select'): self.btn_select.setChecked(False)
                 if hasattr(self, 'btn_pan'): self.btn_pan.setChecked(False)
                 self.btn_rect.setChecked(False)
                 self.btn_lasso.setChecked(False)
@@ -492,7 +490,6 @@ class SelectionSettingsPopup(BaseSettingsPopup):
                 self.box_ruler_opts.setVisible(True)
             elif curr_tool == 'select':
                 self.current_mode = 'select'
-                if hasattr(self, 'btn_select'): self.btn_select.setChecked(True)
                 if hasattr(self, 'btn_pan'): self.btn_pan.setChecked(False)
                 self.btn_rect.setChecked(False)
                 self.btn_lasso.setChecked(False)
@@ -501,7 +498,6 @@ class SelectionSettingsPopup(BaseSettingsPopup):
                 self.box_ruler_opts.setVisible(False)
             elif curr_tool == 'pan':
                 self.current_mode = 'pan'
-                if hasattr(self, 'btn_select'): self.btn_select.setChecked(False)
                 if hasattr(self, 'btn_pan'): self.btn_pan.setChecked(True)
                 self.btn_rect.setChecked(False)
                 self.btn_lasso.setChecked(False)
@@ -511,7 +507,6 @@ class SelectionSettingsPopup(BaseSettingsPopup):
             else:
                 mode = getattr(parent_mw, 'selection_shape_mode', 'rect')
                 self.current_mode = mode
-                if hasattr(self, 'btn_select'): self.btn_select.setChecked(False)
                 if hasattr(self, 'btn_pan'): self.btn_pan.setChecked(False)
                 self.btn_rect.setChecked(mode == "rect")
                 self.btn_lasso.setChecked(mode == "lasso")
@@ -520,7 +515,7 @@ class SelectionSettingsPopup(BaseSettingsPopup):
                 self.box_ruler_opts.setVisible(False)
             if self.isVisible():
                 self.adjustSize()
-                for btn in (getattr(self, 'btn_select', None), getattr(self, 'btn_pan', None),
+                for btn in (getattr(self, 'btn_pan', None),
                             self.btn_rect, self.btn_lasso, self.btn_move, self.btn_ruler):
                     if btn:
                         btn.style().unpolish(btn)
@@ -542,12 +537,12 @@ class CursorPopup(BaseSettingsPopup):
         layout.addWidget(self.lbl_title)
 
         self.btn_arrow = QPushButton(LanguageManager.tr("cursor_arrow"))
-        self.btn_arrow.setIcon(ModernIconFactory.icon_cursor())
+        self.btn_arrow.setIcon(AuraIconFactory.icon_cursor())
         self.btn_arrow.setCheckable(True)
         self.btn_arrow.setChecked(True)
 
         self.btn_pan = QPushButton(LanguageManager.tr("cursor_pan"))
-        self.btn_pan.setIcon(ModernIconFactory.icon_select_pan())
+        self.btn_pan.setIcon(AuraIconFactory.icon_select_pan())
         self.btn_pan.setCheckable(True)
 
         self.btn_arrow.clicked.connect(lambda: self._select_mode("select"))
@@ -669,7 +664,7 @@ class SwatchButton(QPushButton):
         super().mouseDoubleClickEvent(event)
 
 
-class ModernColorPaletteWidget(QWidget):
+class AuraColorPaletteWidget(QWidget):
     def __init__(self, tool_name: str, default_palette: list, default_custom: str, default_active: str, on_color_changed=None, parent=None):
         super().__init__(parent)
         self.tool_name = tool_name
@@ -967,17 +962,29 @@ class TextSettingsPopup(BaseSettingsPopup):
         self.btn_underline.setFont(font_u)
         self.btn_underline.clicked.connect(self._on_format_change)
 
+        self.btn_strike = QPushButton("S")
+        self.btn_strike.setObjectName("FormatBtn")
+        self.btn_strike.setCheckable(True)
+        self.btn_strike.setFixedSize(36, 28)
+        self.btn_strike.setToolTip(LanguageManager.tr("text_strikeout_tip"))
+        font_s = self.btn_strike.font()
+        font_s.setStrikeOut(True)
+        font_s.setPointSize(11)
+        self.btn_strike.setFont(font_s)
+        self.btn_strike.clicked.connect(self._on_format_change)
+
         self.btn_link = QPushButton()
         self.btn_link.setObjectName("FormatBtn")
-        self.btn_link.setIcon(ModernIconFactory.icon_link())
+        self.btn_link.setIcon(AuraIconFactory.icon_link())
         self.btn_link.setCheckable(True)
         self.btn_link.setFixedSize(36, 28)
-        self.btn_link.setToolTip("Metne Web Bağlantısı (Hyperlink) Ekle")
+        self.btn_link.setToolTip(LanguageManager.tr("ui_metne_web_baglantisi_hyperlink_ekle"))
         self.btn_link.clicked.connect(self._on_add_link_clicked)
 
         fmt_box.addWidget(self.btn_bold)
         fmt_box.addWidget(self.btn_italic)
         fmt_box.addWidget(self.btn_underline)
+        fmt_box.addWidget(self.btn_strike)
         fmt_box.addWidget(self.btn_link)
         fmt_box.addStretch()
         layout.addLayout(fmt_box)
@@ -997,7 +1004,7 @@ class TextSettingsPopup(BaseSettingsPopup):
         self.btn_align_left.setObjectName("FormatBtn")
         self.btn_align_left.setCheckable(True)
         self.btn_align_left.setFixedSize(36, 28)
-        self.btn_align_left.setIcon(ModernIconFactory.icon_align_left(16))
+        self.btn_align_left.setIcon(AuraIconFactory.icon_align_left(16))
         self.btn_align_left.setToolTip(LanguageManager.tr("align_left") + " (Ctrl+L)")
         self.btn_group_align.addButton(self.btn_align_left)
 
@@ -1005,7 +1012,7 @@ class TextSettingsPopup(BaseSettingsPopup):
         self.btn_align_center.setObjectName("FormatBtn")
         self.btn_align_center.setCheckable(True)
         self.btn_align_center.setFixedSize(36, 28)
-        self.btn_align_center.setIcon(ModernIconFactory.icon_align_center(16))
+        self.btn_align_center.setIcon(AuraIconFactory.icon_align_center(16))
         self.btn_align_center.setToolTip(LanguageManager.tr("align_center") + " (Ctrl+E)")
         self.btn_group_align.addButton(self.btn_align_center)
 
@@ -1013,7 +1020,7 @@ class TextSettingsPopup(BaseSettingsPopup):
         self.btn_align_right.setObjectName("FormatBtn")
         self.btn_align_right.setCheckable(True)
         self.btn_align_right.setFixedSize(36, 28)
-        self.btn_align_right.setIcon(ModernIconFactory.icon_align_right(16))
+        self.btn_align_right.setIcon(AuraIconFactory.icon_align_right(16))
         self.btn_align_right.setToolTip(LanguageManager.tr("align_right") + " (Ctrl+R)")
         self.btn_group_align.addButton(self.btn_align_right)
 
@@ -1021,7 +1028,7 @@ class TextSettingsPopup(BaseSettingsPopup):
         self.btn_align_justify.setObjectName("FormatBtn")
         self.btn_align_justify.setCheckable(True)
         self.btn_align_justify.setFixedSize(36, 28)
-        self.btn_align_justify.setIcon(ModernIconFactory.icon_align_justify(16))
+        self.btn_align_justify.setIcon(AuraIconFactory.icon_align_justify(16))
         self.btn_align_justify.setToolTip(LanguageManager.tr("align_justify") + " (Ctrl+J)")
         self.btn_group_align.addButton(self.btn_align_justify)
 
@@ -1035,7 +1042,7 @@ class TextSettingsPopup(BaseSettingsPopup):
         self.btn_snap_grid = QPushButton()
         self.btn_snap_grid.setObjectName("FormatBtn")
         self.btn_snap_grid.setFixedSize(36, 28)
-        self.btn_snap_grid.setIcon(ModernIconFactory.icon_all_grid(16))
+        self.btn_snap_grid.setIcon(AuraIconFactory.icon_all_grid(16))
         self.btn_snap_grid.setToolTip(LanguageManager.tr("align_to_grid", default="Grid'e Hizala"))
         self.btn_snap_grid.clicked.connect(self._on_snap_grid_clicked)
 
@@ -1056,7 +1063,7 @@ class TextSettingsPopup(BaseSettingsPopup):
         self.lbl_color = QLabel(LanguageManager.tr("font_color"))
         layout.addWidget(self.lbl_color)
         default_pal = ["#000000", "#ffffff", "#e53935", "#1e88e5", "#43a047", "#fdd835"]
-        self.palette_widget = ModernColorPaletteWidget(
+        self.palette_widget = AuraColorPaletteWidget(
             tool_name=self.tool_name,
             default_palette=default_pal,
             default_custom="#000000",
@@ -1068,6 +1075,43 @@ class TextSettingsPopup(BaseSettingsPopup):
             self.palette_widget.set_custom_color("#000000")
         layout.addWidget(self.palette_widget)
         self.color = QColor(self.palette_widget.active_color)
+
+        # --- KUTU ARKA PLANI ---
+        self.lbl_box_bg = QLabel(LanguageManager.tr("text_box_bg_label"))
+        layout.addWidget(self.lbl_box_bg)
+        self.box_bg_color = None
+        self.box_bg_buttons = {}
+        box_bg_row = QHBoxLayout()
+        box_bg_row.setSpacing(6)
+        box_bg_presets = [
+            (None, "text_box_bg_none"), ("#ffffff", "text_box_bg_white"), ("#fff59d", "text_box_bg_yellow"),
+            ("#bbdefb", "text_box_bg_blue"), ("#c8e6c9", "text_box_bg_green"), ("#f8bbd0", "text_box_bg_pink"),
+        ]
+        for hex_code, key in box_bg_presets:
+            btn = QPushButton()
+            btn.setObjectName("BoxBgSwatch")
+            btn.setFixedSize(26, 26)
+            btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            btn.setToolTip(LanguageManager.tr(key))
+            btn.setAccessibleName(LanguageManager.tr(key))
+            if hex_code is None:
+                btn.setIcon(AuraIconFactory.icon_close())
+                btn.setIconSize(QSize(14, 14))
+            btn.clicked.connect(lambda _, c=hex_code: self._on_box_bg_selected(c))
+            box_bg_row.addWidget(btn)
+            self.box_bg_buttons[hex_code] = btn
+        self.btn_box_bg_custom = QPushButton()
+        self.btn_box_bg_custom.setObjectName("BoxBgSwatch")
+        self.btn_box_bg_custom.setFixedSize(26, 26)
+        self.btn_box_bg_custom.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_box_bg_custom.setIcon(AuraIconFactory.icon_eyedropper())
+        self.btn_box_bg_custom.setIconSize(QSize(14, 14))
+        self.btn_box_bg_custom.setToolTip(LanguageManager.tr("text_box_bg_custom"))
+        self.btn_box_bg_custom.setAccessibleName(LanguageManager.tr("text_box_bg_custom"))
+        self.btn_box_bg_custom.clicked.connect(self._choose_box_bg_color)
+        box_bg_row.addWidget(self.btn_box_bg_custom)
+        box_bg_row.addStretch()
+        layout.addLayout(box_bg_row)
 
         # --- ÖNİZLEME ---
         self.lbl_preview = QLabel(LanguageManager.tr("preview"))
@@ -1082,6 +1126,8 @@ class TextSettingsPopup(BaseSettingsPopup):
             spec = POPUP_THEME_SPECS.get(theme_name, POPUP_THEME_SPECS.get("dark", {}))
         super().apply_theme(theme_name, spec)
         self._update_alignment_button_styles()
+        if hasattr(self, 'box_bg_buttons'):
+            self._update_box_bg_styles()
 
     def _update_alignment_button_styles(self):
         spec = getattr(self, '_applied_spec', None)
@@ -1095,34 +1141,32 @@ class TextSettingsPopup(BaseSettingsPopup):
 
         if hasattr(self, 'btn_align_left'):
             c_l = active_col if self.btn_align_left.isChecked() else text_col
-            self.btn_align_left.setIcon(ModernIconFactory.icon_align_left(16, c_l))
+            self.btn_align_left.setIcon(AuraIconFactory.icon_align_left(16, c_l))
 
         if hasattr(self, 'btn_align_center'):
             c_c = active_col if self.btn_align_center.isChecked() else text_col
-            self.btn_align_center.setIcon(ModernIconFactory.icon_align_center(16, c_c))
+            self.btn_align_center.setIcon(AuraIconFactory.icon_align_center(16, c_c))
 
         if hasattr(self, 'btn_align_right'):
             c_r = active_col if self.btn_align_right.isChecked() else text_col
-            self.btn_align_right.setIcon(ModernIconFactory.icon_align_right(16, c_r))
+            self.btn_align_right.setIcon(AuraIconFactory.icon_align_right(16, c_r))
 
         if hasattr(self, 'btn_align_justify'):
             c_j = active_col if self.btn_align_justify.isChecked() else text_col
-            self.btn_align_justify.setIcon(ModernIconFactory.icon_align_justify(16, c_j))
+            self.btn_align_justify.setIcon(AuraIconFactory.icon_align_justify(16, c_j))
 
         if hasattr(self, 'btn_snap_grid'):
-            self.btn_snap_grid.setIcon(ModernIconFactory.icon_all_grid(text_col))
+            self.btn_snap_grid.setIcon(AuraIconFactory.icon_all_grid(text_col))
 
         if hasattr(self, 'btn_link'):
             c_link = active_col if self.btn_link.isChecked() else text_col
-            self.btn_link.setIcon(ModernIconFactory.icon_link(c_link))
+            self.btn_link.setIcon(AuraIconFactory.icon_link(c_link))
 
     def retranslate_ui(self):
         if hasattr(self, 'lbl_panel_title'):
             self.lbl_panel_title.setText(LanguageManager.tr("panel_text"))
         if hasattr(self, 'lbl_size'):
             self.lbl_size.setText(LanguageManager.tr("font_size"))
-        if hasattr(self, 'lbl_family'):
-            self.lbl_family.setText(LanguageManager.tr("font_family"))
         if hasattr(self, 'lbl_sec_align'):
             self.lbl_sec_align.setText(LanguageManager.tr("text_sec_align"))
         if hasattr(self, 'btn_align_left'):
@@ -1171,11 +1215,45 @@ class TextSettingsPopup(BaseSettingsPopup):
             return None
         return None
 
+    def _on_box_bg_selected(self, color):
+        self.box_bg_color = color
+        self._update_box_bg_styles()
+        it = self._get_target_text_item()
+        if it and hasattr(it, 'set_box_background'):
+            it.set_box_background(color)
+
+    def _choose_box_bg_color(self):
+        initial = QColor(self.box_bg_color or "#ffffff")
+        col = QColorDialog.getColor(initial, self, LanguageManager.tr("text_box_bg_custom"))
+        if col.isValid():
+            self._on_box_bg_selected(col.name())
+
+    def _update_box_bg_styles(self):
+        spec = getattr(self, '_applied_spec', None) or {}
+        accent = spec.get("accent", "#60a5fa")
+        border = spec.get("page_border", "#555b62")
+        for hex_code, btn in self.box_bg_buttons.items():
+            chosen = hex_code == self.box_bg_color
+            line = f"2px solid {accent}" if chosen else f"1px solid {border}"
+            fill = hex_code or "transparent"
+            btn.setStyleSheet(f"""
+                QPushButton {{ background-color: {fill}; border: {line}; border-radius: 13px; padding: 0px; }}
+                QPushButton:hover {{ border: 2px solid {accent}; }}
+                QPushButton:focus {{ border: 2px solid {accent}; }}
+            """)
+        custom = self.box_bg_color if self.box_bg_color not in self.box_bg_buttons else None
+        line = f"2px solid {accent}" if custom else f"1px solid {border}"
+        self.btn_box_bg_custom.setStyleSheet(f"""
+            QPushButton {{ background-color: {custom or 'transparent'}; border: {line}; border-radius: 13px; padding: 0px; }}
+            QPushButton:hover {{ border: 2px solid {accent}; }}
+            QPushButton:focus {{ border: 2px solid {accent}; }}
+        """)
+
     def _on_format_change(self):
         self.bold = self.btn_bold.isChecked()
         self.italic = self.btn_italic.isChecked()
         self.underline = self.btn_underline.isChecked()
-        for btn in (self.btn_bold, self.btn_italic, self.btn_underline):
+        for btn in (self.btn_bold, self.btn_italic, self.btn_underline, self.btn_strike):
             btn.setProperty("checked", btn.isChecked())
             btn.style().unpolish(btn)
             btn.style().polish(btn)
@@ -1189,6 +1267,8 @@ class TextSettingsPopup(BaseSettingsPopup):
                 it.apply_format_to_selection(italic=self.italic)
             elif snd == self.btn_underline:
                 it.apply_format_to_selection(underline=self.underline)
+            elif snd == self.btn_strike:
+                it.apply_format_to_selection(strikeout=self.btn_strike.isChecked())
             else:
                 it.apply_format_to_selection(bold=self.bold, italic=self.italic, underline=self.underline)
 
@@ -1256,6 +1336,8 @@ class TextSettingsPopup(BaseSettingsPopup):
             return
         self._is_syncing = True
         try:
+            self.box_bg_color = getattr(item, 'box_bg_color', None)
+            self._update_box_bg_styles()
             fmt = item.get_selection_format()
             if not fmt:
                 return
@@ -1265,6 +1347,8 @@ class TextSettingsPopup(BaseSettingsPopup):
             if "italic" in fmt:
                 self.italic = bool(fmt["italic"])
                 self.btn_italic.setChecked(self.italic)
+            if "strikeout" in fmt:
+                self.btn_strike.setChecked(bool(fmt["strikeout"]))
             if "underline" in fmt:
                 self.underline = bool(fmt["underline"])
                 self.btn_underline.setChecked(self.underline)
@@ -1274,7 +1358,7 @@ class TextSettingsPopup(BaseSettingsPopup):
                 self.btn_link.setProperty("checked", is_l)
                 self.btn_link.style().unpolish(self.btn_link)
                 self.btn_link.style().polish(self.btn_link)
-                self.btn_link.setToolTip("Bağlantıyı Kaldır (Hyperlink)" if is_l else "Metne Web Bağlantısı (Hyperlink) Ekle")
+                self.btn_link.setToolTip(LanguageManager.tr("ui_baglantiyi_kaldir_hyperlink") if is_l else LanguageManager.tr("ui_metne_web_baglantisi_hyperlink_ekle"))
             for btn in (self.btn_bold, self.btn_italic, self.btn_underline):
                 btn.setProperty("checked", btn.isChecked())
                 btn.style().unpolish(btn)
@@ -1323,8 +1407,8 @@ class TextSettingsPopup(BaseSettingsPopup):
         if not active_item:
             QMessageBox.information(
                 self,
-                "Bağlantı (Hyperlink) Ekle",
-                "Lütfen önce sayfada bağlantı eklemek istediğiniz metin kutusunu tıklayın veya seçin."
+                LanguageManager.tr("ui_baglanti_hyperlink_ekle"),
+                LanguageManager.tr("ui_lutfen_once_sayfada_baglanti_eklemek_istediginiz")
             )
             return
 
@@ -1393,7 +1477,7 @@ class TextFloatingFormatHUD(QFrame):
         self.btn_bold.setCheckable(True)
         self.btn_bold.setFixedSize(28, 26)
         self.btn_bold.setStyleSheet("font-weight: 900; font-size: 13px;")
-        self.btn_bold.setToolTip("Kalın (Ctrl+B)")
+        self.btn_bold.setToolTip(LanguageManager.tr("ui_kalin_ctrl_b"))
         self.btn_bold.clicked.connect(self._on_bold_clicked)
         layout.addWidget(self.btn_bold)
 
@@ -1402,7 +1486,7 @@ class TextFloatingFormatHUD(QFrame):
         self.btn_italic.setCheckable(True)
         self.btn_italic.setFixedSize(28, 26)
         self.btn_italic.setStyleSheet("font-style: italic; font-size: 13px;")
-        self.btn_italic.setToolTip("İtalik (Ctrl+I)")
+        self.btn_italic.setToolTip(LanguageManager.tr("ui_italik_ctrl_i"))
         self.btn_italic.clicked.connect(self._on_italic_clicked)
         layout.addWidget(self.btn_italic)
 
@@ -1411,7 +1495,7 @@ class TextFloatingFormatHUD(QFrame):
         self.btn_underline.setCheckable(True)
         self.btn_underline.setFixedSize(28, 26)
         self.btn_underline.setStyleSheet("text-decoration: underline; font-size: 13px;")
-        self.btn_underline.setToolTip("Altı Çizili (Ctrl+U)")
+        self.btn_underline.setToolTip(LanguageManager.tr("ui_alti_cizili_ctrl_u"))
         self.btn_underline.clicked.connect(self._on_underline_clicked)
         layout.addWidget(self.btn_underline)
 
@@ -1422,7 +1506,7 @@ class TextFloatingFormatHUD(QFrame):
         # 4. FONT SIZE DECREASE
         self.btn_dec_size = QPushButton("−")
         self.btn_dec_size.setFixedSize(24, 26)
-        self.btn_dec_size.setToolTip("Yazı Boyutunu Küçült (Ctrl+[)")
+        self.btn_dec_size.setToolTip(LanguageManager.tr("ui_yazi_boyutunu_kucult_ctrl"))
         self.btn_dec_size.clicked.connect(self._on_dec_size_clicked)
         layout.addWidget(self.btn_dec_size)
 
@@ -1435,7 +1519,7 @@ class TextFloatingFormatHUD(QFrame):
         # 6. FONT SIZE INCREASE
         self.btn_inc_size = QPushButton("+")
         self.btn_inc_size.setFixedSize(24, 26)
-        self.btn_inc_size.setToolTip("Yazı Boyutunu Büyüt (Ctrl+])")
+        self.btn_inc_size.setToolTip(LanguageManager.tr("ui_yazi_boyutunu_buyut_ctrl"))
         self.btn_inc_size.clicked.connect(self._on_inc_size_clicked)
         layout.addWidget(self.btn_inc_size)
 
@@ -1446,16 +1530,16 @@ class TextFloatingFormatHUD(QFrame):
         # 7. COLOR BUTTON WITH QUICK PALETTE MENU
         self.btn_color = QPushButton("A")
         self.btn_color.setFixedSize(30, 26)
-        self.btn_color.setToolTip("Metin Rengi")
+        self.btn_color.setToolTip(LanguageManager.tr("direct_edit_font_color"))
         self.btn_color.clicked.connect(self._on_color_button_clicked)
         layout.addWidget(self.btn_color)
 
         # 8. HYPERLINK BUTTON
         self.btn_link = QPushButton()
-        self.btn_link.setIcon(ModernIconFactory.icon_link())
+        self.btn_link.setIcon(AuraIconFactory.icon_link())
         self.btn_link.setCheckable(True)
         self.btn_link.setFixedSize(28, 26)
-        self.btn_link.setToolTip("Bağlantı (Hyperlink) Ekle / Düzenle")
+        self.btn_link.setToolTip(LanguageManager.tr("ui_baglanti_hyperlink_ekle_duzenle"))
         self.btn_link.clicked.connect(self._on_link_clicked)
         layout.addWidget(self.btn_link)
 
@@ -1466,7 +1550,7 @@ class TextFloatingFormatHUD(QFrame):
         # 9. ALIGNMENT MENU BUTTON
         self.btn_align = QPushButton()
         self.btn_align.setFixedSize(28, 26)
-        self.btn_align.setIcon(ModernIconFactory.icon_align_left(14))
+        self.btn_align.setIcon(AuraIconFactory.icon_align_left(14))
         self.btn_align.setToolTip(LanguageManager.tr("text_alignment"))
         self.btn_align.clicked.connect(self._on_align_clicked)
         layout.addWidget(self.btn_align)
@@ -1493,11 +1577,11 @@ class TextFloatingFormatHUD(QFrame):
         self._current_theme_name = theme_name
         self._current_spec = spec
         if hasattr(self, 'btn_link'):
-            self.btn_link.setIcon(ModernIconFactory.icon_link(main_text))
+            self.btn_link.setIcon(AuraIconFactory.icon_link(main_text))
         if hasattr(self, 'btn_align') and hasattr(self, 'target_text_item') and self.target_text_item:
             self._update_align_icon(getattr(self.target_text_item, 'alignment_str', 'left'))
         elif hasattr(self, 'btn_align'):
-            self.btn_align.setIcon(ModernIconFactory.icon_align_left(14, main_text))
+            self.btn_align.setIcon(AuraIconFactory.icon_align_left(14, main_text))
 
         self.setStyleSheet(f"""
             QFrame#TextFloatingFormatHUD {{
@@ -1579,7 +1663,7 @@ class TextFloatingFormatHUD(QFrame):
             btn.style().unpolish(btn)
             btn.style().polish(btn)
 
-        self.btn_link.setToolTip("Bağlantıyı Kaldır (Hyperlink)" if is_link else "Bağlantı (Hyperlink) Ekle")
+        self.btn_link.setToolTip(LanguageManager.tr("ui_baglantiyi_kaldir_hyperlink") if is_link else LanguageManager.tr("ui_baglanti_hyperlink_ekle"))
 
         fs = int(round(fmt.get("font_size", 14)))
         self.current_size = fs
@@ -1700,7 +1784,7 @@ class TextFloatingFormatHUD(QFrame):
             pal_layout.addWidget(btn, idx // 4, idx % 4)
 
         # Custom color button
-        btn_custom = QPushButton("Özel Renk...")
+        btn_custom = QPushButton(LanguageManager.tr("ui_ozel_renk"))
         btn_custom.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         btn_custom.setStyleSheet("""
             QPushButton {
@@ -1729,7 +1813,7 @@ class TextFloatingFormatHUD(QFrame):
             self._update_color_button_style(col)
 
     def _open_custom_color_dialog(self):
-        col = QColorDialog.getColor(self.current_color, self, "Metin Rengi Seç")
+        col = QColorDialog.getColor(self.current_color, self, LanguageManager.tr("ui_choose_text_color"))
         if col.isValid():
             self._apply_color(col)
 
@@ -1744,7 +1828,7 @@ class TextFloatingFormatHUD(QFrame):
             self.btn_link.setProperty("checked", False)
             self.btn_link.style().unpolish(self.btn_link)
             self.btn_link.style().polish(self.btn_link)
-            self.btn_link.setToolTip("Bağlantı (Hyperlink) Ekle")
+            self.btn_link.setToolTip(LanguageManager.tr("ui_baglanti_hyperlink_ekle"))
         else:
             self.btn_link.setChecked(False)
             self.target_text_item.open_link_dialog()
@@ -1786,12 +1870,12 @@ class TextFloatingFormatHUD(QFrame):
         """)
         cur_align = getattr(self.target_text_item, "alignment_str", "left")
 
-        act_left = menu.addAction(ModernIconFactory.icon_align_left(16, "#ffffff" if cur_align == "left" else icon_col), f"{LanguageManager.tr('align_left')}{'  ✓' if cur_align == 'left' else ''}")
-        act_center = menu.addAction(ModernIconFactory.icon_align_center(16, "#ffffff" if cur_align == "center" else icon_col), f"{LanguageManager.tr('align_center')}{'  ✓' if cur_align == 'center' else ''}")
-        act_right = menu.addAction(ModernIconFactory.icon_align_right(16, "#ffffff" if cur_align == "right" else icon_col), f"{LanguageManager.tr('align_right')}{'  ✓' if cur_align == 'right' else ''}")
-        act_justify = menu.addAction(ModernIconFactory.icon_align_justify(16, "#ffffff" if cur_align == "justify" else icon_col), f"{LanguageManager.tr('align_justify')}{'  ✓' if cur_align == 'justify' else ''}")
+        act_left = menu.addAction(AuraIconFactory.icon_align_left(16, "#ffffff" if cur_align == "left" else icon_col), f"{LanguageManager.tr('align_left')}{'  ✓' if cur_align == 'left' else ''}")
+        act_center = menu.addAction(AuraIconFactory.icon_align_center(16, "#ffffff" if cur_align == "center" else icon_col), f"{LanguageManager.tr('align_center')}{'  ✓' if cur_align == 'center' else ''}")
+        act_right = menu.addAction(AuraIconFactory.icon_align_right(16, "#ffffff" if cur_align == "right" else icon_col), f"{LanguageManager.tr('align_right')}{'  ✓' if cur_align == 'right' else ''}")
+        act_justify = menu.addAction(AuraIconFactory.icon_align_justify(16, "#ffffff" if cur_align == "justify" else icon_col), f"{LanguageManager.tr('align_justify')}{'  ✓' if cur_align == 'justify' else ''}")
         menu.addSeparator()
-        act_grid = menu.addAction(ModernIconFactory.icon_all_grid(icon_col), LanguageManager.tr("align_to_grid", default="Grid'e Hizala"))
+        act_grid = menu.addAction(AuraIconFactory.icon_all_grid(icon_col), LanguageManager.tr("align_to_grid", default="Grid'e Hizala"))
 
         chosen = menu.exec(self.btn_align.mapToGlobal(QPoint(0, self.btn_align.height() + 2)))
         if chosen == act_left:
@@ -1818,13 +1902,13 @@ class TextFloatingFormatHUD(QFrame):
         spec = getattr(self, '_current_spec', {}) or {}
         col = spec.get('main_text', '#f1f5f9')
         if align_str == "center":
-            self.btn_align.setIcon(ModernIconFactory.icon_align_center(14, col))
+            self.btn_align.setIcon(AuraIconFactory.icon_align_center(14, col))
         elif align_str == "right":
-            self.btn_align.setIcon(ModernIconFactory.icon_align_right(14, col))
+            self.btn_align.setIcon(AuraIconFactory.icon_align_right(14, col))
         elif align_str == "justify":
-            self.btn_align.setIcon(ModernIconFactory.icon_align_justify(14, col))
+            self.btn_align.setIcon(AuraIconFactory.icon_align_justify(14, col))
         else:
-            self.btn_align.setIcon(ModernIconFactory.icon_align_left(14, col))
+            self.btn_align.setIcon(AuraIconFactory.icon_align_left(14, col))
 
 
 # --- 7. ÇİZİM AYAR PENCERELERİ & FAVORİLER ---
@@ -2134,7 +2218,7 @@ class StrokePreviewWidget(QFrame):
         p.end()
 
 
-class ModernToggleSwitch(QCheckBox):
+class AuraToggleSwitch(QCheckBox):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setFixedSize(40, 22)
@@ -2161,7 +2245,7 @@ class ModernToggleSwitch(QCheckBox):
         p.end()
 
 
-class ModernValueSlider(QSlider):
+class AuraValueSlider(QSlider):
     def __init__(self, orientation=Qt.Orientation.Horizontal, parent=None):
         super().__init__(orientation, parent)
         self.setFixedHeight(32)
@@ -2238,7 +2322,7 @@ class ModernValueSlider(QSlider):
         self.setValue(new_val)
 
 
-class ModernOpacitySlider(QSlider):
+class AuraOpacitySlider(QSlider):
     """
     Boya Yoğunluğu (Opacity/Alpha) kaydırıcısı:
     - Kapsül formunda koyu saydamlık dama tahtası (checkerboard pattern)
@@ -2742,7 +2826,7 @@ class ToolPresetCard(QFrame):
 
         self.btn_del = QPushButton(parent=self)
         self.btn_del.setFixedSize(20, 20)
-        self.btn_del.setIcon(ModernIconFactory.icon_trash(color=text_col))
+        self.btn_del.setIcon(AuraIconFactory.icon_trash(color=text_col))
         self.btn_del.setToolTip(LanguageManager.tr("delete_preset_tip"))
         self.btn_del.setStyleSheet("""
             QPushButton {
@@ -2791,7 +2875,7 @@ class ToolPresetCard(QFrame):
         if hasattr(self, 'lbl_info'):
             self.lbl_info.setStyleSheet(f"font-size: 11px; color: {spec.get('tab_text', '#94a3b8')}; font-weight: normal; border: none; background: transparent;")
         if hasattr(self, 'btn_del'):
-            self.btn_del.setIcon(ModernIconFactory.icon_trash(color=spec.get('tab_text', '#94a3b8')))
+            self.btn_del.setIcon(AuraIconFactory.icon_trash(color=spec.get('tab_text', '#94a3b8')))
         self.update_active_state(self.is_active)
 
     def update_active_state(self, is_active: bool):
@@ -2953,7 +3037,7 @@ class ToolSettingsPopup(BaseSettingsPopup):
             self.btn_close = QPushButton()
             self.btn_close.setFixedSize(28, 28)
             self.btn_close.setCursor(Qt.CursorShape.PointingHandCursor)
-            self.btn_close.setIcon(ModernIconFactory.icon_close("#94a3b8"))
+            self.btn_close.setIcon(AuraIconFactory.icon_close("#94a3b8"))
             self.btn_close.setStyleSheet("""
                 QPushButton {
                     background: rgba(255, 255, 255, 0.05);
@@ -2974,7 +3058,7 @@ class ToolSettingsPopup(BaseSettingsPopup):
             self.btn_mode_pens = QPushButton()
             self.btn_mode_pens.setFixedSize(30, 30)
             self.btn_mode_pens.setCursor(Qt.CursorShape.PointingHandCursor)
-            self.btn_mode_pens.setIcon(ModernIconFactory.icon_pen_rack("#e2e8f0"))
+            self.btn_mode_pens.setIcon(AuraIconFactory.icon_pen_rack("#e2e8f0"))
             self.btn_mode_pens.setToolTip(LanguageManager.tr("tab_customize"))
             self.btn_mode_pens.setStyleSheet("""
                 QPushButton {
@@ -2993,7 +3077,7 @@ class ToolSettingsPopup(BaseSettingsPopup):
             self.btn_fav_list = QPushButton()
             self.btn_fav_list.setFixedSize(30, 30)
             self.btn_fav_list.setCursor(Qt.CursorShape.PointingHandCursor)
-            self.btn_fav_list.setIcon(ModernIconFactory.icon_pen_star(color="#cbd5e1", star_color="#facc15"))
+            self.btn_fav_list.setIcon(AuraIconFactory.icon_pen_star(color="#cbd5e1", star_color="#facc15"))
             self.btn_fav_list.setToolTip(LanguageManager.tr("fav_pen_list_tip"))
             self.btn_fav_list.setStyleSheet("""
                 QPushButton {
@@ -3013,7 +3097,7 @@ class ToolSettingsPopup(BaseSettingsPopup):
             self.btn_add_fav = QPushButton()
             self.btn_add_fav.setFixedSize(30, 30)
             self.btn_add_fav.setCursor(Qt.CursorShape.PointingHandCursor)
-            self.btn_add_fav.setIcon(ModernIconFactory.icon_star(filled=False, color="#94a3b8"))
+            self.btn_add_fav.setIcon(AuraIconFactory.icon_star(filled=False, color="#94a3b8"))
             self.btn_add_fav.setToolTip(LanguageManager.tr("add_to_fav_tip"))
             self.btn_add_fav.setStyleSheet("""
                 QPushButton {
@@ -3079,7 +3163,7 @@ class ToolSettingsPopup(BaseSettingsPopup):
 
             btn_thick_minus = QPushButton()
             btn_thick_minus.setFixedSize(28, 28)
-            btn_thick_minus.setIcon(ModernIconFactory.icon_minus("#cbd5e1"))
+            btn_thick_minus.setIcon(AuraIconFactory.icon_minus("#cbd5e1"))
             btn_thick_minus.setCursor(Qt.CursorShape.PointingHandCursor)
             btn_thick_minus.setStyleSheet("""
                 QPushButton {
@@ -3094,7 +3178,7 @@ class ToolSettingsPopup(BaseSettingsPopup):
             btn_thick_minus.clicked.connect(lambda: self.slider_thick.setValue(max(self.slider_thick.minimum(), self.slider_thick.value() - 1)))
             thick_row.addWidget(btn_thick_minus)
 
-            self.slider_thick = ModernValueSlider(Qt.Orientation.Horizontal, parent=self.page_customize)
+            self.slider_thick = AuraValueSlider(Qt.Orientation.Horizontal, parent=self.page_customize)
             self.slider_thick.setRange(1, 50 if not self.is_hl else 70)
             self.slider_thick.setValue(self.thickness)
             self.slider_thick.valueChanged.connect(self._on_thick_change)
@@ -3102,7 +3186,7 @@ class ToolSettingsPopup(BaseSettingsPopup):
 
             btn_thick_plus = QPushButton()
             btn_thick_plus.setFixedSize(28, 28)
-            btn_thick_plus.setIcon(ModernIconFactory.icon_plus("#cbd5e1"))
+            btn_thick_plus.setIcon(AuraIconFactory.icon_plus("#cbd5e1"))
             btn_thick_plus.setCursor(Qt.CursorShape.PointingHandCursor)
             btn_thick_plus.setStyleSheet("""
                 QPushButton {
@@ -3126,7 +3210,7 @@ class ToolSettingsPopup(BaseSettingsPopup):
 
                 btn_opac_minus = QPushButton()
                 btn_opac_minus.setFixedSize(28, 28)
-                btn_opac_minus.setIcon(ModernIconFactory.icon_minus("#cbd5e1"))
+                btn_opac_minus.setIcon(AuraIconFactory.icon_minus("#cbd5e1"))
                 btn_opac_minus.setCursor(Qt.CursorShape.PointingHandCursor)
                 btn_opac_minus.setStyleSheet("""
                     QPushButton {
@@ -3141,7 +3225,7 @@ class ToolSettingsPopup(BaseSettingsPopup):
                 btn_opac_minus.clicked.connect(lambda: self.slider_opac.setValue(max(self.slider_opac.minimum(), self.slider_opac.value() - 5)))
                 opac_row.addWidget(btn_opac_minus)
 
-                self.slider_opac = ModernOpacitySlider(Qt.Orientation.Horizontal, parent=self.page_customize)
+                self.slider_opac = AuraOpacitySlider(Qt.Orientation.Horizontal, parent=self.page_customize)
                 self.slider_opac.setRange(5, 100)
                 self.slider_opac.setValue(self.opacity)
                 self.slider_opac.set_active_color(self.color)
@@ -3150,7 +3234,7 @@ class ToolSettingsPopup(BaseSettingsPopup):
 
                 btn_opac_plus = QPushButton()
                 btn_opac_plus.setFixedSize(28, 28)
-                btn_opac_plus.setIcon(ModernIconFactory.icon_plus("#cbd5e1"))
+                btn_opac_plus.setIcon(AuraIconFactory.icon_plus("#cbd5e1"))
                 btn_opac_plus.setCursor(Qt.CursorShape.PointingHandCursor)
                 btn_opac_plus.setStyleSheet("""
                     QPushButton {
@@ -3176,7 +3260,7 @@ class ToolSettingsPopup(BaseSettingsPopup):
             snap_row.addWidget(self.lbl_snap)
             snap_row.addStretch()
 
-            self.switch_snap = ModernToggleSwitch(parent=self.page_customize)
+            self.switch_snap = AuraToggleSwitch(parent=self.page_customize)
             self.switch_snap.setChecked(self.snap_straight)
             self.switch_snap.toggled.connect(self._on_snap_toggled)
             self.chk_snap = self.switch_snap  # Compatibility alias for viewer sync
@@ -3228,7 +3312,7 @@ class ToolSettingsPopup(BaseSettingsPopup):
             self.btn_eyedropper = QPushButton()
             self.btn_eyedropper.setFixedSize(26, 26)
             self.btn_eyedropper.setCursor(Qt.CursorShape.PointingHandCursor)
-            self.btn_eyedropper.setIcon(ModernIconFactory.icon_eyedropper("#cbd5e1"))
+            self.btn_eyedropper.setIcon(AuraIconFactory.icon_eyedropper("#cbd5e1"))
             self.btn_eyedropper.setStyleSheet("""
                 QPushButton {
                     background: rgba(255, 255, 255, 0.08);
@@ -3246,7 +3330,7 @@ class ToolSettingsPopup(BaseSettingsPopup):
             self.btn_palette = QPushButton()
             self.btn_palette.setFixedSize(26, 26)
             self.btn_palette.setCursor(Qt.CursorShape.PointingHandCursor)
-            self.btn_palette.setIcon(ModernIconFactory.icon_palette_grid())
+            self.btn_palette.setIcon(AuraIconFactory.icon_palette_grid())
             self.btn_palette.setStyleSheet("""
                 QPushButton {
                     background: transparent;
@@ -3348,7 +3432,7 @@ class ToolSettingsPopup(BaseSettingsPopup):
             self.btn_close = QPushButton()
             self.btn_close.setFixedSize(26, 26)
             self.btn_close.setCursor(Qt.CursorShape.PointingHandCursor)
-            self.btn_close.setIcon(ModernIconFactory.icon_close("#94a3b8"))
+            self.btn_close.setIcon(AuraIconFactory.icon_close("#94a3b8"))
             self.btn_close.setStyleSheet("""
                 QPushButton {
                     background: rgba(255, 255, 255, 0.05);
@@ -3386,13 +3470,13 @@ class ToolSettingsPopup(BaseSettingsPopup):
 
             btn_thick_minus = QPushButton()
             btn_thick_minus.setFixedSize(28, 28)
-            btn_thick_minus.setIcon(ModernIconFactory.icon_minus("#cbd5e1"))
+            btn_thick_minus.setIcon(AuraIconFactory.icon_minus("#cbd5e1"))
             btn_thick_minus.setCursor(Qt.CursorShape.PointingHandCursor)
             btn_thick_minus.setStyleSheet("QPushButton { background: transparent; border: none; border-radius: 14px; } QPushButton:hover { background: rgba(255, 255, 255, 0.1); }")
             btn_thick_minus.clicked.connect(lambda: self.slider_thick.setValue(max(self.slider_thick.minimum(), self.slider_thick.value() - 2)))
             thick_row.addWidget(btn_thick_minus)
 
-            self.slider_thick = ModernValueSlider(Qt.Orientation.Horizontal, parent=self)
+            self.slider_thick = AuraValueSlider(Qt.Orientation.Horizontal, parent=self)
             self.slider_thick.setRange(5, 70)
             self.slider_thick.setValue(self.thickness)
             self.slider_thick.valueChanged.connect(self._on_thick_change)
@@ -3400,7 +3484,7 @@ class ToolSettingsPopup(BaseSettingsPopup):
 
             btn_thick_plus = QPushButton()
             btn_thick_plus.setFixedSize(28, 28)
-            btn_thick_plus.setIcon(ModernIconFactory.icon_plus("#cbd5e1"))
+            btn_thick_plus.setIcon(AuraIconFactory.icon_plus("#cbd5e1"))
             btn_thick_plus.setCursor(Qt.CursorShape.PointingHandCursor)
             btn_thick_plus.setStyleSheet("QPushButton { background: transparent; border: none; border-radius: 14px; } QPushButton:hover { background: rgba(255, 255, 255, 0.1); }")
             btn_thick_plus.clicked.connect(lambda: self.slider_thick.setValue(min(self.slider_thick.maximum(), self.slider_thick.value() + 2)))
@@ -3416,7 +3500,7 @@ class ToolSettingsPopup(BaseSettingsPopup):
 
             self.btn_clear_page = QPushButton(LanguageManager.tr("clear_page_drawings"))
             self.btn_clear_page.setObjectName("ClearPageBtn")
-            self.btn_clear_page.setIcon(ModernIconFactory.icon_eraser("#f87171"))
+            self.btn_clear_page.setIcon(AuraIconFactory.icon_eraser("#f87171"))
             self.btn_clear_page.setIconSize(QSize(14, 14))
             self.btn_clear_page.setCursor(Qt.CursorShape.PointingHandCursor)
             self.btn_clear_page.clicked.connect(self._on_clear_page_drawings)
@@ -3424,7 +3508,7 @@ class ToolSettingsPopup(BaseSettingsPopup):
 
             self.btn_clear_all = QPushButton(LanguageManager.tr("clear_all_drawings"))
             self.btn_clear_all.setObjectName("ClearBtn")
-            self.btn_clear_all.setIcon(ModernIconFactory.icon_eraser("#f87171"))
+            self.btn_clear_all.setIcon(AuraIconFactory.icon_eraser("#f87171"))
             self.btn_clear_all.setIconSize(QSize(14, 14))
             self.btn_clear_all.setCursor(Qt.CursorShape.PointingHandCursor)
             self.btn_clear_all.clicked.connect(self._on_clear_all_drawings)
@@ -3504,10 +3588,10 @@ class ToolSettingsPopup(BaseSettingsPopup):
                 card.apply_theme(theme_name, spec)
 
         if hasattr(self, 'btn_close') and self.btn_close:
-            self.btn_close.setIcon(ModernIconFactory.icon_close(tab_text))
+            self.btn_close.setIcon(AuraIconFactory.icon_close(tab_text))
 
         if hasattr(self, 'btn_mode_pens') and self.btn_mode_pens:
-            self.btn_mode_pens.setIcon(ModernIconFactory.icon_pen_rack(main_text))
+            self.btn_mode_pens.setIcon(AuraIconFactory.icon_pen_rack(main_text))
 
         if getattr(self, 'is_eraser', False):
             segment_style = f"""
@@ -3616,7 +3700,7 @@ class ToolSettingsPopup(BaseSettingsPopup):
                         padding: 0px;
                     }}
                 """)
-                self.btn_fav_list.setIcon(ModernIconFactory.icon_pen_star(color=accent, star_color="#facc15"))
+                self.btn_fav_list.setIcon(AuraIconFactory.icon_pen_star(color=accent, star_color="#facc15"))
             else:
                 self.btn_fav_list.setStyleSheet(f"""
                     QPushButton {{
@@ -3629,7 +3713,7 @@ class ToolSettingsPopup(BaseSettingsPopup):
                         background: {btn_hover};
                     }}
                 """)
-                self.btn_fav_list.setIcon(ModernIconFactory.icon_pen_star(color=main_text, star_color="#facc15"))
+                self.btn_fav_list.setIcon(AuraIconFactory.icon_pen_star(color=main_text, star_color="#facc15"))
 
         if idx == 1:
             self._update_preset_cards_active_state()
@@ -3647,12 +3731,12 @@ class ToolSettingsPopup(BaseSettingsPopup):
             return
         is_fav = any(self._matches_active_settings(p) for p in getattr(self, 'presets', []))
         if is_fav:
-            self.btn_add_fav.setIcon(ModernIconFactory.icon_star(filled=True, color="#facc15"))
+            self.btn_add_fav.setIcon(AuraIconFactory.icon_star(filled=True, color="#facc15"))
             self.btn_add_fav.setToolTip(LanguageManager.tr("already_in_fav_tip"))
         else:
             spec = getattr(self, 'current_spec', {})
             col = spec.get('tab_text', '#94a3b8')
-            self.btn_add_fav.setIcon(ModernIconFactory.icon_star(filled=False, color=col))
+            self.btn_add_fav.setIcon(AuraIconFactory.icon_star(filled=False, color=col))
             self.btn_add_fav.setToolTip(LanguageManager.tr("add_to_fav_tip"))
 
     def _load_pen_settings(self) -> dict:
@@ -3905,7 +3989,7 @@ class ToolSettingsPopup(BaseSettingsPopup):
 
     def _show_preset_saved_feedback(self):
         if hasattr(self, 'btn_add_fav'):
-            self.btn_add_fav.setIcon(ModernIconFactory.icon_star(filled=True, color="#facc15"))
+            self.btn_add_fav.setIcon(AuraIconFactory.icon_star(filled=True, color="#facc15"))
 
     def _delete_preset(self, preset_id: str):
         self.presets = [p for p in self.presets if p.get("id") != preset_id]
@@ -4078,10 +4162,6 @@ class ToolSettingsPopup(BaseSettingsPopup):
             self.lbl_title.setText(self._get_title_for_tab(self.stack.currentIndex()))
         if hasattr(self, 'lbl_eraser_title'):
             self.lbl_eraser_title.setText(LanguageManager.tr("panel_eraser"))
-        if hasattr(self, 'btn_fav_save_current'):
-            self.btn_fav_save_current.setText(LanguageManager.tr("save_preset_btn"))
-        if hasattr(self, 'lbl_fav_title'):
-            self.lbl_fav_title.setText(LanguageManager.tr("tab_favorites"))
         if hasattr(self, 'btn_fav_list'):
             self.btn_fav_list.setToolTip(LanguageManager.tr("fav_pen_list_tip"))
         if hasattr(self, 'btn_mode_pens'):
@@ -4500,7 +4580,7 @@ class PointerSettingsPopup(BaseSettingsPopup):
         v_col.setSpacing(6)
 
         default_pal = ["#e60214", "#151515", "#7289FF", "#16C44B", "#EBDF00", "#ffffff", "#64748b"]
-        self.palette_widget = ModernColorPaletteWidget(
+        self.palette_widget = AuraColorPaletteWidget(
             tool_name=self.tool_name,
             default_palette=default_pal,
             default_custom="#e60214",
@@ -5052,13 +5132,13 @@ class PDFTextSelectionHUD(QFrame):
         """)
 
         # Vektörel ikonları yenile
-        self.btn_copy.setIcon(ModernIconFactory.icon_copy("#94a3b8"))
-        self.btn_hl.setIcon(ModernIconFactory.icon_highlighter("#eab308"))
-        self.btn_ul.setIcon(ModernIconFactory.icon_underline("#38bdf8"))
-        self.btn_so.setIcon(ModernIconFactory.icon_strikethrough("#fb7185"))
-        self.btn_speak.setIcon(ModernIconFactory.icon_speech("#34d399"))
-        self.btn_search.setIcon(ModernIconFactory.icon_search("#60a5fa"))
-        self.btn_translate.setIcon(ModernIconFactory.icon_translate("#c084fc"))
+        self.btn_copy.setIcon(AuraIconFactory.icon_copy("#94a3b8"))
+        self.btn_hl.setIcon(AuraIconFactory.icon_highlighter("#eab308"))
+        self.btn_ul.setIcon(AuraIconFactory.icon_underline("#38bdf8"))
+        self.btn_so.setIcon(AuraIconFactory.icon_strikethrough("#fb7185"))
+        self.btn_speak.setIcon(AuraIconFactory.icon_speech("#34d399"))
+        self.btn_search.setIcon(AuraIconFactory.icon_search("#60a5fa"))
+        self.btn_translate.setIcon(AuraIconFactory.icon_translate("#c084fc"))
 
     def _on_copy(self):
         if self.tab_doc and hasattr(self.tab_doc, 'copy_selected_text'):
@@ -5086,12 +5166,12 @@ class PDFTextSelectionHUD(QFrame):
                 self.tab_doc.speak_selected_text()
             elif getattr(self.tab_doc, 'selected_text', ''):
                 mw = getattr(self.tab_doc, 'main_window', None)
-                if mw and hasattr(mw, 'modern_right_sidebar') and mw.modern_right_sidebar:
-                    panel_acc = getattr(mw.modern_right_sidebar, 'panel_accessibility', None)
+                if mw and hasattr(mw, 'aura_right_sidebar') and mw.aura_right_sidebar:
+                    panel_acc = getattr(mw.aura_right_sidebar, 'panel_accessibility', None)
                     if panel_acc:
                         panel_acc.speak_text(self.tab_doc.selected_text, source_doc=self.tab_doc)
                     else:
-                        se = getattr(mw.modern_right_sidebar, 'speech_engine', None)
+                        se = getattr(mw.aura_right_sidebar, 'speech_engine', None)
                         if se:
                             se.speak(self.tab_doc.selected_text)
         self.hide()
@@ -5124,7 +5204,7 @@ class PDFTextSelectionHUD(QFrame):
         self.raise_()
 
 
-class ModernStampPalettePopup(BaseSettingsPopup):
+class AuraStampPalettePopup(BaseSettingsPopup):
     """
     Hızlı ve modern açılır damga paleti (Acrobat Pro & modern PDF okuyucu tarzı).
     Ayrı modal diyalog penceresi açmadan, doğrudan palet içerisindeki sekmelerden
@@ -5137,7 +5217,7 @@ class ModernStampPalettePopup(BaseSettingsPopup):
         self._custom_color = "#16a34a"
         self._color_chip_btns = []
         super().__init__(parent)
-        self.setObjectName("ModernStampPalettePopup")
+        self.setObjectName("AuraStampPalettePopup")
         self.setFixedWidth(340)
         self._build_ui()
 
@@ -5152,7 +5232,7 @@ class ModernStampPalettePopup(BaseSettingsPopup):
         h_head.setSpacing(8)
 
         lbl_icon = QLabel()
-        lbl_icon.setPixmap(ModernIconFactory.icon_stamp("#38bdf8").pixmap(16, 16))
+        lbl_icon.setPixmap(AuraIconFactory.icon_stamp("#38bdf8").pixmap(16, 16))
         h_head.addWidget(lbl_icon)
 
         self.lbl_head_title = QLabel(LanguageManager.tr("stamp_quick_palette_title"))
@@ -5265,7 +5345,7 @@ class ModernStampPalettePopup(BaseSettingsPopup):
 
         self.btn_dyn_approved = QPushButton(f"{LanguageManager.tr('stamp_approved').upper()}")
         self.btn_dyn_approved.setObjectName("StampDynamicBtn")
-        self.btn_dyn_approved.setIcon(ModernIconFactory.icon_stamp("#22c55e"))
+        self.btn_dyn_approved.setIcon(AuraIconFactory.icon_stamp("#22c55e"))
         self.btn_dyn_approved.setFixedHeight(30)
         self.btn_dyn_approved.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_dyn_approved.setStyleSheet("""
@@ -5291,7 +5371,7 @@ class ModernStampPalettePopup(BaseSettingsPopup):
         today_str = datetime.datetime.now().strftime("%d.%m.%Y")
         self.btn_date_today = QPushButton(f"{LanguageManager.tr('date_stamp')}: {today_str}")
         self.btn_date_today.setObjectName("StampDateBtn")
-        self.btn_date_today.setIcon(ModernIconFactory.icon_page_number())
+        self.btn_date_today.setIcon(AuraIconFactory.icon_page_number())
         self.btn_date_today.setFixedHeight(30)
         self.btn_date_today.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_date_today.setStyleSheet("""
@@ -5353,8 +5433,8 @@ class ModernStampPalettePopup(BaseSettingsPopup):
         h_chips = QHBoxLayout()
         h_chips.setSpacing(6)
         color_choices = [
-            ("#16a34a", "Yeşil"),
-            ("#dc2626", "Kırmızı"),
+            ("#16a34a", LanguageManager.tr("clr_green")),
+            ("#dc2626", LanguageManager.tr("clr_red")),
             ("#2563eb", "Mavi"),
             ("#7c3aed", "Mor"),
             ("#ea580c", "Turuncu"),
@@ -5552,7 +5632,6 @@ class ModernStampPalettePopup(BaseSettingsPopup):
             text=text,
             color_hex=self._custom_color,
             is_dynamic=is_dynamic,
-            author_name=author_name
         )
         self.hide()
         if self.on_stamp_selected:
@@ -5568,7 +5647,6 @@ class ModernStampPalettePopup(BaseSettingsPopup):
             text=text,
             color_hex=color_hex,
             is_dynamic=is_dynamic,
-            author_name=author_name
         )
         self.hide()
         if self.on_stamp_selected:

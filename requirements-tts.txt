@@ -1,0 +1,6 @@
+# İsteğe bağlı yerel nöral TTS (EMA Lightning). Bkz. requirements.txt
+# Not: ema_lightning paketini kendi geliştirme ortamınıza hangi kaynaktan
+# kurduysanız (PyPI adı / git adresi) aşağıdaki satırı ona göre güncelleyin.
+torch
+huggingface_hub
+# ema_lightning  <-- kaynağını buraya yazın

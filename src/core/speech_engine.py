@@ -14,16 +14,33 @@ Optimizasyonlar:
 """
 
 import os
-import sys
 import re
 import time
-import glob
 import tempfile
 import threading
 import wave
-from typing import Optional, List, Dict, Tuple, Any
+from typing import Optional, List, Dict, Any
 from PyQt6.QtCore import QObject, QThread, pyqtSignal, QUrl, QTimer
-from PyQt6.QtMultimedia import QMediaPlayer, QAudioOutput, QMediaDevices, QAudioDevice
+from PyQt6.QtMultimedia import QMediaPlayer, QAudioOutput, QMediaDevices
+from src.core.i18n import LanguageManager
+
+# Sistem (Windows SAPI / WinRT) konuşma motoru: EMA Lightning (torch) kurulu olmayan
+# makinelerde (paketlenmiş exe dahil) sesli okuma bu motorla çalışır.
+try:
+    from PyQt6.QtTextToSpeech import QTextToSpeech
+    HAS_SYSTEM_TTS = True
+except Exception:  # pragma: no cover - modül bulunmayan Qt kurulumları
+    QTextToSpeech = None
+    HAS_SYSTEM_TTS = False
+
+
+def _tr(key: str, **kwargs) -> str:
+    try:
+        from src.core.i18n import LanguageManager
+        return LanguageManager.tr(key, **kwargs)
+    except Exception:
+        return key
+
 
 # Çevrimdışı modu ortam değişkeninde güvenceye al
 os.environ["HF_HUB_OFFLINE"] = "1"
@@ -186,13 +203,13 @@ class EmaSynthesisWorker(QThread):
     def run(self):
         cleaned_text = clean_text_for_speech(self.text)
         if not cleaned_text:
-            self.synthesis_error.emit("Seslendirilecek okunabilir metin bulunamadı.")
+            self.synthesis_error.emit(LanguageManager.tr("ui_seslendirilecek_okunabilir_metin_bulunamadi"))
             return
 
         chunks = split_into_speech_chunks(cleaned_text)
         total_chunks = len(chunks)
         if total_chunks == 0:
-            self.synthesis_error.emit("Seslendirilecek metin bulunamadı.")
+            self.synthesis_error.emit(LanguageManager.tr("ui_seslendirilecek_metin_bulunamadi"))
             return
 
         self.synthesis_started.emit()
@@ -263,7 +280,7 @@ class EmaDownloadWorker(QThread):
             from ema_lightning import EMA
             _ = EMA()
             os.environ["HF_HUB_OFFLINE"] = "1"
-            self.download_finished.emit(True, "Model başarıyla yerel olarak indirildi ve hazırlandı.")
+            self.download_finished.emit(True, LanguageManager.tr("ui_model_basariyla_yerel_olarak_indirildi_ve"))
         except Exception as e:
             os.environ["HF_HUB_OFFLINE"] = "1"
             self.download_finished.emit(False, str(e))
@@ -297,6 +314,13 @@ class AuraSpeechEngine(QObject):
         self.audio_output.setVolume(1.0)
         self._playback_rate: float = 1.0
 
+        # Sistem TTS yedeği (EMA kurulu değilse)
+        self._sys_tts = None
+        self._sys_chunks: List[str] = []
+        self._sys_idx = 0
+        self._sys_active = False
+        self._sys_paused = False
+
         # Ses Çıkış Cihazı Yönetimi (Bluetooth / Hoparlör Otomatik Algılama)
         self.media_devices = QMediaDevices(self)
         self.media_devices.audioOutputsChanged.connect(self._on_audio_outputs_changed)
@@ -325,26 +349,113 @@ class AuraSpeechEngine(QObject):
         self._is_playing = False
 
     def is_model_ready(self) -> bool:
-        return is_ema_installed() and is_ema_model_cached()
+        if is_ema_installed():
+            return is_ema_model_cached()
+        return self._uses_system_tts()
+
+    # ------------------------------------------------------------------
+    # Sistem TTS yedeği
+    # ------------------------------------------------------------------
+    def _uses_system_tts(self) -> bool:
+        return (not is_ema_installed()) and HAS_SYSTEM_TTS
+
+    def _ensure_sys_tts(self):
+        if self._sys_tts is None and HAS_SYSTEM_TTS:
+            try:
+                self._sys_tts = QTextToSpeech(self)
+                self._sys_tts.stateChanged.connect(self._on_sys_tts_state)
+                try:
+                    self._sys_tts.errorOccurred.connect(
+                        lambda _reason, msg: self.error_occurred.emit(_tr("tts_system_error", error=msg))
+                    )
+                except Exception:
+                    pass
+            except Exception:
+                self._sys_tts = None
+        return self._sys_tts
+
+    def _sys_rate(self) -> float:
+        # 0.5x..2.5x oynatma hızını QTextToSpeech'in -1..1 aralığına eşle
+        return max(-1.0, min(1.0, (self._playback_rate - 1.0) / 1.5))
+
+    def _speak_with_system_tts(self, text: str):
+        tts = self._ensure_sys_tts()
+        if tts is None:
+            self.error_occurred.emit(_tr("tts_no_engine"))
+            return
+        cleaned = clean_text_for_speech(text) or text
+        self._sys_chunks = [c for c in split_into_speech_chunks(cleaned) if c.strip()] or [cleaned]
+        self._sys_idx = 0
+        self._sys_active = True
+        self._sys_paused = False
+        self.reading_started.emit(cleaned[:90].replace("\n", " "))
+        self.state_changed.emit(True)
+        self._sys_say_current()
+
+    def _sys_say_current(self):
+        if not self._sys_active or self._sys_tts is None:
+            return
+        if self._sys_idx >= len(self._sys_chunks):
+            self._sys_active = False
+            self.state_changed.emit(False)
+            self.reading_finished.emit()
+            return
+        chunk = self._sys_chunks[self._sys_idx]
+        self.current_chunk_changed.emit(self._sys_idx, len(self._sys_chunks), chunk)
+        self.playback_progress.emit(self._sys_idx, len(self._sys_chunks))
+        try:
+            self._sys_tts.setRate(self._sys_rate())
+            self._sys_tts.setVolume(self.audio_output.volume())
+        except Exception:
+            pass
+        self._sys_tts.say(chunk)
+
+    def _on_sys_tts_state(self, state):
+        if not self._sys_active:
+            return
+        try:
+            # Sinyal argümanı yerine güncel durumu oku: stop() sonrası geciken bir
+            # "Ready" bildirimi yeni başlayan parçayı atlatmasın.
+            ready = (state == QTextToSpeech.State.Ready
+                     and self._sys_tts is not None
+                     and self._sys_tts.state() == QTextToSpeech.State.Ready)
+        except Exception:
+            ready = False
+        if ready and not self._sys_paused:
+            self._sys_idx += 1
+            QTimer.singleShot(10, self._sys_say_current)
 
     def is_speaking(self) -> bool:
+        if self._sys_active and not self._sys_paused:
+            return True
         has_active_playback = self._is_playing and self._active_wav_path is not None
         has_active_worker = (self._worker is not None and self._worker.isRunning())
         has_pending_queue = len(self._queue_indices) > 0
         return has_active_playback or has_active_worker or has_pending_queue
 
     def is_paused(self) -> bool:
+        if self._sys_active:
+            return self._sys_paused
         return self._is_paused and (self._active_wav_path is not None or self._is_playing)
 
     def is_active(self) -> bool:
         return self.is_speaking() or self.is_paused()
 
     def check_and_notify_status(self):
+        if self._uses_system_tts():
+            self.model_status_changed.emit(True, _tr("tts_status_system_engine"))
+            return
+        if not is_ema_installed():
+            self.model_status_changed.emit(False, _tr("tts_no_engine"))
+            return
         ready = self.is_model_ready()
-        msg = "Hazır (Yerel Model Yüklü)" if ready else "Model yerel olarak henüz indirilmedi"
+        msg = _tr("tts_status_model_loaded") if ready else _tr("tts_status_model_missing")
         self.model_status_changed.emit(ready, msg)
 
     def download_model(self):
+        if not is_ema_installed():
+            self.model_status_changed.emit(self._uses_system_tts(), _tr("tts_status_system_engine") if self._uses_system_tts() else _tr("tts_no_engine"))
+            return
         if self._download_worker and self._download_worker.isRunning():
             return
         self._download_worker = EmaDownloadWorker(self)
@@ -361,6 +472,11 @@ class AuraSpeechEngine(QObject):
         """0.5x ile 2.5x arasında ses oynatma hızını ayarlar."""
         clamped = max(0.5, min(2.5, float(rate)))
         self._playback_rate = clamped
+        if self._sys_tts is not None:
+            try:
+                self._sys_tts.setRate(self._sys_rate())
+            except Exception:
+                pass
         try:
             self.player.setPlaybackRate(clamped)
         except Exception:
@@ -389,7 +505,7 @@ class AuraSpeechEngine(QObject):
         if curr and not curr.isNull():
             return curr.description()
         def_d = QMediaDevices.defaultAudioOutput()
-        return def_d.description() if not def_d.isNull() else "Sistem Varsayılanı"
+        return def_d.description() if not def_d.isNull() else LanguageManager.tr("audio_system_default_device")
 
     def set_audio_device(self, device_id: Optional[bytes] = None):
         """
@@ -453,7 +569,7 @@ class AuraSpeechEngine(QObject):
     def speak(self, text: str):
         """Verilen metni optimize edilmiş akış kuyruğu ile anında seslendirir."""
         if not text or not text.strip():
-            self.error_occurred.emit("Seslendirilecek metin boş.")
+            self.error_occurred.emit(LanguageManager.tr("ui_seslendirilecek_metin_bos"))
             return
 
         self.stop()
@@ -472,7 +588,8 @@ class AuraSpeechEngine(QObject):
         self._total_chunks = 0
 
         if not is_ema_installed():
-            self.error_occurred.emit("ema-lightning kütüphanesi kurulu değil.")
+            # EMA Lightning (torch) yoksa sistem konuşma motoruna geç
+            self._speak_with_system_tts(self._current_text)
             return
 
         cleaned_sample = clean_text_for_speech(self._current_text)
@@ -541,7 +658,7 @@ class AuraSpeechEngine(QObject):
             self.state_changed.emit(True)
             self.current_chunk_changed.emit(idx, max(self._total_chunks, len(self._all_chunks)), chunk["text"])
         except Exception as e:
-            self.error_occurred.emit(f"Ses çalma hatası: {e}")
+            self.error_occurred.emit(LanguageManager.tr("ui_ses_calma_hatasi", e=e))
             self._play_next_chunk()
 
     def _play_next_chunk(self):
@@ -624,15 +741,34 @@ class AuraSpeechEngine(QObject):
                         return
                 except Exception:
                     pass
-            self.error_occurred.emit(f"Ses sürücüsü uyarısı: {error_string}")
+            self.error_occurred.emit(LanguageManager.tr("ui_ses_surucusu_uyarisi", error_string=error_string))
 
     def pause(self):
+        if self._sys_active and self._sys_tts is not None:
+            self._sys_paused = True
+            try:
+                self._sys_tts.pause()
+            except Exception:
+                pass
+            self.state_changed.emit(False)
+            return
         if self.player.playbackState() == QMediaPlayer.PlaybackState.PlayingState:
             self.player.pause()
             self._is_paused = True
             self.state_changed.emit(False)
 
     def resume(self):
+        if self._sys_active and self._sys_tts is not None:
+            self._sys_paused = False
+            try:
+                if self._sys_tts.state() == QTextToSpeech.State.Paused:
+                    self._sys_tts.resume()
+                else:
+                    self._sys_say_current()
+            except Exception:
+                self._sys_say_current()
+            self.state_changed.emit(True)
+            return
         if self.player.playbackState() == QMediaPlayer.PlaybackState.PausedState:
             self.player.play()
             self.player.setPlaybackRate(self._playback_rate)
@@ -642,6 +778,14 @@ class AuraSpeechEngine(QObject):
             self._play_next_chunk()
 
     def stop(self):
+        if self._sys_tts is not None:
+            self._sys_active = False
+            self._sys_paused = False
+            self._sys_chunks = []
+            try:
+                self._sys_tts.stop()
+            except Exception:
+                pass
         if self._worker:
             worker = self._worker
             self._worker = None
@@ -720,6 +864,15 @@ class AuraSpeechEngine(QObject):
 
     def next_chunk(self):
         """Bir sonraki cümleye/parçaya atlar."""
+        if self._sys_active and self._sys_tts is not None:
+            if self._sys_idx + 1 < len(self._sys_chunks):
+                self._sys_paused = False
+                self._sys_active = False
+                self._sys_tts.stop()
+                self._sys_active = True
+                self._sys_idx += 1
+                self._sys_say_current()
+            return
         if not self._all_chunks:
             return
         next_idx = self._current_chunk_idx + 1
@@ -729,6 +882,14 @@ class AuraSpeechEngine(QObject):
 
     def prev_chunk(self):
         """Önceki cümleye/parçaya döner veya mevcut cümleyi başa sarar."""
+        if self._sys_active and self._sys_tts is not None:
+            self._sys_paused = False
+            self._sys_active = False
+            self._sys_tts.stop()
+            self._sys_active = True
+            self._sys_idx = max(0, self._sys_idx - 1)
+            self._sys_say_current()
+            return
         if not self._all_chunks:
             return
         if self.player.position() > 2000 or self._current_chunk_idx == 0:
@@ -743,6 +904,8 @@ class AuraSpeechEngine(QObject):
         Sentezlenen tüm ses parçalarını birleştirerek tek bir .wav dosyası olarak kaydeder.
         """
         if not self._all_chunks:
+            if self._uses_system_tts():
+                self.error_occurred.emit(_tr("tts_export_unavailable_system"))
             return False
 
         valid_wavs = [c["wav_path"] for c in self._all_chunks if os.path.exists(c["wav_path"])]
@@ -761,7 +924,7 @@ class AuraSpeechEngine(QObject):
 
             return True
         except Exception as e:
-            self.error_occurred.emit(f"Ses dışa aktarma hatası: {e}")
+            self.error_occurred.emit(LanguageManager.tr("ui_ses_disa_aktarma_hatasi", e=e))
             return False
 
     def _cleanup_temp_files(self):
@@ -783,6 +946,11 @@ class AuraSpeechEngine(QObject):
         """0 ile 100 arası ses düzeyi."""
         clamped = max(0, min(100, vol_percent))
         self.audio_output.setVolume(clamped / 100.0)
+        if self._sys_tts is not None:
+            try:
+                self._sys_tts.setVolume(clamped / 100.0)
+            except Exception:
+                pass
 
     def seek(self, position_ms: int):
         self.seek_to_ms(position_ms)

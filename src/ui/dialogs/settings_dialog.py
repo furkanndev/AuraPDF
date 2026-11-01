@@ -10,66 +10,34 @@ import os
 import json
 from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel, 
                              QPushButton, QLineEdit, QCheckBox, QRadioButton, 
-                             QButtonGroup, QTabWidget, QWidget, QFrame, 
-                             QComboBox, QMessageBox, QKeySequenceEdit, QScrollArea,
+                             QButtonGroup, QWidget, QFrame, 
+                             QComboBox, QMessageBox, QScrollArea,
                              QGridLayout, QListWidget, QListWidgetItem, QAbstractItemView,
-                             QFileDialog, QApplication, QToolButton, QMenu)
+                             QApplication, QToolButton)
 from PyQt6.QtCore import Qt, QSettings, QRectF, QPointF, QTimer, QEvent, pyqtSignal
 from PyQt6.QtGui import QIcon, QFont, QColor, QKeySequence, QPainter, QPen, QBrush
 from PyQt6.QtCore import QSize
 
 from src.core.i18n import LanguageManager
-from src.ui.dialog_theme import get_dialog_theme_stylesheet, apply_dialog_theme, ModernInfoCard
+from src.ui.dialog_theme import apply_dialog_theme, AuraInfoCard
 from src.core.shortcut_helper import (
-    is_mouse_shortcut,
-    parse_mouse_shortcut,
     build_mouse_shortcut_string,
     format_shortcut_display,
-    get_mouse_preset_options,
     clean_modifiers,
 )
-from src.ui.icons import ModernIconFactory
+from src.ui.icons import AuraIconFactory
 from src.ui.cursors import CursorFactory, CURSOR_PRESETS
 
-TOOLBAR_ITEMS_META = {
-    "btn_contents": ("tb_item_contents", ModernIconFactory.icon_contents),
-    "btn_undo": ("tb_item_undo", ModernIconFactory.icon_undo),
-    "btn_redo": ("tb_item_redo", ModernIconFactory.icon_redo),
-    "btn_nav_back": ("tb_item_nav_back", ModernIconFactory.icon_nav_back),
-    "btn_nav_forward": ("tb_item_nav_forward", ModernIconFactory.icon_nav_forward),
-    "btn_cursor": ("tb_item_cursor", ModernIconFactory.icon_cursor),
-    "btn_selection": ("tb_item_selection", ModernIconFactory.icon_select_rect),
-    "btn_hl": ("tb_item_hl", ModernIconFactory.icon_highlighter),
-    "btn_pen": ("tb_item_pen", ModernIconFactory.icon_pen),
-    "btn_text": ("tb_item_text", ModernIconFactory.icon_text_box),
-    "btn_eraser": ("tb_item_eraser", ModernIconFactory.icon_eraser),
-    "btn_pointer": ("tb_item_pointer", ModernIconFactory.icon_pointer),
-    "lbl_zoom": ("tb_item_zoom", None),
-    "btn_fit_page": ("tb_item_fit_page", ModernIconFactory.icon_fit_page),
-    "page_widget": ("tb_item_page_nav", None),
-    "btn_rotate": ("tb_item_rotate", ModernIconFactory.icon_rotate),
-    "btn_view_mode": ("tb_item_view_mode", ModernIconFactory.icon_view_single),
-    "btn_reading_mode": ("tb_item_reading_mode", ModernIconFactory.icon_reading_mode),
-    "btn_search": ("tb_item_search", ModernIconFactory.icon_search),
-    "btn_print": ("tb_item_print", ModernIconFactory.icon_print),
-    "btn_save": ("tb_item_save", ModernIconFactory.icon_save),
-    "btn_open": ("tb_item_open", None),
-    "btn_toolbox": ("tb_item_toolbox", ModernIconFactory.icon_toolbox),
-    "btn_settings": ("tb_item_settings", ModernIconFactory.icon_settings),
-    "btn_fullscreen": ("tb_item_fullscreen", ModernIconFactory.icon_fullscreen),
-    "btn_insert": ("tb_item_insert", ModernIconFactory.icon_insert),
-}
-
 FLOATING_TOOLBAR_ITEMS_META = {
-    "select": ("tb_item_cursor", ModernIconFactory.icon_cursor),
-    "selection": ("tb_item_selection", lambda: ModernIconFactory.icon_select_rect("#38bdf8")),
-    "pointer": ("tb_item_pointer", lambda: ModernIconFactory.icon_pointer("#ef4444")),
-    "highlighter": ("tb_item_hl", lambda: ModernIconFactory.icon_highlighter("#eab308")),
-    "comment": ("quick_tool_comment", lambda: ModernIconFactory.icon_comments("#f97316")),
-    "text": ("tb_item_text", lambda: ModernIconFactory.icon_text_tool("#ec4899")),
-    "insert": ("tb_item_insert", lambda: ModernIconFactory.icon_insert("#10b981")),
-    "pen": ("tb_item_pen", lambda: ModernIconFactory.icon_pen("#0284c7")),
-    "eraser": ("tb_item_eraser", lambda: ModernIconFactory.icon_eraser("#ef4444")),
+    "select": ("tb_item_cursor", AuraIconFactory.icon_cursor),
+    "selection": ("tb_item_selection", lambda: AuraIconFactory.icon_select_rect("#38bdf8")),
+    "pointer": ("tb_item_pointer", lambda: AuraIconFactory.icon_pointer("#ef4444")),
+    "highlighter": ("tb_item_hl", lambda: AuraIconFactory.icon_highlighter("#eab308")),
+    "comment": ("quick_tool_comment", lambda: AuraIconFactory.icon_comments("#f97316")),
+    "text": ("tb_item_text", lambda: AuraIconFactory.icon_text_tool("#ec4899")),
+    "insert": ("tb_item_insert", lambda: AuraIconFactory.icon_insert("#10b981")),
+    "pen": ("tb_item_pen", lambda: AuraIconFactory.icon_pen("#0284c7")),
+    "eraser": ("tb_item_eraser", lambda: AuraIconFactory.icon_eraser("#ef4444")),
 }
 
 DEFAULT_FLOATING_TOOLBAR_ORDER = [
@@ -86,98 +54,6 @@ OLD_TO_FLOATING_KEY_MAP = {
     "btn_text": "text",
     "btn_insert": "insert",
 }
-
-DEFAULT_TOOLBAR_LAYOUT = [
-    "btn_contents", "btn_undo", "btn_redo", "btn_nav_back", "btn_nav_forward", "sep_1",
-    "btn_cursor", "btn_selection", "btn_hl", "btn_pen",
-    "btn_text", "btn_insert", "btn_eraser", "btn_pointer", "sep_2",
-    "lbl_zoom", "btn_fit_page",
-    "spacer_left",
-    "page_widget", "btn_rotate", "btn_view_mode", "btn_reading_mode",
-    "spacer_right",
-    "btn_search", "sep_3",
-    "btn_print", "btn_save", "btn_open", "btn_toolbox", "btn_settings", "btn_fullscreen"
-]
-
-DEFAULT_TOOLBAR_USER_ITEMS = [
-    x for x in DEFAULT_TOOLBAR_LAYOUT if not x.startswith("sep_") and not x.startswith("spacer_")
-]
-
-
-def build_full_toolbar_order(items: list) -> list:
-    """Kullanıcının belirlediği buton sıralamasına göre ayırıcıları (separator) ve
-    hizalama boşluklarını (spacer) doğru konumlara yerleştirerek eksiksiz toolbar sıralamasını döner."""
-    if not items:
-        return list(DEFAULT_TOOLBAR_LAYOUT)
-
-    # 1. Spacers ve separotorları ayıkla, sadece butonları al
-    buttons = [x for x in items if x in TOOLBAR_ITEMS_META]
-
-    # Sıralamayı koruyarak tekilleştir
-    deduped = []
-    for b in buttons:
-        if b not in deduped:
-            deduped.append(b)
-
-    # Eksik buton varsa varsayılan sıradan ekle
-    for b in DEFAULT_TOOLBAR_USER_ITEMS:
-        if b not in deduped:
-            deduped.append(b)
-
-    # Eğer butonlar varsayılan sıralama ile birebir aynıysa doğrudan ana düzeni dön
-    if deduped == DEFAULT_TOOLBAR_USER_ITEMS:
-        return list(DEFAULT_TOOLBAR_LAYOUT)
-
-    # Özel sıralama için orta küme tespiti (page_widget etrafındaki bitişik gezinim/görünüm butonları)
-    center_candidates = {"page_widget", "btn_rotate", "btn_view_mode", "btn_fullscreen"}
-
-    if "page_widget" in deduped:
-        p_idx = deduped.index("page_widget")
-        start_idx = p_idx
-        while start_idx - 1 >= 0 and deduped[start_idx - 1] in center_candidates:
-            start_idx -= 1
-        end_idx = p_idx
-        while end_idx + 1 < len(deduped) and deduped[end_idx + 1] in center_candidates:
-            end_idx += 1
-        left_part = deduped[:start_idx]
-        mid_part = deduped[start_idx:end_idx + 1]
-        right_part = deduped[end_idx + 1:]
-    else:
-        left_part = deduped
-        mid_part = []
-        right_part = []
-
-    # Sol kısma ayırıcıları yerleştir
-    final_left = []
-    for b in left_part:
-        if b == "btn_cursor" and "sep_1" not in final_left and "btn_redo" in final_left:
-            final_left.append("sep_1")
-        if b == "lbl_zoom" and "sep_2" not in final_left and ("btn_pointer" in final_left or "btn_eraser" in final_left):
-            final_left.append("sep_2")
-        final_left.append(b)
-
-    if "sep_1" not in final_left and "btn_redo" in final_left:
-        idx = final_left.index("btn_redo") + 1
-        if idx < len(final_left):
-            final_left.insert(idx, "sep_1")
-    if "sep_2" not in final_left and "lbl_zoom" in final_left:
-        idx = final_left.index("lbl_zoom")
-        if idx > 0:
-            final_left.insert(idx, "sep_2")
-
-    # Sağ kısma ayırıcıları yerleştir
-    final_right = []
-    for b in right_part:
-        if b in ("btn_print", "btn_save", "btn_open") and "sep_3" not in final_right and "btn_search" in final_right:
-            final_right.append("sep_3")
-        final_right.append(b)
-
-    if "sep_3" not in final_right and "btn_search" in final_right:
-        idx = final_right.index("btn_search") + 1
-        if idx < len(final_right):
-            final_right.insert(idx, "sep_3")
-
-    return final_left + ["spacer_left"] + mid_part + ["spacer_right"] + final_right
 
 DEFAULT_SHORTCUTS = {
     "pen": "P",
@@ -198,7 +74,6 @@ DEFAULT_SHORTCUTS = {
 
 def get_default_author_info():
     """Varsayılan olarak bilgisayar kullanıcı adını ve bilgisayar adını döner."""
-    import os
     try:
         import getpass
         username = getpass.getuser()
@@ -245,7 +120,7 @@ class CursorPreviewBox(QFrame):
             self.setCursor(cursor)
 
     def paintEvent(self, event):
-        from PyQt6.QtGui import QPainter, QBrush, QPen, QFont
+        from PyQt6.QtGui import QFont
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
         w = float(self.width())
@@ -299,7 +174,7 @@ class _KeySeqWrapper:
         return self._val
 
 
-class ModernShortcutButton(QPushButton):
+class AuraShortcutButton(QPushButton):
     """
     Kullanıcının kutuya tıkladığı anda farenin basılan tuşunu (Orta Tuş,
     Yan Tuş 4 / Geri, Yan Tuş 5 / İleri, Sağ Tık) otomatik olarak yakalayan
@@ -350,7 +225,7 @@ class ModernShortcutButton(QPushButton):
         super().mousePressEvent(event)
 
 
-class ModernShortcutEdit(QWidget):
+class AuraShortcutEdit(QWidget):
     """
     Hem klavye tuş kombinasyonlarını hem de fare tuşlarını (Orta Tuş,
     Yan Tuş 4 / Geri, Yan Tuş 5 / İleri, Ctrl/Shift kombinasyonları)
@@ -365,10 +240,10 @@ class ModernShortcutEdit(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(6)
 
-        self.btn_input = ModernShortcutButton(self)
+        self.btn_input = AuraShortcutButton(self)
 
         self.btn_clear = QToolButton(self)
-        self.btn_clear.setIcon(ModernIconFactory.icon_close("#ef4444"))
+        self.btn_clear.setIcon(AuraIconFactory.icon_close("#ef4444"))
         self.btn_clear.setIconSize(QSize(12, 12))
         self.btn_clear.setToolTip(LanguageManager.tr("shortcut_clear_tooltip"))
         self.btn_clear.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -526,9 +401,9 @@ class ModernShortcutEdit(QWidget):
     def _check_conflict(self, new_val: str) -> str:
         """Aynı kısayolun başka bir araca atanıp atanmadığını kontrol eder.
         Çakışma varsa çakışan action_key'i, yoksa boş string döner."""
-        # Üst widget'ları dolaşarak ModernSettingsDialog'u bul
+        # Üst widget'ları dolaşarak AuraSettingsDialog'u bul
         dialog = self.parent()
-        while dialog is not None and not isinstance(dialog, ModernSettingsDialog):
+        while dialog is not None and not isinstance(dialog, AuraSettingsDialog):
             dialog = dialog.parent() if hasattr(dialog, 'parent') and callable(dialog.parent) else None
         if dialog is None or not hasattr(dialog, 'shortcut_edits'):
             return ""
@@ -758,7 +633,7 @@ class ThemeMiniPreviewCard(QFrame):
         v_doc.setContentsMargins(8, 6, 8, 6)
         v_doc.setSpacing(4)
 
-        self.lbl_doc_title = QLabel("AuraPDF Modern Arayüz")
+        self.lbl_doc_title = QLabel(LanguageManager.tr("ui_aurapdf_arayuz"))
         self.lbl_doc_title.setStyleSheet("font-size: 10px; font-weight: 700;")
         v_doc.addWidget(self.lbl_doc_title)
 
@@ -770,7 +645,7 @@ class ThemeMiniPreviewCard(QFrame):
         # Eylem Düğmesi
         h_btn = QHBoxLayout()
         h_btn.setContentsMargins(0, 0, 0, 0)
-        self.mini_btn = QLabel("  Belgeyi Aç  ")
+        self.mini_btn = QLabel(LanguageManager.tr("ui_belgeyi_ac"))
         self.mini_btn.setFixedHeight(16)
         self.mini_btn.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.mini_btn.setStyleSheet("font-size: 9px; font-weight: 700; border-radius: 4px;")
@@ -851,7 +726,7 @@ class ThemeMiniPreviewCard(QFrame):
         """)
 
 
-class ModernColorSlotCard(QFrame):
+class AuraColorSlotCard(QFrame):
     """
     Tek bir renk bileşeni için (Vurgu, Arka Plan, Yüzey, Metin)
     büyük renk çemberi, HEX etiketi ve 'Değiştir' butonuna sahip şık kart.
@@ -863,7 +738,7 @@ class ModernColorSlotCard(QFrame):
         self.key = key
         self.title = title
         self.current_hex = initial_hex.upper()
-        self.setObjectName("ModernColorSlotCard")
+        self.setObjectName("AuraColorSlotCard")
         self.setCursor(Qt.CursorShape.PointingHandCursor)
 
         h = QHBoxLayout(self)
@@ -890,7 +765,7 @@ class ModernColorSlotCard(QFrame):
 
         # 3. İnteraktif HEX Butonu & İkon
         self.btn_hex = QPushButton(f" {self.current_hex}")
-        self.btn_hex.setIcon(ModernIconFactory.icon_brush())
+        self.btn_hex.setIcon(AuraIconFactory.icon_brush())
         self.btn_hex.setIconSize(QSize(12, 12))
         self.btn_hex.setFont(QFont("Consolas", 9, QFont.Weight.Bold))
         self.btn_hex.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -932,12 +807,12 @@ class ModernColorSlotCard(QFrame):
             border-radius: 15px;
         """)
         self.setStyleSheet("""
-            QFrame#ModernColorSlotCard {
+            QFrame#AuraColorSlotCard {
                 background-color: rgba(255, 255, 255, 0.03);
                 border: 1px solid rgba(255, 255, 255, 0.08);
                 border-radius: 8px;
             }
-            QFrame#ModernColorSlotCard:hover {
+            QFrame#AuraColorSlotCard:hover {
                 background-color: rgba(255, 255, 255, 0.06);
                 border-color: rgba(255, 255, 255, 0.18);
             }
@@ -948,8 +823,8 @@ class ModernColorSlotCard(QFrame):
         super().mousePressEvent(event)
 
     def _open_picker(self):
-        from src.ui.dialogs.modern_color_picker import ModernColorPickerDialog
-        chosen = ModernColorPickerDialog.get_color(
+        from src.ui.dialogs.aura_color_picker import AuraColorPickerDialog
+        chosen = AuraColorPickerDialog.get_color(
             initial_color=self.current_hex,
             role_title=self.title,
             parent=self.window()
@@ -959,7 +834,7 @@ class ModernColorSlotCard(QFrame):
             self.colorChanged.emit(self.key, chosen)
 
 
-class ModernThemeStudioCard(QFrame):
+class AuraThemeStudioCard(QFrame):
     """
     Canlı Vurgu Önayarları, 4 Renk Yuvası, Canlı Uygulama Önizlemesi
     ve Sıfırlama / Aktif Temadan Kopyalama aksiyonlarını barındıran komple modern stüdyo paneli.
@@ -968,8 +843,8 @@ class ModernThemeStudioCard(QFrame):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setObjectName("ModernThemeStudioCard")
-        from src.ui.modern_views import get_custom_theme_colors
+        self.setObjectName("AuraThemeStudioCard")
+        from src.ui.aura_views import get_custom_theme_colors
         self._colors = get_custom_theme_colors()
 
         main_v = QVBoxLayout(self)
@@ -982,7 +857,7 @@ class ModernThemeStudioCard(QFrame):
         h_head.setSpacing(10)
 
         lbl_icon = QLabel()
-        lbl_icon.setPixmap(ModernIconFactory.icon_palette_grid("#38bdf8").pixmap(20, 20))
+        lbl_icon.setPixmap(AuraIconFactory.icon_palette_grid("#38bdf8").pixmap(20, 20))
         h_head.addWidget(lbl_icon)
 
         v_t = QVBoxLayout()
@@ -1057,7 +932,7 @@ class ModernThemeStudioCard(QFrame):
 
         # Hızlı Aksiyon Butonları (Kopyala & Sıfırla)
         self.btn_copy_active = QPushButton(" " + LanguageManager.tr("theme_btn_copy_active"))
-        self.btn_copy_active.setIcon(ModernIconFactory.icon_paste())
+        self.btn_copy_active.setIcon(AuraIconFactory.icon_paste())
         self.btn_copy_active.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_copy_active.setStyleSheet("""
             QPushButton {
@@ -1078,7 +953,7 @@ class ModernThemeStudioCard(QFrame):
         h_acc_bar.addWidget(self.btn_copy_active)
 
         self.btn_reset = QPushButton(" " + LanguageManager.tr("theme_btn_reset_defaults"))
-        self.btn_reset.setIcon(ModernIconFactory.icon_recovery())
+        self.btn_reset.setIcon(AuraIconFactory.icon_recovery())
         self.btn_reset.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_reset.setStyleSheet("""
             QPushButton {
@@ -1106,7 +981,7 @@ class ModernThemeStudioCard(QFrame):
         grid_slots.setHorizontalSpacing(10)
         grid_slots.setVerticalSpacing(8)
 
-        self.slot_accent = ModernColorSlotCard(
+        self.slot_accent = AuraColorSlotCard(
             "accent",
             LanguageManager.tr("theme_color_accent"),
             LanguageManager.tr("theme_color_accent_desc"),
@@ -1116,7 +991,7 @@ class ModernThemeStudioCard(QFrame):
         self.slot_accent.colorChanged.connect(self._on_slot_color_changed)
         grid_slots.addWidget(self.slot_accent, 0, 0)
 
-        self.slot_bg = ModernColorSlotCard(
+        self.slot_bg = AuraColorSlotCard(
             "bg",
             LanguageManager.tr("theme_color_bg"),
             LanguageManager.tr("theme_color_bg_desc"),
@@ -1126,7 +1001,7 @@ class ModernThemeStudioCard(QFrame):
         self.slot_bg.colorChanged.connect(self._on_slot_color_changed)
         grid_slots.addWidget(self.slot_bg, 0, 1)
 
-        self.slot_surface = ModernColorSlotCard(
+        self.slot_surface = AuraColorSlotCard(
             "surface",
             LanguageManager.tr("theme_color_surface"),
             LanguageManager.tr("theme_color_surface_desc"),
@@ -1136,7 +1011,7 @@ class ModernThemeStudioCard(QFrame):
         self.slot_surface.colorChanged.connect(self._on_slot_color_changed)
         grid_slots.addWidget(self.slot_surface, 1, 0)
 
-        self.slot_text = ModernColorSlotCard(
+        self.slot_text = AuraColorSlotCard(
             "text",
             LanguageManager.tr("theme_color_text"),
             LanguageManager.tr("theme_color_text_desc"),
@@ -1153,7 +1028,7 @@ class ModernThemeStudioCard(QFrame):
         main_v.addWidget(self.preview_card)
 
         self.setStyleSheet("""
-            QFrame#ModernThemeStudioCard {
+            QFrame#AuraThemeStudioCard {
                 background-color: rgba(255, 255, 255, 0.02);
                 border: 1px solid rgba(255, 255, 255, 0.09);
                 border-radius: 12px;
@@ -1267,7 +1142,7 @@ class AuraSettingsDialog(QDialog):
         self.shortcut_settings = QSettings("AuraPDF", "Shortcuts")
         
         self.setWindowTitle(LanguageManager.tr("settings_title"))
-        self.setWindowIcon(ModernIconFactory.icon_settings())
+        self.setWindowIcon(AuraIconFactory.icon_settings())
         self.resize(1000, 750)
         self.setMinimumSize(900, 660)
         self.setSizeGripEnabled(True)
@@ -1279,7 +1154,7 @@ class AuraSettingsDialog(QDialog):
         self._apply_dialog_style()
 
     def _apply_dialog_style(self):
-        from src.ui.dialog_theme import apply_dialog_theme, get_theme_palette, get_current_theme
+        from src.ui.dialog_theme import get_theme_palette, get_current_theme
         theme = get_current_theme(self.main_window or self)
         pal = get_theme_palette(self.main_window or self)
         extra_css = f"""
@@ -1464,14 +1339,14 @@ class AuraSettingsDialog(QDialog):
 
         # Pages with vector icons
         pages = [
-            (LanguageManager.tr("settings_tab_general"), ModernIconFactory.icon_settings(), self._build_general_tab),
-            (LanguageManager.tr("settings_tab_theme"), ModernIconFactory.icon_view_single(), self._build_theme_tab),
-            (LanguageManager.tr("settings_tab_shortcuts"), ModernIconFactory.icon_info(), self._build_shortcuts_tab),
-            (LanguageManager.tr("settings_tab_author"), ModernIconFactory.icon_edit_content(), self._build_author_tab),
-            (LanguageManager.tr("settings_tab_lang"), ModernIconFactory.icon_contents(), self._build_lang_tab),
-            (LanguageManager.tr("settings_tab_toolbar"), ModernIconFactory.icon_toolbox(), self._build_toolbar_tab),
-            (LanguageManager.tr("cursor_settings_title"), ModernIconFactory.icon_cursor(), self._build_cursor_tab),
-            (LanguageManager.tr("settings_tab_updates"), ModernIconFactory.icon_update(), self._build_updates_tab)
+            (LanguageManager.tr("settings_tab_general"), AuraIconFactory.icon_settings(), self._build_general_tab),
+            (LanguageManager.tr("settings_tab_theme"), AuraIconFactory.icon_view_single(), self._build_theme_tab),
+            (LanguageManager.tr("settings_tab_shortcuts"), AuraIconFactory.icon_info(), self._build_shortcuts_tab),
+            (LanguageManager.tr("settings_tab_author"), AuraIconFactory.icon_edit_content(), self._build_author_tab),
+            (LanguageManager.tr("settings_tab_lang"), AuraIconFactory.icon_contents(), self._build_lang_tab),
+            (LanguageManager.tr("settings_tab_toolbar"), AuraIconFactory.icon_toolbox(), self._build_toolbar_tab),
+            (LanguageManager.tr("cursor_settings_title"), AuraIconFactory.icon_cursor(), self._build_cursor_tab),
+            (LanguageManager.tr("settings_tab_updates"), AuraIconFactory.icon_update(), self._build_updates_tab)
         ]
         
         for name, icon, build_func in pages:
@@ -1535,7 +1410,7 @@ class AuraSettingsDialog(QDialog):
         row_zoom = self._create_setting_row(
             LanguageManager.tr("default_zoom_mode_lbl"),
             self.cmb_zoom_mode,
-            "Belge açıldığında uygulanacak varsayılan görünüm ve yakınlaştırma ölçeği."
+            LanguageManager.tr("settings_desc_zoom")
         )
         card_layout.addWidget(row_zoom)
 
@@ -1557,7 +1432,7 @@ class AuraSettingsDialog(QDialog):
         row_template = self._create_setting_row(
             LanguageManager.tr("default_page_template_lbl"),
             self.cmb_default_template,
-            "Yeni not ve çizim sayfası oluştururken kullanılacak varsayılan kağıt stili."
+            LanguageManager.tr("settings_desc_template")
         )
         card_layout.addWidget(row_template)
 
@@ -1576,7 +1451,7 @@ class AuraSettingsDialog(QDialog):
         row_font = self._create_setting_row(
             LanguageManager.tr("settings_app_font_size_lbl"),
             self.cmb_app_font_size,
-            "Uygulama menüleri, panelleri ve butonlarındaki genel yazı boyutu."
+            LanguageManager.tr("settings_desc_font_size")
         )
         card_layout.addWidget(row_font)
 
@@ -1692,8 +1567,6 @@ class AuraSettingsDialog(QDialog):
         if self.main_window:
             if hasattr(self.main_window, 'undock_capsule'):
                 self.main_window.undock_capsule()
-            if hasattr(self.main_window, 'reset_toolbar_order'):
-                self.main_window.reset_toolbar_order()
             if hasattr(self.main_window, 'update_panels_layout'):
                 self.main_window.update_panels_layout("tools_right_nav_left")
             if hasattr(self.main_window, 'floating_capsule') and self.main_window.floating_capsule:
@@ -1738,6 +1611,21 @@ class AuraSettingsDialog(QDialog):
         lbl_desc.setStyleSheet("font-size: 12px; color: #94a3b8;")
         layout.addWidget(lbl_desc)
 
+        icon_card = QFrame()
+        icon_card.setObjectName("SettingsCard")
+        icon_layout = QVBoxLayout(icon_card)
+        icon_layout.setContentsMargins(12, 12, 12, 12)
+        self.cmb_icon_style = QComboBox()
+        self.cmb_icon_style.addItem(LanguageManager.tr("settings_icon_style_modern"), "modern")
+        self.cmb_icon_style.addItem(LanguageManager.tr("settings_icon_style_classic"), "classic")
+        self._set_cmb_data(self.cmb_icon_style, self.settings.value("icon_style", "modern", type=str))
+        icon_layout.addWidget(self._create_setting_row(
+            LanguageManager.tr("settings_icon_style_lbl"),
+            self.cmb_icon_style,
+            LanguageManager.tr("settings_icon_style_desc")
+        ))
+        layout.addWidget(icon_card)
+
         card = QFrame()
         card.setObjectName("SettingsCard")
         card_layout = QVBoxLayout(card)
@@ -1746,7 +1634,7 @@ class AuraSettingsDialog(QDialog):
 
         self.theme_group = QButtonGroup(self)
 
-        from src.ui.modern_views import get_custom_theme_colors
+        from src.ui.aura_views import get_custom_theme_colors
         custom_cfg = get_custom_theme_colors()
         custom_pills = [custom_cfg.get("surface", "#1e222b"), custom_cfg.get("bg", "#14171d"), custom_cfg.get("accent", "#38bdf8")]
 
@@ -1796,7 +1684,7 @@ class AuraSettingsDialog(QDialog):
         layout.addWidget(card)
 
         # 2. Modern Tema ve Renk Stüdyosu (Özelleştirme Paneli)
-        self.theme_studio_card = ModernThemeStudioCard(parent=self)
+        self.theme_studio_card = AuraThemeStudioCard(parent=self)
         self.theme_studio_card.colorsChanged.connect(self._on_studio_colors_changed)
         self.theme_studio_card.btn_reset.clicked.connect(self._on_studio_reset_defaults)
         self.theme_studio_card.btn_copy_active.clicked.connect(self._on_studio_copy_active_theme)
@@ -1834,13 +1722,13 @@ class AuraSettingsDialog(QDialog):
             self.theme_radios["custom"].setChecked(True)
 
     def _on_studio_copy_active_theme(self):
-        from src.ui.modern_views import get_modern_theme_colors
+        from src.ui.aura_views import get_aura_theme_colors
         active_code = "gray"
         for code, rb in self.theme_radios.items():
             if rb.isChecked() and code != "custom":
                 active_code = code
                 break
-        pal = get_modern_theme_colors(active_code)
+        pal = get_aura_theme_colors(active_code)
         new_cols = {
             "accent": pal.get("accent", "#38bdf8"),
             "bg": pal.get("bg", "#14171d"),
@@ -1867,7 +1755,7 @@ class AuraSettingsDialog(QDialog):
         h_head.addWidget(lbl_title, stretch=1)
 
         self.btn_open_shortcuts_guide = QPushButton(" " + LanguageManager.tr("shortcuts_dialog_title") + " (F1)")
-        self.btn_open_shortcuts_guide.setIcon(ModernIconFactory.icon_info("#38bdf8"))
+        self.btn_open_shortcuts_guide.setIcon(AuraIconFactory.icon_info("#38bdf8"))
         self.btn_open_shortcuts_guide.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_open_shortcuts_guide.setStyleSheet("""
             QPushButton {
@@ -1893,7 +1781,7 @@ class AuraSettingsDialog(QDialog):
         lbl_desc.setStyleSheet(" font-size: 12px;")
         layout.addWidget(lbl_desc)
 
-        card_hint = ModernInfoCard(text=LanguageManager.tr("shortcut_hint"), parent=self)
+        card_hint = AuraInfoCard(text=LanguageManager.tr("shortcut_hint"), parent=self)
         layout.addWidget(card_hint)
 
         scroll = QScrollArea()
@@ -1932,7 +1820,7 @@ class AuraSettingsDialog(QDialog):
             lbl = QLabel(LanguageManager.tr(label_key))
             lbl.setStyleSheet("font-size: 13px; font-weight: 500;")
             
-            edit = ModernShortcutEdit()
+            edit = AuraShortcutEdit()
             self.shortcut_edits[action_key] = edit
 
             grid.addWidget(lbl, row, 0)
@@ -1996,7 +1884,7 @@ class AuraSettingsDialog(QDialog):
         lbl_t = QLabel(LanguageManager.tr("author_title_lbl"))
         lbl_t.setStyleSheet("font-size: 13px; font-weight: 600;")
         self.txt_author_title = QLineEdit()
-        self.txt_author_title.setPlaceholderText(def_comp or LanguageManager.tr("author_title_placeholder"))
+        self.txt_author_title.setPlaceholderText(LanguageManager.tr("author_title_placeholder"))
         card_layout.addWidget(lbl_t)
         card_layout.addWidget(self.txt_author_title)
 
@@ -2019,7 +1907,7 @@ class AuraSettingsDialog(QDialog):
         # Varsayılan Bilgisayar Bilgilerini Yükle Butonu
         reset_bar = QHBoxLayout()
         self.btn_reset_author = QPushButton(" " + LanguageManager.tr("btn_reset_author_info"))
-        self.btn_reset_author.setIcon(ModernIconFactory.icon_undo())
+        self.btn_reset_author.setIcon(AuraIconFactory.icon_undo())
         self.btn_reset_author.setObjectName("SecondaryBtn")
         self.btn_reset_author.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_reset_author.clicked.connect(self._reset_author_to_default)
@@ -2033,7 +1921,7 @@ class AuraSettingsDialog(QDialog):
     def _reset_author_to_default(self):
         def_user, def_comp = get_default_author_info()
         self.txt_author_name.setText(def_user)
-        self.txt_author_title.setText(def_comp)
+        self.txt_author_title.clear()
         self.txt_author_email.clear()
 
     # ----------------------------------------------------
@@ -2153,7 +2041,7 @@ class AuraSettingsDialog(QDialog):
     def _populate_toolbar_list(self, order_list: list):
         self.list_toolbar.clear()
         for k in order_list:
-            meta = FLOATING_TOOLBAR_ITEMS_META.get(k) or TOOLBAR_ITEMS_META.get(k)
+            meta = FLOATING_TOOLBAR_ITEMS_META.get(k)
             if meta:
                 trans_key, icon_func = meta
                 title = LanguageManager.tr(trans_key)
@@ -2254,13 +2142,13 @@ class AuraSettingsDialog(QDialog):
         self.cmb_pen_cursor.addItem(LanguageManager.tr("cursor_style_notion_pen"), "notion_pen")
         self.cmb_pen_cursor.addItem(LanguageManager.tr("cursor_style_vscode_pen"), "vscode_pen")
         self.cmb_pen_cursor.addItem(LanguageManager.tr("cursor_style_docs_pen"), "docs_pen")
-        self.cmb_pen_cursor.addItem("Vice City Neon Kalem", "vice_city_pen")
+        self.cmb_pen_cursor.addItem(LanguageManager.tr("ui_vice_city_neon_kalem"), "vice_city_pen")
         self.cmb_pen_cursor.addItem(LanguageManager.tr("cursor_style_classic_pen"), "classic_pen")
         self.cmb_pen_cursor.addItem(LanguageManager.tr("cursor_style_crosshair"), "crosshair")
         self.cmb_pen_cursor.addItem(LanguageManager.tr("cursor_style_dot"), "dot")
         self.cmb_pen_cursor.addItem(LanguageManager.tr("cursor_style_system_arrow"), "arrow")
-        self.cmb_pen_cursor.addItem("Dolma Kalem (Fountain Pen)", "fountain_pen")
-        self.cmb_pen_cursor.addItem("Fırça Kalem (Brush Pen)", "brush_pen")
+        self.cmb_pen_cursor.addItem(LanguageManager.tr("ui_dolma_kalem_fountain_pen"), "fountain_pen")
+        self.cmb_pen_cursor.addItem(LanguageManager.tr("ui_firca_kalem_brush_pen"), "brush_pen")
         self.cmb_pen_cursor.addItem("Piksel Nokta (Pixel)", "pixel")
         self.cmb_pen_cursor.currentIndexChanged.connect(lambda: self._on_tool_cursor_changed("pen"))
         grid.addWidget(self.cmb_pen_cursor, 0, 1)
@@ -2277,8 +2165,8 @@ class AuraSettingsDialog(QDialog):
         self.cmb_hl_cursor.addItem(LanguageManager.tr("cursor_style_classic_marker"), "classic_marker")
         self.cmb_hl_cursor.addItem(LanguageManager.tr("cursor_style_crosshair"), "crosshair")
         self.cmb_hl_cursor.addItem(LanguageManager.tr("cursor_style_system_arrow"), "arrow")
-        self.cmb_hl_cursor.addItem("Kalın Keçeli (Thick Marker)", "thick_marker")
-        self.cmb_hl_cursor.addItem("Düz Fırça (Flat Brush)", "flat_brush")
+        self.cmb_hl_cursor.addItem(LanguageManager.tr("ui_kalin_keceli_thick_marker"), "thick_marker")
+        self.cmb_hl_cursor.addItem(LanguageManager.tr("ui_duz_firca_flat_brush"), "flat_brush")
         self.cmb_hl_cursor.currentIndexChanged.connect(lambda: self._on_tool_cursor_changed("highlighter"))
         grid.addWidget(self.cmb_hl_cursor, 1, 1)
 
@@ -2288,13 +2176,13 @@ class AuraSettingsDialog(QDialog):
         grid.addWidget(lbl_eraser, 2, 0)
         self.cmb_eraser_cursor = QComboBox()
         self.cmb_eraser_cursor.addItem(LanguageManager.tr("cursor_style_apple_ring"), "apple_ring")
-        self.cmb_eraser_cursor.addItem("Vice City Neon Küp", "vice_city_cube")
+        self.cmb_eraser_cursor.addItem(LanguageManager.tr("ui_vice_city_neon_kup"), "vice_city_cube")
         self.cmb_eraser_cursor.addItem(LanguageManager.tr("cursor_style_cad_cross"), "cad_cross")
         self.cmb_eraser_cursor.addItem(LanguageManager.tr("cursor_style_square"), "square")
         self.cmb_eraser_cursor.addItem(LanguageManager.tr("cursor_style_dot"), "dot")
-        self.cmb_eraser_cursor.addItem("Katı Blok (Solid Block)", "solid_block")
-        self.cmb_eraser_cursor.addItem("Dairesel Sünger (Sponge)", "sponge")
-        self.cmb_eraser_cursor.addItem("Temizlik Fırçası (Cleaning Brush)", "cleaning_brush")
+        self.cmb_eraser_cursor.addItem(LanguageManager.tr("ui_kati_blok_solid_block"), "solid_block")
+        self.cmb_eraser_cursor.addItem(LanguageManager.tr("ui_dairesel_sunger_sponge"), "sponge")
+        self.cmb_eraser_cursor.addItem(LanguageManager.tr("ui_temizlik_fircasi_cleaning_brush"), "cleaning_brush")
         self.cmb_eraser_cursor.currentIndexChanged.connect(lambda: self._on_tool_cursor_changed("eraser"))
         grid.addWidget(self.cmb_eraser_cursor, 2, 1)
 
@@ -2312,9 +2200,9 @@ class AuraSettingsDialog(QDialog):
         self.cmb_pointer_cursor.addItem(LanguageManager.tr("cursor_style_apple_glow_ring"), "apple_glow_ring")
         self.cmb_pointer_cursor.addItem(LanguageManager.tr("cursor_style_neon_ring"), "neon_ring")
         self.cmb_pointer_cursor.addItem(LanguageManager.tr("cursor_style_dot"), "dot")
-        self.cmb_pointer_cursor.addItem("Yıldız (Star)", "star")
+        self.cmb_pointer_cursor.addItem(LanguageManager.tr("ui_yildiz_star"), "star")
         self.cmb_pointer_cursor.addItem("Hedef / Sniper (Target)", "target")
-        self.cmb_pointer_cursor.addItem("Radar Dalgaları (Radar)", "radar")
+        self.cmb_pointer_cursor.addItem(LanguageManager.tr("ui_radar_dalgalari_radar"), "radar")
         self.cmb_pointer_cursor.currentIndexChanged.connect(lambda: self._on_tool_cursor_changed("pointer"))
         grid.addWidget(self.cmb_pointer_cursor, 3, 1)
 
@@ -2325,11 +2213,11 @@ class AuraSettingsDialog(QDialog):
         self.cmb_text_cursor = QComboBox()
         self.cmb_text_cursor.addItem(LanguageManager.tr("cursor_style_macos_ibeam"), "macos_ibeam")
         self.cmb_text_cursor.addItem(LanguageManager.tr("cursor_style_vscode_ibeam"), "vscode_ibeam")
-        self.cmb_text_cursor.addItem("Vice City Neon Yazı", "vice_city_ibeam")
+        self.cmb_text_cursor.addItem(LanguageManager.tr("ui_vice_city_neon_yazi"), "vice_city_ibeam")
         self.cmb_text_cursor.addItem(LanguageManager.tr("cursor_style_classic_ibeam"), "classic_ibeam")
         self.cmb_text_cursor.addItem(LanguageManager.tr("cursor_style_badge_ibeam"), "badge_ibeam")
-        self.cmb_text_cursor.addItem("Tüy Kalem (Feather)", "feather")
-        self.cmb_text_cursor.addItem("Kalın Daktilo (Typewriter)", "typewriter")
+        self.cmb_text_cursor.addItem(LanguageManager.tr("ui_tuy_kalem_feather"), "feather")
+        self.cmb_text_cursor.addItem(LanguageManager.tr("ui_kalin_daktilo_typewriter"), "typewriter")
         self.cmb_text_cursor.currentIndexChanged.connect(lambda: self._on_tool_cursor_changed("text"))
         grid.addWidget(self.cmb_text_cursor, 4, 1)
 
@@ -2339,24 +2227,24 @@ class AuraSettingsDialog(QDialog):
         grid.addWidget(lbl_sel, 5, 0)
         self.cmb_sel_cursor = QComboBox()
         self.cmb_sel_cursor.addItem(LanguageManager.tr("cursor_style_macos_reticle"), "macos_reticle")
-        self.cmb_sel_cursor.addItem("Vice City Neon Nişangah", "vice_city_reticle")
+        self.cmb_sel_cursor.addItem(LanguageManager.tr("ui_vice_city_neon_nisangah"), "vice_city_reticle")
         self.cmb_sel_cursor.addItem(LanguageManager.tr("cursor_style_fine_cross"), "fine_cross")
         self.cmb_sel_cursor.addItem(LanguageManager.tr("cursor_style_standard_cross"), "standard_cross")
         self.cmb_sel_cursor.addItem("Kement (Lasso)", "lasso")
-        self.cmb_sel_cursor.addItem("Kesik Çizgili Kutu (Marquee)", "marquee")
-        self.cmb_sel_cursor.addItem("İşaret Parmağı (Hand Pointer)", "hand")
+        self.cmb_sel_cursor.addItem(LanguageManager.tr("ui_kesik_cizgili_kutu_marquee"), "marquee")
+        self.cmb_sel_cursor.addItem(LanguageManager.tr("ui_isaret_parmagi_hand_pointer"), "hand")
         self.cmb_sel_cursor.currentIndexChanged.connect(lambda: self._on_tool_cursor_changed("selection"))
         grid.addWidget(self.cmb_sel_cursor, 5, 1)
 
         # 7. Cetvel
-        lbl_ruler = QLabel("Cetvel İmleci")
+        lbl_ruler = QLabel(LanguageManager.tr("ui_cetvel_imleci"))
         lbl_ruler.setStyleSheet("font-weight: 500;")
         grid.addWidget(lbl_ruler, 6, 0)
         self.cmb_ruler_cursor = QComboBox()
-        self.cmb_ruler_cursor.addItem("Çapraz Hizalama (Crosshair)", "ruler_crosshair")
+        self.cmb_ruler_cursor.addItem(LanguageManager.tr("ui_capraz_hizalama_crosshair"), "ruler_crosshair")
         self.cmb_ruler_cursor.addItem("Klasik Cetvel (Classic Ruler)", "classic_ruler")
-        self.cmb_ruler_cursor.addItem("Gönye (Draft Triangle)", "draft_triangle")
-        self.cmb_ruler_cursor.addItem("İletki (Protractor)", "protractor")
+        self.cmb_ruler_cursor.addItem(LanguageManager.tr("ui_gonye_draft_triangle"), "draft_triangle")
+        self.cmb_ruler_cursor.addItem(LanguageManager.tr("ui_iletki_protractor"), "protractor")
         self.cmb_ruler_cursor.currentIndexChanged.connect(lambda: self._on_tool_cursor_changed("ruler"))
         grid.addWidget(self.cmb_ruler_cursor, 6, 1)
 
@@ -2378,13 +2266,13 @@ class AuraSettingsDialog(QDialog):
         self.preview_selected_tool = "pen"
         self.preview_tool_btns = {}
         tool_icons = [
-            ("pen", "Kalem"),
-            ("highlighter", "Fosforlu"),
-            ("eraser", "Silgi"),
-            ("pointer", "Lazer"),
-            ("text", "Metin"),
-            ("selection", "Seçim"),
-            ("ruler", "Cetvel")
+            ("pen", LanguageManager.tr("prev_tool_pen")),
+            ("highlighter", LanguageManager.tr("prev_tool_highlighter")),
+            ("eraser", LanguageManager.tr("prev_tool_eraser")),
+            ("pointer", LanguageManager.tr("prev_tool_pointer")),
+            ("text", LanguageManager.tr("prev_tool_text")),
+            ("selection", LanguageManager.tr("prev_tool_selection")),
+            ("ruler", LanguageManager.tr("prev_tool_ruler"))
         ]
         for t_key, t_label in tool_icons:
             btn = QPushButton(t_label)
@@ -2465,7 +2353,7 @@ class AuraSettingsDialog(QDialog):
         card_status_layout.setContentsMargins(16, 14, 16, 14)
         card_status_layout.setSpacing(12)
 
-        from src.core.updater import CURRENT_VERSION, UpdateChecker
+        from src.core.updater import CURRENT_VERSION
         self.lbl_update_ver = QLabel(LanguageManager.tr("updates_current_version", version=CURRENT_VERSION))
         self.lbl_update_ver.setStyleSheet("font-size: 14px; font-weight: 600; color: #38bdf8;")
         card_status_layout.addWidget(self.lbl_update_ver)
@@ -2478,7 +2366,7 @@ class AuraSettingsDialog(QDialog):
 
         h_btn_box = QHBoxLayout()
         self.btn_check_updates = QPushButton(LanguageManager.tr("updates_btn_check"))
-        self.btn_check_updates.setIcon(ModernIconFactory.icon_update())
+        self.btn_check_updates.setIcon(AuraIconFactory.icon_update())
         self.btn_check_updates.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_check_updates.setObjectName("PrimaryBtn")
         self.btn_check_updates.clicked.connect(self._on_manual_check_updates)
@@ -2516,10 +2404,10 @@ class AuraSettingsDialog(QDialog):
 
         self.txt_github_token = QLineEdit()
         self.txt_github_token.setEchoMode(QLineEdit.EchoMode.PasswordEchoOnEdit)
-        self.txt_github_token.setPlaceholderText("ghp_... (Opsiyonel)")
+        self.txt_github_token.setPlaceholderText(LanguageManager.tr("github_token_placeholder"))
         card_opts_layout.addWidget(self.txt_github_token)
 
-        card_token_hint = ModernInfoCard(text=LanguageManager.tr("updates_token_tip"), parent=self)
+        card_token_hint = AuraInfoCard(text=LanguageManager.tr("updates_token_tip"), parent=self)
         card_opts_layout.addWidget(card_token_hint)
 
         layout.addWidget(card_opts)
@@ -2652,7 +2540,7 @@ class AuraSettingsDialog(QDialog):
             if action in self.shortcut_edits:
                 self.shortcut_edits[action].setShortcutValue(user_seq)
 
-        # 3. Yazar Bilgileri (Kullanıcı talebi: Default olarak bilgisayar kullanıcı adı ve bilgisayar adı gelsin)
+        # 3. Yazar Bilgileri (varsayılan ad: oturum kullanıcı adı; unvan boş - bilgisayar adı gömülmez)
         def_user, def_comp = get_default_author_info()
         saved_name = self.settings.value("author_name", None)
         saved_title = self.settings.value("author_title", None)
@@ -2664,8 +2552,9 @@ class AuraSettingsDialog(QDialog):
         else:
             author_name = str(saved_name).strip()
 
-        if saved_title is None or str(saved_title).strip() in ("", "Lead Architect"):
-            author_title = def_comp
+        if saved_title is None or str(saved_title).strip() in ("", "Lead Architect", def_comp):
+            # Bilgisayar adı bir unvan değildir; PDF'e sızmaması için boş bırakılır
+            author_title = ""
         else:
             author_title = str(saved_title).strip()
 
@@ -2675,7 +2564,7 @@ class AuraSettingsDialog(QDialog):
         self.txt_author_name.setText(author_name)
         self.txt_author_title.setText(author_title)
         self.txt_author_email.setText(str(saved_email).strip())
-        self.chk_save_metadata.setChecked(self.settings.value("save_author_to_pdf", True, type=bool))
+        self.chk_save_metadata.setChecked(self.settings.value("save_author_to_pdf", False, type=bool))
         self.chk_use_notes.setChecked(self.settings.value("use_author_in_notes", True, type=bool))
 
         # 4. Dil
@@ -2760,7 +2649,8 @@ class AuraSettingsDialog(QDialog):
             saved_freq = self.settings.value("update_frequency", "startup")
             self._set_cmb_data(self.cmb_update_freq, saved_freq)
         if hasattr(self, 'txt_github_token'):
-            self.txt_github_token.setText(self.settings.value("github_token", ""))
+            from src.core.secure_store import read_secret
+            self.txt_github_token.setText(read_secret(self.settings, "github_token"))
 
     def _on_tab_preview_toggled(self, checked: bool):
         self.settings.setValue("show_tab_preview", checked)
@@ -2842,6 +2732,12 @@ class AuraSettingsDialog(QDialog):
                 if hasattr(self.main_window, 'update_panels_layout'):
                     self.main_window.update_panels_layout(panel_layout)
 
+        # İkon Seti (yeniden başlatınca uygulanır)
+        icon_style = self.cmb_icon_style.currentData()
+        if icon_style != self.settings.value("icon_style", "modern", type=str):
+            self.settings.setValue("icon_style", icon_style)
+            QMessageBox.information(self, LanguageManager.tr("settings_icon_style_lbl"), LanguageManager.tr("settings_icon_style_restart"))
+
         # Sekme Önizlemesi
         if hasattr(self, 'chk_tab_hover_preview'):
             is_preview = self.chk_tab_hover_preview.isChecked()
@@ -2862,8 +2758,6 @@ class AuraSettingsDialog(QDialog):
             self.settings.setValue("floating_tools_order_version", 2)
             if hasattr(self.main_window, 'apply_floating_tools_order'):
                 self.main_window.apply_floating_tools_order(reordered_items)
-            if hasattr(self.main_window, 'restore_toolbar_order'):
-                self.main_window.restore_toolbar_order()
 
         # 7. İmleç Ayarlarını Kaydet & Uygula
         self.settings.setValue("cursor_preset", self.cmb_cursor_preset.currentData())
@@ -2886,7 +2780,8 @@ class AuraSettingsDialog(QDialog):
         if hasattr(self, 'cmb_update_freq'):
             self.settings.setValue("update_frequency", self.cmb_update_freq.currentData())
         if hasattr(self, 'txt_github_token'):
-            self.settings.setValue("github_token", self.txt_github_token.text().strip())
+            from src.core.secure_store import write_secret
+            write_secret(self.settings, "github_token", self.txt_github_token.text().strip())
 
         # Görsel geribildirim
         if hasattr(self, 'btn_apply') and self.btn_apply:
@@ -2906,7 +2801,4 @@ class AuraSettingsDialog(QDialog):
 
 
 # Geriye dönük uyumluluk takma adları (Backward compatibility aliases)
-ModernSettingsDialog = AuraSettingsDialog
 SettingsDialog = AuraSettingsDialog
-AuraShortcutButton = ModernShortcutButton
-AuraShortcutEdit = ModernShortcutEdit
