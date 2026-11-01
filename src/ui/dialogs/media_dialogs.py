@@ -470,23 +470,27 @@ class TableInsertDialog(QDialog):
         self.align_group.addButton(self.btn_align_center)
         self.align_group.addButton(self.btn_align_right)
 
-        align_btn_style = """
-            QPushButton {
-                background-color: rgba(255, 255, 255, 0.06);
-                border: 1px solid rgba(255, 255, 255, 0.15);
+        _pal = get_theme_palette(parent)
+        _accent = _pal["accent"]
+        _card = _pal["card"]
+        _border = _pal["border"]
+        align_btn_style = f"""
+            QPushButton {{
+                background-color: {_card};
+                border: 1px solid {_border};
                 border-radius: 6px;
                 padding: 4px 12px;
                 min-width: 32px;
                 min-height: 24px;
-            }
-            QPushButton:hover {
-                background-color: rgba(255, 255, 255, 0.12);
-                border-color: #38bdf8;
-            }
-            QPushButton:checked {
-                background-color: rgba(56, 189, 248, 0.25);
-                border: 1.5px solid #38bdf8;
-            }
+            }}
+            QPushButton:hover {{
+                background-color: {_border};
+                border-color: {_accent};
+            }}
+            QPushButton:checked {{
+                background-color: {_accent}33;
+                border: 1.5px solid {_accent};
+            }}
         """
         for b in (self.btn_align_left, self.btn_align_center, self.btn_align_right):
             b.setStyleSheet(align_btn_style)
@@ -4111,6 +4115,23 @@ class AudioRecordDialog(QDialog):
         hdr_box.addWidget(self.btn_compact)
         layout_full.addLayout(hdr_box)
 
+        # Mikrofon seçici (yalnızca birden fazla mikrofon varsa gösterilir)
+        self._mic_devices = QMediaDevices.audioInputs()
+        self.mic_row = QWidget()
+        mic_layout = QHBoxLayout(self.mic_row)
+        mic_layout.setContentsMargins(0, 0, 0, 0)
+        mic_layout.setSpacing(8)
+        lbl_mic = QLabel(LanguageManager.tr("audio_mic_label"))
+        lbl_mic.setStyleSheet("font-size: 11px; font-weight: 500;")
+        self.combo_mic = QComboBox()
+        self.combo_mic.addItem(LanguageManager.tr("audio_mic_default"), None)
+        for dev in self._mic_devices:
+            self.combo_mic.addItem(dev.description(), dev)
+        mic_layout.addWidget(lbl_mic)
+        mic_layout.addWidget(self.combo_mic, 1)
+        layout_full.addWidget(self.mic_row)
+        self.mic_row.setVisible(len(self._mic_devices) > 1)
+
         # Akan ses şeridi
         self.visualizer = AuraRollingWaveform(self)
         layout_full.addWidget(self.visualizer)
@@ -4560,7 +4581,10 @@ class AudioRecordDialog(QDialog):
 
         try:
             if not self.audio_source:
-                dev = QMediaDevices.defaultAudioInput()
+                selected_dev = self.combo_mic.currentData() if hasattr(self, 'combo_mic') and self.combo_mic.currentData() is not None else None
+                dev = selected_dev if selected_dev is not None else QMediaDevices.defaultAudioInput()
+                if hasattr(self, 'combo_mic') and self.combo_mic.currentData() is not None:
+                    self.audio_input.setDevice(selected_dev)
                 self.audio_source = QAudioSource(dev, self.audio_fmt, self)
             self.audio_source_io = self.audio_source.start()
             self.level_timer.start()
@@ -4986,3 +5010,78 @@ class VideoInsertDialog(QDialog):
 
     def get_data(self) -> Tuple[str, Optional[bytes], str]:
         return (self.video_url_or_path, self.thumbnail_bytes, self.txt_title.text().strip())
+
+
+class AuraAddBookmarkDialog(QDialog):
+    """Themed bookmark add dialog — replaces QInputDialog.getText for bookmark creation."""
+
+    def __init__(self, parent=None, default_name: str = "", default_page: int = 1,
+                 show_page: bool = False):
+        super().__init__(parent)
+        self.setWindowTitle(LanguageManager.tr("bookmark_dialog_title"))
+        self.setMinimumWidth(380)
+        self.setSizeGripEnabled(False)
+        self.setWindowFlags(self.windowFlags() & ~Qt.WindowType.WindowContextHelpButtonHint)
+
+        layout = QVBoxLayout(self)
+        layout.setSpacing(14)
+        layout.setContentsMargins(22, 22, 22, 18)
+
+        # Name field
+        lbl_name = QLabel(LanguageManager.tr("bookmark_dialog_name_label"))
+        lbl_name.setStyleSheet("font-weight: 600; font-size: 12px;")
+        self.txt_name = QLineEdit()
+        self.txt_name.setPlaceholderText(LanguageManager.tr("bookmark_dialog_placeholder"))
+        self.txt_name.setText(default_name)
+        self.txt_name.selectAll()
+        layout.addWidget(lbl_name)
+        layout.addWidget(self.txt_name)
+
+        # Page number field (optional)
+        if show_page:
+            lbl_page = QLabel(LanguageManager.tr("bookmark_dialog_page_label"))
+            lbl_page.setStyleSheet("font-weight: 600; font-size: 12px;")
+            self.txt_page = QLineEdit()
+            self.txt_page.setText(str(default_page))
+            layout.addWidget(lbl_page)
+            layout.addWidget(self.txt_page)
+        else:
+            self.txt_page = None
+
+        layout.addSpacing(4)
+
+        # Buttons
+        btn_row = QHBoxLayout()
+        btn_row.setSpacing(8)
+        btn_row.addStretch()
+
+        self.btn_cancel = QPushButton(LanguageManager.tr("msg_btn_cancel"))
+        self.btn_cancel.setObjectName("SecondaryBtn")
+        self.btn_cancel.setMinimumWidth(80)
+        self.btn_cancel.clicked.connect(self.reject)
+
+        self.btn_ok = QPushButton(LanguageManager.tr("msg_btn_ok"))
+        self.btn_ok.setObjectName("PrimaryBtn")
+        self.btn_ok.setDefault(True)
+        self.btn_ok.setMinimumWidth(80)
+        self.btn_ok.clicked.connect(self._accept)
+
+        btn_row.addWidget(self.btn_cancel)
+        btn_row.addWidget(self.btn_ok)
+        layout.addLayout(btn_row)
+
+        apply_dialog_theme(self, parent)
+        self.txt_name.setFocus()
+
+    def _accept(self):
+        if self.txt_name.text().strip():
+            self.accept()
+
+    def bookmark_name(self) -> str:
+        return self.txt_name.text().strip()
+
+    def bookmark_page(self) -> Optional[int]:
+        if self.txt_page is None:
+            return None
+        txt = self.txt_page.text().strip()
+        return int(txt) if txt.isdigit() else None

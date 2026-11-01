@@ -895,7 +895,7 @@ class PDFToWordDialog(QDialog):
         self.resize(600, 400)
         self.setMinimumSize(480, 320)
         self.setSizeGripEnabled(True)
-        apply_aura_dialog_style(self)
+        apply_aura_dialog_style(self, main_window)
 
         layout = QVBoxLayout(self)
         layout.setSpacing(10)
@@ -904,6 +904,7 @@ class PDFToWordDialog(QDialog):
         h_src = QHBoxLayout()
         self.txt_source = QLineEdit()
         btn_browse_src = QPushButton(LanguageManager.tr("split_btn_browse"))
+        btn_browse_src.setObjectName("SecondaryBtn")
         btn_browse_src.clicked.connect(self.browse_source)
         h_src.addWidget(self.txt_source)
         h_src.addWidget(btn_browse_src)
@@ -913,6 +914,7 @@ class PDFToWordDialog(QDialog):
         h_dest = QHBoxLayout()
         self.txt_dest = QLineEdit()
         btn_browse_dest = QPushButton(LanguageManager.tr("split_btn_browse"))
+        btn_browse_dest.setObjectName("SecondaryBtn")
         btn_browse_dest.clicked.connect(self.browse_dest)
         h_dest.addWidget(self.txt_dest)
         h_dest.addWidget(btn_browse_dest)
@@ -3486,7 +3488,7 @@ class PDFToPowerPointDialog(QDialog):
         self.resize(600, 420)
         self.setMinimumSize(480, 320)
         self.setSizeGripEnabled(True)
-        apply_aura_dialog_style(self)
+        apply_aura_dialog_style(self, main_window)
 
         layout = QVBoxLayout(self)
         layout.setSpacing(10)
@@ -3495,6 +3497,7 @@ class PDFToPowerPointDialog(QDialog):
         h_src = QHBoxLayout()
         self.txt_source = QLineEdit()
         btn_browse_src = QPushButton(LanguageManager.tr("split_btn_browse"))
+        btn_browse_src.setObjectName("SecondaryBtn")
         btn_browse_src.clicked.connect(self.browse_source)
         h_src.addWidget(self.txt_source)
         h_src.addWidget(btn_browse_src)
@@ -3504,6 +3507,7 @@ class PDFToPowerPointDialog(QDialog):
         h_dest = QHBoxLayout()
         self.txt_dest = QLineEdit()
         btn_browse_dest = QPushButton(LanguageManager.tr("split_btn_browse"))
+        btn_browse_dest.setObjectName("SecondaryBtn")
         btn_browse_dest.clicked.connect(self.browse_dest)
         h_dest.addWidget(self.txt_dest)
         h_dest.addWidget(btn_browse_dest)
@@ -3780,7 +3784,7 @@ class PDFToExcelDialog(QDialog):
         self.resize(600, 430)
         self.setMinimumSize(480, 340)
         self.setSizeGripEnabled(True)
-        apply_aura_dialog_style(self)
+        apply_aura_dialog_style(self, main_window)
 
         layout = QVBoxLayout(self)
         layout.setSpacing(10)
@@ -3789,6 +3793,7 @@ class PDFToExcelDialog(QDialog):
         h_src = QHBoxLayout()
         self.txt_source = QLineEdit()
         btn_browse_src = QPushButton(LanguageManager.tr("split_btn_browse"))
+        btn_browse_src.setObjectName("SecondaryBtn")
         btn_browse_src.clicked.connect(self.browse_source)
         h_src.addWidget(self.txt_source)
         h_src.addWidget(btn_browse_src)
@@ -3798,6 +3803,7 @@ class PDFToExcelDialog(QDialog):
         h_dest = QHBoxLayout()
         self.txt_dest = QLineEdit()
         btn_browse_dest = QPushButton(LanguageManager.tr("split_btn_browse"))
+        btn_browse_dest.setObjectName("SecondaryBtn")
         btn_browse_dest.clicked.connect(self.browse_dest)
         h_dest.addWidget(self.txt_dest)
         h_dest.addWidget(btn_browse_dest)
@@ -5472,7 +5478,8 @@ class PDFWatermarkDialog(QDialog):
         self.resize(990, 840)
         self.setMinimumSize(700, 500)
         self.setSizeGripEnabled(True)
-        apply_aura_dialog_style(self)
+        apply_aura_dialog_style(self, main_window)
+        _wm_pal = get_theme_palette(main_window)
 
         root = QHBoxLayout(self)
         root.setContentsMargins(14, 14, 14, 14)
@@ -5500,6 +5507,7 @@ class PDFWatermarkDialog(QDialog):
         self.txt_src = QLineEdit()
         self.txt_src.setPlaceholderText(LanguageManager.tr("split_btn_browse") + "...")
         btn_src = QPushButton(LanguageManager.tr("split_btn_browse"))
+        btn_src.setObjectName("SecondaryBtn")
         btn_src.setFixedWidth(80)
         btn_src.clicked.connect(self._browse_source)
         h_src_l.addWidget(self.txt_src)
@@ -5834,6 +5842,7 @@ class PDFWatermarkDialog(QDialog):
         h_dst_l = QHBoxLayout()
         self.txt_dst = QLineEdit()
         btn_dst = QPushButton(LanguageManager.tr("split_btn_browse"))
+        btn_dst.setObjectName("SecondaryBtn")
         btn_dst.setFixedWidth(80)
         btn_dst.clicked.connect(self._browse_target)
         h_dst_l.addWidget(self.txt_dst)
@@ -5888,7 +5897,7 @@ class PDFWatermarkDialog(QDialog):
         grp_preview = QGroupBox(LanguageManager.tr("preview_title"))
         grp_preview.setFixedWidth(295)
         grp_preview.setStyleSheet(
-            "QGroupBox { border: 1px solid rgba(255, 255, 255, 0.1); "
+            f"QGroupBox {{ border: 1px solid {_wm_pal['border']}; "
             "border-radius: 6px; margin-top: 10px; padding-top: 14px; }"
         )
         v_prev = QVBoxLayout(grp_preview)
@@ -5906,7 +5915,7 @@ class PDFWatermarkDialog(QDialog):
         self.lbl_preview = InteractiveWatermarkPreviewLabel()
         self.lbl_preview.setFixedSize(242, 338)
         self.lbl_preview.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.lbl_preview.setStyleSheet("border: 1px solid rgba(255, 255, 255, 0.15); border-radius: 2px;")
+        self.lbl_preview.setStyleSheet(f"border: 1px solid {_wm_pal['border']}; border-radius: 2px;")
         self.lbl_preview.positionChanged.connect(lambda pos: self.update_preview())
         v_box.addWidget(self.lbl_preview)
         v_prev.addWidget(frame_box)
@@ -5927,9 +5936,9 @@ class PDFWatermarkDialog(QDialog):
         self.spn_preview_page.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.spn_preview_page.setFixedWidth(52)
         self.spn_preview_page.setStyleSheet(
-            "QSpinBox#PreviewPageSpin { background-color: rgba(0, 0, 0, 0.25); color: #f1f5f9; border: 1px solid rgba(255, 255, 255, 0.12); "
+            f"QSpinBox#PreviewPageSpin {{ background-color: {_wm_pal['card']}; color: {_wm_pal['text']}; border: 1px solid {_wm_pal['border']}; "
             "border-radius: 4px; padding: 2px; font-size: 12px; font-weight: bold; } "
-            "QSpinBox#PreviewPageSpin:focus { border: 1px solid #38bdf8; }"
+            f"QSpinBox#PreviewPageSpin:focus {{ border: 1px solid {_wm_pal['accent']}; }}"
         )
         self.spn_preview_page.valueChanged.connect(self._preview_page_spin_changed)
         self.lbl_total_preview_pages = QLabel("/ 1")

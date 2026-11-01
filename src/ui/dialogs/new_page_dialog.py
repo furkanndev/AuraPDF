@@ -218,6 +218,73 @@ class TemplatePreviewCard(QFrame):
             p.drawLine(QPointF(page_x + 18, mid_y), QPointF(page_x + page_w - 18, mid_y))
             p.drawLine(QPointF(page_x + 28, mid_y + 8), QPointF(page_x + page_w - 28, mid_y + 8))
 
+        elif self.style_code == "isometric":
+            # İzometrik: 30° açılı çizgi ızgarası
+            p.setPen(QPen(QColor("#6ea8d8"), 0.55))
+            step = 10.0
+            # Sol-aşağı eğik çizgiler (30°)
+            x = page_x - page_h
+            while x < page_x + page_w:
+                p.drawLine(QPointF(x, page_y + 8), QPointF(x + page_h * 1.73, page_y + page_h - 8))
+                x += step
+            # Sağ-aşağı eğik çizgiler (150°)
+            x = page_x - page_h
+            while x < page_x + page_w + page_h:
+                p.drawLine(QPointF(x, page_y + 8), QPointF(x - page_h * 1.73, page_y + page_h - 8))
+                x += step
+            # Yatay çizgiler
+            p.setPen(QPen(QColor("#6ea8d8"), 0.35))
+            y = page_y + 8.0
+            while y < page_y + page_h - 8:
+                p.drawLine(QPointF(page_x + 6, y), QPointF(page_x + page_w - 6, y))
+                y += step * 0.866
+
+        elif self.style_code == "hexagonal":
+            # Altıgen ızgarası
+            p.setPen(QPen(QColor("#86efac"), 0.7))
+            p.setBrush(Qt.BrushStyle.NoBrush)
+            r = 7.0
+            h_hex = r * 1.732
+            row_h = h_hex
+            col_w = r * 1.5
+            hex_row = 0
+            cy = page_y + 8.0 + r
+            while cy < page_y + page_h - 6:
+                offset_x = col_w * 0.5 if (hex_row % 2) else 0.0
+                cx = page_x + 8.0 + r + offset_x
+                while cx < page_x + page_w - 6:
+                    pts = []
+                    for k in range(6):
+                        import math as _math
+                        angle = _math.radians(30 + 60 * k)
+                        pts.append(QPointF(cx + r * _math.cos(angle), cy + r * _math.sin(angle)))
+                    from PyQt6.QtGui import QPolygonF
+                    p.drawPolygon(QPolygonF(pts))
+                    cx += col_w * 2
+                cy += row_h
+                hex_row += 1
+
+        elif self.style_code == "seyes":
+            # Séyès: İnce yatay çizgiler (her 2mm'de bir) + kalın ana çizgiler (her 8mm'de bir) + sol dikey kenar çizgisi
+            # Ana çizgiler (her 4. çizgi)
+            p.setPen(QPen(QColor("#93c5fd"), 0.9))
+            margin_x = page_x + 18.0
+            p.drawLine(QPointF(margin_x, page_y + 8), QPointF(margin_x, page_y + page_h - 8))
+            p.setPen(QPen(QColor("#93c5fd"), 0.8))
+            y = page_y + 12.0
+            step_main = 9.0
+            while y < page_y + page_h - 8:
+                p.drawLine(QPointF(page_x + 6, y), QPointF(page_x + page_w - 6, y))
+                y += step_main
+            # İnce yardımcı çizgiler (ana çizgi arasında 3 tane)
+            p.setPen(QPen(QColor("#93c5fd"), 0.3))
+            y = page_y + 12.0 + step_main / 4
+            while y < page_y + page_h - 8:
+                p.drawLine(QPointF(margin_x + 2, y), QPointF(page_x + page_w - 6, y))
+                y += step_main / 4
+                if abs((y - page_y - 12.0) % step_main) < 0.5:
+                    y += step_main / 4
+
         p.restore()
 
         # 4. Seçim Onay Rozeti (Sağ üst köşe ✓)
@@ -415,6 +482,9 @@ class NewPageDialog(QDialog):
             ("music", "style_music_title", "style_music_desc"),
             ("dark", "style_dark_title", "style_dark_desc"),
             ("cover", "style_cover_title", "style_cover_desc"),
+            ("isometric", "style_isometric_title", "style_isometric_desc"),
+            ("hexagonal", "style_hexagonal_title", "style_hexagonal_desc"),
+            ("seyes", "style_seyes_title", "style_seyes_desc"),
         ]
 
         cols = 4
@@ -816,6 +886,9 @@ class ChangePageStyleDialog(QDialog):
             ("music", "style_music_title", "style_music_desc"),
             ("dark", "style_dark_title", "style_dark_desc"),
             ("cover", "style_cover_title", "style_cover_desc"),
+            ("isometric", "style_isometric_title", "style_isometric_desc"),
+            ("hexagonal", "style_hexagonal_title", "style_hexagonal_desc"),
+            ("seyes", "style_seyes_title", "style_seyes_desc"),
         ]
 
         for i, (code, title_k, desc_k) in enumerate(styles_info):
