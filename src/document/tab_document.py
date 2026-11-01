@@ -23,7 +23,7 @@ from PyQt6.QtCore import (Qt, QRect, QRectF, QPointF, QPoint, QTimer, QLineF, QE
 
 from src.document.pencil_stroke import AuraPencilStrokeItem, build_brush_path, stroke_seed
 from src.core.i18n import LanguageManager
-from src.ui.dialogs.media_dialogs import MEDIA_EMOJI_MIME, MEDIA_GIF_MIME
+from src.ui.dialogs.media_dialogs import MEDIA_EMOJI_MIME, MEDIA_GIF_MIME, AuraAddBookmarkDialog
 from src.ui.icons import AuraIconFactory
 from src.ui.cursors import CursorFactory
 from src.ui.widgets import EditableInlineTextItem
@@ -5823,8 +5823,15 @@ class PDFTabDocument(QWidget):
                 old_title = str(entry[1] or "")
                 break
 
-        title, ok = QInputDialog.getText(self, LanguageManager.tr("ui_yer_imini_yeniden_adlandir"), LanguageManager.tr("ui_baslik"), text=old_title)
-        if not ok or not title.strip():
+        dlg = AuraAddBookmarkDialog(
+            self.main_window, default_name=old_title,
+            title=LanguageManager.tr("ui_yer_imini_yeniden_adlandir"),
+            label=LanguageManager.tr("ui_baslik"),
+        )
+        if dlg.exec() != dlg.DialogCode.Accepted:
+            return
+        title = dlg.bookmark_name()
+        if not title:
             return
 
         old_toc = [list(entry) for entry in toc]
@@ -5870,8 +5877,14 @@ class PDFTabDocument(QWidget):
             prompt_label = LanguageManager.tr("ui_baslik")
             default_title = LanguageManager.tr("bm_page_default", page=target_page_1_based)
 
-        title, ok = QInputDialog.getText(self, prompt_title, prompt_label, text=default_title)
-        if not ok or not title.strip():
+        dlg = AuraAddBookmarkDialog(
+            self.main_window, default_name=default_title,
+            title=prompt_title, label=prompt_label,
+        )
+        if dlg.exec() != dlg.DialogCode.Accepted:
+            return
+        title = dlg.bookmark_name()
+        if not title:
             return
 
         if existing_indices:
