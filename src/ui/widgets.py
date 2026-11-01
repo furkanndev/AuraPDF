@@ -17,6 +17,8 @@ from src.core.i18n import LanguageManager
 from src.core.hyperlink_detector import detect_hyperlink
 from src.ui.icons import AuraIconFactory
 from src.ui.dialog_theme import apply_dialog_theme
+from src.ui.ui_style import get_checked_tool_css
+from PyQt6.QtWidgets import QStyle
 
 # --- 1.5. MODERN HYPERLINK BAĞLANTI DİYALOĞU ---
 class AuraLinkInputDialog(QDialog):
@@ -524,6 +526,16 @@ class EditableInlineTextItem(QGraphicsTextItem):
             w = max(32.0, min(max_w, doc.idealWidth() + 28.0))
         return QRectF(0.0, 0.0, w, h)
 
+    def background_rect(self) -> QRectF:
+        """Arka plan rengi yazının çevresine oturur; elle boyutlandırılan kutu tümüyle boyanır."""
+        box = self.text_rect()
+        doc = self.document()
+        if not doc or getattr(self, '_user_set_width', False) or self.alignment_str == "justify":
+            return box
+        width = min(box.width(), max(32.0, doc.idealWidth()))
+        shift = {"center": (box.width() - width) / 2.0, "right": box.width() - width}.get(self.alignment_str, 0.0)
+        return QRectF(shift, 0.0, width, box.height())
+
     def boundingRect(self) -> QRectF:
         # Ekstra sağ pay (+12px) ile en sondaki harfin veya eğimli karakterlerin (k, f, y vb.)
         # hiçbir şekilde kenardan kesilmemesini garanti altına alıyoruz
@@ -588,29 +600,21 @@ class EditableInlineTextItem(QGraphicsTextItem):
 
     def paint(self, painter, option, widget=None):
         if self.box_bg_color:
-            painter.fillRect(self.text_rect(), QColor(self.box_bg_color))
+            painter.fillRect(self.background_rect(), QColor(self.box_bg_color))
         if option is not None:
             opt = QStyleOptionGraphicsItem(option)
             opt.exposedRect = self.boundingRect()
+            # Qt'nin seçili metin öğesine çizdiği kesikli çerçeve devre dışı bırakılır.
+            opt.state &= ~(QStyle.StateFlag.State_Selected | QStyle.StateFlag.State_HasFocus)
             super().paint(painter, opt, widget)
         else:
             super().paint(painter, option, widget)
-        is_editing = bool(self.textInteractionFlags() & Qt.TextInteractionFlag.TextEditorInteraction)
+        is_editing =bool(self.textInteractionFlags() & Qt.TextInteractionFlag.TextEditorInteraction)
         is_sel = self.isSelected()
 
         # 1. Çerçeve ve Boyutlandırma Tutamaçları
-        if is_editing:
-            # Düzenleme modundayken harfleri kapatmayan, hafif dışa genişletilmiş zarif kesikli çerçeve
-            # Tutamaçlar metin yazılırken harflerin üzerine binmemesi için sadece seçim modunda çizilir
-            painter.save()
-            painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
-            border_col = QColor(56, 189, 248, 180)
-            painter.setPen(QPen(border_col, 1.0, Qt.PenStyle.DashLine))
-            painter.setBrush(Qt.BrushStyle.NoBrush)
-            r = self.text_rect().adjusted(-2.0, -2.0, 2.0, 2.0)
-            painter.drawRect(r)
-            painter.restore()
-        elif is_sel:
+        # Yazarken belge üzerinde yalnızca metin ve imleç görünür; çerçeve seçim modunda çizilir.
+        if is_sel and not is_editing:
             # Kutu seçildiğinde (taşıma/boyutlandırma modu) düz çerçeve ve 8 tutamaç çizilir
             painter.save()
             painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
@@ -2118,6 +2122,9 @@ class FullscreenSlideToolbar(QFrame):
                 background-color: {accent};
             }}
         """
+        checked_css = get_checked_tool_css(theme_name)
+        self.STYLE_NORMAL += checked_css
+        self.STYLE_DRAGGING += checked_css
         self.setStyleSheet(self.STYLE_DRAGGING if getattr(self, '_is_dragging', False) else self.STYLE_NORMAL)
 
         shadow = QGraphicsDropShadowEffect(self)
@@ -2934,6 +2941,9 @@ class FullscreenReadingHUD(QFrame):
             }}
         """
 
+        checked_css = get_checked_tool_css(theme_name)
+        self.STYLE_NORMAL += checked_css
+        self.STYLE_DRAGGING += checked_css
         self.setStyleSheet(self.STYLE_DRAGGING if getattr(self, '_is_dragging', False) else self.STYLE_NORMAL)
         for sep in getattr(self, 'separators', []):
             sep.setStyleSheet(f"border: none; background-color: {tb_border};")

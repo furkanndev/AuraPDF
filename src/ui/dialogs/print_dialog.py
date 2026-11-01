@@ -461,11 +461,17 @@ class AuraPrintDialog(QDialog):
                 tab_doc.sync_form_fields()
             except Exception:
                 pass
-        if hasattr(tab_doc, 'export_drawings_to_pdf') and hasattr(self, 'doc') and self.doc:
+        # Çizimli önizleme kopya üzerinde hazırlanır; açık belge değişmeden kalır.
+        self.source_doc = self.doc
+        if getattr(tab_doc, 'drawings', None) and hasattr(tab_doc, 'export_drawings_to_pdf') and self.doc:
             try:
-                tab_doc.export_drawings_to_pdf(self.doc)
+                if hasattr(tab_doc, 'stop_render_worker'):
+                    tab_doc.stop_render_worker()
+                preview_doc = fitz.open(stream=self.doc.tobytes(), filetype="pdf")
+                tab_doc.export_drawings_to_pdf(preview_doc)
+                self.doc = preview_doc
             except Exception:
-                pass
+                self.doc = self.source_doc
 
         self.total_pages = len(self.doc) if self.doc else 1
         self.current_page_idx = getattr(tab_doc, 'current_page_idx', 0)
@@ -860,6 +866,7 @@ class AuraPrintDialog(QDialog):
         # Önizleme Tuvali
         self.preview_canvas = PrintPreviewCanvas(self)
         self.preview_canvas.set_document(self.tab_doc)
+        self.preview_canvas.doc = self.doc
         right_layout.addWidget(self.preview_canvas, 1)
 
         # Yaprak Gezinme Kontrolleri: [ < ] Sheet 1 of 428 [ > ]
@@ -1225,7 +1232,7 @@ class AuraPrintDialog(QDialog):
                         cy = pad + r * (cell_h + pad)
                         target_rect = fitz.Rect(cx, cy, cx + cell_w, cy + cell_h)
 
-                        new_p.show_pdf_page(target_rect, self.doc, p_idx, keep_proportion=True)
+                        new_p.show_pdf_page(target_rect, self.source_doc, p_idx, keep_proportion=True)
                         if border:
                             new_p.draw_rect(target_rect, color=(0.6, 0.6, 0.6), width=0.8)
 
@@ -1261,7 +1268,7 @@ class AuraPrintDialog(QDialog):
                         margin_rect = fitz.Rect(10, 10, pw - 10, ph - 10)
                         draw_rect = margin_rect
 
-                    new_p.show_pdf_page(draw_rect, self.doc, p_idx, keep_proportion=True)
+                    new_p.show_pdf_page(draw_rect, self.source_doc, p_idx, keep_proportion=True)
 
             # Çizimleri ve Notları Aktar (Gerekliyse)
             if include_markups and hasattr(self.tab_doc, 'export_drawings_to_pdf'):

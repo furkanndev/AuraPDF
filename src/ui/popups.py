@@ -13,6 +13,8 @@ from PyQt6.QtCore import Qt, QPoint, QPointF, QRect, QRectF, QTimer, QSettings, 
 from src.core.i18n import LanguageManager
 from src.ui.icons import AuraIconFactory
 
+from src.ui.ui_style import STYLE_THEME_SPECS, get_ink_color, get_ink_tint
+
 # --- 0. POPUP TEMA ŞABLONLARI ---
 POPUP_THEME_SPECS = {
     "gray": {
@@ -64,6 +66,7 @@ POPUP_THEME_SPECS = {
         "view_bg": "#08090b"
     }
 }
+POPUP_THEME_SPECS.update(STYLE_THEME_SPECS)
 POPUP_THEME_SPECS["light"] = POPUP_THEME_SPECS["gray"]
 POPUP_THEME_SPECS["dark"] = POPUP_THEME_SPECS["gray"]
 
@@ -629,7 +632,7 @@ class SwatchButton(QPushButton):
                 p.setBrush(Qt.BrushStyle.NoBrush)
                 p.drawRoundedRect(QRectF(self.rect()).adjusted(0.5, 0.5, -0.5, -0.5), radius + 1.5, radius + 1.5)
             else:
-                p.setPen(QPen(QColor(255, 255, 255, 140), 1.5))
+                p.setPen(QPen(get_ink_tint(140), 1.5))
                 p.drawRoundedRect(rect, radius, radius)
             
             # Subtle indicator inside custom box to denote user-customizable color box
@@ -646,7 +649,7 @@ class SwatchButton(QPushButton):
                 p.setBrush(Qt.BrushStyle.NoBrush)
                 p.drawEllipse(QRectF(self.rect()).adjusted(0.5, 0.5, -0.5, -0.5))
             else:
-                p.setPen(QPen(QColor(255, 255, 255, 70), 1.2))
+                p.setPen(QPen(get_ink_tint(90), 1.2))
                 p.drawEllipse(rect)
 
     def mousePressEvent(self, event):
@@ -829,14 +832,21 @@ class TextPreviewWidget(QFrame):
         self.bold = False
         self.italic = False
         self.underline = False
+        self.strikeout = False
+        self.alignment = "left"
+        self.box_bg = None
 
-    def update_style(self, color, font_size, font_family, bold=False, italic=False, underline=False):
+    def update_style(self, color, font_size, font_family, bold=False, italic=False, underline=False, strikeout=False,
+                     alignment="left", box_bg=None):
         self.color = color
         self.font_size = font_size
         self.font_family = font_family
         self.bold = bold
         self.italic = italic
         self.underline = underline
+        self.strikeout = strikeout
+        self.alignment = alignment
+        self.box_bg = box_bg
         self.update()
 
     def retranslate_ui(self):
@@ -859,21 +869,34 @@ class TextPreviewWidget(QFrame):
         font.setBold(self.bold)
         font.setItalic(self.italic)
         font.setUnderline(self.underline)
+        font.setStrikeOut(self.strikeout)
         p.setFont(font)
 
         sample = LanguageManager.tr("sample_text")
         text_rect = QRectF(12.0, 0.0, w - 24.0, h)
+        if self.box_bg:
+            p.setPen(Qt.PenStyle.NoPen)
+            p.setBrush(QColor(self.box_bg))
+            p.drawRoundedRect(QRectF(5.0, 5.0, w - 10.0, h - 10.0), 4.0, 4.0)
+        align = {"center": Qt.AlignmentFlag.AlignHCenter, "right": Qt.AlignmentFlag.AlignRight}.get(self.alignment, Qt.AlignmentFlag.AlignLeft)
+        gaps = sample.count(" ")
+        if self.alignment == "justify" and gaps:
+            # Tek satırlık örnekte iki yana yaslama, kelime aralığı açılarak gösterilir.
+            spare = text_rect.width() - QFontMetricsF(font).horizontalAdvance(sample)
+            font.setWordSpacing(max(0.0, spare / gaps))
+            p.setFont(font)
+        flags = Qt.AlignmentFlag.AlignVCenter | align
 
         # If text color is very light (e.g. white, light yellow), draw a soft contrast shadow/halo
         # so it is crystal clear on the light paper background without needing awkward split screens!
-        if self.color.lightnessF() > 0.65:
+        if self.color.lightnessF() > 0.65 and (not self.box_bg or QColor(self.box_bg).lightnessF() > 0.65):
             halo_color = QColor(30, 41, 59, 150)
             p.setPen(halo_color)
             for dx, dy in ((-1.0, 0.0), (1.0, 0.0), (0.0, -1.0), (0.0, 1.0), (-1.0, -1.0), (1.0, 1.0)):
-                p.drawText(text_rect.translated(dx, dy), Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft, sample)
+                p.drawText(text_rect.translated(dx, dy), flags, sample)
 
         p.setPen(self.color)
-        p.drawText(text_rect, Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft, sample)
+        p.drawText(text_rect, flags, sample)
         p.end()
 
 
@@ -1218,6 +1241,7 @@ class TextSettingsPopup(BaseSettingsPopup):
     def _on_box_bg_selected(self, color):
         self.box_bg_color = color
         self._update_box_bg_styles()
+        self.update_preview()
         it = self._get_target_text_item()
         if it and hasattr(it, 'set_box_background'):
             it.set_box_background(color)
@@ -1274,6 +1298,7 @@ class TextSettingsPopup(BaseSettingsPopup):
 
     def _on_align_changed(self, align_val):
         self.alignment = align_val
+        self.update_preview()
         for btn in (self.btn_align_left, self.btn_align_center, self.btn_align_right, self.btn_align_justify):
             btn.setProperty("checked", btn.isChecked())
             btn.style().unpolish(btn)
@@ -1329,7 +1354,8 @@ class TextSettingsPopup(BaseSettingsPopup):
 
     def update_preview(self):
         self.preview.update_style(self.color, self.font_size, self.font_family,
-                                  self.bold, self.italic, self.underline)
+                                  self.bold, self.italic, self.underline, self.btn_strike.isChecked(),
+                                  self.alignment, self.box_bg_color)
 
     def sync_with_item_selection(self, item):
         if not item or not hasattr(item, 'get_selection_format'):
@@ -1338,6 +1364,7 @@ class TextSettingsPopup(BaseSettingsPopup):
         try:
             self.box_bg_color = getattr(item, 'box_bg_color', None)
             self._update_box_bg_styles()
+            self.update_preview()
             fmt = item.get_selection_format()
             if not fmt:
                 return
@@ -2057,6 +2084,86 @@ class StrokePreviewWidget(QFrame):
         self.eraser_mode = "stroke"
         self.line_style = "solid"
         self.is_hl = False
+        self.strokes = []
+        self.hint = ""
+        self.btn_clear = None
+
+    def set_drawable(self, hint: str, clear_tip: str):
+        """Önizlemeyi, seçili kalemle denenebilen küçük bir çizim yüzeyine dönüştürür."""
+        self.hint = hint
+        self.setCursor(Qt.CursorShape.CrossCursor)
+        self.btn_clear = QPushButton(self)
+        self.btn_clear.setFixedSize(24, 24)
+        self.btn_clear.move(self.width() - 28, 4)
+        self.btn_clear.setIcon(AuraIconFactory.icon_trash("#475569"))
+        self.btn_clear.setToolTip(clear_tip)
+        self.btn_clear.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_clear.setStyleSheet("QPushButton { background: transparent; border: none; border-radius: 6px; padding: 2px; } QPushButton:hover { background: rgba(71, 85, 105, 0.16); }")
+        self.btn_clear.clicked.connect(self.clear_strokes)
+        self.btn_clear.hide()
+
+    def clear_strokes(self):
+        self.strokes = []
+        self.btn_clear.hide()
+        self.update()
+
+    def _clamped(self, pos) -> QPointF:
+        return QPointF(max(2.0, min(pos.x(), self.width() - 2.0)), max(2.0, min(pos.y(), self.height() - 2.0)))
+
+    def mousePressEvent(self, event):
+        if self.hint and event.button() == Qt.MouseButton.LeftButton:
+            pt = self._clamped(event.position())
+            self.strokes.append([pt, pt + QPointF(0.1, 0.1)])
+            self.btn_clear.show()
+            self.btn_clear.raise_()
+            self.update()
+            event.accept()
+            return
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event):
+        if self.hint and self.strokes and event.buttons() & Qt.MouseButton.LeftButton:
+            self.strokes[-1].append(self._clamped(event.position()))
+            self.update()
+            event.accept()
+            return
+        super().mouseMoveEvent(event)
+
+    def _paint_strokes(self, p: QPainter, thickness: float):
+        """Kullanıcının çizdiği her izi seçili kalemin stiliyle yeniden çizer."""
+        is_hl = getattr(self, 'is_hl', False)
+        is_pencil = getattr(self, 'pen_type', 'solid') == "pencil" or self.line_style == "pencil"
+        cap = Qt.PenCapStyle.SquareCap if is_hl else Qt.PenCapStyle.RoundCap
+        join = Qt.PenJoinStyle.BevelJoin if is_hl else Qt.PenJoinStyle.RoundJoin
+        patterns = {"dash": Qt.PenStyle.DashLine, "dot": Qt.PenStyle.DotLine, "dashdot": Qt.PenStyle.DashDotLine}
+        style = patterns.get(self.line_style, Qt.PenStyle.SolidLine)
+
+        for pts in self.strokes:
+            if self.line_style == "calligraphy" and len(pts) > 2:
+                p.setPen(Qt.PenStyle.NoPen)
+                p.setBrush(QBrush(self.color))
+                p.drawPath(build_fountain_pen_path(pts, base_width=thickness))
+                continue
+            path = QPainterPath(pts[0])
+            for prev, cur in zip(pts, pts[1:]):
+                path.quadTo(prev, (prev + cur) / 2.0)
+            path.lineTo(pts[-1])
+            if is_pencil:
+                base = QColor(self.color)
+                p.strokePath(path, QPen(QBrush(get_graphite_fringe_texture(base)), thickness * 1.28, style, cap, join))
+                p.strokePath(path, QPen(QBrush(get_graphite_lead_texture(base)), thickness, style, cap, join))
+            else:
+                if self.color.lightnessF() > 0.65:
+                    p.strokePath(path, QPen(QColor(40, 50, 70, 40), thickness + 2.0, style, cap, join))
+                p.strokePath(path, QPen(self.color, thickness, style, cap, join))
+            if self.line_style == "arrow" and len(pts) > 2:
+                tip, tail = pts[-1], pts[max(0, len(pts) - 6)]
+                angle = math.atan2(tip.y() - tail.y(), tip.x() - tail.x())
+                wing = max(8.0, min(18.0, thickness * 2.2 + 6.0))
+                pen = QPen(self.color, max(2.0, min(thickness * 0.85, 7.0)), Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap)
+                p.setPen(pen)
+                for side in (-0.55, 0.55):
+                    p.drawLine(tip, tip - QPointF(math.cos(angle + side), math.sin(angle + side)) * wing)
 
     def update_style(self, color, thickness, is_eraser=False, eraser_mode="stroke", line_style="solid", is_hl=False, pen_type="solid"):
         self.color = color
@@ -2081,6 +2188,16 @@ class StrokePreviewWidget(QFrame):
 
         mid_y = h / 2.0
         start_x, end_x = max(12.0, w * 0.08), min(w - 12.0, w * 0.92)
+
+        if self.strokes:
+            self._paint_strokes(p, max(1.0, min(float(self.thickness), h - 8.0)))
+            p.end()
+            return
+        if self.hint:
+            p.setPen(QColor("#64748b"))
+            p.setFont(QFont(self.font().family(), 8))
+            p.drawText(QRectF(0.0, h - 22.0, w, 18.0), Qt.AlignmentFlag.AlignCenter, self.hint)
+            mid_y -= 8.0
 
         if self.is_eraser:
             if self.eraser_mode == "stroke":
@@ -2234,7 +2351,7 @@ class AuraToggleSwitch(QCheckBox):
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
         checked = self.isChecked()
-        bg_col = self.accent_color if checked else QColor(255, 255, 255, 45)
+        bg_col = self.accent_color if checked else get_ink_tint(70)
         p.setPen(Qt.PenStyle.NoPen)
         p.setBrush(QBrush(bg_col))
         p.drawRoundedRect(QRectF(0, 1, 40, 20), 10, 10)
@@ -2280,12 +2397,12 @@ class AuraValueSlider(QSlider):
 
         # Inactive capsule track matching screenshot
         p.setPen(Qt.PenStyle.NoPen)
-        p.setBrush(QBrush(QColor(255, 255, 255, 25)))
+        p.setBrush(QBrush(get_ink_tint(30)))
         p.drawRoundedRect(track_rect, radius, radius)
 
         # Subtle tick dots along track
         dot_count = 10
-        p.setBrush(QBrush(QColor(255, 255, 255, 50)))
+        p.setBrush(QBrush(get_ink_tint(70)))
         for i in range(1, dot_count):
             dot_x = track_margin + (track_w / dot_count) * i
             p.drawEllipse(QPointF(dot_x, h / 2.0), 1.5, 1.5)
@@ -2293,10 +2410,10 @@ class AuraValueSlider(QSlider):
         # Circle thumb with number inside
         thumb_x = track_margin + track_w * ratio
         p.setBrush(QBrush(self.theme_thumb))
-        p.setPen(QPen(QColor(255, 255, 255, 50), 1.0))
+        p.setPen(QPen(get_ink_tint(90), 1.0))
         p.drawEllipse(QPointF(thumb_x, h / 2.0), thumb_r, thumb_r)
-        
-        p.setPen(QPen(QColor("#ffffff")))
+
+        p.setPen(QPen(QColor("#0f172a") if self.theme_thumb.lightness() > 140 else QColor("#ffffff")))
         font = QFont("Segoe UI", 9, QFont.Weight.Bold)
         p.setFont(font)
         p.drawText(QRectF(thumb_x - thumb_r, h / 2.0 - thumb_r, thumb_r * 2.0, thumb_r * 2.0), 
@@ -2473,10 +2590,10 @@ class LineStylePill(QPushButton):
             p.setBrush(QBrush(self.theme_checked_bg))
         else:
             p.setPen(Qt.PenStyle.NoPen)
-            p.setBrush(QBrush(QColor(255, 255, 255, 18)))
+            p.setBrush(QBrush(get_ink_tint(22)))
         p.drawRoundedRect(QRectF(0.5, 0.5, w - 1.0, h - 1.0), 14.0, 14.0)
 
-        stroke_col = QColor("#ffffff") if self.isChecked() else QColor("#cbd5e1")
+        stroke_col = QColor(get_ink_color())
         if self.style_key == "solid":
             p.setPen(QPen(stroke_col, 2.2, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
             p.drawLine(QPointF(cx - 12.0, cy), QPointF(cx + 12.0, cy))
@@ -2541,7 +2658,7 @@ class CircularColorSwatch(QPushButton):
         p.drawEllipse(rect)
 
         if self.is_active:
-            p.setPen(QPen(QColor(255, 255, 255, 180), 1.6))
+            p.setPen(QPen(get_ink_tint(180), 1.6))
             p.setBrush(Qt.BrushStyle.NoBrush)
             p.drawEllipse(QRectF(0.5, 0.5, 25.0, 25.0))
 
@@ -2556,7 +2673,7 @@ class CircularColorSwatch(QPushButton):
             p.setPen(QPen(QColor("#ffffff"), 1.8, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
             p.drawPath(check_path)
         else:
-            p.setPen(QPen(QColor(255, 255, 255, 35), 1.0))
+            p.setPen(QPen(get_ink_tint(90), 1.0))
             p.setBrush(Qt.BrushStyle.NoBrush)
             p.drawEllipse(rect)
         p.end()
@@ -2678,7 +2795,7 @@ class PenRackItem(QWidget):
         nib.lineTo(cx + 8.0, base_y + 14.0)
         nib.lineTo(cx + 7.0, base_y + 22.0)
         nib.closeSubpath()
-        nib_col = self.active_color if self.is_active else QColor("#cbd5e1")
+        nib_col = self.active_color if self.is_active else QColor(get_ink_color())
         p.setBrush(QBrush(nib_col))
         p.drawPath(nib)
         
@@ -3037,7 +3154,7 @@ class ToolSettingsPopup(BaseSettingsPopup):
             self.btn_close = QPushButton()
             self.btn_close.setFixedSize(28, 28)
             self.btn_close.setCursor(Qt.CursorShape.PointingHandCursor)
-            self.btn_close.setIcon(AuraIconFactory.icon_close("#94a3b8"))
+            self.btn_close.setIcon(AuraIconFactory.icon_close())
             self.btn_close.setStyleSheet("""
                 QPushButton {
                     background: rgba(255, 255, 255, 0.05);
@@ -3058,7 +3175,7 @@ class ToolSettingsPopup(BaseSettingsPopup):
             self.btn_mode_pens = QPushButton()
             self.btn_mode_pens.setFixedSize(30, 30)
             self.btn_mode_pens.setCursor(Qt.CursorShape.PointingHandCursor)
-            self.btn_mode_pens.setIcon(AuraIconFactory.icon_pen_rack("#e2e8f0"))
+            self.btn_mode_pens.setIcon(AuraIconFactory.icon_pen_rack())
             self.btn_mode_pens.setToolTip(LanguageManager.tr("tab_customize"))
             self.btn_mode_pens.setStyleSheet("""
                 QPushButton {
@@ -3163,7 +3280,7 @@ class ToolSettingsPopup(BaseSettingsPopup):
 
             btn_thick_minus = QPushButton()
             btn_thick_minus.setFixedSize(28, 28)
-            btn_thick_minus.setIcon(AuraIconFactory.icon_minus("#cbd5e1"))
+            btn_thick_minus.setIcon(AuraIconFactory.icon_minus())
             btn_thick_minus.setCursor(Qt.CursorShape.PointingHandCursor)
             btn_thick_minus.setStyleSheet("""
                 QPushButton {
@@ -3186,7 +3303,7 @@ class ToolSettingsPopup(BaseSettingsPopup):
 
             btn_thick_plus = QPushButton()
             btn_thick_plus.setFixedSize(28, 28)
-            btn_thick_plus.setIcon(AuraIconFactory.icon_plus("#cbd5e1"))
+            btn_thick_plus.setIcon(AuraIconFactory.icon_plus())
             btn_thick_plus.setCursor(Qt.CursorShape.PointingHandCursor)
             btn_thick_plus.setStyleSheet("""
                 QPushButton {
@@ -3210,7 +3327,7 @@ class ToolSettingsPopup(BaseSettingsPopup):
 
                 btn_opac_minus = QPushButton()
                 btn_opac_minus.setFixedSize(28, 28)
-                btn_opac_minus.setIcon(AuraIconFactory.icon_minus("#cbd5e1"))
+                btn_opac_minus.setIcon(AuraIconFactory.icon_minus())
                 btn_opac_minus.setCursor(Qt.CursorShape.PointingHandCursor)
                 btn_opac_minus.setStyleSheet("""
                     QPushButton {
@@ -3234,7 +3351,7 @@ class ToolSettingsPopup(BaseSettingsPopup):
 
                 btn_opac_plus = QPushButton()
                 btn_opac_plus.setFixedSize(28, 28)
-                btn_opac_plus.setIcon(AuraIconFactory.icon_plus("#cbd5e1"))
+                btn_opac_plus.setIcon(AuraIconFactory.icon_plus())
                 btn_opac_plus.setCursor(Qt.CursorShape.PointingHandCursor)
                 btn_opac_plus.setStyleSheet("""
                     QPushButton {
@@ -3312,7 +3429,7 @@ class ToolSettingsPopup(BaseSettingsPopup):
             self.btn_eyedropper = QPushButton()
             self.btn_eyedropper.setFixedSize(26, 26)
             self.btn_eyedropper.setCursor(Qt.CursorShape.PointingHandCursor)
-            self.btn_eyedropper.setIcon(AuraIconFactory.icon_eyedropper("#cbd5e1"))
+            self.btn_eyedropper.setIcon(AuraIconFactory.icon_eyedropper())
             self.btn_eyedropper.setStyleSheet("""
                 QPushButton {
                     background: rgba(255, 255, 255, 0.08);
@@ -3347,7 +3464,8 @@ class ToolSettingsPopup(BaseSettingsPopup):
             cust_layout.addLayout(colors_row)
 
             # Live Stroke Preview for instant feedback
-            self.preview = StrokePreviewWidget(parent=self.page_customize, width=296, height=36)
+            self.preview = StrokePreviewWidget(parent=self.page_customize, width=296, height=104)
+            self.preview.set_drawable(LanguageManager.tr("preview_draw_hint"), LanguageManager.tr("preview_clear_tip"))
             cust_layout.addWidget(self.preview)
 
             # === PAGE 1: FAVORITES / SAVED PENS ===
@@ -3432,7 +3550,7 @@ class ToolSettingsPopup(BaseSettingsPopup):
             self.btn_close = QPushButton()
             self.btn_close.setFixedSize(26, 26)
             self.btn_close.setCursor(Qt.CursorShape.PointingHandCursor)
-            self.btn_close.setIcon(AuraIconFactory.icon_close("#94a3b8"))
+            self.btn_close.setIcon(AuraIconFactory.icon_close())
             self.btn_close.setStyleSheet("""
                 QPushButton {
                     background: rgba(255, 255, 255, 0.05);
@@ -3470,7 +3588,7 @@ class ToolSettingsPopup(BaseSettingsPopup):
 
             btn_thick_minus = QPushButton()
             btn_thick_minus.setFixedSize(28, 28)
-            btn_thick_minus.setIcon(AuraIconFactory.icon_minus("#cbd5e1"))
+            btn_thick_minus.setIcon(AuraIconFactory.icon_minus())
             btn_thick_minus.setCursor(Qt.CursorShape.PointingHandCursor)
             btn_thick_minus.setStyleSheet("QPushButton { background: transparent; border: none; border-radius: 14px; } QPushButton:hover { background: rgba(255, 255, 255, 0.1); }")
             btn_thick_minus.clicked.connect(lambda: self.slider_thick.setValue(max(self.slider_thick.minimum(), self.slider_thick.value() - 2)))
@@ -3484,7 +3602,7 @@ class ToolSettingsPopup(BaseSettingsPopup):
 
             btn_thick_plus = QPushButton()
             btn_thick_plus.setFixedSize(28, 28)
-            btn_thick_plus.setIcon(AuraIconFactory.icon_plus("#cbd5e1"))
+            btn_thick_plus.setIcon(AuraIconFactory.icon_plus())
             btn_thick_plus.setCursor(Qt.CursorShape.PointingHandCursor)
             btn_thick_plus.setStyleSheet("QPushButton { background: transparent; border: none; border-radius: 14px; } QPushButton:hover { background: rgba(255, 255, 255, 0.1); }")
             btn_thick_plus.clicked.connect(lambda: self.slider_thick.setValue(min(self.slider_thick.maximum(), self.slider_thick.value() + 2)))
@@ -5132,7 +5250,7 @@ class PDFTextSelectionHUD(QFrame):
         """)
 
         # Vektörel ikonları yenile
-        self.btn_copy.setIcon(AuraIconFactory.icon_copy("#94a3b8"))
+        self.btn_copy.setIcon(AuraIconFactory.icon_copy())
         self.btn_hl.setIcon(AuraIconFactory.icon_highlighter("#eab308"))
         self.btn_ul.setIcon(AuraIconFactory.icon_underline("#38bdf8"))
         self.btn_so.setIcon(AuraIconFactory.icon_strikethrough("#fb7185"))
@@ -5306,11 +5424,13 @@ class AuraStampPalettePopup(BaseSettingsPopup):
             btn.setObjectName("StampPresetBtn")
             btn.setFixedHeight(32)
             btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            tone = QColor(col_hex)
+            tone_rgb = f"{tone.red()}, {tone.green()}, {tone.blue()}"
             btn.setStyleSheet(f"""
                 QPushButton#StampPresetBtn {{
-                    background-color: {col_hex}18;
-                    color: {col_hex};
-                    border: 1.5px solid {col_hex}80;
+                    background-color: rgba({tone_rgb}, 0.16);
+                    color: #ffffff;
+                    border: 1.5px solid {col_hex};
                     border-radius: 6px;
                     font-size: 10px;
                     font-weight: 800;
@@ -5318,7 +5438,7 @@ class AuraStampPalettePopup(BaseSettingsPopup):
                     padding: 4px 6px;
                 }}
                 QPushButton#StampPresetBtn:hover {{
-                    background-color: {col_hex}35;
+                    background-color: rgba({tone_rgb}, 0.32);
                     border: 1.5px solid {col_hex};
                     color: #ffffff;
                 }}

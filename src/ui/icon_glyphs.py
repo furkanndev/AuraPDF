@@ -202,7 +202,48 @@ COLORFUL_GLYPHS = {
 _TOKEN = re.compile(r"[MLHVQCZ]|-?\d*\.?\d+")
 
 
-def _parse_path(spec: str) -> QPainterPath:
+_GLYPH_STYLES = {
+    "classic": {"stroke": 1.75, "sharp": False, "tint": 0.0},
+    "atolye": {"stroke": 1.35, "sharp": False, "tint": 0.0},
+    "grafit": {"stroke": 2.0, "sharp": False, "tint": 0.24},
+    "serit": {"stroke": 1.6, "sharp": True, "tint": 0.0},
+}
+_glyph_style = _GLYPH_STYLES["classic"]
+# İkon setleri arayüz stilinin üstüne biner; "_mono" ekli sürüm aynı çizimin renksiz halidir.
+_ICON_SET_SHAPES = {
+    "modern": {}, "duotone": {"tint": 0.28}, "solid": {"tint": 0.62, "stroke": 1.1},
+    "fine": {"stroke": 0.72}, "bold": {"stroke": 1.35}, "sharp": {"sharp": True},
+}
+ICON_SETS = [name for shape in _ICON_SET_SHAPES for name in (shape, f"{shape}_mono")]
+_icon_shape: dict = {}
+_icon_mono = False
+SHARP_CORNER_SPAN = 3.5
+
+
+def set_glyph_style(style: str):
+    """İkonların çizgi kalınlığını, köşe dilini ve dolgu tonunu arayüze göre seçer."""
+    global _glyph_style
+    _glyph_style = _GLYPH_STYLES.get(style, _GLYPH_STYLES["classic"])
+
+
+def set_icon_set(name: str):
+    """Çizgi, dolgu ve renk davranışını seçili ikon setine geçirir."""
+    global _icon_shape, _icon_mono
+    _icon_mono = name.endswith("_mono")
+    _icon_shape = _ICON_SET_SHAPES.get(name.removesuffix("_mono"), {})
+
+
+def get_icon_set() -> tuple:
+    """Geçici önizlemeden sonra geri yüklenecek set durumunu döner."""
+    return _icon_shape, _icon_mono
+
+
+def restore_icon_set(state: tuple):
+    global _icon_shape, _icon_mono
+    _icon_shape, _icon_mono = state
+
+
+def _parse_path(spec: str, sharp: bool = False) -> QPainterPath:
     tokens = _TOKEN.findall(spec)
     path = QPainterPath()
     x = y = 0.0
@@ -230,8 +271,13 @@ def _parse_path(spec: str) -> QPainterPath:
             y = take(1)[0]
             path.lineTo(x, y)
         elif cmd == "Q":
+            start_x, start_y = x, y
             cx, cy, x, y = take(4)
-            path.quadTo(cx, cy, x, y)
+            if sharp and abs(x - start_x) <= SHARP_CORNER_SPAN and abs(y - start_y) <= SHARP_CORNER_SPAN:
+                path.lineTo(cx, cy)
+                path.lineTo(x, y)
+            else:
+                path.quadTo(cx, cy, x, y)
         elif cmd == "C":
             c1x, c1y, c2x, c2y, x, y = take(6)
             path.cubicTo(c1x, c1y, c2x, c2y, x, y)
@@ -240,7 +286,7 @@ def _parse_path(spec: str) -> QPainterPath:
     return path
 
 
-def _build_element(spec: str) -> Tuple[QPainterPath, bool]:
+def _build_element(spec: str, sharp: bool = False) -> Tuple[QPainterPath, bool]:
     filled = spec.startswith("f ")
     if filled:
         spec = spec[2:]
@@ -250,9 +296,9 @@ def _build_element(spec: str) -> Tuple[QPainterPath, bool]:
         path.addEllipse(QPointF(cx, cy), r, r)
     elif spec.startswith("r "):
         x, y, w, h, radius = (float(v) for v in spec[2:].split())
-        path.addRoundedRect(QRectF(x, y, w, h), radius, radius)
+        path.addRoundedRect(QRectF(x, y, w, h), 0 if sharp else radius, 0 if sharp else radius)
     else:
-        path = _parse_path(spec)
+        path = _parse_path(spec, sharp)
     return path, filled
 
 
@@ -276,6 +322,8 @@ class AuraGlyphEngine(QIconEngine):
 
     def paint(self, painter: QPainter, rect: QRect, mode, state):
         color = QColor(self.color or AuraGlyphEngine.theme_text)
+        if _icon_mono and self.color and color.hslSaturationF() > SATURATED_ABOVE and self.color.lower() not in _theme_keep:
+            color = QColor(AuraGlyphEngine.theme_text)
         painter.save()
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         if mode == QIcon.Mode.Disabled:
@@ -283,10 +331,25 @@ class AuraGlyphEngine(QIconEngine):
         side = min(rect.width(), rect.height())
         painter.translate(rect.x() + (rect.width() - side) / 2.0, rect.y() + (rect.height() - side) / 2.0)
         painter.scale(side / GRID_SIZE, side / GRID_SIZE)
-        pen = QPen(color, STROKE_WIDTH, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin)
-        for path, filled in self.elements:
+        look = dict(_glyph_style)
+        look["stroke"] *= _icon_shape.get("stroke", 1.0)
+        look["tint"] = max(look["tint"], _icon_shape.get("tint", 0.0))
+        look["sharp"] = look["sharp"] or _icon_shape.get("sharp", False)
+        cap = Qt.PenCapStyle.SquareCap if look["sharp"] else Qt.PenCapStyle.RoundCap
+        join = Qt.PenJoinStyle.MiterJoin if look["sharp"] else Qt.PenJoinStyle.RoundJoin
+        pen = QPen(color, look["stroke"], Qt.PenStyle.SolidLine, cap, join)
+        tint = QColor(color)
+        tint.setAlphaF(look["tint"])
+        elements = self.elements
+        if look["sharp"]:
+            if self.name not in _SHARP_PARSED:
+                _SHARP_PARSED[self.name] = [_build_element(spec, True) for spec in GLYPHS[self.name]]
+            elements = _SHARP_PARSED[self.name]
+        for path, filled in elements:
             if filled or self.filled:
                 painter.fillPath(path, color)
+            elif look["tint"] and path.currentPosition() == path.elementAt(0):
+                painter.fillPath(path, tint)
             if not filled:
                 painter.setPen(pen)
                 painter.setBrush(Qt.BrushStyle.NoBrush)
@@ -303,6 +366,7 @@ class AuraGlyphEngine(QIconEngine):
 
 
 _PARSED: Dict[str, List[Tuple[QPainterPath, bool]]] = {}
+_SHARP_PARSED: Dict[str, List[Tuple[QPainterPath, bool]]] = {}
 _theme_keep: set = set()
 
 

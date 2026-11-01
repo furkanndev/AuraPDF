@@ -14,17 +14,21 @@ from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel,
                              QComboBox, QMessageBox, QScrollArea,
                              QGridLayout, QListWidget, QListWidgetItem, QAbstractItemView,
                              QApplication, QToolButton)
-from PyQt6.QtCore import Qt, QSettings, QRectF, QPointF, QTimer, QEvent, pyqtSignal
-from PyQt6.QtGui import QIcon, QFont, QColor, QKeySequence, QPainter, QPen, QBrush
+from PyQt6.QtCore import Qt, QSettings, QRectF, QPointF, QTimer, QEvent, QEventLoop, pyqtSignal
+from PyQt6.QtGui import QIcon, QFont, QColor, QKeySequence, QPainter, QPainterPath, QPen, QBrush
 from PyQt6.QtCore import QSize
 
 from src.core.i18n import LanguageManager
+from src.ui.animations import AuraBusyIndicator, AuraMotion
 from src.ui.dialog_theme import apply_dialog_theme, AuraInfoCard
+from src.ui.ui_style import (DEFAULT_STYLE, STYLE_THEMES, get_interface_style, get_panel_layout, panel_layout_key,
+                             set_progress_hook)
 from src.core.shortcut_helper import (
     build_mouse_shortcut_string,
     format_shortcut_display,
     clean_modifiers,
 )
+from src.ui.icon_glyphs import ICON_SETS, get_icon_set, glyph_icon, restore_icon_set, set_icon_set
 from src.ui.icons import AuraIconFactory
 from src.ui.cursors import CursorFactory, CURSOR_PRESETS
 
@@ -104,62 +108,190 @@ def get_effective_author_name() -> str:
 
 class CursorPreviewBox(QFrame):
     """
-    Kullanıcının seçtiği imleci hem açık (beyaz) hem de koyu (karanlık) sayfa
-    arka planında fareyle üzerine gelerek canlı olarak test etmesini sağlayan
-    bölünmüş (split) etkileşimli önizleme alanı.
+    Seçili aracı açık ve koyu sayfa üzerinde denetmek için iki bölümlü deneme yüzeyi.
+    Kalem ve vurgulayıcı çizer, silgi siler, metin aracı yazı koyar, lazer iz bırakıp
+    söner, seçim aracı alan gösterir; imleç de üzerinde bulunulan sayfaya göre değişir.
     """
+    SIDE_COLORS = ("#FFFFFF", "#1A1A20")
+    INK_COLORS = ("#1d2733", "#f1f5f9")
+
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setFixedHeight(110)
+        self.setFixedHeight(190)
         self.setMouseTracking(True)
-        self.active_cursor = None
+        self.tool = "pen"
+        self.tool_color = "#0071E3"
+        self.cursors = (None, None)
+        self.marks = []
+        self._active = None
+        self._side = 0
+        self._fade = QTimer(self)
+        self._fade.setSingleShot(True)
+        self._fade.setInterval(550)
+        self._fade.timeout.connect(self._drop_laser_marks)
+        self.btn_clear = QPushButton(self)
+        self.btn_clear.setFixedSize(26, 26)
+        self.btn_clear.setIcon(AuraIconFactory.icon_trash("#94a3b8"))
+        self.btn_clear.setToolTip(LanguageManager.tr("preview_clear_tip"))
+        self.btn_clear.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_clear.setStyleSheet("QPushButton { background: rgba(100, 116, 139, 0.16); border: none; border-radius: 6px; padding: 2px; } QPushButton:hover { background: rgba(100, 116, 139, 0.32); }")
+        self.btn_clear.clicked.connect(self.clear_marks)
+        self.btn_clear.hide()
 
-    def set_preview_cursor(self, cursor):
-        self.active_cursor = cursor
+    def set_preview_cursor(self, light_cursor, dark_cursor):
+        self.cursors = (light_cursor, dark_cursor)
+        self._show_side_cursor()
+
+    def set_tool(self, tool: str, color: str):
+        self.tool = tool
+        self.tool_color = color
+
+    def clear_marks(self):
+        self.marks = []
+        self.btn_clear.hide()
+        self.update()
+
+    def resizeEvent(self, event):
+        self.btn_clear.move(self.width() - 32, 6)
+        super().resizeEvent(event)
+
+    def _show_side_cursor(self):
+        cursor = self.cursors[self._side]
         if cursor is not None:
             self.setCursor(cursor)
 
+    def _side_rect(self, side: int) -> QRectF:
+        half = self.width() / 2.0
+        return QRectF(half * side + 2, 2, half - 4, self.height() - 4)
+
+    def _clamped(self, pos: QPointF, side: int) -> QPointF:
+        rect = self._side_rect(side)
+        return QPointF(min(max(pos.x(), rect.left()), rect.right()), min(max(pos.y(), rect.top()), rect.bottom()))
+
+    def mousePressEvent(self, event):
+        if event.button() != Qt.MouseButton.LeftButton:
+            return
+        pos = event.position()
+        self._side = 0 if pos.x() < self.width() / 2.0 else 1
+        if self.tool == "eraser":
+            self._active = "eraser"
+            self._erase_at(pos)
+            return
+        if self.tool == "text":
+            self.marks.append({"kind": "text", "side": self._side, "pts": [pos]})
+        else:
+            self._active = {"kind": self.tool, "side": self._side, "pts": [pos, pos + QPointF(0.1, 0.1)]}
+            self.marks.append(self._active)
+        self.btn_clear.show()
+        self.btn_clear.raise_()
+        self.update()
+
+    def mouseMoveEvent(self, event):
+        pos = event.position()
+        if self._active is None:
+            side = 0 if pos.x() < self.width() / 2.0 else 1
+            if side != self._side:
+                self._side = side
+                self._show_side_cursor()
+        elif self._active == "eraser":
+            self._erase_at(pos)
+        else:
+            point = self._clamped(pos, self._active["side"])
+            if self._active["kind"] == "selection":
+                self._active["pts"][1] = point
+            else:
+                self._active["pts"].append(point)
+            self.update()
+
+    def mouseReleaseEvent(self, event):
+        finished, self._active = self._active, None
+        if isinstance(finished, dict) and finished["kind"] == "selection":
+            self.marks.remove(finished)
+        if isinstance(finished, dict) and finished["kind"] == "pointer":
+            self._fade.start()
+        self.btn_clear.setVisible(bool(self.marks))
+        self._show_side_cursor()
+        self.update()
+
+    def leaveEvent(self, event):
+        self._side = 0
+        super().leaveEvent(event)
+
+    def _drop_laser_marks(self):
+        self.marks = [mark for mark in self.marks if mark["kind"] != "pointer"]
+        self.btn_clear.setVisible(bool(self.marks))
+        self.update()
+
+    def _erase_at(self, pos: QPointF):
+        reach = 12.0
+        kept = [m for m in self.marks if not any(abs(pt.x() - pos.x()) < reach and abs(pt.y() - pos.y()) < reach for pt in m["pts"])]
+        if len(kept) != len(self.marks):
+            self.marks = kept
+            self.btn_clear.setVisible(bool(kept))
+            self.update()
+
+    def _paint_mark(self, p: QPainter, mark: dict):
+        side, pts = mark["side"], mark["pts"]
+        kind = mark["kind"]
+        if kind == "text":
+            p.setPen(QColor(self.INK_COLORS[side]))
+            p.setFont(QFont("Segoe UI", 12))
+            p.drawText(pts[0], LanguageManager.tr("prev_tool_text"))
+            return
+        if kind == "selection":
+            p.setPen(QPen(QColor(self.INK_COLORS[side]), 1.2, Qt.PenStyle.DashLine))
+            p.setBrush(QColor(0, 113, 227, 40))
+            p.drawRect(QRectF(pts[0], pts[1]).normalized())
+            return
+        path = QPainterPath(pts[0])
+        for prev, cur in zip(pts, pts[1:]):
+            path.quadTo(prev, (prev + cur) / 2.0)
+        path.lineTo(pts[-1])
+        if kind == "highlighter":
+            pen = QPen(QColor(255, 214, 10, 130), 14, Qt.PenStyle.SolidLine, Qt.PenCapStyle.SquareCap)
+        elif kind == "pointer":
+            pen = QPen(QColor(255, 45, 85, 190), 3, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap)
+        elif kind == "ruler":
+            pen = QPen(QColor(self.INK_COLORS[side]), 1.5)
+            path = QPainterPath(pts[0])
+            path.lineTo(pts[-1])
+        else:
+            pen = QPen(QColor(self.tool_color if kind == self.tool else "#0071E3"), 2.4, Qt.PenStyle.SolidLine,
+                       Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin)
+        p.strokePath(path, pen)
+
     def paintEvent(self, event):
-        from PyQt6.QtGui import QFont
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
         w = float(self.width())
         h = float(self.height())
         mid = w / 2.0
+        outline = QPainterPath()
+        outline.addRoundedRect(QRectF(0.5, 0.5, w - 1, h - 1), 8, 8)
 
-        # Dış çerçeve ve sol açık sayfa (beyaz)
-        p.setPen(QPen(QColor("#444850"), 1.2))
-        p.setBrush(QBrush(QColor("#FFFFFF")))
-        p.drawRoundedRect(QRectF(0, 0, w, h), 8, 8)
+        p.setClipPath(outline)
+        p.fillRect(QRectF(0, 0, mid, h), QColor(self.SIDE_COLORS[0]))
+        p.fillRect(QRectF(mid, 0, mid, h), QColor(self.SIDE_COLORS[1]))
 
-        # Sağ koyu sayfa (karanlık mod)
-        p.save()
-        p.setClipRect(QRectF(mid, 0, mid, h))
-        p.setBrush(QBrush(QColor("#1A1A20")))
-        p.drawRoundedRect(QRectF(0, 0, w, h), 8, 8)
-        p.restore()
+        # Sayfa adları
+        p.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
+        p.setPen(QColor("#334155"))
+        p.drawText(QRectF(15, 10, mid - 30, 18), Qt.AlignmentFlag.AlignLeft, LanguageManager.tr("cursor_preview_light"))
+        p.setPen(QColor("#f1f5f9"))
+        p.drawText(QRectF(mid + 15, 10, mid - 30, 18), Qt.AlignmentFlag.AlignLeft, LanguageManager.tr("cursor_preview_dark"))
 
-        # Dikey kesikli ayırıcı çizgi
+        for mark in self.marks:
+            p.save()
+            p.setClipRect(self._side_rect(mark["side"]))
+            self._paint_mark(p, mark)
+            p.restore()
+
+        p.setClipping(False)
         p.setPen(QPen(QColor("#64748b"), 1.0, Qt.PenStyle.DashLine))
         p.drawLine(QPointF(mid, 0), QPointF(mid, h))
-
-        # Sol taraf açık sayfa çizgileri ve yazısı
-        p.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
-        p.setPen(QPen(QColor("#334155")))
-        p.drawText(QRectF(15, 12, mid - 30, 18), Qt.AlignmentFlag.AlignLeft, LanguageManager.tr("cursor_preview_light"))
-        p.setPen(QPen(QColor("#94a3b8"), 1.0))
-        p.drawLine(QPointF(15, 42), QPointF(mid - 25, 42))
-        p.drawLine(QPointF(15, 58), QPointF(mid - 55, 58))
-        p.drawLine(QPointF(15, 74), QPointF(mid - 35, 74))
-
-        # Sağ taraf koyu sayfa çizgileri ve yazısı
-        p.setPen(QPen(QColor("#f1f5f9")))
-        p.drawText(QRectF(mid + 15, 12, mid - 30, 18), Qt.AlignmentFlag.AlignLeft, LanguageManager.tr("cursor_preview_dark"))
-        p.setPen(QPen(QColor("#475569"), 1.0))
-        p.drawLine(QPointF(mid + 15, 42), QPointF(w - 25, 42))
-        p.drawLine(QPointF(mid + 15, 58), QPointF(w - 55, 58))
-        p.drawLine(QPointF(mid + 15, 74), QPointF(w - 35, 74))
-
+        p.setPen(QPen(QColor("#444850"), 1.2))
+        p.setBrush(Qt.BrushStyle.NoBrush)
+        p.drawPath(outline)
         p.end()
 
 
@@ -444,6 +576,74 @@ class AuraShortcutEdit(QWidget):
         )
 
 
+class AuraIconSetGallery(QWidget):
+    """Her ikon setini gerçek ikonlarla gösterir; soldaki sütun renkli, sağdaki renksiz sürümdür."""
+    setChosen = pyqtSignal(str)
+    SAMPLES = (("pen", "#2563eb"), ("highlighter", "#d97706"), ("eraser", "#db2777"),
+               ("stamp", "#dc2626"), ("lock", "#059669"), ("image", "#7c3aed"))
+    CARD_HEIGHT = 52
+    GAP = 8
+
+    def __init__(self, titles: dict, parent=None):
+        super().__init__(parent)
+        self.titles = titles
+        self.selected = ""
+        self._hovered = -1
+        self.setMouseTracking(True)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        rows = (len(ICON_SETS) + 1) // 2
+        self.setFixedHeight(rows * self.CARD_HEIGHT + (rows - 1) * self.GAP)
+
+    def set_selected(self, name: str):
+        self.selected = name
+        self.update()
+
+    def _card_rect(self, index: int) -> QRectF:
+        width = (self.width() - self.GAP) / 2.0
+        return QRectF((index % 2) * (width + self.GAP), (index // 2) * (self.CARD_HEIGHT + self.GAP), width, self.CARD_HEIGHT)
+
+    def _index_at(self, pos) -> int:
+        return next((i for i in range(len(ICON_SETS)) if self._card_rect(i).contains(pos)), -1)
+
+    def mouseMoveEvent(self, event):
+        index = self._index_at(event.position())
+        if index != self._hovered:
+            self._hovered = index
+            self.update()
+
+    def leaveEvent(self, event):
+        self._hovered = -1
+        self.update()
+
+    def mousePressEvent(self, event):
+        index = self._index_at(event.position())
+        if index >= 0 and event.button() == Qt.MouseButton.LeftButton:
+            self.setChosen.emit(ICON_SETS[index])
+
+    def paintEvent(self, event):
+        from src.ui.dialog_theme import get_theme_palette
+        pal = get_theme_palette()
+        state = get_icon_set()
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        for index, name in enumerate(ICON_SETS):
+            rect = self._card_rect(index).adjusted(0.5, 0.5, -0.5, -0.5)
+            chosen = name == self.selected
+            p.setPen(QPen(QColor(pal["accent"] if chosen or index == self._hovered else pal["border"]), 1.8 if chosen else 1.0))
+            p.setBrush(QColor(pal["bg"]))
+            p.drawRoundedRect(rect, 8, 8)
+            p.setPen(QColor(pal["text"]))
+            title = p.fontMetrics().elidedText(self.titles.get(name, name), Qt.TextElideMode.ElideRight, int(rect.width() * 0.46))
+            p.drawText(rect.adjusted(12, 0, 0, 0), Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft, title)
+            set_icon_set(name)
+            x = rect.right() - 12 - len(self.SAMPLES) * 26
+            for glyph, color in self.SAMPLES:
+                glyph_icon(glyph, color).paint(p, QRectF(x, rect.center().y() - 10, 20, 20).toRect())
+                x += 26
+        restore_icon_set(state)
+        p.end()
+
+
 class ThemeOptionCard(QFrame):
     """
     Modern temayı, başlığını, açıklamasını ve renk paleti önizleme haplarını
@@ -508,22 +708,22 @@ class ThemeOptionCard(QFrame):
         if is_checked:
             self.setStyleSheet(f"""
                 QFrame#ThemeOptionCard {{
-                    background-color: rgba(255, 255, 255, 0.08);
+                    background-color: rgba(128, 128, 128, 0.12);
                     border: 1.5px solid {accent_color};
                     border-radius: 9px;
                 }}
             """)
         else:
             self.setStyleSheet("""
-                QFrame#ThemeOptionCard {{
-                    background-color: rgba(255, 255, 255, 0.02);
-                    border: 1px solid rgba(255, 255, 255, 0.08);
+                QFrame#ThemeOptionCard {
+                    background-color: rgba(128, 128, 128, 0.06);
+                    border: 1px solid rgba(128, 128, 128, 0.28);
                     border-radius: 9px;
-                }}
-                QFrame#ThemeOptionCard:hover {{
-                    background-color: rgba(255, 255, 255, 0.05);
-                    border-color: rgba(255, 255, 255, 0.22);
-                }}
+                }
+                QFrame#ThemeOptionCard:hover {
+                    background-color: rgba(128, 128, 128, 0.14);
+                    border-color: rgba(128, 128, 128, 0.55);
+                }
             """)
 
     def mousePressEvent(self, event):
@@ -856,9 +1056,8 @@ class AuraThemeStudioCard(QFrame):
         h_head.setContentsMargins(0, 0, 0, 0)
         h_head.setSpacing(10)
 
-        lbl_icon = QLabel()
-        lbl_icon.setPixmap(AuraIconFactory.icon_palette_grid("#38bdf8").pixmap(20, 20))
-        h_head.addWidget(lbl_icon)
+        self.lbl_icon = QLabel()
+        h_head.addWidget(self.lbl_icon)
 
         v_t = QVBoxLayout()
         v_t.setSpacing(2)
@@ -872,15 +1071,7 @@ class AuraThemeStudioCard(QFrame):
         h_head.addLayout(v_t, 1)
 
         lbl_badge = QLabel("STUDIO")
-        lbl_badge.setStyleSheet("""
-            background-color: rgba(56, 189, 248, 0.15);
-            color: #38bdf8;
-            border: 1px solid rgba(56, 189, 248, 0.3);
-            border-radius: 4px;
-            font-size: 10px;
-            font-weight: 700;
-            padding: 2px 6px;
-        """)
+        lbl_badge.setObjectName("AccentBadge")
         h_head.addWidget(lbl_badge)
         main_v.addLayout(h_head)
 
@@ -905,7 +1096,7 @@ class AuraThemeStudioCard(QFrame):
             ("#f43f5e", "Crimson Flame"),
             ("#f59e0b", "Sunset Amber"),
             ("#14b8a6", "Teal Mint"),
-            ("#64748b", "Apple Titanium"),
+            ("#64748b", "Titanium Gray"),
             ("#f97316", "Coral Orange"),
         ]
         self._preset_btns = []
@@ -1054,6 +1245,11 @@ class AuraThemeStudioCard(QFrame):
         self.colorsChanged.emit(dict(self._colors))
 
     def set_all_colors(self, new_colors: dict):
+        self.show_colors(new_colors)
+        self.colorsChanged.emit(dict(self._colors))
+
+    def show_colors(self, new_colors: dict):
+        """Renkleri özel temaya geçmeden yuvalarda ve önizlemede gösterir."""
         self._colors.update(new_colors)
         if "accent" in self._colors:
             self.slot_accent.set_color(self._colors["accent"])
@@ -1064,7 +1260,6 @@ class AuraThemeStudioCard(QFrame):
         if "text" in self._colors:
             self.slot_text.set_color(self._colors["text"])
         self.preview_card.update_preview(self._colors)
-        self.colorsChanged.emit(dict(self._colors))
 
     def get_colors(self) -> dict:
         return dict(self._colors)
@@ -1140,6 +1335,8 @@ class AuraSettingsDialog(QDialog):
         self.main_window = main_window
         self.settings = QSettings("AuraPDF", "PDFViewer")
         self.shortcut_settings = QSettings("AuraPDF", "Shortcuts")
+        self._saving = False
+        self._closing_after_save = False
         
         self.setWindowTitle(LanguageManager.tr("settings_title"))
         self.setWindowIcon(AuraIconFactory.icon_settings())
@@ -1157,7 +1354,39 @@ class AuraSettingsDialog(QDialog):
         from src.ui.dialog_theme import get_theme_palette, get_current_theme
         theme = get_current_theme(self.main_window or self)
         pal = get_theme_palette(self.main_window or self)
+        tone = QColor(pal['accent'])
+        accent_rgb = f"{tone.red()}, {tone.green()}, {tone.blue()}"
         extra_css = f"""
+            QLabel#AccentValue {{
+                color: {pal['accent']};
+                font-size: 14px;
+                font-weight: 600;
+            }}
+            QLabel#AccentBadge {{
+                background-color: rgba({accent_rgb}, 0.15);
+                color: {pal['accent']};
+                border: 1px solid rgba({accent_rgb}, 0.3);
+                border-radius: 4px;
+                font-size: 10px;
+                font-weight: 700;
+                padding: 2px 6px;
+            }}
+            QPushButton#AccentSoftBtn {{
+                background-color: rgba({accent_rgb}, 0.12);
+                border: 1px solid rgba({accent_rgb}, 0.35);
+                border-radius: 6px;
+                padding: 6px 14px;
+                font-weight: 600;
+                font-size: 12px;
+                color: {pal['accent']};
+            }}
+            QPushButton#AccentSoftBtn:hover {{
+                background-color: rgba({accent_rgb}, 0.25);
+                border-color: {pal['accent']};
+            }}
+            QPushButton#AccentSoftBtn:focus {{
+                border: 1.5px solid {pal['accent']};
+            }}
             QListWidget#SettingsSidebar {{
                 background-color: transparent;
                 border: none;
@@ -1286,6 +1515,9 @@ class AuraSettingsDialog(QDialog):
             }}
         """
         apply_dialog_theme(self, self.main_window or self, extra_css=extra_css)
+        self.btn_open_shortcuts_guide.setIcon(AuraIconFactory.icon_info(pal['accent']))
+        self.theme_studio_card.lbl_icon.setPixmap(AuraIconFactory.icon_palette_grid(pal['accent']).pixmap(20, 20))
+        self.save_status.set_colors(pal['accent'], pal['text'])
         for card in getattr(self, 'theme_cards', []):
             card.update_card_style()
         for card in getattr(self, 'lang_cards', []):
@@ -1310,10 +1542,24 @@ class AuraSettingsDialog(QDialog):
             v_lbl.addWidget(lbl_d)
         row_layout.addLayout(v_lbl, 1)
 
-        widget.setMinimumWidth(210)
-        widget.setMaximumWidth(270)
-        row_layout.addWidget(widget, 0, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        # Tüm kontroller aynı genişlikte sütunda durur; böylece satırlar alt alta hizalanır.
+        slot = QWidget()
+        slot.setFixedWidth(270)
+        slot_layout = QHBoxLayout(slot)
+        slot_layout.setContentsMargins(0, 0, 0, 0)
+        slot_layout.addWidget(widget, 1)
+        row_layout.addWidget(slot, 0, Qt.AlignmentFlag.AlignVCenter)
         return row
+
+    def _add_setting_rows(self, layout: QVBoxLayout, rows: list):
+        """Ayar satırlarını aralarına ince ayraç koyarak karta ekler."""
+        for index, row in enumerate(rows):
+            if index:
+                sep = QFrame()
+                sep.setFixedHeight(1)
+                sep.setObjectName("SettingsCardSep")
+                layout.addWidget(sep)
+            layout.addWidget(row)
 
     def _init_ui(self):
         root_layout = QVBoxLayout(self)
@@ -1365,6 +1611,8 @@ class AuraSettingsDialog(QDialog):
         # Alt Butonlar
         btn_layout = QHBoxLayout()
         btn_layout.setSpacing(10)
+        self.save_status = AuraBusyIndicator(self)
+        btn_layout.addWidget(self.save_status)
         btn_layout.addStretch()
 
         self.btn_cancel = QPushButton(LanguageManager.tr("btn_cancel_settings"))
@@ -1455,37 +1703,6 @@ class AuraSettingsDialog(QDialog):
         )
         card_layout.addWidget(row_font)
 
-        sep3 = QFrame()
-        sep3.setFixedHeight(1)
-        sep3.setObjectName("SettingsCardSep")
-        card_layout.addWidget(sep3)
-
-        # 4. Yan Panel & Araç Çubuğu Düzeni
-        self.cmb_panel_layout = QComboBox()
-        self.cmb_panel_layout.addItem(LanguageManager.tr("settings_panel_layout_tools_right"), "tools_right_nav_left")
-        self.cmb_panel_layout.addItem(LanguageManager.tr("settings_panel_layout_tools_left"), "tools_left_nav_right")
-        row_panel_layout = self._create_setting_row(
-            LanguageManager.tr("settings_panel_layout_lbl"),
-            self.cmb_panel_layout,
-            LanguageManager.tr("settings_panel_layout_desc")
-        )
-        card_layout.addWidget(row_panel_layout)
-        sep4 = QFrame()
-        sep4.setFixedHeight(1)
-        sep4.setObjectName("SettingsCardSep")
-        card_layout.addWidget(sep4)
-
-        # 5. Sekme Önizlemesi (Fare ile üzerine gelindiğinde)
-        self.chk_tab_hover_preview = QCheckBox()
-        self.chk_tab_hover_preview.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.chk_tab_hover_preview.toggled.connect(self._on_tab_preview_toggled)
-        row_tab_preview = self._create_setting_row(
-            LanguageManager.tr("settings_show_tab_hover_preview"),
-            self.chk_tab_hover_preview,
-            LanguageManager.tr("settings_show_tab_hover_preview_desc")
-        )
-        card_layout.addWidget(row_tab_preview)
-
         layout.addWidget(card)
 
         # Fabrika Ayarlarına Sıfırlama Kartı
@@ -1575,7 +1792,7 @@ class AuraSettingsDialog(QDialog):
                     self.main_window.update_floating_capsule_pos()
 
         # 5. Kaydet & Ana Uygulamaya Uygula
-        self.apply_settings()
+        self._commit_settings()
 
         # 6. Bildirim
         QMessageBox.information(
@@ -1583,6 +1800,35 @@ class AuraSettingsDialog(QDialog):
             LanguageManager.tr("reset_all_success_title"),
             LanguageManager.tr("reset_all_success_text")
         )
+
+    def _filter_themes_for_style(self, *_):
+        """Yalnızca seçili arayüzle uyumlu tema kartlarını gösterir."""
+        style = self.cmb_interface_style.currentData() or DEFAULT_STYLE
+        allowed = STYLE_THEMES[style]
+        for card in self.theme_cards:
+            card.setVisible(card.theme_code in allowed)
+        self.theme_studio_card.setVisible("custom" in allowed)
+        if not any(self.theme_radios[code].isChecked() for code in allowed):
+            self.theme_radios[allowed[0]].setChecked(True)
+        self._set_cmb_data(self.cmb_panel_layout, get_panel_layout(style))
+        self._sync_studio_to_theme()
+
+    def _selected_theme(self) -> str:
+        return next((code for code, rb in self.theme_radios.items() if rb.isChecked()), "gray")
+
+    def _sync_studio_to_theme(self):
+        """Stüdyoda seçili temanın renklerini gösterir; özel paletin taslağına dokunmaz."""
+        code = self._selected_theme()
+        if code == "custom":
+            self.theme_studio_card.show_colors(self._custom_draft)
+            return
+        self._studio_base_theme = code
+        self.theme_studio_card.show_colors(self._theme_slot_colors(code))
+
+    def _theme_slot_colors(self, code: str) -> dict:
+        from src.ui.aura_views import get_aura_theme_colors
+        pal = get_aura_theme_colors(code)
+        return {key: pal[key] for key in ("accent", "bg", "surface", "text", "border")}
 
     # ----------------------------------------------------
     # SEKME: GÖRÜNÜM & TEMA (7 KOYU TEMA)
@@ -1615,15 +1861,42 @@ class AuraSettingsDialog(QDialog):
         icon_card.setObjectName("SettingsCard")
         icon_layout = QVBoxLayout(icon_card)
         icon_layout.setContentsMargins(12, 12, 12, 12)
+        icon_layout.setSpacing(8)
+        self.cmb_interface_style = QComboBox()
+        for style_code in STYLE_THEMES:
+            self.cmb_interface_style.addItem(LanguageManager.tr(f"interface_style_{style_code}"), style_code)
+        self._set_cmb_data(self.cmb_interface_style, get_interface_style())
+        self.chk_ui_animations = QCheckBox()
+        self.chk_ui_animations.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.chk_ui_animations.setChecked(self.settings.value("ui_animations", True, type=bool))
+        self.cmb_panel_layout = QComboBox()
+        self.cmb_panel_layout.addItem(LanguageManager.tr("settings_panel_layout_tools_right"), "tools_right_nav_left")
+        self.cmb_panel_layout.addItem(LanguageManager.tr("settings_panel_layout_tools_left"), "tools_left_nav_right")
+        self.chk_tab_hover_preview = QCheckBox()
+        self.chk_tab_hover_preview.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.chk_tab_hover_preview.toggled.connect(self._on_tab_preview_toggled)
         self.cmb_icon_style = QComboBox()
-        self.cmb_icon_style.addItem(LanguageManager.tr("settings_icon_style_modern"), "modern")
+        for icon_set in ICON_SETS:
+            self.cmb_icon_style.addItem(LanguageManager.tr(f"settings_icon_style_{icon_set}"), icon_set)
         self.cmb_icon_style.addItem(LanguageManager.tr("settings_icon_style_classic"), "classic")
         self._set_cmb_data(self.cmb_icon_style, self.settings.value("icon_style", "modern", type=str))
-        icon_layout.addWidget(self._create_setting_row(
-            LanguageManager.tr("settings_icon_style_lbl"),
-            self.cmb_icon_style,
-            LanguageManager.tr("settings_icon_style_desc")
-        ))
+        self._add_setting_rows(icon_layout, [
+            self._create_setting_row(LanguageManager.tr("interface_style_lbl"), self.cmb_interface_style,
+                                     LanguageManager.tr("interface_style_desc")),
+            self._create_setting_row(LanguageManager.tr("ui_animations_lbl"), self.chk_ui_animations,
+                                     LanguageManager.tr("ui_animations_desc")),
+            self._create_setting_row(LanguageManager.tr("settings_panel_layout_lbl"), self.cmb_panel_layout,
+                                     LanguageManager.tr("settings_panel_layout_desc")),
+            self._create_setting_row(LanguageManager.tr("settings_show_tab_hover_preview"), self.chk_tab_hover_preview,
+                                     LanguageManager.tr("settings_show_tab_hover_preview_desc")),
+            self._create_setting_row(LanguageManager.tr("settings_icon_style_lbl"), self.cmb_icon_style,
+                                     LanguageManager.tr("settings_icon_style_desc")),
+        ])
+        self.icon_gallery = AuraIconSetGallery({code: LanguageManager.tr(f"settings_icon_style_{code}") for code in ICON_SETS})
+        self.icon_gallery.set_selected(self.cmb_icon_style.currentData())
+        self.icon_gallery.setChosen.connect(lambda code: self._set_cmb_data(self.cmb_icon_style, code))
+        self.cmb_icon_style.currentIndexChanged.connect(lambda: self.icon_gallery.set_selected(self.cmb_icon_style.currentData()))
+        icon_layout.addWidget(self.icon_gallery)
         layout.addWidget(icon_card)
 
         card = QFrame()
@@ -1647,6 +1920,11 @@ class AuraSettingsDialog(QDialog):
             ("vice_city", "theme_vice_city", "theme_vice_city_desc", ["#160024", "#240e3b", "#ff2a85"], 5),
             ("apple", "theme_apple", "theme_apple_desc", ["#0e1014", "#1a1d24", "#38bdf8"], 6),
             ("custom", "theme_custom", "theme_custom_desc", custom_pills, 7),
+            ("atolye_ink", "theme_atolye_ink", "theme_atolye_ink_desc", ["#f4f6f8", "#ffffff", "#24507a"], 8),
+            ("grafit_amber", "theme_grafit_amber", "theme_grafit_amber_desc", ["#17181a", "#26272a", "#d2b071"], 9),
+            ("serit_sage", "theme_serit_sage", "theme_serit_sage_desc", ["#eef0ee", "#ffffff", "#2f5d50"], 10),
+            ("kiremit_gece", "theme_kiremit_gece", "theme_kiremit_gece_desc", ["#262624", "#30302e", "#d97757"], 11),
+            ("kiremit_gun", "theme_kiremit_gun", "theme_kiremit_gun_desc", ["#f5f4ed", "#fffefb", "#b9532f"], 12),
         ]
 
         self.theme_radios = {}
@@ -1685,6 +1963,8 @@ class AuraSettingsDialog(QDialog):
 
         # 2. Modern Tema ve Renk Stüdyosu (Özelleştirme Paneli)
         self.theme_studio_card = AuraThemeStudioCard(parent=self)
+        self._custom_draft = self.theme_studio_card.get_colors()
+        self._studio_base_theme = "gray"
         self.theme_studio_card.colorsChanged.connect(self._on_studio_colors_changed)
         self.theme_studio_card.btn_reset.clicked.connect(self._on_studio_reset_defaults)
         self.theme_studio_card.btn_copy_active.clicked.connect(self._on_studio_copy_active_theme)
@@ -1694,6 +1974,10 @@ class AuraSettingsDialog(QDialog):
         self.theme_radios["custom"].toggled.connect(
             lambda chk: scroll.ensureWidgetVisible(self.theme_studio_card) if chk else None
         )
+        for radio in self.theme_radios.values():
+            radio.toggled.connect(lambda chk: self._sync_studio_to_theme() if chk else None)
+        self.cmb_interface_style.currentIndexChanged.connect(self._filter_themes_for_style)
+        self._filter_themes_for_style()
 
         layout.addStretch()
 
@@ -1701,6 +1985,7 @@ class AuraSettingsDialog(QDialog):
         layout_main.addWidget(scroll)
 
     def _on_studio_colors_changed(self, colors: dict):
+        self._custom_draft = dict(colors)
         if "custom" in self.theme_radios:
             self.theme_radios["custom"].setChecked(True)
         if hasattr(self, 'theme_card_custom'):
@@ -1717,26 +2002,15 @@ class AuraSettingsDialog(QDialog):
             "text": "#f1f5f9",
             "border": "#2e3442"
         }
+        style = self.cmb_interface_style.currentData() or DEFAULT_STYLE
+        if style != DEFAULT_STYLE:
+            default_custom = self._theme_slot_colors(STYLE_THEMES[style][0])
         self.theme_studio_card.set_all_colors(default_custom)
         if "custom" in self.theme_radios:
             self.theme_radios["custom"].setChecked(True)
 
     def _on_studio_copy_active_theme(self):
-        from src.ui.aura_views import get_aura_theme_colors
-        active_code = "gray"
-        for code, rb in self.theme_radios.items():
-            if rb.isChecked() and code != "custom":
-                active_code = code
-                break
-        pal = get_aura_theme_colors(active_code)
-        new_cols = {
-            "accent": pal.get("accent", "#38bdf8"),
-            "bg": pal.get("bg", "#14171d"),
-            "surface": pal.get("surface", "#1e222b"),
-            "text": pal.get("text", "#f1f5f9"),
-            "border": pal.get("border", "#2e3442")
-        }
-        self.theme_studio_card.set_all_colors(new_cols)
+        self.theme_studio_card.set_all_colors(self._theme_slot_colors(self._studio_base_theme))
         if "custom" in self.theme_radios:
             self.theme_radios["custom"].setChecked(True)
 
@@ -1755,24 +2029,8 @@ class AuraSettingsDialog(QDialog):
         h_head.addWidget(lbl_title, stretch=1)
 
         self.btn_open_shortcuts_guide = QPushButton(" " + LanguageManager.tr("shortcuts_dialog_title") + " (F1)")
-        self.btn_open_shortcuts_guide.setIcon(AuraIconFactory.icon_info("#38bdf8"))
+        self.btn_open_shortcuts_guide.setObjectName("AccentSoftBtn")
         self.btn_open_shortcuts_guide.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.btn_open_shortcuts_guide.setStyleSheet("""
-            QPushButton {
-                background: rgba(56, 189, 248, 0.12);
-                border: 1px solid rgba(56, 189, 248, 0.35);
-                border-radius: 6px;
-                padding: 6px 14px;
-                font-weight: 600;
-                font-size: 12px;
-                color: #38bdf8;
-            }
-            QPushButton:hover {
-                background: rgba(56, 189, 248, 0.25);
-                border-color: #38bdf8;
-                color: #ffffff;
-            }
-        """)
         self.btn_open_shortcuts_guide.clicked.connect(self._open_shortcuts_guide_dialog)
         h_head.addWidget(self.btn_open_shortcuts_guide)
         layout.addLayout(h_head)
@@ -2110,13 +2368,15 @@ class AuraSettingsDialog(QDialog):
         self.cmb_cursor_preset.addItem(LanguageManager.tr("cursor_preset_calligraphy"), "calligraphy")
         self.cmb_cursor_preset.addItem(LanguageManager.tr("cursor_preset_pixel_art"), "pixel_art")
         self.cmb_cursor_preset.addItem(LanguageManager.tr("cursor_preset_neon"), "neon")
-        self.cmb_cursor_preset.addItem(LanguageManager.tr("cursor_preset_draftsman"), "draftsman")
         self.cmb_cursor_preset.addItem(LanguageManager.tr("cursor_preset_minimalist"), "minimalist")
         self.cmb_cursor_preset.addItem(LanguageManager.tr("cursor_preset_heavy_duty"), "heavy_duty")
-        self.cmb_cursor_preset.addItem(LanguageManager.tr("cursor_preset_stealth"), "stealth")
         self.cmb_cursor_preset.addItem(LanguageManager.tr("cursor_preset_creative"), "creative")
         self.cmb_cursor_preset.addItem(LanguageManager.tr("cursor_preset_tactical"), "tactical")
         self.cmb_cursor_preset.addItem(LanguageManager.tr("cursor_preset_legacy"), "legacy")
+        self.cmb_cursor_preset.addItem(LanguageManager.tr("cursor_preset_blueprint"), "blueprint")
+        self.cmb_cursor_preset.addItem(LanguageManager.tr("cursor_preset_studio"), "studio")
+        self.cmb_cursor_preset.addItem(LanguageManager.tr("cursor_preset_paper"), "paper")
+        self.cmb_cursor_preset.addItem(LanguageManager.tr("cursor_preset_signal"), "signal")
         self.cmb_cursor_preset.addItem(LanguageManager.tr("cursor_preset_custom"), "custom")
         self.cmb_cursor_preset.currentIndexChanged.connect(self._on_cursor_preset_changed)
         p_layout.addWidget(self.cmb_cursor_preset, stretch=1)
@@ -2149,7 +2409,7 @@ class AuraSettingsDialog(QDialog):
         self.cmb_pen_cursor.addItem(LanguageManager.tr("cursor_style_system_arrow"), "arrow")
         self.cmb_pen_cursor.addItem(LanguageManager.tr("ui_dolma_kalem_fountain_pen"), "fountain_pen")
         self.cmb_pen_cursor.addItem(LanguageManager.tr("ui_firca_kalem_brush_pen"), "brush_pen")
-        self.cmb_pen_cursor.addItem("Piksel Nokta (Pixel)", "pixel")
+        self.cmb_pen_cursor.addItem(LanguageManager.tr("cursor_style_pixel"), "pixel")
         self.cmb_pen_cursor.currentIndexChanged.connect(lambda: self._on_tool_cursor_changed("pen"))
         grid.addWidget(self.cmb_pen_cursor, 0, 1)
 
@@ -2161,7 +2421,7 @@ class AuraSettingsDialog(QDialog):
         self.cmb_hl_cursor.addItem(LanguageManager.tr("cursor_style_apple_chisel"), "apple_chisel")
         self.cmb_hl_cursor.addItem(LanguageManager.tr("cursor_style_figma_marker"), "figma_marker")
         self.cmb_hl_cursor.addItem(LanguageManager.tr("cursor_style_notion_marker"), "notion_marker")
-        self.cmb_hl_cursor.addItem("Vice City Neon Fosforlu", "vice_city_marker")
+        self.cmb_hl_cursor.addItem(LanguageManager.tr("cursor_style_neon_night_marker"), "vice_city_marker")
         self.cmb_hl_cursor.addItem(LanguageManager.tr("cursor_style_classic_marker"), "classic_marker")
         self.cmb_hl_cursor.addItem(LanguageManager.tr("cursor_style_crosshair"), "crosshair")
         self.cmb_hl_cursor.addItem(LanguageManager.tr("cursor_style_system_arrow"), "arrow")
@@ -2196,12 +2456,12 @@ class AuraSettingsDialog(QDialog):
         self.cmb_pointer_cursor.addItem(LanguageManager.tr("cursor_style_canva_sparkle"), "canva_sparkle")
         self.cmb_pointer_cursor.addItem(LanguageManager.tr("cursor_style_vscode_pointer"), "vscode_pointer")
         self.cmb_pointer_cursor.addItem(LanguageManager.tr("cursor_style_docs_pointer"), "docs_pointer")
-        self.cmb_pointer_cursor.addItem("Vice City Neon Lazer", "vice_city_neon")
+        self.cmb_pointer_cursor.addItem(LanguageManager.tr("cursor_style_neon_night_laser"), "vice_city_neon")
         self.cmb_pointer_cursor.addItem(LanguageManager.tr("cursor_style_apple_glow_ring"), "apple_glow_ring")
         self.cmb_pointer_cursor.addItem(LanguageManager.tr("cursor_style_neon_ring"), "neon_ring")
         self.cmb_pointer_cursor.addItem(LanguageManager.tr("cursor_style_dot"), "dot")
         self.cmb_pointer_cursor.addItem(LanguageManager.tr("ui_yildiz_star"), "star")
-        self.cmb_pointer_cursor.addItem("Hedef / Sniper (Target)", "target")
+        self.cmb_pointer_cursor.addItem(LanguageManager.tr("cursor_style_target"), "target")
         self.cmb_pointer_cursor.addItem(LanguageManager.tr("ui_radar_dalgalari_radar"), "radar")
         self.cmb_pointer_cursor.currentIndexChanged.connect(lambda: self._on_tool_cursor_changed("pointer"))
         grid.addWidget(self.cmb_pointer_cursor, 3, 1)
@@ -2315,6 +2575,12 @@ class AuraSettingsDialog(QDialog):
         self.chk_cursor_contrast.toggled.connect(self._update_cursor_preview)
         co_layout.addWidget(self.chk_cursor_contrast)
 
+        self.chk_cursor_page_tone = QCheckBox(LanguageManager.tr("cursor_opt_page_tone"))
+        self.chk_cursor_page_tone.setToolTip(LanguageManager.tr("cursor_opt_page_tone_tip"))
+        self.chk_cursor_page_tone.setChecked(True)
+        self.chk_cursor_page_tone.toggled.connect(self._update_cursor_preview)
+        co_layout.addWidget(self.chk_cursor_page_tone)
+
         self.chk_auto_cursor_theme = QCheckBox(LanguageManager.tr("cursor_opt_auto_theme"))
         self.chk_auto_cursor_theme.setChecked(True)
         co_layout.addWidget(self.chk_auto_cursor_theme)
@@ -2355,7 +2621,7 @@ class AuraSettingsDialog(QDialog):
 
         from src.core.updater import CURRENT_VERSION
         self.lbl_update_ver = QLabel(LanguageManager.tr("updates_current_version", version=CURRENT_VERSION))
-        self.lbl_update_ver.setStyleSheet("font-size: 14px; font-weight: 600; color: #38bdf8;")
+        self.lbl_update_ver.setObjectName("AccentValue")
         card_status_layout.addWidget(self.lbl_update_ver)
 
         last_time = self.settings.value("last_update_check_time", "")
@@ -2509,8 +2775,17 @@ class AuraSettingsDialog(QDialog):
         elif t == "selection":
             style = self.cmb_sel_cursor.currentData()
 
-        cur = CursorFactory.get_cursor_for_tool(t, color=color, size=24, style=style)
-        self.preview_box.set_preview_cursor(cur)
+        elif t == "ruler":
+            style = self.cmb_ruler_cursor.currentData()
+
+        self.preview_box.set_tool(t, color)
+        adaptive = self.chk_cursor_page_tone.isChecked()
+        cursors = []
+        for tone in ("light", "dark"):
+            CursorFactory.page_tone = tone if adaptive else None
+            cursors.append(CursorFactory.get_cursor_for_tool(t, color=color, size=24, style=style))
+        CursorFactory.page_tone = None
+        self.preview_box.set_preview_cursor(*cursors)
 
     def _reset_cursors_to_apple(self):
         self._set_cmb_data(self.cmb_cursor_preset, "apple")
@@ -2526,6 +2801,9 @@ class AuraSettingsDialog(QDialog):
             self.theme_radios[saved_theme].setChecked(True)
         else:
             self.rb_gray.setChecked(True)
+        self._set_cmb_data(self.cmb_interface_style, get_interface_style())
+        self.chk_ui_animations.setChecked(self.settings.value("ui_animations", True, type=bool))
+        self._filter_themes_for_style()
 
         if hasattr(self, 'theme_studio_card') and hasattr(self, 'theme_card_custom'):
             colors = self.theme_studio_card.get_colors()
@@ -2589,8 +2867,7 @@ class AuraSettingsDialog(QDialog):
 
         # Panel Yerleşimi
         if hasattr(self, 'cmb_panel_layout'):
-            saved_layout = self.settings.value("sidebar_layout", "tools_right_nav_left")
-            self._set_cmb_data(self.cmb_panel_layout, saved_layout)
+            self._set_cmb_data(self.cmb_panel_layout, get_panel_layout(self.cmb_interface_style.currentData() or DEFAULT_STYLE))
 
         # Sekme Önizlemesi (Varsayılan: Kapalı)
         if hasattr(self, 'chk_tab_hover_preview'):
@@ -2640,6 +2917,7 @@ class AuraSettingsDialog(QDialog):
         self.chk_cursor_color.setChecked(self.settings.value("cursor_show_active_color", True, type=bool))
         self.chk_cursor_contrast.setChecked(self.settings.value("cursor_high_contrast", True, type=bool))
         self.chk_auto_cursor_theme.setChecked(self.settings.value("auto_match_theme_cursor", True, type=bool))
+        self.chk_cursor_page_tone.setChecked(self.settings.value("cursor_page_tone", True, type=bool))
         self._update_cursor_preview()
 
         # 8. Güncelleme Ayarlarını Yükle
@@ -2663,6 +2941,80 @@ class AuraSettingsDialog(QDialog):
     load_settings = _load_saved_values
 
     def apply_settings(self):
+        self._start_save(close_after=False)
+
+    def save_settings(self):
+        self._start_save(close_after=True)
+
+    def reject(self):
+        if not self._saving:
+            super().reject()
+
+    def _after(self, delay_ms: int, callback):
+        """Pencere kapanırsa kendiliğinden iptal olan tek seferlik zamanlayıcı başlatır."""
+        timer = QTimer(self)
+        timer.setSingleShot(True)
+        timer.timeout.connect(callback)
+        timer.start(delay_ms)
+
+    def _set_save_buttons_enabled(self, enabled: bool):
+        for btn in (self.btn_cancel, self.btn_apply, self.btn_save):
+            btn.setEnabled(enabled)
+
+    def _start_save(self, close_after: bool):
+        if self._saving:
+            return
+        self._saving = True
+        self._set_save_buttons_enabled(False)
+        self.save_status.start(LanguageManager.tr("settings_status_theme"))
+        self._closing_after_save = close_after
+        # Ağır tema uygulaması başlamadan önce kullanıcı dönen halkayı görebilsin.
+        self._after(320, lambda: self._finish_save(close_after))
+
+    def _detach_for_closing_save(self):
+        """Kapanacak pencerenin bileşenleri ana pencerenin stil zincirini yavaşlatmasın diye ayrılır."""
+        from src.ui.dialog_theme import get_theme_palette
+        pal = get_theme_palette(self.main_window)
+        toast = AuraBusyIndicator()
+        toast.set_colors(pal['accent'], pal['text'])
+        toast.float_over(self.main_window, pal['card'])
+        toast.start(LanguageManager.tr("settings_status_theme"))
+        self.main_window.save_toast = toast
+        self.save_status = toast
+        # Ağır iş başlamadan bildirimin ekrana çıkması gerekir; aksi halde çizilemez.
+        QApplication.processEvents(QEventLoop.ProcessEventsFlag.ExcludeUserInputEvents)
+        self.hide()
+        self.setParent(None, self.windowFlags())
+
+    def _finish_save(self, close_after: bool):
+        detach = close_after and self.main_window is not None
+        if detach:
+            self._detach_for_closing_save()
+        # Kapanacak pencere yeniden boyanmaz; açık kalacaksa kendi stili sonradan bir kez uygulanır.
+        skip = (lambda w: w is self or self.isAncestorOf(w)) if close_after else (lambda w: w is self)
+        set_progress_hook(self.save_status.pulse, skip)
+        AuraMotion.busy_pulse = self.save_status.pulse
+        try:
+            self._commit_settings()
+        except Exception:
+            self.save_status.stop()
+            raise
+        else:
+            self.save_status.finish(LanguageManager.tr("settings_status_saved" if close_after else "settings_applied_feedback"))
+        finally:
+            AuraMotion.busy_pulse = None
+            set_progress_hook(None)
+            self._saving = False
+            self._set_save_buttons_enabled(True)
+        if detach:
+            QTimer.singleShot(650, self.save_status.deleteLater)
+            self.accept()
+        elif close_after:
+            self._after(480, self.accept)
+        else:
+            self._after(1400, self.save_status.stop)
+
+    def _commit_settings(self):
         # 1. Tema Kaydet & Uygula
         selected_theme = "gray"
         for code, rb in self.theme_radios.items():
@@ -2673,12 +3025,22 @@ class AuraSettingsDialog(QDialog):
         if selected_theme == "custom" and hasattr(self, 'theme_studio_card'):
             self.theme_studio_card.save_to_settings()
 
+        selected_style = self.cmb_interface_style.currentData() or DEFAULT_STYLE
+        # Ağır tema uygulaması yalnızca görünüm gerçekten değiştiyse çalışır.
+        look_changed = (selected_theme == "custom" or selected_theme != self.current_theme
+                        or selected_style != get_interface_style())
         self.settings.setValue("app_theme", selected_theme)
-        if hasattr(self.main_window, 'apply_theme'):
-            self.main_window.apply_theme(selected_theme)
-            
+        self.settings.setValue("interface_style", selected_style)
+        self.settings.setValue("ui_animations", self.chk_ui_animations.isChecked())
+        AuraMotion.enabled = self.chk_ui_animations.isChecked()
         self.current_theme = selected_theme
-        self._apply_dialog_style()
+        if look_changed:
+            if hasattr(self.main_window, 'apply_theme'):
+                self.main_window.apply_theme(selected_theme)
+            if not self._closing_after_save:
+                self._apply_dialog_style()
+
+        self.save_status.set_step(LanguageManager.tr("settings_status_prefs"))
 
         # 2. Kısayolları Kaydet & Uygula
         for action, edit in self.shortcut_edits.items():
@@ -2728,15 +3090,21 @@ class AuraSettingsDialog(QDialog):
         if hasattr(self, 'cmb_panel_layout'):
             panel_layout = self.cmb_panel_layout.currentData()
             if panel_layout:
-                self.settings.setValue("sidebar_layout", panel_layout)
+                self.settings.setValue(panel_layout_key(selected_style), panel_layout)
                 if hasattr(self.main_window, 'update_panels_layout'):
                     self.main_window.update_panels_layout(panel_layout)
 
         # İkon Seti (yeniden başlatınca uygulanır)
         icon_style = self.cmb_icon_style.currentData()
-        if icon_style != self.settings.value("icon_style", "modern", type=str):
+        previous_icons = self.settings.value("icon_style", "modern", type=str)
+        if icon_style != previous_icons:
             self.settings.setValue("icon_style", icon_style)
-            QMessageBox.information(self, LanguageManager.tr("settings_icon_style_lbl"), LanguageManager.tr("settings_icon_style_restart"))
+            if "classic" in (icon_style, previous_icons):
+                QMessageBox.information(self, LanguageManager.tr("settings_icon_style_lbl"), LanguageManager.tr("settings_icon_style_restart"))
+            else:
+                set_icon_set(icon_style)
+                for widget in QApplication.allWidgets():
+                    widget.update()
 
         # Sekme Önizlemesi
         if hasattr(self, 'chk_tab_hover_preview'):
@@ -2770,6 +3138,7 @@ class AuraSettingsDialog(QDialog):
         self.settings.setValue("cursor_show_active_color", self.chk_cursor_color.isChecked())
         self.settings.setValue("cursor_high_contrast", self.chk_cursor_contrast.isChecked())
         self.settings.setValue("auto_match_theme_cursor", self.chk_auto_cursor_theme.isChecked())
+        self.settings.setValue("cursor_page_tone", self.chk_cursor_page_tone.isChecked())
 
         if hasattr(self.main_window, 'update_viewport_cursor'):
             self.main_window.update_viewport_cursor()
@@ -2782,22 +3151,6 @@ class AuraSettingsDialog(QDialog):
         if hasattr(self, 'txt_github_token'):
             from src.core.secure_store import write_secret
             write_secret(self.settings, "github_token", self.txt_github_token.text().strip())
-
-        # Görsel geribildirim
-        if hasattr(self, 'btn_apply') and self.btn_apply:
-            orig_txt = LanguageManager.tr("btn_apply_settings")
-            self.btn_apply.setText(LanguageManager.tr("settings_applied_feedback"))
-            def _safe_reset_apply():
-                try:
-                    if hasattr(self, 'btn_apply') and self.btn_apply:
-                        self.btn_apply.setText(orig_txt)
-                except (RuntimeError, Exception):
-                    pass
-            QTimer.singleShot(1400, _safe_reset_apply)
-
-    def save_settings(self):
-        self.apply_settings()
-        self.accept()
 
 
 # Geriye dönük uyumluluk takma adları (Backward compatibility aliases)
