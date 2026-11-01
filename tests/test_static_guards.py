@@ -322,5 +322,42 @@ class DeadAttributeTests(unittest.TestCase):
         self.assertEqual(problems, [], "\nOlu kod yollari:\n" + "\n".join(sorted(problems)))
 
 
+class BookmarkThemeGuardTests(unittest.TestCase):
+    """Yer imi akislarinin temali AuraAddBookmarkDialog kullandigini dogrular.
+
+    QInputDialog.getText ile acilan pencereler koyu temalarda butonlari goruntulenemez
+    hale getirebilir. Bu test yeni bir QInputDialog cagrisinin sessizce girilmesini onler.
+    """
+
+    # Yer imi islemleri burada yapilir; diger dosyalarda (sifre sorma vb.) izinli.
+    GUARDED_FILES = [
+        os.path.join(SRC, "document", "tab_document.py"),
+        os.path.join(SRC, "ui", "widgets.py"),
+    ]
+    # Dosyadaki izinli kullanim sayisi (sifre sorgulama vb. farkli amaclara)
+    ALLOWED_COUNTS: dict[str, int] = {}
+
+    def test_no_qinputdialog_in_bookmark_files(self):
+        problems = []
+        for path in self.GUARDED_FILES:
+            if not os.path.isfile(path):
+                continue
+            tree = TREES.get(path)
+            if tree is None:
+                continue
+            count = 0
+            for n in ast.walk(tree):
+                if isinstance(n, ast.Attribute) and n.attr == "getText":
+                    if isinstance(n.value, ast.Name) and n.value.id == "QInputDialog":
+                        count += 1
+            allowed = self.ALLOWED_COUNTS.get(os.path.basename(path), 0)
+            if count > allowed:
+                problems.append(
+                    f"{os.path.relpath(path, ROOT)}: QInputDialog.getText {count} kez kullaniliyor "
+                    f"(izinli: {allowed}). AuraAddBookmarkDialog kullanin."
+                )
+        self.assertEqual(problems, [], "\n" + "\n".join(problems))
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

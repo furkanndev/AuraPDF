@@ -471,9 +471,11 @@ class TableInsertDialog(QDialog):
         self.align_group.addButton(self.btn_align_right)
 
         _pal = get_theme_palette(parent)
+        self._pal = _pal  # _apply_preset içinde yeniden kullanılır
         _accent = _pal["accent"]
         _card = _pal["card"]
         _border = _pal["border"]
+        _text = _pal["text"]
         align_btn_style = f"""
             QPushButton {{
                 background-color: {_card};
@@ -518,27 +520,12 @@ class TableInsertDialog(QDialog):
         preset_grid.setSpacing(6)
         self.theme_buttons = []
 
+        _preset_btn_style = self._make_item_btn_style(selected=False)
         for idx, pr in enumerate(TABLE_PRESETS):
             btn = QPushButton(f" {pr['name']}")
             btn.setCursor(Qt.CursorShape.PointingHandCursor)
             btn.setIcon(make_preset_icon(pr["header_bg"], pr["cell_bg"]))
-            btn.setStyleSheet("""
-                QPushButton {
-                    background-color: rgba(255, 255, 255, 0.06);
-                    color: #f1f5f9;
-                    border: 1px solid rgba(255, 255, 255, 0.15);
-                    border-radius: 8px;
-                    padding: 7px 10px;
-                    font-size: 11px;
-                    font-weight: 600;
-                    text-align: left;
-                }
-                QPushButton:hover {
-                    background-color: rgba(255, 255, 255, 0.12);
-                    border-color: #38bdf8;
-                    color: #ffffff;
-                }
-            """.replace("#38bdf8", get_theme_palette()["accent"]))
+            btn.setStyleSheet(_preset_btn_style)
             btn.clicked.connect(lambda ch, p=pr, b=btn: self._apply_preset(p, b))
             preset_grid.addWidget(btn, idx // 2, idx % 2)
             self.theme_buttons.append(btn)
@@ -553,50 +540,31 @@ class TableInsertDialog(QDialog):
         colors_grid = QGridLayout()
         colors_grid.setSpacing(6)
 
-        btn_style = """
-            QPushButton {
-                background-color: rgba(255, 255, 255, 0.06);
-                color: #f1f5f9;
-                border: 1px solid rgba(255, 255, 255, 0.15);
-                border-radius: 8px;
-                padding: 7px 10px;
-                font-size: 11px;
-                font-weight: 600;
-                text-align: left;
-            }
-            QPushButton:hover {
-                background-color: rgba(255, 255, 255, 0.12);
-                border-color: #38bdf8;
-                color: #ffffff;
-            }
-            QPushButton:pressed {
-                background-color: rgba(56, 189, 248, 0.2);
-            }
-        """
+        _color_btn_style = self._make_item_btn_style(selected=False)
 
         self.btn_text_col = QPushButton(LanguageManager.tr("ui_metin_rengi"))
         self.btn_text_col.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.btn_text_col.setStyleSheet(btn_style)
+        self.btn_text_col.setStyleSheet(_color_btn_style)
         self.btn_text_col.setIcon(make_color_icon(self.text_color))
-        self.btn_text_col.clicked.connect(self._pick_text_color)
+        self.btn_text_col.clicked.connect(lambda: self._pick_color("text"))
 
         self.btn_border_col = QPushButton(LanguageManager.tr("ui_kenarlik_rengi"))
         self.btn_border_col.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.btn_border_col.setStyleSheet(btn_style)
+        self.btn_border_col.setStyleSheet(_color_btn_style)
         self.btn_border_col.setIcon(make_color_icon(self.border_color))
-        self.btn_border_col.clicked.connect(self._pick_border_color)
+        self.btn_border_col.clicked.connect(lambda: self._pick_color("border"))
 
         self.btn_header_bg = QPushButton(LanguageManager.tr("ui_baslik_rengi"))
         self.btn_header_bg.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.btn_header_bg.setStyleSheet(btn_style)
+        self.btn_header_bg.setStyleSheet(_color_btn_style)
         self.btn_header_bg.setIcon(make_color_icon(self.header_bg))
-        self.btn_header_bg.clicked.connect(self._pick_header_bg)
+        self.btn_header_bg.clicked.connect(lambda: self._pick_color("header"))
 
         self.btn_cell_bg = QPushButton(LanguageManager.tr("ui_hucre_rengi"))
         self.btn_cell_bg.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.btn_cell_bg.setStyleSheet(btn_style)
+        self.btn_cell_bg.setStyleSheet(_color_btn_style)
         self.btn_cell_bg.setIcon(make_color_icon(self.cell_bg))
-        self.btn_cell_bg.clicked.connect(self._pick_cell_bg)
+        self.btn_cell_bg.clicked.connect(lambda: self._pick_color("cell"))
 
         colors_grid.addWidget(self.btn_text_col, 0, 0)
         colors_grid.addWidget(self.btn_border_col, 0, 1)
@@ -666,36 +634,7 @@ class TableInsertDialog(QDialog):
 
         # Seçili şablonu vurgula
         for btn in self.theme_buttons:
-            if btn == clicked_btn:
-                btn.setStyleSheet("""
-                    QPushButton {
-                        background-color: rgba(0, 0, 0, 0.25);
-                        color: #38bdf8;
-                        border: 1.5px solid #38bdf8;
-                        border-radius: 8px;
-                        padding: 7px 10px;
-                        font-size: 11px;
-                        font-weight: 600;
-                        text-align: left;
-                    }
-                """.replace("#38bdf8", get_theme_palette()["accent"]))
-            else:
-                btn.setStyleSheet("""
-                    QPushButton {
-                        background-color: rgba(255, 255, 255, 0.05);
-                        color: #e2e8f0;
-                        border: 1.5px solid rgba(255, 255, 255, 0.12);
-                        border-radius: 8px;
-                        padding: 7px 10px;
-                        font-size: 11px;
-                        font-weight: 600;
-                        text-align: left;
-                    }
-                    QPushButton:hover {
-                        border-color: #38bdf8;
-                        background-color: rgba(255, 255, 255, 0.12);
-                    }
-                """.replace("#38bdf8", get_theme_palette()["accent"]))
+            btn.setStyleSheet(self._make_item_btn_style(selected=(btn == clicked_btn)))
 
         self._update_preview()
 
@@ -721,34 +660,85 @@ class TableInsertDialog(QDialog):
                 alignment=self.alignment
             )
 
-    def _pick_text_color(self):
-        col = QColorDialog.getColor(self.text_color, self, "Metin Rengi Seç")
-        if col.isValid():
+    def _make_item_btn_style(self, selected: bool = False) -> str:
+        """Tema paletine duyarlı şablon/renk düğmesi stili döner."""
+        pal = getattr(self, '_pal', get_theme_palette())
+        accent = pal["accent"]
+        card = pal["card"]
+        border = pal["border"]
+        text = pal["text"]
+        if selected:
+            return (
+                f"QPushButton {{"
+                f"    background-color: {card};"
+                f"    color: {accent};"
+                f"    border: 1.5px solid {accent};"
+                f"    border-radius: 8px;"
+                f"    padding: 7px 10px;"
+                f"    font-size: 11px;"
+                f"    font-weight: 600;"
+                f"    text-align: left;"
+                f"}}"
+            )
+        return (
+            f"QPushButton {{"
+            f"    background-color: {card};"
+            f"    color: {text};"
+            f"    border: 1px solid {border};"
+            f"    border-radius: 8px;"
+            f"    padding: 7px 10px;"
+            f"    font-size: 11px;"
+            f"    font-weight: 600;"
+            f"    text-align: left;"
+            f"}}"
+            f"QPushButton:hover {{"
+            f"    border-color: {accent};"
+            f"    color: {text};"
+            f"}}"
+            f"QPushButton:pressed {{"
+            f"    background-color: {accent}33;"
+            f"}}"
+        )
+
+    def _pick_color(self, target: str) -> None:
+        """Ortak temalı renk seçici; target: 'text'|'border'|'header'|'cell'."""
+        _title_keys = {
+            "text":   LanguageManager.tr("table_pick_text_color"),
+            "border": LanguageManager.tr("table_pick_border_color"),
+            "header": LanguageManager.tr("table_pick_header_bg"),
+            "cell":   LanguageManager.tr("table_pick_cell_bg"),
+        }
+        _current = {
+            "text":   self.text_color,
+            "border": self.border_color,
+            "header": self.header_bg,
+            "cell":   self.cell_bg,
+        }
+        dlg = QColorDialog(self)
+        dlg.setWindowTitle(_title_keys[target])
+        dlg.setCurrentColor(_current[target])
+        dlg.setOption(QColorDialog.ColorDialogOption.DontUseNativeDialog, True)
+        from src.ui.dialog_theme import apply_dialog_theme as _apply_theme
+        _apply_theme(dlg, self)
+        if dlg.exec() != QColorDialog.DialogCode.Accepted:
+            return
+        col = dlg.selectedColor()
+        if not col.isValid():
+            return
+        if target == "text":
             self.text_color = col
-            self.btn_text_col.setIcon(make_color_icon(self.text_color))
-            self._update_preview()
-
-    def _pick_border_color(self):
-        col = QColorDialog.getColor(self.border_color, self, "Kenarlık Rengi Seç")
-        if col.isValid():
+            self.btn_text_col.setIcon(make_color_icon(col))
+        elif target == "border":
             self.border_color = col
-            self.btn_border_col.setIcon(make_color_icon(self.border_color))
-            self._update_preview()
-
-    def _pick_header_bg(self):
-        col = QColorDialog.getColor(self.header_bg, self, "Başlık Arkaplanı Seç")
-        if col.isValid():
+            self.btn_border_col.setIcon(make_color_icon(col))
+        elif target == "header":
             self.header_bg = col
-            self.btn_header_bg.setIcon(make_color_icon(self.header_bg))
-            self._update_preview()
-
-    def _pick_cell_bg(self):
-        col = QColorDialog.getColor(self.cell_bg, self, "Hücre Arkaplanı Seç")
-        if col.isValid():
+            self.btn_header_bg.setIcon(make_color_icon(col))
+        elif target == "cell":
             self.cell_bg = col
-            self.alt_cell_bg = self.cell_bg.lighter(118) if self.cell_bg.lightness() < 128 else self.cell_bg.darker(106)
-            self.btn_cell_bg.setIcon(make_color_icon(self.cell_bg))
-            self._update_preview()
+            self.alt_cell_bg = col.lighter(118) if col.lightness() < 128 else col.darker(106)
+            self.btn_cell_bg.setIcon(make_color_icon(col))
+        self._update_preview()
 
     def get_data(self) -> Dict[str, Any]:
         rows = self.spin_rows.value()
@@ -5016,9 +5006,10 @@ class AuraAddBookmarkDialog(QDialog):
     """Themed bookmark add dialog — replaces QInputDialog.getText for bookmark creation."""
 
     def __init__(self, parent=None, default_name: str = "", default_page: int = 1,
-                 show_page: bool = False):
+                 show_page: bool = False, title: Optional[str] = None,
+                 label: Optional[str] = None, ok_text: Optional[str] = None):
         super().__init__(parent)
-        self.setWindowTitle(LanguageManager.tr("bookmark_dialog_title"))
+        self.setWindowTitle(title or LanguageManager.tr("bookmark_dialog_title"))
         self.setMinimumWidth(380)
         self.setSizeGripEnabled(False)
         self.setWindowFlags(self.windowFlags() & ~Qt.WindowType.WindowContextHelpButtonHint)
@@ -5028,7 +5019,7 @@ class AuraAddBookmarkDialog(QDialog):
         layout.setContentsMargins(22, 22, 22, 18)
 
         # Name field
-        lbl_name = QLabel(LanguageManager.tr("bookmark_dialog_name_label"))
+        lbl_name = QLabel(label or LanguageManager.tr("bookmark_dialog_name_label"))
         lbl_name.setStyleSheet("font-weight: 600; font-size: 12px;")
         self.txt_name = QLineEdit()
         self.txt_name.setPlaceholderText(LanguageManager.tr("bookmark_dialog_placeholder"))
@@ -5060,7 +5051,8 @@ class AuraAddBookmarkDialog(QDialog):
         self.btn_cancel.setMinimumWidth(80)
         self.btn_cancel.clicked.connect(self.reject)
 
-        self.btn_ok = QPushButton(LanguageManager.tr("msg_btn_ok"))
+        _ok_label = ok_text if ok_text is not None else LanguageManager.tr("msg_btn_save")
+        self.btn_ok = QPushButton(_ok_label)
         self.btn_ok.setObjectName("PrimaryBtn")
         self.btn_ok.setDefault(True)
         self.btn_ok.setMinimumWidth(80)

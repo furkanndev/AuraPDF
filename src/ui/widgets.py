@@ -4451,14 +4451,23 @@ class ThumbnailsDock(QDockWidget):
         if not tab_doc or not tab_doc.doc: return
         
         old_title = item.text(0)
-        title, ok = QInputDialog.getText(self, LanguageManager.tr("ui_yer_imini_duzenle"), LanguageManager.tr("ui_yeni_baslik"), text=old_title)
-        if not ok or not title.strip(): return
-        
         old_page = item.data(0, Qt.ItemDataRole.UserRole)
-        page_str = str(old_page + 1) if old_page is not None else ""
-        new_page_str, ok2 = QInputDialog.getText(self, LanguageManager.tr("ui_yer_imini_duzenle"), LanguageManager.tr("ui_yeni_sayfa_numarasi"), text=page_str)
-        if not ok2 or not new_page_str.isdigit(): return
-        new_page = int(new_page_str)
+        default_page = (old_page + 1) if old_page is not None else 1
+        from src.ui.dialogs.media_dialogs import AuraAddBookmarkDialog as _AuraBMDlg
+        dlg = _AuraBMDlg(
+            self, default_name=old_title, default_page=default_page, show_page=True,
+            title=LanguageManager.tr("ui_yer_imini_duzenle"),
+            label=LanguageManager.tr("ui_yeni_baslik"),
+        )
+        if dlg.exec() != dlg.DialogCode.Accepted:
+            return
+        title = dlg.bookmark_name()
+        if not title:
+            return
+        new_page_val = dlg.bookmark_page()
+        if new_page_val is None:
+            return
+        new_page = new_page_val
         
         toc = tab_doc.doc.get_toc(simple=False)
         old_toc = [list(e) for e in toc]
@@ -4474,7 +4483,7 @@ class ThumbnailsDock(QDockWidget):
                     break
 
         if found_idx >= 0:
-            toc[found_idx][1] = title.strip()
+            toc[found_idx][1] = title
             if len(toc[found_idx]) > 2:
                 toc[found_idx][2] = new_page
             else:
