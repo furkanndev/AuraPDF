@@ -455,19 +455,26 @@ class EditableInlineTextItem(QGraphicsTextItem):
         if hasattr(self.tab_doc, 'view') and self.tab_doc.view:
             self.tab_doc.view.viewport().update()
 
+    def _zoom_factor(self) -> float:
+        """Tutamaç ve kenarlık payının ekranda sabit boyutta kalması için görünüm ölçeğini dengeler."""
+        view = getattr(self.tab_doc, 'view', None)
+        try:
+            scale = abs(view.transform().m11()) if view else 1.0
+        except (AttributeError, RuntimeError):
+            scale = 1.0
+        return max(0.5, min(1.25, 1.0 / scale)) if scale > 0 else 1.0
+
     def _handle_rects(self) -> dict:
+        # Yükseklik içeriğe göre oluştuğundan üst ve alt kenar tutamacı bulunmaz
         r = self.text_rect()
-        s = 6.0
+        s = 8.0 * self._zoom_factor()
         hs = s / 2.0
-        cx = r.center().x()
         cy = r.center().y()
         return {
             "tl": QRectF(r.left() - hs, r.top() - hs, s, s),
-            "t":  QRectF(cx - hs, r.top() - hs, s, s),
             "tr": QRectF(r.right() - hs, r.top() - hs, s, s),
             "r":  QRectF(r.right() - hs, cy - hs, s, s),
             "br": QRectF(r.right() - hs, r.bottom() - hs, s, s),
-            "b":  QRectF(cx - hs, r.bottom() - hs, s, s),
             "bl": QRectF(r.left() - hs, r.bottom() - hs, s, s),
             "l":  QRectF(r.left() - hs, cy - hs, s, s),
         }
@@ -476,16 +483,20 @@ class EditableInlineTextItem(QGraphicsTextItem):
         if not (self.isSelected() or bool(self.textInteractionFlags() & Qt.TextInteractionFlag.TextEditorInteraction)):
             return None
         rects = self._handle_rects()
+        grab = 3.0 * self._zoom_factor()
         for name, rect in rects.items():
-            if rect.adjusted(-2.5, -2.5, 2.5, 2.5).contains(pos):
+            if rect.adjusted(-grab, -grab, grab, grab).contains(pos):
                 return name
         return None
 
     def _is_on_border(self, pos: QPointF) -> bool:
         r = self.text_rect()
-        margin = 4.5
+        margin = 5.0 * self._zoom_factor()
+        # Düzenlemede bant kutunun dışına kayar; ilk ve son harfler rahatça seçilebilsin
+        is_editing = bool(self.textInteractionFlags() & Qt.TextInteractionFlag.TextEditorInteraction)
+        inset = 1.0 if is_editing else margin
         outer = r.adjusted(-margin, -margin, margin, margin)
-        inner = r.adjusted(margin, margin, -margin, -margin)
+        inner = r.adjusted(inset, inset, -inset, -inset)
         return outer.contains(pos) and not inner.contains(pos)
 
     def itemChange(self, change, value):
@@ -539,11 +550,14 @@ class EditableInlineTextItem(QGraphicsTextItem):
     def boundingRect(self) -> QRectF:
         # Ekstra sağ pay (+12px) ile en sondaki harfin veya eğimli karakterlerin (k, f, y vb.)
         # hiçbir şekilde kenardan kesilmemesini garanti altına alıyoruz
-        return self.text_rect().adjusted(-6.0, -6.0, 12.0, 6.0)
+        return self.text_rect().adjusted(-9.0, -9.0, 12.0, 9.0)
 
     def shape(self) -> QPainterPath:
         path = QPainterPath()
-        path.addRect(self.boundingRect())
+        if self.isSelected():
+            path.addRect(self.boundingRect())
+        else:
+            path.addRect(self.text_rect().adjusted(-6.0, -6.0, 6.0, 6.0))
         return path
 
     def update_move_handle_position(self):
@@ -651,9 +665,6 @@ class EditableInlineTextItem(QGraphicsTextItem):
         Metin kutusu içinde seçilen harflerin veya aralığın kalınlığını, boyutunu,
         rengini veya yazı tipini SADECE seçili karakterler için uygular.
         """
-        if not (self.textInteractionFlags() & Qt.TextInteractionFlag.TextEditorInteraction):
-            self.enable_editing()
-
         cur = self.textCursor()
         # Eğer buton tıklaması sırasında seçim odağı kaybolmuşsa son seçilen aralığı geri yükle
         if not cur.hasSelection() and getattr(self, '_last_selection_range', None):
@@ -774,6 +785,7 @@ class EditableInlineTextItem(QGraphicsTextItem):
                 "bold": bool(self.bold),
                 "italic": bool(self.italic),
                 "underline": bool(self.underline),
+                "strikeout": bool(self.textCursor().charFormat().fontStrikeOut()),
                 "font_size": float(self.font_size),
                 "color": self.text_color,
                 "font_family": self.font_family,
@@ -785,6 +797,7 @@ class EditableInlineTextItem(QGraphicsTextItem):
         bolds = []
         italics = []
         underlines = []
+        strikeouts = []
         font_sizes = []
         colors = []
         families = []
@@ -804,6 +817,7 @@ class EditableInlineTextItem(QGraphicsTextItem):
             bolds.append(bool(is_b))
             italics.append(bool(fmt.fontItalic()))
             underlines.append(bool(fmt.fontUnderline()))
+            strikeouts.append(bool(fmt.fontStrikeOut()))
             px_size = fmt.font().pixelSize() if hasattr(fmt, 'font') else 0
             pt_size = fmt.fontPointSize()
             dpi = getattr(self.tab_doc, 'base_render_dpi', 1.5)
@@ -836,7 +850,7 @@ class EditableInlineTextItem(QGraphicsTextItem):
             "bold": sel_bold,
             "italic": sel_italic,
             "underline": sel_underline,
-            "strikeout": self.textCursor().charFormat().fontStrikeOut(),
+            "strikeout": all(strikeouts) if strikeouts else False,
             "font_size": sel_size,
             "color": sel_color,
             "font_family": sel_family,
@@ -1272,8 +1286,6 @@ class EditableInlineTextItem(QGraphicsTextItem):
                 "br": Qt.CursorShape.SizeFDiagCursor,
                 "tr": Qt.CursorShape.SizeBDiagCursor,
                 "bl": Qt.CursorShape.SizeBDiagCursor,
-                "t":  Qt.CursorShape.SizeVerCursor,
-                "b":  Qt.CursorShape.SizeVerCursor,
                 "l":  Qt.CursorShape.SizeHorCursor,
                 "r":  Qt.CursorShape.SizeHorCursor,
             }
@@ -1306,7 +1318,7 @@ class EditableInlineTextItem(QGraphicsTextItem):
             val = getattr(self, "link_raw", "") or self.toPlainText().strip()
             self.setToolTip(LanguageManager.tr("ui_t_c_kimlik_no_tiklayarak_panoya", val=val))
         else:
-            self.setCursor(Qt.CursorShape.IBeamCursor)
+            self.setCursor(Qt.CursorShape.SizeAllCursor)
             self.setToolTip("")
         super().hoverMoveEvent(event)
 
@@ -1357,10 +1369,17 @@ class EditableInlineTextItem(QGraphicsTextItem):
                 event.accept()
                 return
 
-            # 2. Kenarlık tıklaması: Kutuyu taşıma (Adobe Acrobat standardı)
-            if self._is_on_border(event.pos()):
+            # 2. Kenarlık veya düzenlenmeyen kutunun gövdesi: Seç ve sürüklenebilir yap
+            on_border = self._is_on_border(event.pos())
+            if on_border or not is_editing:
+                self._was_selected_on_press = self.isSelected()
+                self._press_on_border = on_border
+                if not self.isSelected() and self.scene():
+                    self.scene().clearSelection()
                 self._is_box_dragging = True
+                self._box_moved = False
                 self.setSelected(True)
+                self.setFocus()
                 self.tab_doc.active_text_item = self
                 self.tab_doc.last_text_item = self
                 self._drag_start_scene = event.scenePos()
@@ -1370,61 +1389,68 @@ class EditableInlineTextItem(QGraphicsTextItem):
                 event.accept()
                 return
 
-            # 3. Metin içi tıklama: Düzenleme moduna geç veya imleç konumlandır
-            if not is_editing:
+            # 3. Düzenleme sırasında metin içi tıklama: İmleç konumlandır veya harf seç
+            self._press_pos = event.pos()
+            self._had_selection_on_press = self.textCursor().hasSelection()
+            if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
                 anc = self.document().documentLayout().anchorAt(event.pos())
-                if anc and not (event.modifiers() & Qt.KeyboardModifier.ControlModifier):
+                if anc:
                     QDesktopServices.openUrl(QUrl(anc))
                     event.accept()
                     return
-
-                link_url = getattr(self, "link_url", "")
-                link_type = getattr(self, "link_type", "url")
-                link_raw = getattr(self, "link_raw", "") or self.toPlainText().strip()
-                link_text = getattr(self, "link_text", "")
-                if link_type == "tc":
-                    val = link_raw or self.toPlainText().strip()
-                    QApplication.clipboard().setText(val)
-                    main_win = getattr(self.tab_doc, 'main_window', None)
-                    status_bar = getattr(main_win, "statusBar", lambda: None)()
-                    if status_bar:
-                        status_bar.showMessage(LanguageManager.tr("ui_t_c_kimlik_no_panoya_kopyalandi", val=val), 4000)
-                    return
-                if link_url and not link_text:
-                    QDesktopServices.openUrl(QUrl(link_url))
-                    return
-
-                self.enable_editing()
-                self.setSelected(True)
-                if self.tab_doc:
-                    self.tab_doc.active_text_item = self
-                    self.tab_doc.last_text_item = self
-                self._press_pos = event.pos()
-                layout = self.document().documentLayout()
-                char_idx = layout.hitTest(event.pos(), Qt.HitTestAccuracy.ExactHit)
-                if char_idx < 0:
-                    char_idx = layout.hitTest(event.pos(), Qt.HitTestAccuracy.FuzzyHit)
-                if char_idx >= 0:
-                    cur = self.textCursor()
-                    cur.setPosition(char_idx)
-                    self.setTextCursor(cur)
-                if hasattr(self.tab_doc, 'view') and self.tab_doc.view:
-                    self.tab_doc.view.viewport().update()
-                event.accept()
-                return
-            else:
-                self._press_pos = event.pos()
-                self._had_selection_on_press = self.textCursor().hasSelection()
-                if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
-                    anc = self.document().documentLayout().anchorAt(event.pos())
-                    if anc:
-                        QDesktopServices.openUrl(QUrl(anc))
-                        event.accept()
-                        return
-                super().mousePressEvent(event)
-                return
+            super().mousePressEvent(event)
+            return
 
         super().mousePressEvent(event)
+
+    def _on_box_clicked(self, pos: QPointF, modifiers):
+        """Sürüklenmeden biten tıklama: İlk tıklama seçer ve bağlantıyı açar, ikincisi düzenler."""
+        if not getattr(self, '_was_selected_on_press', False):
+            if modifiers & Qt.KeyboardModifier.ControlModifier:
+                return
+            anc = self.document().documentLayout().anchorAt(pos)
+            if anc:
+                QDesktopServices.openUrl(QUrl(anc))
+                return
+            link_type = getattr(self, "link_type", "url")
+            if link_type == "tc":
+                val = getattr(self, "link_raw", "") or self.toPlainText().strip()
+                QApplication.clipboard().setText(val)
+                main_win = getattr(self.tab_doc, 'main_window', None)
+                status_bar = getattr(main_win, "statusBar", lambda: None)()
+                if status_bar:
+                    status_bar.showMessage(LanguageManager.tr("ui_t_c_kimlik_no_panoya_kopyalandi", val=val), 4000)
+                return
+            if getattr(self, "link_url", "") and not getattr(self, "link_text", ""):
+                QDesktopServices.openUrl(QUrl(self.link_url))
+            return
+
+        self.enable_editing()
+        layout = self.document().documentLayout()
+        char_idx = layout.hitTest(pos, Qt.HitTestAccuracy.ExactHit)
+        if char_idx < 0:
+            char_idx = layout.hitTest(pos, Qt.HitTestAccuracy.FuzzyHit)
+        if char_idx >= 0:
+            cur = self.textCursor()
+            cur.setPosition(char_idx)
+            self.setTextCursor(cur)
+        if hasattr(self.tab_doc, 'view') and self.tab_doc.view:
+            self.tab_doc.view.viewport().update()
+
+    def leave_editing(self):
+        """Düzenlemeden çıkar, kutuyu seçili bırakır; boş kutu temizlenir."""
+        if not self.toPlainText().strip():
+            self.finish_editing()
+            return
+        cur = self.textCursor()
+        cur.clearSelection()
+        self.setTextCursor(cur)
+        self.setTextInteractionFlags(Qt.TextInteractionFlag.NoTextInteraction)
+        self.hide_floating_hud()
+        self.setSelected(True)
+        self.setFocus()
+        self.tab_doc.commit_inline_text(self)
+        self.update()
 
     def mouseMoveEvent(self, event):
         if getattr(self, '_is_resizing', False) and self._active_handle:
@@ -1457,7 +1483,8 @@ class EditableInlineTextItem(QGraphicsTextItem):
             if hasattr(self.tab_doc, 'auto_scroll_during_drag'):
                 self.tab_doc.auto_scroll_during_drag(event.scenePos(), page_idx=page_idx)
             delta = event.scenePos() - self._drag_start_scene
-            if delta.manhattanLength() > 2:
+            if getattr(self, '_box_moved', False) or delta.manhattanLength() > 3:
+                self._box_moved = True
                 raw_pos = self._item_start_pos + delta
                 tab_doc = self.tab_doc
                 br = self.boundingRect()
@@ -1516,6 +1543,11 @@ class EditableInlineTextItem(QGraphicsTextItem):
 
         if getattr(self, '_is_box_dragging', False):
             self._is_box_dragging = False
+            if not getattr(self, '_box_moved', False):
+                if not getattr(self, '_press_on_border', False):
+                    self._on_box_clicked(event.pos(), event.modifiers())
+                event.accept()
+                return
             tab_doc = self.tab_doc
             if tab_doc:
                 if hasattr(tab_doc, 'clear_alignment_guides'):
@@ -1585,6 +1617,22 @@ class EditableInlineTextItem(QGraphicsTextItem):
                 self.delete_self()
                 event.accept()
                 return
+            if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter, Qt.Key.Key_F2):
+                self.enable_editing()
+                cur = self.textCursor()
+                cur.movePosition(QTextCursor.MoveOperation.End)
+                self.setTextCursor(cur)
+                event.accept()
+                return
+            step = 10.0 if mods & Qt.KeyboardModifier.ShiftModifier else 1.0
+            nudges = {Qt.Key.Key_Left: (-step, 0.0), Qt.Key.Key_Right: (step, 0.0),
+                      Qt.Key.Key_Up: (0.0, -step), Qt.Key.Key_Down: (0.0, step)}
+            if key in nudges:
+                dx, dy = nudges[key]
+                self.setPos(self.pos() + QPointF(dx, dy))
+                self.tab_doc.commit_inline_text(self)
+                event.accept()
+                return
 
         # Klavye kısayolları ile zengin metin biçimlendirme
         if mods & Qt.KeyboardModifier.ControlModifier:
@@ -1601,6 +1649,11 @@ class EditableInlineTextItem(QGraphicsTextItem):
             elif key == Qt.Key.Key_U:
                 fmt = self.get_selection_format()
                 self.apply_format_to_selection(underline=not fmt["underline"])
+                event.accept()
+                return
+            elif key == Qt.Key.Key_X and mods & Qt.KeyboardModifier.ShiftModifier:
+                fmt = self.get_selection_format()
+                self.apply_format_to_selection(strikeout=not fmt["strikeout"])
                 event.accept()
                 return
             elif key == Qt.Key.Key_L:
@@ -1633,8 +1686,11 @@ class EditableInlineTextItem(QGraphicsTextItem):
                 return
 
         if key == Qt.Key.Key_Escape:
-            self.clearFocus()
-            self.hide_floating_hud()
+            if self.textInteractionFlags() & Qt.TextInteractionFlag.TextEditorInteraction:
+                self.leave_editing()
+            else:
+                self.setSelected(False)
+                self.clearFocus()
             event.accept()
             return
 
@@ -2005,19 +2061,19 @@ class FullscreenSlideToolbar(QFrame):
         tools = [
             ('select', AuraIconFactory.icon_cursor(), LanguageManager.tr("tool_tip_select")),
             ('pan', AuraIconFactory.icon_select_pan(), LanguageManager.tr("tool_tip_pan")),
-            ('selection_tool', AuraIconFactory.icon_select_rect(), LanguageManager.tr("tool_tip_selection")),
-            ('pen', AuraIconFactory.icon_pen(), LanguageManager.tr("tool_tip_pen")),
-            ('highlighter', AuraIconFactory.icon_highlighter(), LanguageManager.tr("tool_tip_highlighter")),
-            ('eraser', AuraIconFactory.icon_eraser(), LanguageManager.tr("tool_tip_eraser")),
-            ('text', AuraIconFactory.icon_text_box(), LanguageManager.tr("tool_tip_text")),
+            ('selection_tool', AuraIconFactory.icon_select_rect("#38bdf8"), LanguageManager.tr("tool_tip_selection")),
+            ('pen', AuraIconFactory.icon_pen("#0284c7"), LanguageManager.tr("tool_tip_pen")),
+            ('highlighter', AuraIconFactory.icon_highlighter("#eab308"), LanguageManager.tr("tool_tip_highlighter")),
+            ('eraser', AuraIconFactory.icon_eraser("#ef4444"), LanguageManager.tr("tool_tip_eraser")),
+            ('text', AuraIconFactory.icon_text_tool("#ec4899"), LanguageManager.tr("tool_tip_text")),
             ('insert', AuraIconFactory.icon_insert("#10b981"), LanguageManager.tr("insert_btn_tip")),
-            ('pointer', AuraIconFactory.icon_pointer(), LanguageManager.tr("tool_tip_pointer"))
+            ('pointer', AuraIconFactory.icon_pointer("#ef4444"), LanguageManager.tr("tool_tip_pointer"))
         ]
 
         for name, icon, tip in tools:
             btn = QToolButton(self)
             btn.setIcon(icon)
-            btn.setIconSize(QSize(22, 22))
+            btn.setIconSize(QSize(24, 24))
             btn.setToolTip(tip)
             if name != 'insert':
                 btn.setCheckable(True)
@@ -2304,15 +2360,22 @@ class FullscreenSlideToolbar(QFrame):
         if 'selection_tool' in self.buttons:
             btn_sel = self.buttons['selection_tool']
             if tool_name == 'ruler':
-                btn_sel.setIcon(AuraIconFactory.icon_ruler())
+                btn_sel.setIcon(AuraIconFactory.icon_ruler("#38bdf8"))
             else:
                 mode = getattr(self.main_window, 'selection_shape_mode', 'rect')
                 if mode == 'rect':
-                    btn_sel.setIcon(AuraIconFactory.icon_select_rect())
+                    btn_sel.setIcon(AuraIconFactory.icon_select_rect("#38bdf8"))
                 elif mode == 'lasso':
-                    btn_sel.setIcon(AuraIconFactory.icon_select_lasso())
+                    btn_sel.setIcon(AuraIconFactory.icon_select_lasso("#38bdf8"))
                 elif mode == 'move':
-                    btn_sel.setIcon(AuraIconFactory.icon_select_move())
+                    btn_sel.setIcon(AuraIconFactory.icon_select_move("#38bdf8"))
+
+    def update_tool_variant(self, tool: str, icon: QIcon, tip: str):
+        """Kalem ve vurgulayıcı butonunda son kullanılan türü gösterir."""
+        btn = self.buttons.get(tool)
+        if btn:
+            btn.setIcon(icon)
+            btn.setToolTip(tip)
 
     def _get_popup_for_tool(self, name: str):
         mw = self.main_window

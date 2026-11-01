@@ -6348,6 +6348,12 @@ class PDFTabDocument(QWidget):
         first_line_h = item.document().size().height() - inset * 2.0
         item.setPos(max(page_left, clamped_x - inset), max(p_info['top'], clamped_y - inset - first_line_h / 2.0))
         self.scene.addItem(item)
+        if popup.btn_strike.isChecked():
+            cursor = item.textCursor()
+            fmt = cursor.charFormat()
+            fmt.setFontStrikeOut(True)
+            cursor.setCharFormat(fmt)
+            item.setTextCursor(cursor)
         self.active_text_item = item
         if popup.btn_strike.isChecked():
             item.apply_format_to_selection(strikeout=True)

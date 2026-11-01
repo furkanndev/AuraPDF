@@ -1713,17 +1713,60 @@ def _giphy_results(payload: Dict[str, Any]) -> List[Tuple[str, str]]:
     return results
 
 
+_TENOR_CACHE_RE = re.compile(r'<script id="store-cache"[^>]*>(.*?)</script>', re.DOTALL)
+
+
+def _tenor_page_results(page: str) -> List[Tuple[str, str]]:
+    """Tenor arama sayfasının gömülü verisinden (önizleme, kaliteli sürüm) çiftlerini okur."""
+    match = _TENOR_CACHE_RE.search(page)
+    if not match:
+        return []
+    try:
+        searches = json.loads(match.group(1)).get("universal", {}).get("search", {})
+    except ValueError:
+        return []
+    results = []
+    for search in searches.values():
+        for gif in search.get("results", []):
+            formats = gif.get("media_formats", {})
+            full = formats.get("mediumgif", {}).get("url", "") or formats.get("gif", {}).get("url", "")
+            thumb = formats.get("tinygif", {}).get("url", "") or full
+            if thumb:
+                results.append((thumb, full or thumb))
+    return results
+
+
+def _tenor_search(query: str) -> List[Tuple[str, str]]:
+    """Tenor'un herkese açık arama sayfasını okur; sayfa yapısı değişirse sonuçsuz döner."""
+    slug = urllib.parse.quote("-".join(query.lower().split()))
+    try:
+        data = _http_get(f"https://tenor.com/search/{slug}-gifs", timeout=8, max_bytes=_MAX_PAGE_BYTES, retries=0)
+    except MediaFetchError:
+        return []
+    return _tenor_page_results(data.decode("utf-8", errors="ignore"))
+
+
+def _merge_gif_sources(first: List[Tuple[str, str]], second: List[Tuple[str, str]]) -> List[Tuple[str, str]]:
+    """İki kaynağın sonuçlarını dönüşümlü dizer, tekrar edenleri eler."""
+    merged = []
+    for index in range(max(len(first), len(second))):
+        merged.extend(source[index] for source in (first, second) if index < len(source))
+    return list(dict.fromkeys(merged))
+
+
 class GifSearchWorker(QThread):
     """
-    GIPHY API üzerinden arama sorgusuna uygun GIF URL'lerini asenkron olarak çeker.
-    Türkçe arama terimlerini otomatik olarak optimize eder.
+    GIPHY ve Tenor üzerinden arama sorgusuna uygun GIF URL'lerini asenkron olarak çeker.
+    Sorguyu sitelerdeki gibi yazıldığı hâliyle arar; ilk sayfa zayıfsa Türkçe terimin
+    İngilizce karşılığıyla tamamlar. Sonraki sayfalar yalnızca GIPHY'den gelir.
     """
-    results_ready = pyqtSignal(str, list, str)  # query, list_of_(thumb, full), error_kind
+    results_ready = pyqtSignal(str, list, str, object)  # query, list_of_(thumb, full), error_kind, next_offset
 
-    def __init__(self, query: str, limit: int = 30):
+    def __init__(self, query: str, limit: int = 50, offset: int = 0):
         super().__init__()
         self.query = query.strip()
         self.limit = limit
+        self.offset = offset
         self._stopped = False
 
     def stop(self):
@@ -1733,29 +1776,32 @@ class GifSearchWorker(QThread):
         if not self.query or self._stopped:
             return
 
-        queries = [self.query]
-        q_lower = self.query.lower()
-        if q_lower in TR_MAP:
-            queries.insert(0, TR_MAP[q_lower])
-
         found: List[Tuple[str, str]] = []
         error = ""
-        for q in queries:
-            if self._stopped:
-                break
-            try:
-                found = _giphy_results(_giphy_request("search", q=q, limit=self.limit, lang="tr"))
-                error = ""
-            except MediaFetchError as exc:
-                error = exc.kind
-            except ValueError:
-                error = "network"
-            if found:
-                break
+        next_offset = None
+        try:
+            payload = _giphy_request("search", q=self.query, limit=self.limit, offset=self.offset)
+            found = _giphy_results(payload)
+            pagination = payload.get("pagination", {})
+            candidate = self.offset + pagination.get("count", 0)
+            if pagination.get("count", 0) and candidate < pagination.get("total_count", 0):
+                next_offset = candidate
+        except MediaFetchError as exc:
+            error = exc.kind
+        except ValueError:
+            error = "network"
 
-        unique = list(dict.fromkeys(found))
+        if self.offset == 0 and not self._stopped:
+            translated = TR_MAP.get(self.query.lower())
+            if translated and not error and len(found) < self.limit // 2:
+                try:
+                    found += _giphy_results(_giphy_request("search", q=translated, limit=self.limit))
+                except (MediaFetchError, ValueError):
+                    pass
+            found = _merge_gif_sources(found, _tenor_search(self.query))
+
         if not self._stopped:
-            self.results_ready.emit(self.query, unique, error)
+            self.results_ready.emit(self.query, found, error, next_offset)
 
 
 import concurrent.futures
@@ -1977,6 +2023,7 @@ class GifThumbnailCard(QFrame):
         self.is_failed = False
         self._gif_data: Optional[bytes] = None
         self._movie: Optional[QMovie] = None
+        self._is_static = False  # Hareketsiz görsel: oynatma gerektirmez
         self._buf: Optional[QBuffer] = None
         self._press_pos: Optional[QPoint] = None
 
@@ -2003,9 +2050,27 @@ class GifThumbnailCard(QFrame):
             self.set_thumbnail_data(self._THUMB_CACHE[self.url])
 
     def set_thumbnail_data(self, data: bytes):
+        """Veriyi saklar; çözme işi kart görünür olduğunda set_playing ile yapılır."""
         self._gif_data = data
         self.is_failed = False
         self.setToolTip("")
+        self.stop_movie()
+        if self.lbl_thumb.pixmap().isNull():
+            self.lbl_thumb.setText("...")
+
+    def set_playing(self, playing: bool):
+        """Görünür kart oynar; ekrandan çıkan kart son karesiyle donar ve çözücüsünü bırakır."""
+        if not self._gif_data or self._is_static or playing == (self._movie is not None):
+            return
+        if playing:
+            self._start_movie(self._gif_data)
+            return
+        frame = self._movie.currentPixmap()
+        self.stop_movie()
+        if not frame.isNull():
+            self.lbl_thumb.setPixmap(frame)
+
+    def _start_movie(self, data: bytes):
         try:
             self.stop_movie()
             self._ba = QByteArray(data)
@@ -2035,6 +2100,7 @@ class GifThumbnailCard(QFrame):
             x = max(0, (scaled.width() - self.lbl_thumb.width()) // 2)
             y = max(0, (scaled.height() - self.lbl_thumb.height()) // 2)
             cropped = scaled.copy(x, y, self.lbl_thumb.width(), self.lbl_thumb.height())
+            self._is_static = True
             self.lbl_thumb.setPixmap(cropped)
             self.lbl_thumb.setText("")
         else:
@@ -2357,12 +2423,20 @@ class EmojiGifPickerDialog(QDialog):
         self._trending_next_offset: int = 0  # GIPHY API sayfalama imleci
         self._is_fetching_trending: bool = False
         self._trending_exhausted: bool = False  # API hatası veya liste sonu: yeniden isteme
+        self._search_next_offset: Optional[int] = None  # Arama sonuçlarının sonraki sayfası
+        self._is_fetching_search: bool = False
         self._current_search_query: str = ""
         self._pending_double_click_url: Optional[str] = None
 
         self._search_timer = QTimer(self)
         self._search_timer.setSingleShot(True)
         self._search_timer.timeout.connect(self._on_search_triggered)
+
+        # Yalnızca görünür kartlar oynar; kaydırma sırasında art arda hesaplanmaz
+        self._playback_timer = QTimer(self)
+        self._playback_timer.setSingleShot(True)
+        self._playback_timer.setInterval(120)
+        self._playback_timer.timeout.connect(self._sync_visible_gifs)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(12, 10, 12, 8)
@@ -2419,6 +2493,12 @@ class EmojiGifPickerDialog(QDialog):
         self.lbl_gif_status.setStyleSheet(f"color: {self.muted_col}; font-size: 11px; background: transparent; border: none;")
         self.lbl_gif_status.hide()
         layout.addWidget(self.lbl_gif_status)
+
+        self.lbl_gif_note = QLabel(LanguageManager.tr("gif_exclusive_note"))
+        self.lbl_gif_note.setWordWrap(True)
+        self.lbl_gif_note.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.lbl_gif_note.setStyleSheet(f"color: {self.muted_col}; font-size: 11px; background: transparent; border: none;")
+        layout.addWidget(self.lbl_gif_note)
 
         # 3. Stacked Widget: Sayfa 0 = GIF (3 Sütunlu), Sayfa 1 = Emoji
         self.stacked = QStackedWidget()
@@ -2510,6 +2590,7 @@ class EmojiGifPickerDialog(QDialog):
 
     def set_mode(self, mode: str):
         self._current_mode = mode
+        self.lbl_gif_note.setVisible(mode == "gif")
         self._update_pill_styles()
         self._rebuild_top_categories()
 
@@ -2779,14 +2860,40 @@ class EmojiGifPickerDialog(QDialog):
                 self._all_gif_urls.append(thumb)
         self._load_next_gif_batch()
 
+    def _fetch_more_gif_urls(self):
+        """Görünümdeki listenin (popüler veya arama) sonraki sayfasını ister."""
+        if self._current_search_query:
+            self._fetch_more_search_results()
+        else:
+            self._fetch_more_trending_urls()
+
+    def _fetch_more_search_results(self):
+        if self._is_fetching_search or self._search_next_offset is None:
+            return
+        self._launch_search_worker(self._current_search_query, self._search_next_offset)
+
+    def _launch_search_worker(self, query: str, offset: int):
+        self._is_fetching_search = True
+        self._search_worker = GifSearchWorker(query, offset=offset)
+        _register_worker(self._search_worker)
+        self._search_worker.results_ready.connect(self._on_search_results_ready)
+        self._search_worker.start()
+
+    def _sync_visible_gifs(self):
+        scroll_y = self.gif_scroll.verticalScrollBar().value()
+        visible_area = self.gif_scroll.viewport().rect().translated(0, scroll_y)
+        for card in self.gif_cards:
+            card.set_playing(card.geometry().intersects(visible_area))
+
     def _on_gif_scroll(self, val: int):
+        self._playback_timer.start()
         max_val = self.gif_scroll.verticalScrollBar().maximum()
         # 300px eşiğiyle önceden yükle; max_val==0 yani henüz render edilmemiş ise de tetikle
         if (max_val == 0 or val >= max_val - 300) and not self._is_loading_batch:
             self._load_next_gif_batch()
             # Tüm URL'ler tükendiyse ve trending modundaysak API'den sonraki sayfayı getir
-            if self._rendered_gif_count >= len(self._all_gif_urls) and not self._current_search_query:
-                self._fetch_more_trending_urls()
+            if self._rendered_gif_count >= len(self._all_gif_urls):
+                self._fetch_more_gif_urls()
 
     def _load_next_gif_batch(self):
         if self._is_loading_batch:
@@ -2797,8 +2904,7 @@ class EmojiGifPickerDialog(QDialog):
         end_idx = min(start_idx + BATCH_SIZE, len(self._all_gif_urls))
 
         if start_idx >= end_idx:
-            if not self._current_search_query:
-                self._fetch_more_trending_urls()
+            self._fetch_more_gif_urls()
             return
 
         self._is_loading_batch = True
@@ -2819,6 +2925,7 @@ class EmojiGifPickerDialog(QDialog):
             download_batch.append((card_id, url))
 
         self._rendered_gif_count = end_idx
+        self._playback_timer.start()
 
         worker = self._start_thumb_worker(download_batch)
         worker.finished.connect(self._on_batch_finished)
@@ -2841,13 +2948,14 @@ class EmojiGifPickerDialog(QDialog):
         if max_val == 0 or val >= max_val - 300:
             if self._rendered_gif_count < len(self._all_gif_urls):
                 QTimer.singleShot(50, self._load_next_gif_batch)
-            elif not self._current_search_query:
-                QTimer.singleShot(50, self._fetch_more_trending_urls)
+            else:
+                QTimer.singleShot(50, self._fetch_more_gif_urls)
 
     def _on_card_thumb_ready(self, card_idx: int, data: bytes):
         if 0 <= card_idx < len(self.gif_cards):
             self.gif_cards[card_idx].set_thumbnail_data(data)
             card = self.gif_cards[card_idx]
+            self._playback_timer.start()
             if self._pending_double_click_url == card.url:
                 self._pending_double_click_url = None
                 self._on_gif_card_double_clicked(card.url)
@@ -2867,6 +2975,7 @@ class EmojiGifPickerDialog(QDialog):
             return
 
         self._current_search_query = q
+        self._search_next_offset = None
         self._clear_gif_grid()
         self._set_gif_status("")
 
@@ -2886,10 +2995,7 @@ class EmojiGifPickerDialog(QDialog):
                 pass
             self._search_worker = None
 
-        self._search_worker = GifSearchWorker(q)
-        _register_worker(self._search_worker)
-        self._search_worker.results_ready.connect(self._on_search_results_ready)
-        self._search_worker.start()
+        self._launch_search_worker(q, 0)
 
     def _on_link_resolved(self, link: str, direct_url: str, error: str):
         if link != self._current_search_query:
@@ -2903,8 +3009,16 @@ class EmojiGifPickerDialog(QDialog):
         self._rendered_gif_count = 0
         self._load_next_gif_batch()
 
-    def _on_search_results_ready(self, query: str, results: list, error: str):
+    def _on_search_results_ready(self, query: str, results: list, error: str, next_offset: Optional[int] = None):
         if query != self._current_search_query:
+            return
+        self._is_fetching_search = False
+        self._search_next_offset = next_offset
+        if self._all_gif_urls:  # Sonraki sayfa: mevcut ızgaraya eklenir
+            self._gif_full_urls.update(results)
+            known = set(self._all_gif_urls)
+            self._all_gif_urls.extend(thumb for thumb, _ in results if thumb not in known)
+            self._load_next_gif_batch()
             return
         if error and not results:
             self._show_curated_gifs(error)
@@ -2920,6 +3034,7 @@ class EmojiGifPickerDialog(QDialog):
 
     def _reset_to_popular(self):
         self._current_search_query = ""
+        self._search_next_offset = None
         self._clear_gif_grid()
         self._set_gif_status("")
         self._populate_initial_gifs()
@@ -2968,6 +3083,7 @@ class EmojiGifPickerDialog(QDialog):
         self._thumb_workers.clear()
         self._is_loading_batch = False
         self._is_fetching_trending = False
+        self._is_fetching_search = False
 
     def _clear_gif_grid(self):
         self._stop_all_workers()

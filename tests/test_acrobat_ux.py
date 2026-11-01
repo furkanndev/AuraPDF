@@ -117,11 +117,11 @@ class TestAcrobatUX(unittest.TestCase):
         self.assertIsNone(item.move_handle, "Floating move_handle must be None")
 
     def test_text_box_handles_and_border(self):
-        """Acrobat stili 8 tutamaç ve kenarlık algılaması doğru çalışmalıdır."""
+        """Genişlik tutamaçları ve kenarlık algılaması doğru çalışmalıdır."""
         item = EditableInlineTextItem(self.tab_doc, 0, QPointF(100, 100), text="Hello World")
         item.setSelected(True)
         rects = item._handle_rects()
-        self.assertEqual(len(rects), 8)
+        self.assertEqual(len(rects), 6)
         self.assertIn("tl", rects)
         self.assertIn("br", rects)
         self.assertIn("r", rects)

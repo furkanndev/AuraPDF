@@ -1000,6 +1000,15 @@ class AuraPinnedQuickToolsBar(QFrame):
         for tid, btn in self.buttons.items():
             btn.setChecked(tid == tool_id)
 
+    def update_tool_variant(self, tool: str, icon_func, tip: str):
+        """Kalem ve vurgulayıcı butonunda son kullanılan türü gösterir."""
+        key = self.tool_specs_factory[tool][0]
+        self.tool_specs_factory[tool] = (key, icon_func)
+        btn = self.buttons.get(tool)
+        if btn:
+            btn.setIcon(icon_func())
+            btn.setToolTip(tip)
+
     def update_cursor_mode(self, mode: str):
         btn = self.buttons.get("select")
         if not btn: return
@@ -4644,6 +4653,15 @@ class FloatingQuickToolsCapsule(QFrame):
                 self.layout_capsule.addWidget(btn)
 
         self.update()
+
+    def update_tool_variant(self, tool: str, icon_func, tip: str):
+        """Kalem ve vurgulayıcı butonunda son kullanılan türü gösterir."""
+        key = self.tool_specs_factory[tool][0]
+        self.tool_specs_factory[tool] = (key, icon_func)
+        btn = self.buttons.get(tool)
+        if btn:
+            btn.setIcon(icon_func())
+            btn.setToolTip(tip)
 
     def update_cursor_mode(self, mode: str):
         """İmleç/Gezinme modu değiştiğinde hareketli toolbardaki butonu günceller."""
