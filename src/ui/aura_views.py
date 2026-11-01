@@ -337,7 +337,7 @@ class AuraTabItem(QWidget):
     hoverEntered = pyqtSignal(int, QPoint)
     hoverLeft = pyqtSignal(int)
 
-    def __init__(self, index: int, title: str, is_active: bool = False, parent=None):
+    def __init__(self, index: int, title: str, is_active: bool = False, parent=None, theme_name: str = "light"):
         super().__init__(parent)
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self.index = index
@@ -377,7 +377,7 @@ class AuraTabItem(QWidget):
         layout.addWidget(self.btn_close)
 
         self.set_title(title)
-        self._apply_style("light")
+        self._apply_style(theme_name)
 
     def mousePressEvent(self, event):
         self.hoverLeft.emit(self.index)
@@ -633,14 +633,13 @@ class AuraTabBarWidget(QWidget):
 
     def add_tab(self, title: str) -> int:
         idx = len(self.items)
-        item = AuraTabItem(idx, title, is_active=(idx == 0 and not self.is_home_active), parent=self)
+        item = AuraTabItem(idx, title, is_active=(idx == 0 and not self.is_home_active), parent=self, theme_name=self.theme_name)
         item.clicked.connect(self._on_item_clicked)
         item.closeRequested.connect(self.tabCloseRequested.emit)
         item.hoverEntered.connect(self.tabHoverEntered.emit)
         item.hoverLeft.connect(self.tabHoverLeft.emit)
         self.items.append(item)
         self.tabs_layout.addWidget(item)
-        item._apply_style(self.theme_name)
         return idx
 
     def remove_tab(self, index: int):

@@ -341,6 +341,8 @@ class NewPageDialog(QDialog):
                 background: transparent;
             }}
             QRadioButton::indicator:checked {{
+                width: 14px;
+                height: 14px;
                 background-color: {accent};
                 border: 2px solid #ffffff;
             }}
@@ -722,6 +724,8 @@ class ChangePageStyleDialog(QDialog):
                 background: transparent;
             }}
             QRadioButton::indicator:checked {{
+                width: 14px;
+                height: 14px;
                 background-color: {accent};
                 border: 2px solid #ffffff;
             }}
