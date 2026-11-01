@@ -162,9 +162,23 @@ class TestTextAndAudioFixes(unittest.TestCase):
         self.assertEqual(dlg.mini_frame.toolTip(), LanguageManager.tr("audio_compact_drag_hint"))
         self.assertEqual(dlg.lbl_mini_time.toolTip(), LanguageManager.tr("audio_compact_time"))
         self.assertEqual(dlg.btn_mini_pause.toolTip(), LanguageManager.tr("audio_record_pause"))
-        self.assertEqual(dlg.btn_mini_stop.toolTip(), LanguageManager.tr("audio_record_stop"))
+        self.assertEqual(dlg.btn_mini_stop.toolTip(), LanguageManager.tr("audio_record_start"))
         self.assertEqual(dlg.btn_mini_expand.toolTip(), LanguageManager.tr("audio_record_expand_tip"))
         self.assertEqual(dlg.btn_mini_cancel.toolTip(), LanguageManager.tr("btn_cancel"))
+
+        # The capsule must never take keyboard focus away from the document
+        self.assertTrue(bool(dlg.windowFlags() & Qt.WindowType.WindowDoesNotAcceptFocus))
+        self.assertTrue(dlg.testAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating))
+
+        # Collapsed capsule stays small, extra controls appear only on hover
+        self.assertLessEqual(dlg.width(), 150)
+        self.assertEqual(dlg.height(), dlg.CAPSULE_HEIGHT)
+        collapsed_width = dlg.width()
+        dlg._set_capsule_expanded(True)
+        self.assertGreater(dlg.width(), collapsed_width)
+        self.assertLessEqual(dlg.width(), 210)
+        dlg._set_capsule_expanded(False)
+        self.assertEqual(dlg.width(), collapsed_width)
 
         # Toggle back to full view
         dlg._toggle_compact_mode()

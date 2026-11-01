@@ -11,6 +11,7 @@ from PyQt6.QtMultimedia import QMediaPlayer, QAudioOutput
 from PyQt6.QtMultimediaWidgets import QVideoWidget
 
 from src.core.i18n import LanguageManager
+from src.ui.dialog_theme import get_theme_palette
 from src.ui.icons import AuraIconFactory
 
 
@@ -1560,13 +1561,130 @@ class PDFResizableImageItem(QGraphicsItem):
         self.record["item_ref"] = self
 
 
+AUDIO_CARD_W = 176.0
+AUDIO_CARD_H = 40.0
+AUDIO_CARD_MIN_W = 130.0
+AUDIO_CARD_MIN_H = 38.0
+_AUDIO_SURFACE = "#ffffff"
+_AUDIO_EDGE = "#e2e8f0"
+_AUDIO_EDGE_HOVER = "#94a3b8"
+_AUDIO_INK = "#0f172a"
+_AUDIO_MUTED = "#64748b"
+_AUDIO_TRACK = "#cbd5e1"
+_AUDIO_ACTIVE = "#4f46e5"
+_AUDIO_FONT = "Segoe UI"
+
+
+def format_audio_time(seconds: float) -> str:
+    total = int(max(0.0, seconds))
+    return f"{total // 60:02d}:{total % 60:02d}"
+
+
+def audio_card_layout(w: float, h: float, time_text: str = "00:00") -> Dict[str, QRectF]:
+    """Kartın oynat düğmesi, başlık, ses izi ve süre alanlarını sahne biriminde hesaplar."""
+    btn_d = max(22.0, min(h - 14.0, 40.0))
+    btn_x = min(10.0, (h - btn_d) / 2.0 + 2.0)
+    button = QRectF(btn_x, (h - btn_d) / 2.0, btn_d, btn_d)
+
+    left = button.right() + 10.0
+    right = w - 12.0
+    font = QFont(_AUDIO_FONT)
+    font.setPixelSize(10)
+    time_w = QFontMetricsF(font).horizontalAdvance(time_text) + 1.0
+
+    if h >= 54.0:
+        center = h / 2.0
+        title = QRectF(left, center - 17.0, max(0.0, right - left), 16.0)
+        row = QRectF(left, center + 2.0, max(0.0, right - left), 14.0)
+    else:
+        title = QRectF()
+        row_h = min(h - 16.0, 18.0)
+        row = QRectF(left, (h - row_h) / 2.0, max(0.0, right - left), row_h)
+
+    time_rect = QRectF(row.right() - time_w, row.top(), time_w, row.height())
+    wave = QRectF(row.left(), row.top(), max(0.0, row.width() - time_w - 8.0), row.height())
+    return {"button": button, "title": title, "wave": wave, "time": time_rect}
+
+
+def paint_audio_card(painter: QPainter, w: float, h: float, title: str, time_text: str,
+                     peaks: Optional[List[float]] = None, progress: float = 0.0,
+                     playing: bool = False, hovered: bool = False):
+    """Sahnedeki kart ile PDF'e aktarılan kartın aynı görünmesi için ortak çizim."""
+    rects = audio_card_layout(w, h, time_text)
+    card = QRectF(0.75, 0.75, w - 1.5, h - 1.5)
+    radius = min(14.0, h / 2.0)
+    painter.setPen(QPen(QColor(_AUDIO_EDGE_HOVER if hovered else _AUDIO_EDGE), 1.0))
+    painter.setBrush(QColor(_AUDIO_SURFACE))
+    painter.drawRoundedRect(card, radius, radius)
+
+    btn = rects["button"]
+    accent = QColor(_AUDIO_ACTIVE if playing else _AUDIO_INK)
+    painter.setPen(Qt.PenStyle.NoPen)
+    painter.setBrush(accent)
+    painter.drawEllipse(btn)
+    painter.setBrush(QColor("#ffffff"))
+    cx, cy = btn.center().x(), btn.center().y()
+    s = btn.width() * 0.36
+    if playing:
+        bar_w = max(2.0, btn.width() * 0.11)
+        bar_h = btn.height() * 0.40
+        painter.drawRoundedRect(QRectF(cx - bar_w * 1.4, cy - bar_h / 2.0, bar_w, bar_h), 1.0, 1.0)
+        painter.drawRoundedRect(QRectF(cx + bar_w * 0.4, cy - bar_h / 2.0, bar_w, bar_h), 1.0, 1.0)
+    else:
+        tri = QPainterPath()
+        tri.moveTo(cx - s * 0.42, cy - s * 0.72)
+        tri.lineTo(cx + s * 0.78, cy)
+        tri.lineTo(cx - s * 0.42, cy + s * 0.72)
+        tri.closeSubpath()
+        painter.drawPath(tri)
+
+    if not rects["title"].isEmpty():
+        font = QFont(_AUDIO_FONT, weight=QFont.Weight.DemiBold)
+        font.setPixelSize(12)
+        painter.setFont(font)
+        painter.setPen(QColor(_AUDIO_INK))
+        elided = QFontMetricsF(font).elidedText(title, Qt.TextElideMode.ElideRight, rects["title"].width())
+        painter.drawText(rects["title"], Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft, elided)
+
+    wave = rects["wave"]
+    played = accent if playing or progress > 0.0 else QColor(_AUDIO_TRACK)
+    rest = QColor(_AUDIO_TRACK)
+    painter.setPen(Qt.PenStyle.NoPen)
+    if peaks and wave.width() >= 16.0:
+        pitch = 4.0
+        bar = 2.4
+        count = int(wave.width() // pitch)
+        for i in range(count):
+            level = peaks[int(i * len(peaks) / count)]
+            half = max(1.2, level * wave.height() / 2.0)
+            painter.setBrush(played if (i + 0.5) / count <= progress else QColor(_AUDIO_INK if progress <= 0.0 else _AUDIO_TRACK))
+            painter.drawRoundedRect(QRectF(wave.left() + i * pitch, wave.center().y() - half, bar, half * 2.0), 1.2, 1.2)
+    elif wave.width() >= 16.0:
+        track = QRectF(wave.left(), wave.center().y() - 1.5, wave.width(), 3.0)
+        painter.setBrush(rest)
+        painter.drawRoundedRect(track, 1.5, 1.5)
+        if progress > 0.0:
+            painter.setBrush(played)
+            filled = QRectF(track.left(), track.top(), track.width() * min(1.0, progress), track.height())
+            painter.drawRoundedRect(filled, 1.5, 1.5)
+            painter.drawEllipse(QPointF(filled.right(), track.center().y()), 4.0, 4.0)
+
+    font = QFont(_AUDIO_FONT)
+    font.setPixelSize(10)
+    painter.setFont(font)
+    painter.setPen(QColor(_AUDIO_MUTED))
+    painter.drawText(rects["time"], Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignRight, time_text)
+
+
 class PDFAudioItem(QGraphicsItem):
     """
-    PDF üzerine yerleştirilen şık, modern etkileşimli ve boyutlandırılabilir ses kayıt kartı.
-    Viewer üzerinden tıklandığında sesi çalar. Köşelerden ve kenarlardan serbestçe boyutlandırılabilir.
+    PDF üzerine yerleştirilen sade, etkileşimli ve boyutlandırılabilir ses kartı.
+    Oynat düğmesi sesi başlatır/duraklatır, ses izine tıklamak ileri-geri sarar.
+    Köşelerden ve kenarlardan serbestçe boyutlandırılabilir.
     """
     _PLAYER: Optional[QMediaPlayer] = None
     _AUDIO_OUTPUT: Optional[QAudioOutput] = None
+    _ACTIVE: Optional["PDFAudioItem"] = None
 
     def __init__(self, tab_doc, record: Dict[str, Any]):
         super().__init__()
@@ -1574,12 +1692,16 @@ class PDFAudioItem(QGraphicsItem):
         self.record = record
 
         dpi = getattr(tab_doc, 'base_render_dpi', 1.5)
-        self.w = max(130.0, float(record.get("w", 180.0)) * dpi)
-        self.h = max(38.0, float(record.get("h", 48.0)) * dpi)
-        self.title = str(record.get("title", "Ses Kaydı"))
+        self.w = max(AUDIO_CARD_MIN_W, float(record.get("w", AUDIO_CARD_W)) * dpi)
+        self.h = max(AUDIO_CARD_MIN_H, float(record.get("h", AUDIO_CARD_H)) * dpi)
+        self.title = str(record.get("title", "")) or LanguageManager.tr("audio_record_title")
         self.duration_sec = float(record.get("duration_sec", 0.0))
         self.audio_bytes = record.get("audio_bytes", b"")
+        self.peaks: List[float] = list(record.get("waveform") or [])
         self.is_playing = False
+        self.position_ms = 0
+        self.media_ms = 0
+        self._hovered = False
         self._temp_file_path: Optional[str] = None
 
         # Boyutlandırma durumu
@@ -1593,6 +1715,7 @@ class PDFAudioItem(QGraphicsItem):
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemSendsGeometryChanges, True)
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsFocusable, True)
         self.setAcceptHoverEvents(True)
+        self.setToolTip(self.title)
 
     def boundingRect(self) -> QRectF:
         pad = 8.0
@@ -1601,10 +1724,25 @@ class PDFAudioItem(QGraphicsItem):
     def cardRect(self) -> QRectF:
         return QRectF(0, 0, self.w, self.h)
 
+    def _time_text(self) -> str:
+        if self.position_ms > 0:
+            return format_audio_time(self.position_ms / 1000.0)
+        if self.duration_sec > 0:
+            return format_audio_time(self.duration_sec)
+        return LanguageManager.tr("audio_file_label")
+
+    def _progress(self) -> float:
+        total_ms = self.media_ms or int(self.duration_sec * 1000)
+        return min(1.0, self.position_ms / total_ms) if total_ms > 0 else 0.0
+
     def play_button_rect(self) -> QRectF:
-        btn_d = min(32.0, max(20.0, self.h - 12.0))
-        btn_y = (self.h - btn_d) / 2.0
-        return QRectF(8.0, btn_y, btn_d, btn_d)
+        return audio_card_layout(self.w, self.h, self._time_text())["button"]
+
+    def wave_rect(self) -> QRectF:
+        return audio_card_layout(self.w, self.h, self._time_text())["wave"]
+
+    def _can_seek_at(self, pos: QPointF) -> bool:
+        return PDFAudioItem._ACTIVE is self and self.wave_rect().contains(pos)
 
     def _get_handle_at(self, pos: QPointF) -> Optional[str]:
         if not self.isSelected():
@@ -1622,7 +1760,7 @@ class PDFAudioItem(QGraphicsItem):
                 if h.name == h_name:
                     self.setCursor(h.cursor_shape)
                     return
-        elif self.play_button_rect().contains(event.pos()):
+        elif self.play_button_rect().contains(event.pos()) or self._can_seek_at(event.pos()):
             self.setCursor(Qt.CursorShape.PointingHandCursor)
         elif self.cardRect().contains(event.pos()):
             self.setCursor(Qt.CursorShape.SizeAllCursor if self.isSelected() else Qt.CursorShape.PointingHandCursor)
@@ -1630,77 +1768,23 @@ class PDFAudioItem(QGraphicsItem):
             self.setCursor(Qt.CursorShape.ArrowCursor)
         super().hoverMoveEvent(event)
 
+    def hoverEnterEvent(self, event):
+        self._hovered = True
+        self.update()
+        super().hoverEnterEvent(event)
+
+    def hoverLeaveEvent(self, event):
+        self._hovered = False
+        self.update()
+        super().hoverLeaveEvent(event)
+
     def paint(self, painter: QPainter, option, widget=None):
         painter.save()
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
         painter.setRenderHint(QPainter.RenderHint.TextAntialiasing, True)
 
-        # Kart Arka Planı (Koyu cam/mor gradyan)
-        grad = QLinearGradient(0, 0, self.w, self.h)
-        grad.setColorAt(0.0, QColor("#1e1b4b"))
-        grad.setColorAt(1.0, QColor("#0f172a"))
-        painter.setPen(QPen(QColor("#6366f1"), 1.4))
-        painter.setBrush(QBrush(grad))
-        painter.drawRoundedRect(self.cardRect(), 8.0, 8.0)
-
-        # Oynat / Durdur Butonu
-        btn_r = self.play_button_rect()
-        painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(QBrush(QColor("#6366f1" if not self.is_playing else "#ec4899")))
-        painter.drawEllipse(btn_r)
-
-        # Play / Pause İkonu
-        painter.setBrush(QBrush(QColor("#ffffff")))
-        if not self.is_playing:
-            poly = QPainterPath()
-            cx = btn_r.center().x()
-            cy = btn_r.center().y()
-            s = btn_r.width() * 0.35
-            poly.moveTo(cx - s * 0.5, cy - s * 0.8)
-            poly.lineTo(cx + s * 0.8, cy)
-            poly.lineTo(cx - s * 0.5, cy + s * 0.8)
-            poly.closeSubpath()
-            painter.drawPath(poly)
-        else:
-            cx = btn_r.center().x()
-            cy = btn_r.center().y()
-            pw = max(2.5, btn_r.width() * 0.12)
-            ph = btn_r.height() * 0.45
-            painter.drawRect(QRectF(cx - pw * 1.5, cy - ph / 2.0, pw, ph))
-            painter.drawRect(QRectF(cx + pw * 0.5, cy - ph / 2.0, pw, ph))
-
-        # Başlık ve Süre Metni (Taşmaları önlemek için elidedText kullanılır)
-        text_x = btn_r.right() + 8.0
-        avail_w = max(20.0, self.w - text_x - 8.0)
-
-        title_font = QFont("Arial", 10, QFont.Weight.Bold)
-        fm_title = QFontMetrics(title_font)
-        elided_title = fm_title.elidedText(self.title, Qt.TextElideMode.ElideRight, int(avail_w))
-
-        mins = int(self.duration_sec // 60)
-        secs = int(self.duration_sec % 60)
-        dur_str = f"{mins:02d}:{secs:02d}" if self.duration_sec > 0 else "Ses Dosyası"
-        dur_font = QFont("Arial", 8)
-        fm_dur = QFontMetrics(dur_font)
-        elided_dur = fm_dur.elidedText(dur_str, Qt.TextElideMode.ElideRight, int(avail_w))
-
-        if self.h >= 44.0:
-            painter.setFont(title_font)
-            painter.setPen(QColor("#f8fafc"))
-            painter.drawText(QRectF(text_x, btn_r.top(), avail_w, btn_r.height() * 0.55),
-                             Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft, elided_title)
-
-            painter.setFont(dur_font)
-            painter.setPen(QColor("#94a3b8"))
-            painter.drawText(QRectF(text_x, btn_r.top() + btn_r.height() * 0.5, avail_w, btn_r.height() * 0.5),
-                             Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft, elided_dur)
-        else:
-            # Daha basık kartlarda tek satırda başlık ve süreyi göster
-            painter.setFont(QFont("Arial", 9, QFont.Weight.Bold))
-            painter.setPen(QColor("#f8fafc"))
-            comb = f"{elided_title} ({dur_str})"
-            painter.drawText(QRectF(text_x, 0, avail_w, self.h),
-                             Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft, comb)
+        paint_audio_card(painter, self.w, self.h, self.title, self._time_text(), self.peaks,
+                         self._progress(), self.is_playing, self._hovered)
 
         # Seçim ve boyutlandırma tutamaçları
         if self.isSelected():
@@ -1754,6 +1838,11 @@ class PDFAudioItem(QGraphicsItem):
                 self.toggle_playback()
                 event.accept()
                 return
+
+            if self._can_seek_at(event.pos()):
+                self._seek_to(event.pos().x())
+                event.accept()
+                return
         super().mousePressEvent(event)
         self.setFocus()
 
@@ -1780,8 +1869,8 @@ class PDFAudioItem(QGraphicsItem):
             new_w = orig.width()
             new_h = orig.height()
 
-            min_w = 130.0
-            min_h = 38.0
+            min_w = AUDIO_CARD_MIN_W
+            min_h = AUDIO_CARD_MIN_H
             h = self._active_handle
 
             if "r" in h:
@@ -1831,50 +1920,118 @@ class PDFAudioItem(QGraphicsItem):
         if hasattr(self.tab_doc, 'notify_drawings_changed'):
             self.tab_doc.notify_drawings_changed(self.record.get("page"))
 
+    @classmethod
+    def _active_item(cls) -> Optional["PDFAudioItem"]:
+        """Silinmiş C++ nesnesine dokunmamak için etkin kartı doğrular."""
+        item = cls._ACTIVE
+        if item is None:
+            return None
+        try:
+            item.scene()
+            return item
+        except RuntimeError:
+            cls._ACTIVE = None
+            return None
+
+    @classmethod
+    def _ensure_player(cls):
+        if cls._PLAYER is not None:
+            return
+        cls._AUDIO_OUTPUT = QAudioOutput()
+        cls._PLAYER = QMediaPlayer()
+        cls._PLAYER.setAudioOutput(cls._AUDIO_OUTPUT)
+        cls._PLAYER.positionChanged.connect(cls._on_player_position)
+        cls._PLAYER.durationChanged.connect(cls._on_player_duration)
+        cls._PLAYER.playbackStateChanged.connect(cls._on_player_state)
+        cls._PLAYER.mediaStatusChanged.connect(cls._on_player_status)
+
+    @classmethod
+    def _on_player_position(cls, position_ms: int):
+        item = cls._active_item()
+        if item:
+            item.position_ms = position_ms
+            item.update()
+
+    @classmethod
+    def _on_player_duration(cls, duration_ms: int):
+        item = cls._active_item()
+        if item and duration_ms > 0:
+            item.media_ms = duration_ms
+            if item.duration_sec <= 0:
+                item.duration_sec = duration_ms / 1000.0
+                item.record["duration_sec"] = item.duration_sec
+            item.update()
+
+    @classmethod
+    def _on_player_state(cls, state):
+        item = cls._active_item()
+        if item:
+            item.is_playing = state == QMediaPlayer.PlaybackState.PlayingState
+            if state == QMediaPlayer.PlaybackState.StoppedState:
+                item.position_ms = 0
+            item.update()
+
+    @classmethod
+    def _on_player_status(cls, status):
+        item = cls._active_item()
+        if item and status in (QMediaPlayer.MediaStatus.EndOfMedia, QMediaPlayer.MediaStatus.InvalidMedia):
+            item.is_playing = False
+            item.position_ms = 0
+            item.update()
+
+    def _seek_to(self, x: float):
+        wave = self.wave_rect()
+        total_ms = self.media_ms or int(self.duration_sec * 1000)
+        if total_ms > 0 and wave.width() > 0 and PDFAudioItem._PLAYER:
+            PDFAudioItem._PLAYER.setPosition(int(total_ms * max(0.0, min(1.0, (x - wave.left()) / wave.width()))))
+
     def toggle_playback(self):
         if not self.audio_bytes:
             return
 
-        if PDFAudioItem._PLAYER is None:
-            PDFAudioItem._AUDIO_OUTPUT = QAudioOutput()
-            PDFAudioItem._PLAYER = QMediaPlayer()
-            PDFAudioItem._PLAYER.setAudioOutput(PDFAudioItem._AUDIO_OUTPUT)
-
+        cls = PDFAudioItem
+        cls._ensure_player()
         if self.is_playing:
-            PDFAudioItem._PLAYER.stop()
-            self.is_playing = False
+            cls._PLAYER.pause()
+            return
+
+        if cls._active_item() is self and cls._PLAYER.playbackState() == QMediaPlayer.PlaybackState.PausedState:
+            cls._PLAYER.play()
+            return
+
+        previous = cls._active_item()
+        if previous is not None:
+            cls._PLAYER.stop()
+            previous.is_playing = False
+            previous.position_ms = 0
+            previous.update()
+
+        try:
+            if not self._temp_file_path or not os.path.exists(self._temp_file_path):
+                ext = self.record.get("format", "wav")
+                tf = tempfile.NamedTemporaryFile(suffix=f".{ext}", delete=False)
+                tf.write(self.audio_bytes)
+                tf.close()
+                self._temp_file_path = tf.name
+
+            cls._ACTIVE = self
+            cls._PLAYER.setSource(QUrl.fromLocalFile(self._temp_file_path))
+            cls._AUDIO_OUTPUT.setVolume(1.0)
+            cls._PLAYER.play()
+            self.is_playing = True
             self.update()
-        else:
-            try:
-                if not self._temp_file_path or not os.path.exists(self._temp_file_path):
-                    ext = self.record.get("format", "wav")
-                    tf = tempfile.NamedTemporaryFile(suffix=f".{ext}", delete=False)
-                    tf.write(self.audio_bytes)
-                    tf.close()
-                    self._temp_file_path = tf.name
-
-                PDFAudioItem._PLAYER.setSource(QUrl.fromLocalFile(self._temp_file_path))
-                PDFAudioItem._AUDIO_OUTPUT.setVolume(1.0)
-                PDFAudioItem._PLAYER.play()
-                self.is_playing = True
-                self.update()
-
-                def on_status_changed(status):
-                    if status == QMediaPlayer.MediaStatus.EndOfMedia:
-                        self.is_playing = False
-                        self.update()
-                PDFAudioItem._PLAYER.mediaStatusChanged.connect(on_status_changed)
-            except Exception as e:
-                print(f"Playback error: {e}")
+        except Exception as e:
+            print(f"Playback error: {e}")
 
     def contextMenuEvent(self, event):
+        pal = get_theme_palette()
         menu = QMenu()
-        menu.setStyleSheet("""
-            QMenu { background-color: #1e1e24; color: #ffffff; border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 6px; padding: 4px; }
-            QMenu::item { padding: 6px 20px; border-radius: 4px; }
-            QMenu::item:selected { background-color: #2563eb; }
+        menu.setStyleSheet(f"""
+            QMenu {{ background-color: {pal['bg']}; color: {pal['text']}; border: 1px solid {pal['border']}; border-radius: 6px; padding: 4px; }}
+            QMenu::item {{ padding: 6px 20px; border-radius: 4px; }}
+            QMenu::item:selected {{ background-color: {pal['card']}; color: {pal['accent']}; }}
         """)
-        act_play = menu.addAction("Durdur" if self.is_playing else "Oynat")
+        act_play = menu.addAction(LanguageManager.tr("audio_item_pause" if self.is_playing else "audio_item_play"))
         act_reset = menu.addAction(LanguageManager.tr("ui_varsayilan_boyuta_don_180x48"))
         menu.addSeparator()
         act_del = menu.addAction(LanguageManager.tr("ui_ses_kaydini_sil"))
@@ -1891,8 +2048,8 @@ class PDFAudioItem(QGraphicsItem):
             page_w = p_info.get('width', 10000.0) if p_info else 10000.0
             page_h = p_info.get('height', 10000.0) if p_info else 10000.0
 
-            target_w = min(180.0 * dpi, page_w)
-            target_h = min(48.0 * dpi, page_h)
+            target_w = min(AUDIO_CARD_W * dpi, page_w)
+            target_h = min(AUDIO_CARD_H * dpi, page_h)
             cur_x = self.pos().x()
             cur_y = self.pos().y()
             clamped_x = max(page_left, min(cur_x, page_left + max(0.0, page_w - target_w)))
@@ -1908,8 +2065,9 @@ class PDFAudioItem(QGraphicsItem):
             self.delete_self()
 
     def delete_self(self):
-        if self.is_playing and PDFAudioItem._PLAYER:
+        if PDFAudioItem._active_item() is self:
             PDFAudioItem._PLAYER.stop()
+            PDFAudioItem._ACTIVE = None
             self.is_playing = False
         if self.tab_doc and self.record in self.tab_doc.drawings:
             self.tab_doc.drawings.remove(self.record)

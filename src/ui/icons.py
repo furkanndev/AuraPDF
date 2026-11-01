@@ -1124,6 +1124,40 @@ class AuraIconFactory:
         return QIcon(pix)
 
     @staticmethod
+    def icon_solid_stop(color: str = None) -> QIcon:
+        """14 px gibi çok küçük boyutlarda da okunan dolgulu durdur ikonu."""
+        pix, p = AuraIconFactory._base()
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(QColor(color or "#ef4444"))
+        p.drawRoundedRect(QRectF(5.5, 5.5, 15.0, 15.0), 3.0, 3.0)
+        p.end()
+        return QIcon(pix)
+
+    @staticmethod
+    def icon_solid_pause(color: str = None) -> QIcon:
+        """14 px gibi çok küçük boyutlarda da okunan dolgulu duraklat ikonu."""
+        pix, p = AuraIconFactory._base()
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(QColor(color or "#f1f5f9"))
+        p.drawRoundedRect(QRectF(6.5, 5.0, 4.6, 16.0), 1.6, 1.6)
+        p.drawRoundedRect(QRectF(14.9, 5.0, 4.6, 16.0), 1.6, 1.6)
+        p.end()
+        return QIcon(pix)
+
+    @staticmethod
+    def icon_collapse_window(color: str = None):
+        """Pencereyi kompakt kapsüle küçültme ikonu: dört köşe içe doğru bakar."""
+        pix, p = AuraIconFactory._base()
+        col = QColor(color or "#a8b2c1")
+        p.setPen(QPen(col, 1.8, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
+        p.setBrush(Qt.BrushStyle.NoBrush)
+        for x, y, dx, dy in ((11, 11, -1, -1), (15, 11, 1, -1), (15, 15, 1, 1), (11, 15, -1, 1)):
+            p.drawLine(QPointF(x, y), QPointF(x + 5 * dx, y))
+            p.drawLine(QPointF(x, y), QPointF(x, y + 5 * dy))
+        p.end()
+        return QIcon(pix)
+
+    @staticmethod
     def icon_fullscreen(color: str = None):
         pix, p = AuraIconFactory._base()
         col = QColor(color or "#a8b2c1")

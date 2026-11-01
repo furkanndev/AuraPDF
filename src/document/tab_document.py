@@ -26,7 +26,8 @@ from src.core.i18n import LanguageManager
 from src.ui.icons import AuraIconFactory
 from src.ui.cursors import CursorFactory
 from src.ui.widgets import EditableInlineTextItem
-from src.document.media_items import PDFTableItem, PDFResizableImageItem, PDFAudioItem, PDFVideoItem
+from src.document.media_items import (PDFTableItem, PDFResizableImageItem, PDFAudioItem, PDFVideoItem,
+                                       AUDIO_CARD_W, AUDIO_CARD_H, format_audio_time, paint_audio_card)
 
 
 def apply_smart_dark_invert(pix: fitz.Pixmap, page: fitz.Page, mat: fitz.Matrix) -> None:
@@ -2587,6 +2588,7 @@ class PDFTabDocument(QWidget):
             res["title"] = str(d.get("title", "Ses Notu"))
             res["duration_sec"] = float(d.get("duration_sec", 0.0))
             res["format"] = str(d.get("format", "wav"))
+            res["waveform"] = list(d.get("waveform") or [])
 
         elif d_type == "video":
             if d.get("video_bytes"):
@@ -2719,6 +2721,7 @@ class PDFTabDocument(QWidget):
             rec["title"] = str(d.get("title", "Ses Notu"))
             rec["duration_sec"] = float(d.get("duration_sec", 0.0))
             rec["format"] = str(d.get("format", "wav"))
+            rec["waveform"] = list(d.get("waveform") or [])
 
         elif d_type == "video":
             raw_b64 = d.get("video_bytes")
@@ -3517,8 +3520,8 @@ class PDFTabDocument(QWidget):
             elif d.get("type") == "audio":
                 a_x = d["x"]
                 a_y = d["y"]
-                a_w = float(d.get("w", 180.0))
-                a_h = float(d.get("h", 48.0))
+                a_w = float(d.get("w", AUDIO_CARD_W))
+                a_h = float(d.get("h", AUDIO_CARD_H))
                 if d.get("item_ref") and d["item_ref"].scene() == self.scene:
                     p_info = self.page_positions.get(orig_page)
                     if p_info:
@@ -3547,67 +3550,13 @@ class PDFTabDocument(QWidget):
                 bp.setRenderHint(QPainter.RenderHint.Antialiasing, True)
                 bp.setRenderHint(QPainter.RenderHint.TextAntialiasing, True)
 
-                # 1. Koyu cam / degrade arka plan
-                grad = QLinearGradient(0, 0, bw, bh)
-                grad.setColorAt(0.0, QColor("#1e1b4b"))
-                grad.setColorAt(1.0, QColor("#0f172a"))
-                bp.setPen(QPen(QColor("#6366f1"), 1.8 * scale))
-                bp.setBrush(QBrush(grad))
-                bp.drawRoundedRect(QRectF(1.0 * scale, 1.0 * scale, bw - 2.0 * scale, bh - 2.0 * scale), 8.0 * scale, 8.0 * scale)
-
-                # 2. Oynat (Play) butonu
-                btn_d = min(32.0 * scale, max(20.0 * scale, bh - 12.0 * scale))
-                btn_y = (bh - btn_d) / 2.0
-                btn_x = 8.0 * scale
-                btn_r = QRectF(btn_x, btn_y, btn_d, btn_d)
-                bp.setPen(Qt.PenStyle.NoPen)
-                bp.setBrush(QBrush(QColor("#6366f1")))
-                bp.drawEllipse(btn_r)
-
-                # Beyaz üçgen oynat simgesi
-                poly = QPainterPath()
-                cx_btn = btn_r.center().x()
-                cy_btn = btn_r.center().y()
-                s_icon = btn_d * 0.35
-                poly.moveTo(cx_btn - s_icon * 0.5, cy_btn - s_icon * 0.8)
-                poly.lineTo(cx_btn + s_icon * 0.8, cy_btn)
-                poly.lineTo(cx_btn - s_icon * 0.5, cy_btn + s_icon * 0.8)
-                poly.closeSubpath()
-                bp.fillPath(poly, QBrush(QColor("#ffffff")))
-
-                # 3. Dinamik başlık ve süre metinleri (Taşma korumalı)
-                text_x = btn_r.right() + 8.0 * scale
-                avail_w = max(20.0 * scale, bw - text_x - 8.0 * scale)
-                title_txt = str(d.get("title", "Ses Kaydı"))
+                # Sahnedeki kartla aynı çizim, yüksek çözünürlüklü tuvale ölçeklenir
                 dur_sec = float(d.get("duration_sec", 0.0))
-                mins = int(dur_sec // 60)
-                secs = int(dur_sec % 60)
-                dur_str = f"{mins:02d}:{secs:02d}" if dur_sec > 0 else LanguageManager.tr("audio_record_title", default="Ses Kaydı")
-
-                title_font = QFont("Arial", int(round(10 * scale)), QFont.Weight.Bold)
-                fm_title = QFontMetrics(title_font)
-                elided_title = fm_title.elidedText(title_txt, Qt.TextElideMode.ElideRight, int(avail_w))
-
-                dur_font = QFont("Arial", int(round(8 * scale)))
-                fm_dur = QFontMetrics(dur_font)
-                elided_dur = fm_dur.elidedText(dur_str, Qt.TextElideMode.ElideRight, int(avail_w))
-
-                if bh >= 40.0 * scale:
-                    bp.setFont(title_font)
-                    bp.setPen(QColor("#f8fafc"))
-                    bp.drawText(QRectF(text_x, btn_r.top(), avail_w, btn_r.height() * 0.55),
-                                Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft, elided_title)
-
-                    bp.setFont(dur_font)
-                    bp.setPen(QColor("#94a3b8"))
-                    bp.drawText(QRectF(text_x, btn_r.top() + btn_r.height() * 0.5, avail_w, btn_r.height() * 0.5),
-                                Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft, elided_dur)
-                else:
-                    bp.setFont(QFont("Arial", int(round(9 * scale)), QFont.Weight.Bold))
-                    bp.setPen(QColor("#f8fafc"))
-                    comb = f"{elided_title} ({dur_str})"
-                    bp.drawText(QRectF(text_x, 0, avail_w, bh),
-                                Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft, comb)
+                time_text = format_audio_time(dur_sec) if dur_sec > 0 else LanguageManager.tr("audio_file_label")
+                card_w = a_w * self.base_render_dpi
+                card_h = a_h * self.base_render_dpi
+                bp.scale(bw / card_w, bh / card_h)
+                paint_audio_card(bp, card_w, card_h, str(d.get("title", "")), time_text, d.get("waveform") or [])
                 bp.end()
 
                 from PyQt6.QtCore import QBuffer, QIODevice
@@ -3624,11 +3573,12 @@ class PDFTabDocument(QWidget):
 
                 if d.get("audio_bytes"):
                     try:
-                        filename = f"{d.get('title', 'ses')}.{d.get('format', 'wav')}"
-                        annot = page.add_file_annot(card_rect.tl, d["audio_bytes"], filename=filename, desc=d.get("title", "Ses Kaydı"))
+                        audio_title = str(d.get("title", "")) or "ses"
+                        audio_ext = str(d.get("format", "wav"))
+                        filename = audio_title if audio_title.lower().endswith(f".{audio_ext.lower()}") else f"{audio_title}.{audio_ext}"
+                        annot = page.add_file_annot(card_rect.tl, d["audio_bytes"], filename=filename, desc=audio_title)
                         if annot:
-                            annot.set_opacity(0.0)
-                            annot.set_flags(annot.flags | fitz.PDF_ANNOT_NO_VIEW)
+                            annot.set_flags(fitz.PDF_ANNOT_IS_HIDDEN | fitz.PDF_ANNOT_IS_NO_VIEW)
                             annot.update()
                     except Exception:
                         pass
@@ -7315,7 +7265,8 @@ class PDFTabDocument(QWidget):
         self.add_image_media(bytes(buf.data()), title=f"Emoji {emoji_str}", page_idx=page_idx, pos=pos, default_w=50.0, default_h=50.0)
 
     def add_audio(self, audio_bytes: bytes, title: str = "Ses Notu", duration_sec: float = 0.0,
-                  format: str = "wav", page_idx: Optional[int] = None, pos: Optional[QPointF] = None):
+                  format: str = "wav", page_idx: Optional[int] = None, pos: Optional[QPointF] = None,
+                  waveform: Optional[List[float]] = None):
         """Belgeye etkileşimli ses kayıt kartı ekler."""
         if self.doc is None or not audio_bytes:
             return
@@ -7336,8 +7287,8 @@ class PDFTabDocument(QWidget):
             page_left = p_info.get('left', 0.0)
             page_pdf_w = p_info['width'] / self.base_render_dpi
             page_pdf_h = p_info['height'] / self.base_render_dpi
-            card_pdf_w = min(180.0, page_pdf_w)
-            card_pdf_h = min(48.0, page_pdf_h)
+            card_pdf_w = min(AUDIO_CARD_W, page_pdf_w)
+            card_pdf_h = min(AUDIO_CARD_H, page_pdf_h)
 
             if pos is None:
                 center_y = self.view.mapToScene(self.view.viewport().rect().center()).y()
@@ -7363,7 +7314,8 @@ class PDFTabDocument(QWidget):
                 "audio_bytes": audio_bytes,
                 "title": title,
                 "duration_sec": duration_sec,
-                "format": format
+                "format": format,
+                "waveform": list(waveform or [])
             }
 
             self.drawings.append(item_data)

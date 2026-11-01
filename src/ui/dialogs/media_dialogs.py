@@ -3,9 +3,11 @@ import re
 import json
 import math
 import unicodedata
+import urllib.error
 import urllib.request
 import urllib.parse
 import tempfile
+from html import unescape
 from typing import Optional, Tuple, Dict, Any, List
 from PyQt6.QtWidgets import (QAbstractButton, QApplication, QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
                              QCheckBox, QColorDialog, QTabWidget, QWidget,
@@ -13,7 +15,7 @@ from PyQt6.QtWidgets import (QAbstractButton, QApplication, QDialog, QVBoxLayout
                              QFrame, QMessageBox, QProgressBar, QComboBox, QSlider, QSizePolicy, QStackedWidget, QButtonGroup)
 from PyQt6.QtGui import (QPixmap, QImage, QColor, QFont, QIcon, QPainter,
                          QLinearGradient, QBrush, QPen, QMovie)
-from PyQt6.QtCore import (QPointF, Qt, QSize, QTimer, QUrl, QThread, pyqtSignal,
+from PyQt6.QtCore import (QPoint, QPointF, QRect, Qt, QSize, QTimer, QUrl, QThread, pyqtSignal,
                           QRectF, QBuffer, QByteArray, QEvent)
 from PyQt6.QtMultimedia import (QMediaCaptureSession, QAudioInput, QMediaRecorder,
                                 QMediaPlayer, QAudioOutput, QAudioSource, QAudioFormat, QMediaDevices)
@@ -1420,6 +1422,113 @@ def _register_worker(worker: QThread) -> QThread:
     return worker
 
 
+_HTTP_HEADERS = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AuraPDF/2.0"}
+_MAX_MEDIA_BYTES = 30 * 1024 * 1024
+_MAX_PAGE_BYTES = 3 * 1024 * 1024
+_IMAGE_META_KEYS = ("og:image", "og:image:url", "og:image:secure_url", "twitter:image", "contenturl")
+_META_TAG_RE = re.compile(r"<meta\b[^>]*>", re.IGNORECASE)
+_META_ATTR_RE = re.compile(r"""\b(property|name|itemprop|content)\s*=\s*["']([^"']*)["']""", re.IGNORECASE)
+_MEDIA_LINK_RE = re.compile(r"^(https?://|(www\.)?(giphy|tenor)\.com/|gph\.is/|(media\d*|i)\.(giphy|tenor)\.com/)", re.IGNORECASE)
+
+
+class MediaFetchError(Exception):
+    """Ağ/medya hatası. kind: 'limit' (API sınırı), 'network' (bağlantı), 'invalid' (görsel değil)."""
+
+    def __init__(self, kind: str):
+        super().__init__(kind)
+        self.kind = kind
+
+
+def _http_get(url: str, timeout: int = 12, max_bytes: int = _MAX_MEDIA_BYTES, retries: int = 1) -> bytes:
+    """Geçici ağ hatalarında bir kez yeniden dener; kalıcı hataları MediaFetchError olarak bildirir."""
+    for attempt in range(retries + 1):
+        try:
+            req = urllib.request.Request(url, headers=_HTTP_HEADERS)
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                data = resp.read(max_bytes + 1)
+            if len(data) > max_bytes:
+                raise MediaFetchError("invalid")
+            return data
+        except urllib.error.HTTPError as exc:
+            if exc.code in (401, 403, 429):
+                raise MediaFetchError("limit") from exc
+            if exc.code < 500 or attempt == retries:
+                raise MediaFetchError("invalid") from exc
+        except (urllib.error.URLError, OSError) as exc:
+            if attempt == retries:
+                raise MediaFetchError("network") from exc
+    raise MediaFetchError("network")
+
+
+def _is_image_data(data: bytes) -> bool:
+    return data[:6] in (b"GIF87a", b"GIF89a") or data[:8] == b"\x89PNG\r\n\x1a\n" \
+        or data[:3] == b"\xff\xd8\xff" or (data[:4] == b"RIFF" and data[8:12] == b"WEBP")
+
+
+def _giphy_direct_url(url: str) -> Optional[str]:
+    """GIPHY sayfa, embed, .webp ve .mp4 bağlantılarını doğrudan GIF adresine çevirir."""
+    parts = urllib.parse.urlsplit(url)
+    host = (parts.hostname or "").lower()
+    segments = [s for s in parts.path.split("/") if s]
+    if not segments or not (host == "giphy.com" or host.endswith(".giphy.com")):
+        return None
+    if host in ("giphy.com", "www.giphy.com"):
+        if len(segments) < 2 or segments[0] not in ("gifs", "stickers", "embed"):
+            return None
+        gif_id = segments[1].rsplit("-", 1)[-1]
+    else:
+        if segments[-1].lower().endswith(".gif"):
+            return None
+        gif_id = segments[-2] if len(segments) >= 2 else os.path.splitext(segments[-1])[0]
+    return f"https://media.giphy.com/media/{gif_id}/giphy.gif" if gif_id else None
+
+
+def _page_image_url(page: str, base_url: str) -> Optional[str]:
+    """Web sayfasının paylaşım etiketlerinden görsel adresini bulur; GIF varsa onu tercih eder."""
+    found = []
+    for tag in _META_TAG_RE.findall(page):
+        attrs = {k.lower(): v for k, v in _META_ATTR_RE.findall(tag)}
+        key = attrs.get("property") or attrs.get("name") or attrs.get("itemprop") or ""
+        if key.lower() in _IMAGE_META_KEYS and attrs.get("content"):
+            found.append(urllib.parse.urljoin(base_url, unescape(attrs["content"])))
+    for candidate in found:
+        if urllib.parse.urlsplit(candidate).path.lower().endswith(".gif"):
+            return candidate
+    return found[0] if found else None
+
+
+def resolve_media_url(url: str) -> str:
+    """Kullanıcının yapıştırdığı GIPHY/Tenor/web bağlantısını indirilebilir görsel adresine çözer."""
+    url = url.strip()
+    if not url.lower().startswith(("http://", "https://")):
+        url = "https://" + url
+    for _ in range(3):
+        direct = _giphy_direct_url(url)
+        if direct:
+            return direct
+        try:
+            req = urllib.request.Request(url, headers=_HTTP_HEADERS)
+            with urllib.request.urlopen(req, timeout=12) as resp:
+                final_url = resp.geturl()
+                content_type = (resp.headers.get("Content-Type") or "").lower()
+                if content_type.startswith("image/"):
+                    return final_url
+                if "html" not in content_type:
+                    raise MediaFetchError("invalid")
+                page = resp.read(_MAX_PAGE_BYTES).decode("utf-8", errors="ignore")
+        except urllib.error.HTTPError as exc:
+            raise MediaFetchError("invalid") from exc
+        except (urllib.error.URLError, OSError) as exc:
+            raise MediaFetchError("network") from exc
+        direct = _giphy_direct_url(final_url)
+        if direct:
+            return direct
+        url = _page_image_url(page, final_url) or ""
+        if not url:
+            break
+    raise MediaFetchError("invalid")
+
+
 class ImageDownloadWorker(QThread):
     finished = pyqtSignal(bytes, str)
     error = pyqtSignal(str)
@@ -1430,23 +1539,21 @@ class ImageDownloadWorker(QThread):
 
     def run(self):
         try:
-            req = urllib.request.Request(
-                self.url,
-                headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AuraPDF/2.0"}
-            )
-            with urllib.request.urlopen(req, timeout=12) as resp:
-                data = resp.read()
-                if not data:
-                    self.error.emit(LanguageManager.tr("ui_bos_yanit_alindi"))
+            data = _http_get(resolve_media_url(self.url))
+            if not data:
+                self.error.emit(LanguageManager.tr("ui_bos_yanit_alindi"))
+                return
+            img = QImage()
+            if not img.loadFromData(data):
+                if data.startswith(b"GIF87a") or data.startswith(b"GIF89a"):
+                    self.finished.emit(data, "GIF Animasyonu")
                     return
-                img = QImage()
-                if not img.loadFromData(data):
-                    if data.startswith(b"GIF87a") or data.startswith(b"GIF89a"):
-                        self.finished.emit(data, "GIF Animasyonu")
-                        return
-                    self.error.emit(LanguageManager.tr("ui_gecersiz_resim_veya_gif_formati"))
-                    return
-                self.finished.emit(data, f"{img.width()}x{img.height()} px")
+                self.error.emit(LanguageManager.tr("ui_gecersiz_resim_veya_gif_formati"))
+                return
+            self.finished.emit(data, f"{img.width()}x{img.height()} px")
+        except MediaFetchError as e:
+            key = "gif_status_network" if e.kind == "network" else "ui_gecersiz_resim_veya_gif_formati"
+            self.error.emit(LanguageManager.tr(key))
         except Exception as e:
             self.error.emit(str(e))
 
@@ -1509,12 +1616,31 @@ def _giphy_api_key() -> str:
     return key or _GIPHY_FALLBACK_KEY
 
 
+def _giphy_request(endpoint: str, **params) -> Dict[str, Any]:
+    query = urllib.parse.urlencode({"api_key": _giphy_api_key(), **params})
+    data = _http_get(f"https://api.giphy.com/v1/gifs/{endpoint}?{query}", timeout=8, max_bytes=_MAX_PAGE_BYTES)
+    return json.loads(data.decode("utf-8", errors="ignore"))
+
+
+def _giphy_results(payload: Dict[str, Any]) -> List[Tuple[str, str]]:
+    """Her GIF için (hızlı önizleme, belgeye eklenecek kaliteli sürüm) adres çiftini döner."""
+    results = []
+    for result in payload.get("data", []):
+        images = result.get("images", {})
+        original = images.get("original", {}).get("url", "")
+        thumb = images.get("fixed_height_small", {}).get("url", "") or original
+        full = images.get("downsized", {}).get("url", "") or images.get("fixed_height", {}).get("url", "") or original
+        if thumb:
+            results.append((thumb, full or thumb))
+    return results
+
+
 class GifSearchWorker(QThread):
     """
     GIPHY API üzerinden arama sorgusuna uygun GIF URL'lerini asenkron olarak çeker.
     Türkçe arama terimlerini otomatik olarak optimize eder.
     """
-    results_ready = pyqtSignal(str, list)  # query, list_of_urls
+    results_ready = pyqtSignal(str, list, str)  # query, list_of_(thumb, full), error_kind
 
     def __init__(self, query: str, limit: int = 30):
         super().__init__()
@@ -1534,41 +1660,24 @@ class GifSearchWorker(QThread):
         if q_lower in TR_MAP:
             queries.insert(0, TR_MAP[q_lower])
 
-        found_urls = []
+        found: List[Tuple[str, str]] = []
+        error = ""
         for q in queries:
             if self._stopped:
                 break
             try:
-                encoded = urllib.parse.quote(q)
-                api_url = (
-                    f"https://api.giphy.com/v1/gifs/search?"
-                    f"api_key={_giphy_api_key()}"
-                    f"&q={encoded}&limit={self.limit}&lang=tr"
-                )
-                req = urllib.request.Request(
-                    api_url,
-                    headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AuraPDF/2.0"}
-                )
-                with urllib.request.urlopen(req, timeout=6) as resp:
-                    data = json.loads(resp.read().decode("utf-8", errors="ignore"))
-                    for result in data.get("data", []):
-                        images = result.get("images", {})
-                        # WhatsApp gibi hızlı yükleme için fixed_height_small kullanıyoruz
-                        gif_url = images.get("fixed_height_small", {}).get("url", "")
-                        if not gif_url:
-                            gif_url = images.get("original", {}).get("url", "")
-                        if gif_url:
-                            found_urls.append(gif_url)
-            except Exception:
-                pass
-            if found_urls:
+                found = _giphy_results(_giphy_request("search", q=q, limit=self.limit, lang="tr"))
+                error = ""
+            except MediaFetchError as exc:
+                error = exc.kind
+            except ValueError:
+                error = "network"
+            if found:
                 break
 
-        seen = set()
-        unique_urls = [u for u in found_urls if not (u in seen or seen.add(u))]
-
+        unique = list(dict.fromkeys(found))
         if not self._stopped:
-            self.results_ready.emit(self.query, unique_urls)
+            self.results_ready.emit(self.query, unique, error)
 
 
 import concurrent.futures
@@ -1578,7 +1687,7 @@ class GiphyTrendingWorker(QThread):
     GIPHY API üzerinden güncel popüler GIF URL'lerini asenkron olarak çeker.
     Sayfalama (pagination) desteği ile sonsuz kaydırma için offset kullanır.
     """
-    results_ready = pyqtSignal(list, int)  # list_of_urls, next_offset
+    results_ready = pyqtSignal(list, int, str)  # list_of_(thumb, full), next_offset, error_kind
 
     def __init__(self, limit: int = 50, offset: int = 0):
         super().__init__()
@@ -1593,34 +1702,56 @@ class GiphyTrendingWorker(QThread):
         if self._stopped:
             return
         try:
-            api_url = (
-                f"https://api.giphy.com/v1/gifs/trending?"
-                f"api_key={_giphy_api_key()}"
-                f"&limit={self.limit}&offset={self.offset}"
-            )
-            req = urllib.request.Request(
-                api_url,
-                headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AuraPDF/2.0"}
-            )
-            with urllib.request.urlopen(req, timeout=6) as resp:
-                data = json.loads(resp.read().decode("utf-8", errors="ignore"))
-                urls = []
-                for result in data.get("data", []):
-                    images = result.get("images", {})
-                    gif_url = images.get("fixed_height_small", {}).get("url", "")
-                    if not gif_url:
-                        gif_url = images.get("original", {}).get("url", "")
-                    if gif_url:
-                        urls.append(gif_url)
-                
-                pagination = data.get("pagination", {})
-                next_offset = pagination.get("count", 0) + pagination.get("offset", 0)
-                
-                if not self._stopped:
-                    self.results_ready.emit(urls, next_offset)
-        except Exception:
+            payload = _giphy_request("trending", limit=self.limit, offset=self.offset)
+            pagination = payload.get("pagination", {})
+            next_offset = pagination.get("count", 0) + pagination.get("offset", 0)
             if not self._stopped:
-                self.results_ready.emit([], 0)
+                self.results_ready.emit(_giphy_results(payload), next_offset, "")
+        except (MediaFetchError, ValueError) as exc:
+            if not self._stopped:
+                self.results_ready.emit([], self.offset, getattr(exc, "kind", "network"))
+
+
+class GifLinkWorker(QThread):
+    """Yapıştırılan GIPHY/Tenor sayfa bağlantısını arka planda doğrudan görsel adresine çözer."""
+    resolved = pyqtSignal(str, str, str)  # link, direct_url, error_kind
+
+    def __init__(self, link: str):
+        super().__init__()
+        self.link = link
+        self._stopped = False
+
+    def stop(self):
+        self._stopped = True
+
+    def run(self):
+        try:
+            direct, error = resolve_media_url(self.link), ""
+        except MediaFetchError as exc:
+            direct, error = "", exc.kind
+        if not self._stopped:
+            self.resolved.emit(self.link, direct, error)
+
+
+class GifDownloadWorker(QThread):
+    """Seçilen GIF'in belgeye eklenecek kaliteli sürümünü indirir."""
+    downloaded = pyqtSignal(str, bytes)  # url, data (başarısızsa boş)
+
+    def __init__(self, url: str):
+        super().__init__()
+        self.url = url
+        self._stopped = False
+
+    def stop(self):
+        self._stopped = True
+
+    def run(self):
+        try:
+            data = _http_get(self.url)
+        except MediaFetchError:
+            data = b""
+        if not self._stopped:
+            self.downloaded.emit(self.url, data if _is_image_data(data) else b"")
 
 
 class GifThumbnailsWorker(QThread):
@@ -1629,6 +1760,7 @@ class GifThumbnailsWorker(QThread):
     ThreadPoolExecutor ile tamamen eşzamanlı (paralel) indirme yaparak hızı çok artırır.
     """
     thumb_ready = pyqtSignal(int, bytes)
+    thumb_failed = pyqtSignal(int)
 
     def __init__(self, items: List[Tuple[int, str]]):
         super().__init__()
@@ -1644,17 +1776,12 @@ class GifThumbnailsWorker(QThread):
         if url in GifThumbnailCard._THUMB_CACHE:
             return GifThumbnailCard._THUMB_CACHE[url]
         try:
-            req = urllib.request.Request(
-                url,
-                headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AuraPDF/2.0"}
-            )
-            with urllib.request.urlopen(req, timeout=6) as resp:
-                data = resp.read()
-                if data and not self._stopped:
-                    GifThumbnailCard._THUMB_CACHE[url] = data
-                    return data
-        except Exception:
-            pass
+            data = _http_get(url)
+        except MediaFetchError:
+            return None
+        if _is_image_data(data) and not self._stopped:
+            GifThumbnailCard._THUMB_CACHE[url] = data
+            return data
         return None
 
     def run(self):
@@ -1665,10 +1792,14 @@ class GifThumbnailsWorker(QThread):
                     break
                 idx = futures[future]
                 data = future.result()
-                if data and not self._stopped:
-                    # Signal'i QThread üzerinden emit ediyoruz (Python ThreadPool içinden değil)
-                    # Bu PyQt'de çökmeleri ve instabiliteleri önler
+                if self._stopped:
+                    break
+                # Signal'i QThread üzerinden emit ediyoruz (Python ThreadPool içinden değil)
+                # Bu PyQt'de çökmeleri ve instabiliteleri önler
+                if data:
                     self.thumb_ready.emit(idx, data)
+                else:
+                    self.thumb_failed.emit(idx)
 
 
 class WhatsAppCategoryTab(QWidget):
@@ -1765,6 +1896,7 @@ class GifThumbnailCard(QFrame):
         self.url = item if isinstance(item, str) else item.get("url", "")
         self.accent = accent
         self.is_selected = False
+        self.is_failed = False
         self._gif_data: Optional[bytes] = None
         self._movie: Optional[QMovie] = None
         self._buf: Optional[QBuffer] = None
@@ -1779,7 +1911,7 @@ class GifThumbnailCard(QFrame):
 
         # WhatsApp tarzı tam dolgulu görsel önizleme alanı
         self.lbl_thumb = QLabel()
-        self.lbl_thumb.setFixedSize(134, 96)
+        self.lbl_thumb.setFixedSize(124, 94)
         self.lbl_thumb.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.lbl_thumb.setStyleSheet(" border-radius: 4px;  font-size: 11px;")
         self.lbl_thumb.setText("...")
@@ -1792,14 +1924,20 @@ class GifThumbnailCard(QFrame):
 
     def set_thumbnail_data(self, data: bytes):
         self._gif_data = data
+        self.is_failed = False
+        self.setToolTip("")
         try:
             self.stop_movie()
             self._ba = QByteArray(data)
             self._buf = QBuffer(self._ba)
             self._buf.open(QBuffer.OpenModeFlag.ReadOnly)
-            self._movie = QMovie(self._buf, QByteArray(b"GIF"))
+            # Biçim boş bırakılır: Qt, GIF ve animasyonlu WEBP'yi içerikten tanır
+            self._movie = QMovie(self._buf, QByteArray())
             if self._movie.isValid():
-                self._movie.setScaledSize(self.lbl_thumb.size())
+                self._movie.jumpToFrame(0)
+                frame_size = self._movie.currentImage().size()
+                if not frame_size.isEmpty():
+                    self._movie.setScaledSize(frame_size.scaled(self.lbl_thumb.size(), Qt.AspectRatioMode.KeepAspectRatio))
                 self.lbl_thumb.setMovie(self._movie)
                 self._movie.start()
                 self.lbl_thumb.setText("")
@@ -1820,7 +1958,16 @@ class GifThumbnailCard(QFrame):
             self.lbl_thumb.setPixmap(cropped)
             self.lbl_thumb.setText("")
         else:
-            self.lbl_thumb.setText("GIF")
+            self.set_failed()
+
+    def set_failed(self):
+        """İndirilemeyen kartı işaretler; karta tıklanınca yeniden denenir."""
+        self.stop_movie()
+        self.is_failed = True
+        self._gif_data = None
+        self.lbl_thumb.setPixmap(QPixmap())
+        self.lbl_thumb.setText(LanguageManager.tr("gif_load_failed"))
+        self.setToolTip(LanguageManager.tr("gif_load_retry_tip"))
 
     def stop_movie(self):
         if self._movie:
@@ -1865,12 +2012,12 @@ class GifThumbnailCard(QFrame):
                 }}
             """)
         else:
-            self.setStyleSheet("""
-                QFrame {
+            self.setStyleSheet(f"""
+                QFrame {{
                     background-color: transparent;
-                    border: 1px solid rgba(255, 255, 255, 0.08);
+                    border: 1px solid {get_theme_palette()['border']};
                     border-radius: 4px;
-                }
+                }}
             """)
 
     def enterEvent(self, event):
@@ -2098,13 +2245,18 @@ class EmojiGifPickerDialog(QDialog):
 
         self._search_worker: Optional[GifSearchWorker] = None
         self._trending_worker: Optional[GiphyTrendingWorker] = None
+        self._link_worker: Optional[GifLinkWorker] = None
+        self._download_worker: Optional[GifDownloadWorker] = None
         self._thumb_workers: List[GifThumbnailsWorker] = []
         self.gif_cards: List[GifThumbnailCard] = []
         self._all_gif_urls: List[str] = []
+        self._gif_full_urls: Dict[str, str] = {}  # önizleme adresi -> kaliteli sürüm adresi
+        self._download_source_url: str = ""
         self._rendered_gif_count: int = 0
         self._is_loading_batch: bool = False
         self._trending_next_offset: int = 0  # GIPHY API sayfalama imleci
         self._is_fetching_trending: bool = False
+        self._trending_exhausted: bool = False  # API hatası veya liste sonu: yeniden isteme
         self._current_search_query: str = ""
         self._pending_double_click_url: Optional[str] = None
 
@@ -2141,7 +2293,7 @@ class EmojiGifPickerDialog(QDialog):
         sb_layout.setSpacing(6)
 
         self.txt_search = QLineEdit()
-        self.txt_search.setPlaceholderText("Search GIFs via GIPHY")
+        self.txt_search.setPlaceholderText(LanguageManager.tr("gif_search_placeholder"))
         self.txt_search.setClearButtonEnabled(True)
         self.txt_search.setStyleSheet(f"""
             QLineEdit {{
@@ -2159,6 +2311,14 @@ class EmojiGifPickerDialog(QDialog):
         self.txt_search.textChanged.connect(self._on_search_text_changed)
         sb_layout.addWidget(self.txt_search, 1)
         layout.addWidget(self.search_box)
+
+        # Ağ, arama ve bağlantı durumları için sessiz bilgi satırı
+        self.lbl_gif_status = QLabel()
+        self.lbl_gif_status.setWordWrap(True)
+        self.lbl_gif_status.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.lbl_gif_status.setStyleSheet(f"color: {self.muted_col}; font-size: 11px; background: transparent; border: none;")
+        self.lbl_gif_status.hide()
+        layout.addWidget(self.lbl_gif_status)
 
         # 3. Stacked Widget: Sayfa 0 = GIF (3 Sütunlu), Sayfa 1 = Emoji
         self.stacked = QStackedWidget()
@@ -2244,12 +2404,13 @@ class EmojiGifPickerDialog(QDialog):
 
         if mode == "emoji":
             self.stacked.setCurrentIndex(1)
-            self.txt_search.setPlaceholderText("Search emojis...")
+            self.txt_search.setPlaceholderText(LanguageManager.tr("emoji_search_placeholder"))
             self.txt_search.clear()
+            self._set_gif_status("")
             self._filter_emojis_by_cat("populer")
         else: # gif
             self.stacked.setCurrentIndex(0)
-            self.txt_search.setPlaceholderText("Search GIFs via GIPHY")
+            self.txt_search.setPlaceholderText(LanguageManager.tr("gif_search_placeholder"))
 
     def _update_pill_styles(self):
         normal_style = f"""
@@ -2331,11 +2492,13 @@ class EmojiGifPickerDialog(QDialog):
                 "tv": "tv"
             }
             tag = tag_map.get(cat_id, cat_id)
+            self.txt_search.blockSignals(True)
+            self.txt_search.setText(tag)
+            self.txt_search.blockSignals(False)
+            self._search_timer.stop()
             if tag:
-                self.txt_search.setText(tag)
                 self._start_gif_search(tag)
             else:
-                self.txt_search.clear()
                 self._reset_to_popular()
 
     def _on_emoji_scroll(self, val: int):
@@ -2456,11 +2619,27 @@ class EmojiGifPickerDialog(QDialog):
         self._rendered_gif_count = 0
         self._trending_next_offset = 0
         self._is_fetching_trending = False
+        self._trending_exhausted = False
         self._fetch_more_trending_urls()
+
+    def _set_gif_status(self, text: str):
+        self.lbl_gif_status.setText(text)
+        self.lbl_gif_status.setVisible(bool(text))
+
+    def _error_status(self, error: str) -> str:
+        return LanguageManager.tr("gif_status_limit" if error == "limit" else "gif_status_network")
+
+    def _show_curated_gifs(self, error: str):
+        """API kullanılamadığında anahtar gerektirmeyen seçkiyi gösterir."""
+        self._set_gif_status(self._error_status(error))
+        self._trending_exhausted = True
+        self._all_gif_urls = [gif["url"] for gif in self.POPULAR_GIFS]
+        self._rendered_gif_count = 0
+        self._load_next_gif_batch()
 
     def _fetch_more_trending_urls(self):
         """GIPHY trending API'sinden bir sonraki sayfayı çeker."""
-        if self._is_fetching_trending:
+        if self._is_fetching_trending or self._trending_exhausted:
             return
         self._is_fetching_trending = True
         worker = GiphyTrendingWorker(limit=50, offset=self._trending_next_offset)
@@ -2470,13 +2649,23 @@ class EmojiGifPickerDialog(QDialog):
         self._trending_worker = worker
         self._thumb_workers.append(worker)
 
-    def _on_trending_urls_fetched(self, urls: list, next_offset: int):
+    def _on_trending_urls_fetched(self, results: list, next_offset: int, error: str):
         """GIPHY API'den dönen trending GIF URL'lerini listeye ekler ve kartları oluşturur."""
         self._is_fetching_trending = False
+        if error:
+            self._trending_exhausted = True
+            if not self._all_gif_urls:
+                self._show_curated_gifs(error)
+            return
+        if not results:
+            self._trending_exhausted = True
+            return
+        self._set_gif_status("")
         self._trending_next_offset = next_offset
-        for u in urls:
-            if u not in self._all_gif_urls:
-                self._all_gif_urls.append(u)
+        for thumb, full in results:
+            self._gif_full_urls[thumb] = full
+            if thumb not in self._all_gif_urls:
+                self._all_gif_urls.append(thumb)
         self._load_next_gif_batch()
 
     def _on_gif_scroll(self, val: int):
@@ -2520,12 +2709,17 @@ class EmojiGifPickerDialog(QDialog):
 
         self._rendered_gif_count = end_idx
 
-        worker = GifThumbnailsWorker(download_batch)
+        worker = self._start_thumb_worker(download_batch)
+        worker.finished.connect(self._on_batch_finished)
+
+    def _start_thumb_worker(self, items: List[Tuple[int, str]]) -> GifThumbnailsWorker:
+        worker = GifThumbnailsWorker(items)
         _register_worker(worker)
         worker.thumb_ready.connect(self._on_card_thumb_ready)
-        worker.finished.connect(self._on_batch_finished)
+        worker.thumb_failed.connect(self._on_card_thumb_failed)
         worker.start()
         self._thumb_workers.append(worker)
+        return worker
 
     def _on_batch_finished(self):
         self._is_loading_batch = False
@@ -2545,9 +2739,15 @@ class EmojiGifPickerDialog(QDialog):
             card = self.gif_cards[card_idx]
             if self._pending_double_click_url == card.url:
                 self._pending_double_click_url = None
-                self.selected_gif_bytes = data
-                self.selected_emoji = None
-                self.accept()
+                self._on_gif_card_double_clicked(card.url)
+
+    def _on_card_thumb_failed(self, card_idx: int):
+        if 0 <= card_idx < len(self.gif_cards):
+            card = self.gif_cards[card_idx]
+            card.set_failed()
+            if self._pending_double_click_url == card.url:
+                self._pending_double_click_url = None
+                self._set_gif_status(LanguageManager.tr("gif_status_insert_failed"))
 
     def _start_gif_search(self, query: Optional[str] = None):
         q = (query or self.txt_search.text()).strip()
@@ -2555,15 +2755,17 @@ class EmojiGifPickerDialog(QDialog):
             self._reset_to_popular()
             return
 
-        if q.startswith("http://") or q.startswith("https://"):
-            self._clear_gif_grid()
-            self._all_gif_urls = [q]
-            self._rendered_gif_count = 0
-            self._load_next_gif_batch()
-            return
-
         self._current_search_query = q
         self._clear_gif_grid()
+        self._set_gif_status("")
+
+        if _MEDIA_LINK_RE.match(q):
+            self._set_gif_status(LanguageManager.tr("gif_status_resolving"))
+            self._link_worker = GifLinkWorker(q)
+            _register_worker(self._link_worker)
+            self._link_worker.resolved.connect(self._on_link_resolved)
+            self._link_worker.start()
+            return
 
         if self._search_worker:
             try:
@@ -2578,19 +2780,37 @@ class EmojiGifPickerDialog(QDialog):
         self._search_worker.results_ready.connect(self._on_search_results_ready)
         self._search_worker.start()
 
-    def _on_search_results_ready(self, query: str, urls: list):
-        if not urls:
+    def _on_link_resolved(self, link: str, direct_url: str, error: str):
+        if link != self._current_search_query:
+            return
+        if not direct_url:
+            key = "gif_status_network" if error == "network" else "gif_status_link_failed"
+            self._set_gif_status(LanguageManager.tr(key))
+            return
+        self._set_gif_status(LanguageManager.tr("gif_status_link_ready"))
+        self._all_gif_urls = [direct_url]
+        self._rendered_gif_count = 0
+        self._load_next_gif_batch()
+
+    def _on_search_results_ready(self, query: str, results: list, error: str):
+        if query != self._current_search_query:
+            return
+        if error and not results:
+            self._show_curated_gifs(error)
+            return
+        if not results:
+            self._set_gif_status(LanguageManager.tr("gif_status_no_results"))
             return
         self._clear_gif_grid()
-        self._all_gif_urls = urls
+        self._gif_full_urls.update(results)
+        self._all_gif_urls = [thumb for thumb, _ in results]
         self._rendered_gif_count = 0
         self._load_next_gif_batch()
 
     def _reset_to_popular(self):
         self._current_search_query = ""
         self._clear_gif_grid()
-        self._trending_next_offset = 0
-        self._is_fetching_trending = False
+        self._set_gif_status("")
         self._populate_initial_gifs()
 
     def _stop_all_workers(self):
@@ -2610,11 +2830,28 @@ class EmojiGifPickerDialog(QDialog):
                 pass
             self._trending_worker = None
 
+        if self._link_worker:
+            try:
+                self._link_worker.stop()
+                self._link_worker.resolved.disconnect()
+            except Exception:
+                pass
+            self._link_worker = None
+
+        if self._download_worker:
+            try:
+                self._download_worker.stop()
+                self._download_worker.downloaded.disconnect()
+            except Exception:
+                pass
+            self._download_worker = None
+
         for worker in list(self._thumb_workers):
             try:
                 worker.stop()
                 if hasattr(worker, 'thumb_ready'):
                     worker.thumb_ready.disconnect()
+                    worker.thumb_failed.disconnect()
             except Exception:
                 pass
         self._thumb_workers.clear()
@@ -2637,11 +2874,16 @@ class EmojiGifPickerDialog(QDialog):
             if w:
                 w.deleteLater()
 
+        self._all_gif_urls = []
         self._rendered_gif_count = 0
 
     def _on_gif_card_clicked(self, url: str):
         for card in self.gif_cards:
             card.set_selected(card.url == url)
+            if card.url == url and card.is_failed:
+                card.is_failed = False
+                card.lbl_thumb.setText("...")
+                self._start_thumb_worker([(card.card_idx, url)])
         if url in GifThumbnailCard._THUMB_CACHE:
             self.selected_gif_bytes = GifThumbnailCard._THUMB_CACHE[url]
 
@@ -2656,12 +2898,32 @@ class EmojiGifPickerDialog(QDialog):
                     data = card._gif_data
                     break
 
-        if data:
-            self.selected_gif_bytes = data
-            self.selected_emoji = None
-            self.accept()
+        # Önizleme yalnızca 100 piksel yüksekliktedir; belgeye kaliteli sürüm eklenir
+        full_url = self._gif_full_urls.get(url, url)
+        if full_url != url and not self._download_worker:
+            self._download_source_url = url
+            self._set_gif_status(LanguageManager.tr("gif_status_downloading"))
+            self._download_worker = GifDownloadWorker(full_url)
+            _register_worker(self._download_worker)
+            self._download_worker.downloaded.connect(self._on_full_gif_downloaded)
+            self._download_worker.start()
+        elif data:
+            self._finish_gif_selection(data)
         else:
             self._pending_double_click_url = url
+
+    def _on_full_gif_downloaded(self, _url: str, data: bytes):
+        self._download_worker = None
+        fallback = GifThumbnailCard._THUMB_CACHE.get(self._download_source_url)
+        if data or fallback:
+            self._finish_gif_selection(data or fallback)
+        else:
+            self._set_gif_status(LanguageManager.tr("gif_status_insert_failed"))
+
+    def _finish_gif_selection(self, data: bytes):
+        self.selected_gif_bytes = data
+        self.selected_emoji = None
+        self.accept()
 
     def _stop_and_cleanup(self):
         self._stop_all_workers()
@@ -3044,15 +3306,24 @@ class AudioWaveformVisualizer(QWidget):
 
 
 class MiniAudioWaveformVisualizer(QWidget):
-    """Kompakt mod için ultra-hafif, modern ve canlı 5 barlı mikrofon ekolayzırı."""
+    """Kompakt kapsül için ultra-hafif, sessizlikte düz kalan 5 barlı canlı ses göstergesi."""
+    SILENCE_LEVEL = 0.035
+
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setFixedSize(36, 18)
+        self.setFixedSize(24, 16)
         self.bars = 5
         self.heights = [3.0] * self.bars
         self.phase = 0.0
         self.level = 0.0
         self.is_active = False
+        self.active_color = QColor("#ef4444")
+        self.idle_color = QColor("#475569")
+
+    def set_colors(self, active: str, idle: str):
+        self.active_color = QColor(active)
+        self.idle_color = QColor(idle)
+        self.update()
 
     def set_level(self, lvl: float, active: bool = True):
         self.level = lvl
@@ -3063,31 +3334,27 @@ class MiniAudioWaveformVisualizer(QWidget):
             return
 
         self.phase += 0.4
-        max_h = 16.0
+        max_h = 15.0
         min_h = 3.0
+        speech = 0.0 if lvl <= self.SILENCE_LEVEL else min(1.0, lvl * 2.2)
         for i in range(self.bars):
             factor = math.sin(self.phase + i * 0.9)
-            target = min_h + (max(0.1, min(1.0, self.level * 2.2)) * abs(factor)) * (max_h - min_h)
+            target = min_h + speech * abs(factor) * (max_h - min_h)
             self.heights[i] = self.heights[i] * 0.35 + target * 0.65
         self.update()
 
     def paintEvent(self, event):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
-        bar_w = 3.5
-        gap = 3.0
+        bar_w = 2.6
+        gap = 2.0
         h = self.height()
-        start_x = 2.0
+        start_x = 0.5
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(self.active_color if self.is_active else self.idle_color)
         for i in range(self.bars):
             bh = max(3.0, min(float(h), self.heights[i]))
-            bx = start_x + i * (bar_w + gap)
-            by = (h - bh) / 2.0
-            rect = QRectF(bx, by, bar_w, bh)
-            if self.is_active:
-                painter.setBrush(QColor("#38bdf8") if i % 2 == 0 else QColor("#818cf8"))
-            else:
-                painter.setBrush(QColor("#475569"))
-            painter.setPen(Qt.PenStyle.NoPen)
+            rect = QRectF(start_x + i * (bar_w + gap), (h - bh) / 2.0, bar_w, bh)
             painter.drawRoundedRect(rect, bar_w / 2.0, bar_w / 2.0)
 
 
@@ -3246,7 +3513,11 @@ class AudioRecordDialog(QDialog):
     Hem tam görünüm (dalga görselleştirici, başlık ve dosya seçimi) hem de
     kullanıcı paneli küçülttüğünde veya simge durumuna aldığında ekranda kalan
     minik, şık yüzen kontrol kapsülü (Dynamic Island stili) içerir.
+    Kapsül odağı çalmaz; kayıt sürerken belgede çalışmaya devam edilir.
     """
+    CAPSULE_HEIGHT = 32
+    CAPSULE_MARGIN = 16
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle(LanguageManager.tr("audio_record_title"))
@@ -3261,12 +3532,17 @@ class AudioRecordDialog(QDialog):
             Qt.WindowType.WindowCloseButtonHint
         )
         self.is_compact = False
-        self.compact_corner = "bottom-right"
+        self._capsule_corner = "bottom-right"  # Belgenin hangi alt köşesine yapışık
+        self._capsule_expanded = False
         self._drag_start_pos = None
 
         self.audio_bytes: Optional[bytes] = None
         self.duration_sec: float = 0.0
         self.format: str = "wav"
+        self.preview_path: Optional[str] = None
+        self._peaks: List[float] = []
+        self._has_take = False  # Kaydedilmemiş bir kayıt var mı
+        self._awaiting_file = False
 
         self.capture_session = QMediaCaptureSession()
         self.audio_input = QAudioInput()
@@ -3278,9 +3554,17 @@ class AudioRecordDialog(QDialog):
         self.player = QMediaPlayer()
         self.player.setAudioOutput(self.player_output)
         self.player.playbackStateChanged.connect(self._on_playback_state_changed)
+        self.player.durationChanged.connect(self._on_preview_duration)
 
         self.temp_record_path = tempfile.mktemp(suffix=".m4a")
         self.recorder.setOutputLocation(QUrl.fromLocalFile(self.temp_record_path))
+        self.recorder.errorChanged.connect(self._on_recorder_error)
+
+        # PyQt, recorderStateChanged sinyalini bağlayamadığı için kapanış durumu yoklanır
+        self._file_wait_ticks = 0
+        self._file_wait_timer = QTimer(self)
+        self._file_wait_timer.setInterval(60)
+        self._file_wait_timer.timeout.connect(self._poll_recorder_stopped)
 
         self.is_recording = False
         self.is_paused = False
@@ -3355,7 +3639,7 @@ class AudioRecordDialog(QDialog):
         hdr_box.addStretch()
         self.btn_compact = QPushButton()
         self.btn_compact.setObjectName("AudioIconBtn")
-        self.btn_compact.setIcon(AuraIconFactory.icon_compress())
+        self.btn_compact.setIcon(AuraIconFactory.icon_collapse_window(pal["text"]))
         self.btn_compact.setIconSize(QSize(18, 18))
         self.btn_compact.setToolTip(LanguageManager.tr("audio_record_compact_tip"))
         self.btn_compact.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -3427,7 +3711,8 @@ class AudioRecordDialog(QDialog):
         self.lbl_title = QLabel(LanguageManager.tr("audio_note_title") + ":")
         layout_full.addWidget(self.lbl_title)
         title_row = QHBoxLayout()
-        self.txt_title = QLineEdit(LanguageManager.tr("audio_note_title"))
+        self.txt_title = QLineEdit()
+        self.txt_title.setPlaceholderText(LanguageManager.tr("audio_record_title"))
         title_row.addWidget(self.txt_title, stretch=1)
         self.btn_choose_file = QPushButton(" " + LanguageManager.tr("audio_pick_file_short"))
         self.btn_choose_file.setIcon(AuraIconFactory.icon_upload())
@@ -3454,228 +3739,201 @@ class AudioRecordDialog(QDialog):
         self.stack.addWidget(self.widget_full)
 
         # ======================================================================
-        # 2. MİNİK KOMPAKT KAPSÜL WIDGET'I (DYNAMIC ISLAND STYLED MINI CAPSULE)
-        # ======================================================================
-        # ======================================================================
-        # 2. MİNİK KOMPAKT KAPSÜL WIDGET'I (DYNAMIC ISLAND STYLED MINI CAPSULE)
+        # 2. KOMPAKT KAPSÜL: Kayıt sürerken ekranda kalan, belgeye dokunmayan minik hap
         # ======================================================================
         self.widget_mini = QWidget()
-        self.widget_mini.setStyleSheet("background: transparent;")
         v_mini_wrap = QVBoxLayout(self.widget_mini)
-        v_mini_wrap.setContentsMargins(4, 4, 4, 4)
+        v_mini_wrap.setContentsMargins(0, 0, 0, 0)
         v_mini_wrap.setSpacing(0)
 
         self.mini_frame = QFrame()
         self.mini_frame.setObjectName("mini_record_capsule")
+        self.mini_frame.setFixedHeight(self.CAPSULE_HEIGHT)
         self.mini_frame.setToolTip(LanguageManager.tr("audio_compact_drag_hint"))
-        self.mini_frame.setStyleSheet("""
-            QFrame#mini_record_capsule {
-                background-color: rgba(15, 23, 42, 0.95);
-                border: 1px solid rgba(255, 255, 255, 0.16);
-                border-radius: 17px;
-            }
-        """)
         h_mini = QHBoxLayout(self.mini_frame)
-        h_mini.setContentsMargins(10, 4, 10, 4)
+        h_mini.setContentsMargins(11, 0, 4, 0)
         h_mini.setSpacing(6)
-        h_mini.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        # Durum göstergesi (LED nokta)
         self.dot_mini = QFrame()
         self.dot_mini.setFixedSize(8, 8)
-        self.dot_mini.setToolTip(LanguageManager.tr("audio_record_ready"))
-        self.dot_mini.setStyleSheet("background-color: #94a3b8; border-radius: 4px; border: none;")
         h_mini.addWidget(self.dot_mini)
 
-        # Canlı Ses Kaydı Süresi
         self.lbl_mini_time = QLabel("00:00")
         self.lbl_mini_time.setToolTip(LanguageManager.tr("audio_compact_time"))
-        self.lbl_mini_time.setStyleSheet("font-size: 13px; font-weight: bold; font-family: 'Consolas', 'Segoe UI', monospace; color: #f8fafc; background: transparent; border: none; min-width: 42px;")
         h_mini.addWidget(self.lbl_mini_time)
 
-        # Ekolayzır Canlı Mini Dalga
         self.mini_visualizer = MiniAudioWaveformVisualizer(self)
         h_mini.addWidget(self.mini_visualizer)
 
-        # İnce ayırıcı çizgi
-        self.mini_sep = QFrame()
-        self.mini_sep.setFixedSize(1, 14)
-        self.mini_sep.setStyleSheet("background-color: rgba(255, 255, 255, 0.18); border: none;")
-        h_mini.addWidget(self.mini_sep)
-
-        # Duraklat / Devam Et Butonu (Düzgün Köşeli Kare 26x26px)
-        self.btn_mini_pause = QPushButton()
-        self.btn_mini_pause.setIcon(AuraIconFactory.icon_pause("#f1f5f9"))
+        # Varsayılan olarak yalnızca birincil düğme görünür; diğerleri fareyle açılır
+        self.btn_mini_pause = self._capsule_button("CapsuleBtn", self._toggle_pause)
         self.btn_mini_pause.setToolTip(LanguageManager.tr("audio_record_pause"))
-        self.btn_mini_pause.setFixedSize(26, 26)
-        self.btn_mini_pause.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.btn_mini_pause.setStyleSheet("""
-            QPushButton {
-                background-color: rgba(255, 255, 255, 0.08);
-                border: 1px solid rgba(255, 255, 255, 0.14);
-                border-radius: 4px;
-                min-width: 0px !important;
-                min-height: 0px !important;
-                padding: 0px !important;
-            }
-            QPushButton:hover {
-                background-color: rgba(255, 255, 255, 0.18);
-                border-color: rgba(255, 255, 255, 0.3);
-            }
-            QPushButton:disabled {
-                background-color: rgba(255, 255, 255, 0.03);
-                border-color: transparent;
-            }
-        """)
-        self.btn_mini_pause.setEnabled(False)
-        self.btn_mini_pause.clicked.connect(self._toggle_pause)
-        h_mini.addWidget(self.btn_mini_pause)
-
-        # Durdur / Belgeye Ekle Butonu (Düzgün Köşeli Kare 26x26px)
-        self.btn_mini_stop = QPushButton()
-        self.btn_mini_stop.setIcon(AuraIconFactory.icon_stop("#ffffff"))
-        self.btn_mini_stop.setToolTip(LanguageManager.tr("audio_record_stop"))
-        self.btn_mini_stop.setFixedSize(26, 26)
-        self.btn_mini_stop.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.btn_mini_stop.setStyleSheet("""
-            QPushButton {
-                background-color: rgba(255, 255, 255, 0.08);
-                border: 1px solid rgba(255, 255, 255, 0.14);
-                border-radius: 4px;
-                min-width: 0px !important;
-                min-height: 0px !important;
-                padding: 0px !important;
-            }
-            QPushButton:hover {
-                background-color: rgba(239, 68, 68, 0.25);
-                border-color: rgba(239, 68, 68, 0.6);
-            }
-            QPushButton:disabled {
-                background-color: rgba(255, 255, 255, 0.03);
-                border-color: transparent;
-            }
-        """)
-        self.btn_mini_stop.setEnabled(False)
-        self.btn_mini_stop.clicked.connect(self._on_mini_stop_clicked)
-        h_mini.addWidget(self.btn_mini_stop)
-
-        # Konum Değiştir (Sağ Alt <-> Sol Alt) Butonu (Düzgün Köşeli Kare 26x26px)
-        self.btn_mini_dock = QPushButton()
-        self.btn_mini_dock.setIcon(AuraIconFactory.icon_swap("#94a3b8"))
-        self.btn_mini_dock.setToolTip(LanguageManager.tr("audio_compact_dock_toggle"))
-        self.btn_mini_dock.setFixedSize(26, 26)
-        self.btn_mini_dock.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.btn_mini_dock.setStyleSheet("""
-            QPushButton {
-                background-color: rgba(255, 255, 255, 0.08);
-                border: 1px solid rgba(255, 255, 255, 0.14);
-                border-radius: 4px;
-                min-width: 0px !important;
-                min-height: 0px !important;
-                padding: 0px !important;
-            }
-            QPushButton:hover {
-                background-color: rgba(56, 189, 248, 0.2);
-                border-color: rgba(56, 189, 248, 0.45);
-            }
-        """)
-        self.btn_mini_dock.clicked.connect(self._toggle_dock_corner)
-        h_mini.addWidget(self.btn_mini_dock)
-
-        # Tam Görünüme Geri Dönüş / Genişletme (Düzgün Köşeli Kare 26x26px)
-        self.btn_mini_expand = QPushButton()
-        self.btn_mini_expand.setIcon(AuraIconFactory.icon_fullscreen("#38bdf8"))
+        self.btn_mini_stop = self._capsule_button("CapsuleBtn", self._on_mini_stop_clicked)
+        self.btn_mini_expand = self._capsule_button("CapsuleBtn", self._toggle_compact_mode)
         self.btn_mini_expand.setToolTip(LanguageManager.tr("audio_record_expand_tip"))
-        self.btn_mini_expand.setFixedSize(26, 26)
-        self.btn_mini_expand.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.btn_mini_expand.setStyleSheet("""
-            QPushButton {
-                background-color: rgba(255, 255, 255, 0.08);
-                border: 1px solid rgba(255, 255, 255, 0.14);
-                border-radius: 4px;
-                min-width: 0px !important;
-                min-height: 0px !important;
-                padding: 0px !important;
-            }
-            QPushButton:hover {
-                background-color: rgba(56, 189, 248, 0.2);
-                border-color: rgba(56, 189, 248, 0.45);
-            }
-        """)
-        self.btn_mini_expand.clicked.connect(self._toggle_compact_mode)
-        h_mini.addWidget(self.btn_mini_expand)
-
-        # İptal / Kapat Seçeneği (Düzgün Köşeli Kare 26x26px)
-        self.btn_mini_cancel = QPushButton()
-        self.btn_mini_cancel.setIcon(AuraIconFactory.icon_close("#ef4444"))
+        self.btn_mini_cancel = self._capsule_button("CapsuleDangerBtn", self._on_cancel)
         self.btn_mini_cancel.setToolTip(LanguageManager.tr("btn_cancel"))
-        self.btn_mini_cancel.setFixedSize(26, 26)
-        self.btn_mini_cancel.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.btn_mini_cancel.setStyleSheet("""
-            QPushButton {
-                background-color: rgba(255, 255, 255, 0.08);
-                border: 1px solid rgba(239, 68, 68, 0.35);
-                border-radius: 4px;
-                min-width: 0px !important;
-                min-height: 0px !important;
-                padding: 0px !important;
-            }
-            QPushButton:hover {
-                background-color: rgba(239, 68, 68, 0.25);
-                border-color: rgba(239, 68, 68, 0.7);
-            }
-        """)
-        self.btn_mini_cancel.clicked.connect(self._on_cancel)
-        h_mini.addWidget(self.btn_mini_cancel)
+        self.mini_btn_row = QHBoxLayout()
+        self.mini_btn_row.setContentsMargins(0, 0, 0, 0)
+        self.mini_btn_row.setSpacing(1)
+        for btn in (self.btn_mini_pause, self.btn_mini_stop, self.btn_mini_expand, self.btn_mini_cancel):
+            self.mini_btn_row.addWidget(btn)
+        h_mini.addLayout(self.mini_btn_row)
 
         v_mini_wrap.addWidget(self.mini_frame)
         self.stack.addWidget(self.widget_mini)
 
+        self._capsule_collapse_timer = QTimer(self)
+        self._capsule_collapse_timer.setSingleShot(True)
+        self._capsule_collapse_timer.setInterval(260)
+        self._capsule_collapse_timer.timeout.connect(lambda: self._set_capsule_expanded(False))
+
+        # Pencere, yan panel veya sekme değişince kapsül belgenin köşesinde kalır
+        self._capsule_follow_timer = QTimer(self)
+        self._capsule_follow_timer.setInterval(120)
+        self._capsule_follow_timer.timeout.connect(self._dock_compact_capsule)
+
         # Sürükleme için eventFilter kurulumu
-        for w in (self.mini_frame, self.dot_mini, self.lbl_mini_time, self.mini_visualizer, self.mini_sep):
+        for w in (self.mini_frame, self.dot_mini, self.lbl_mini_time, self.mini_visualizer):
             w.installEventFilter(self)
 
         self.stack.setCurrentWidget(self.widget_full)
         apply_dialog_theme(self, parent)
+        self._apply_capsule_theme()
+
+    def _capsule_button(self, object_name: str, slot) -> QPushButton:
+        btn = QPushButton()
+        btn.setObjectName(object_name)
+        btn.setFixedSize(24, 24)
+        btn.setIconSize(QSize(14, 14))
+        btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        btn.clicked.connect(slot)
+        return btn
+
+    def _apply_capsule_theme(self):
+        pal = get_theme_palette(self.parent())
+        self.mini_frame.setStyleSheet(f"""
+            QFrame#mini_record_capsule {{
+                background-color: {pal['card']};
+                border: 1px solid {pal['border']};
+                border-radius: {self.CAPSULE_HEIGHT // 2}px;
+            }}
+            QPushButton#CapsuleBtn, QPushButton#CapsuleDangerBtn {{
+                background-color: transparent;
+                border: none;
+                border-radius: 12px;
+                padding: 0px;
+                min-width: 0px;
+                min-height: 0px;
+            }}
+            QPushButton#CapsuleBtn:hover {{ background-color: {pal['border']}; }}
+            QPushButton#CapsuleBtn:pressed {{ background-color: {pal['bg']}; }}
+            QPushButton#CapsuleDangerBtn:hover {{ background-color: rgba(239, 68, 68, 0.28); }}
+            QLabel {{ background: transparent; border: none; }}
+        """)
+        self.lbl_mini_time.setStyleSheet(
+            f"color: {pal['text']}; font-size: 12px; font-weight: 600; font-family: 'Cascadia Mono', 'Consolas', monospace;"
+        )
+        self.mini_visualizer.set_colors("#ef4444", pal["border"])
+        self.btn_mini_expand.setIcon(AuraIconFactory.icon_fullscreen(pal["text"]))
+        self.btn_mini_cancel.setIcon(AuraIconFactory.icon_close(pal["muted"], "#ef4444"))
+        self._sync_capsule()
+
+    def _sync_capsule(self):
+        """Kapsülün tüm görünümünü tek noktadan kayıt durumuna eşitler."""
+        pal = get_theme_palette(self.parent())
+        has_audio = bool(self.audio_bytes)
+        if self.is_recording and self.is_paused:
+            dot_color, dot_tip = "#eab308", "audio_record_paused"
+        elif self.is_recording:
+            dot_color, dot_tip = "#ef4444", "audio_record_recording"
+        elif has_audio or self._awaiting_file:
+            dot_color, dot_tip = "#10b981", "audio_record_completed"
+        else:
+            dot_color, dot_tip = pal["muted"], "audio_record_ready"
+        self.dot_mini.setStyleSheet(f"background-color: {dot_color}; border-radius: 4px; border: none;")
+        self.dot_mini.setToolTip(LanguageManager.tr(dot_tip))
+
+        if self.is_recording:
+            icon, tip = AuraIconFactory.icon_solid_stop("#ef4444"), "audio_record_stop"
+        elif has_audio or self._awaiting_file:
+            icon, tip = AuraIconFactory.icon_check("#10b981"), "audio_record_insert"
+        else:
+            icon, tip = AuraIconFactory.icon_menu_voice_recording(pal["text"]), "audio_record_start"
+        self.btn_mini_stop.setIcon(icon)
+        self.btn_mini_stop.setToolTip(LanguageManager.tr(tip))
+        self.btn_mini_stop.setEnabled(not self._awaiting_file)
+
+        pause_icon = AuraIconFactory.icon_play if self.is_paused else AuraIconFactory.icon_solid_pause
+        self.btn_mini_pause.setIcon(pause_icon(pal["text"]))
+        self.btn_mini_pause.setToolTip(LanguageManager.tr("audio_record_resume" if self.is_paused else "audio_record_pause"))
+
+        show_extras = self._capsule_expanded or has_audio
+        self.mini_visualizer.setVisible(self.is_recording)
+        self.btn_mini_pause.setVisible(self.is_recording and self._capsule_expanded)
+        self.btn_mini_expand.setVisible(show_extras)
+        self.btn_mini_cancel.setVisible(show_extras)
+        self._fit_capsule()
+
+    def _fit_capsule(self):
+        """Kapsülü içeriğine göre boyutlandırır; yerleştiği kenar sabit kalır."""
+        if not self.is_compact:
+            return
+        self.mini_btn_row.invalidate()
+        self.mini_frame.layout().invalidate()
+        self.setFixedSize(self.mini_frame.sizeHint().width(), self.CAPSULE_HEIGHT)
+        self._dock_compact_capsule()
+
+    def _set_capsule_expanded(self, expanded: bool):
+        if self._capsule_expanded != expanded:
+            self._capsule_expanded = expanded
+            self._sync_capsule()
+
+    def enterEvent(self, event):
+        if self.is_compact:
+            self._capsule_collapse_timer.stop()
+            self._set_capsule_expanded(True)
+        super().enterEvent(event)
+
+    def leaveEvent(self, event):
+        if self.is_compact:
+            self._capsule_collapse_timer.start()
+        super().leaveEvent(event)
 
     def eventFilter(self, watched, event):
-        if self.is_compact and watched in (self.mini_frame, self.dot_mini, self.lbl_mini_time, self.mini_visualizer, getattr(self, 'mini_sep', None)):
+        if self.is_compact and watched in (self.mini_frame, self.dot_mini, self.lbl_mini_time, self.mini_visualizer):
             if event.type() == QEvent.Type.MouseButtonPress and event.button() == Qt.MouseButton.LeftButton:
                 self._drag_start_pos = event.globalPosition().toPoint() - self.pos()
                 return True
-            elif event.type() == QEvent.Type.MouseMove and (event.buttons() & Qt.MouseButton.LeftButton) and getattr(self, '_drag_start_pos', None):
+            elif event.type() == QEvent.Type.MouseMove and (event.buttons() & Qt.MouseButton.LeftButton) and self._drag_start_pos:
                 self.move(event.globalPosition().toPoint() - self._drag_start_pos)
                 return True
-            elif event.type() == QEvent.Type.MouseButtonRelease:
+            elif event.type() == QEvent.Type.MouseButtonRelease and self._drag_start_pos:
                 self._drag_start_pos = None
+                self._snap_capsule_to_nearest_corner()
                 return True
         return super().eventFilter(watched, event)
 
-    def mousePressEvent(self, event):
-        if self.is_compact and event.button() == Qt.MouseButton.LeftButton:
-            self._drag_start_pos = event.globalPosition().toPoint() - self.pos()
-            event.accept()
-            return
-        super().mousePressEvent(event)
+    def _document_area(self) -> QRect:
+        """Etkin belgenin ekrandaki görünür alanını; belge yoksa ana pencereyi döner."""
+        parent = self.parent()
+        try:
+            tab_doc = parent.get_current_tab_doc() if hasattr(parent, 'get_current_tab_doc') else None
+            viewport = tab_doc.view.viewport() if tab_doc else None
+            if viewport is not None and viewport.isVisible():
+                return QRect(viewport.mapToGlobal(QPoint(0, 0)), viewport.size())
+        except RuntimeError:
+            pass
+        return parent.geometry() if parent else QApplication.primaryScreen().availableGeometry()
 
-    def mouseMoveEvent(self, event):
-        if self.is_compact and (event.buttons() & Qt.MouseButton.LeftButton) and getattr(self, '_drag_start_pos', None):
-            self.move(event.globalPosition().toPoint() - self._drag_start_pos)
-            event.accept()
-            return
-        super().mouseMoveEvent(event)
+    def _set_capsule_corner(self, corner: str):
+        self._capsule_corner = corner
+        self._dock_compact_capsule()
 
-    def mouseReleaseEvent(self, event):
-        if self.is_compact:
-            self._drag_start_pos = None
-            parent = self.parent() or QApplication.activeWindow()
-            if parent:
-                p_geo = parent.geometry()
-                mid_x = p_geo.center().x()
-                cur_x = self.pos().x() + self.width() / 2.0
-                target_corner = "bottom-left" if cur_x < mid_x else "bottom-right"
-                self._dock_compact_capsule(target_corner)
-        super().mouseReleaseEvent(event)
+    def _snap_capsule_to_nearest_corner(self):
+        on_left = self.geometry().center().x() < self._document_area().center().x()
+        self._set_capsule_corner("bottom-left" if on_left else "bottom-right")
 
     def changeEvent(self, event):
         if event.type() == QEvent.Type.WindowStateChange:
@@ -3691,40 +3949,23 @@ class AudioRecordDialog(QDialog):
         if not self.is_compact:
             self._toggle_compact_mode()
 
-    def _dock_compact_capsule(self, corner: str = "bottom-right"):
-        self.compact_corner = corner
-        parent = self.parent() or QApplication.activeWindow()
-        capsule_w = 310
-        capsule_h = 44
-        margin = 24
-
-        if parent:
-            p_geo = parent.geometry()
-            if corner == "bottom-left":
-                left_toolbar_offset = 64 if getattr(parent, 'aura_utility_rail', None) is not None else 0
-                target_x = p_geo.left() + left_toolbar_offset + margin
-                target_y = p_geo.bottom() - capsule_h - margin
-            else:  # bottom-right
-                right_sidebar_offset = 40 if (hasattr(parent, 'aura_right_sidebar') and getattr(parent.aura_right_sidebar, 'isVisible', lambda: False)()) else 0
-                target_x = p_geo.right() - right_sidebar_offset - capsule_w - margin
-                target_y = p_geo.bottom() - capsule_h - margin
-
-            screen = parent.screen().availableGeometry() if hasattr(parent, 'screen') and parent.screen() else QApplication.primaryScreen().availableGeometry()
-            target_x = max(screen.left() + 10, min(target_x, screen.right() - capsule_w - 10))
-            target_y = max(screen.top() + 10, min(target_y, screen.bottom() - capsule_h - 10))
-            self.move(int(target_x), int(target_y))
+    def _dock_compact_capsule(self):
+        """Kapsülü belge alanının seçili alt köşesine yerleştirir; sürüklerken dokunmaz."""
+        parent = self.parent()
+        if not self.is_compact or self._drag_start_pos or (parent and parent.isMinimized()):
+            return
+        area = self._document_area()
+        if self._capsule_corner == "bottom-left":
+            x = area.left() + self.CAPSULE_MARGIN
         else:
-            screen = QApplication.primaryScreen().availableGeometry()
-            if corner == "bottom-left":
-                target_x = screen.left() + margin
-            else:
-                target_x = screen.right() - capsule_w - margin
-            target_y = screen.bottom() - capsule_h - margin
-            self.move(int(target_x), int(target_y))
-
-    def _toggle_dock_corner(self):
-        new_corner = "bottom-left" if getattr(self, 'compact_corner', 'bottom-right') == "bottom-right" else "bottom-right"
-        self._dock_compact_capsule(new_corner)
+            x = area.right() + 1 - self.width() - self.CAPSULE_MARGIN
+        y = area.bottom() + 1 - self.height() - self.CAPSULE_MARGIN
+        screen = self.screen().availableGeometry() if self.screen() else None
+        if screen is not None:
+            x = max(screen.left(), min(x, screen.right() + 1 - self.width()))
+            y = max(screen.top(), min(y, screen.bottom() + 1 - self.height()))
+        if (x, y) != (self.x(), self.y()):
+            self.move(x, y)
 
     def _toggle_compact_mode(self):
         self.is_compact = not self.is_compact
@@ -3733,17 +3974,24 @@ class AudioRecordDialog(QDialog):
             self.setWindowFlags(
                 Qt.WindowType.Tool |
                 Qt.WindowType.FramelessWindowHint |
-                Qt.WindowType.WindowStaysOnTopHint
+                Qt.WindowType.WindowStaysOnTopHint |
+                Qt.WindowType.WindowDoesNotAcceptFocus
             )
             self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
-            self.setStyleSheet("background: transparent;")
+            self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating, True)
+            self.setStyleSheet("QDialog { background: transparent; }")
             self.stack.setCurrentWidget(self.widget_mini)
-            self.setMinimumSize(0, 0)
-            self.setMaximumSize(330, 52)
-            self.resize(310, 46)
-            self._dock_compact_capsule(getattr(self, 'compact_corner', 'bottom-right'))
+            self._capsule_expanded = False
+            self._apply_capsule_theme()
             self.show()
+            self._dock_compact_capsule()
+            self._capsule_follow_timer.start()
+            parent = self.parent()
+            if parent:
+                parent.activateWindow()
         else:
+            self._capsule_collapse_timer.stop()
+            self._capsule_follow_timer.stop()
             self.setWindowFlags(
                 Qt.WindowType.Window |
                 Qt.WindowType.WindowStaysOnTopHint |
@@ -3752,6 +4000,7 @@ class AudioRecordDialog(QDialog):
                 Qt.WindowType.WindowCloseButtonHint
             )
             self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, False)
+            self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating, False)
             self.setStyleSheet("")
             apply_dialog_theme(self, self.parent())
             self.stack.setCurrentWidget(self.widget_full)
@@ -3762,13 +4011,14 @@ class AudioRecordDialog(QDialog):
                 self.move(self._saved_full_pos)
             self.setWindowTitle(LanguageManager.tr("audio_record_title"))
             self.show()
+            self.activateWindow()
 
     def _on_mini_stop_clicked(self):
         if self.is_recording:
             self._stop_record()
         elif self.audio_bytes:
             self.accept()
-        else:
+        elif not self._awaiting_file:
             self._start_record()
 
     def _read_audio_level(self):
@@ -3784,6 +4034,7 @@ class AudioRecordDialog(QDialog):
                 samples = struct.unpack(f"<{count}h", raw_bytes[:count*2])
                 peak = max(abs(s) for s in samples)
                 level = peak / 32768.0
+                self._peaks.append(level)
                 self.visualizer.set_audio_level(level)
                 self.mini_visualizer.set_level(level, active=True)
             else:
@@ -3792,6 +4043,21 @@ class AudioRecordDialog(QDialog):
         except Exception:
             self.visualizer.set_audio_level(0.0)
             self.mini_visualizer.set_level(0.0, active=False)
+
+    def waveform_peaks(self, bins: int = 48) -> List[float]:
+        """Kaydın gerçek ses zarfını belgedeki kartta çizilecek sabit sayıda değere indirger."""
+        if not self._has_take or not self._peaks:
+            return []
+        step = max(1.0, len(self._peaks) / bins)
+        grouped = []
+        pos = 0.0
+        while int(pos) < len(self._peaks):
+            grouped.append(max(self._peaks[int(pos):max(int(pos) + 1, int(pos + step))]))
+            pos += step
+        loudest = max(grouped)
+        if loudest < 0.02:
+            return []
+        return [round(value / loudest, 2) for value in grouped]
 
     def _on_orb_clicked(self):
         (self.btn_stop if self.is_recording else self.btn_start).click()
@@ -3810,6 +4076,9 @@ class AudioRecordDialog(QDialog):
             f"color: {color}; font-size: 12px; font-weight: 500; border: none; background: transparent; padding: 0;"
         )
 
+    def _ink(self) -> str:
+        return get_theme_palette(self.parent())["text"]
+
     def _start_record(self):
         if self.player.playbackState() == QMediaPlayer.PlaybackState.PlayingState:
             self.player.stop()
@@ -3817,6 +4086,9 @@ class AudioRecordDialog(QDialog):
         self.recorder.record()
         self.is_recording = True
         self.is_paused = False
+        self._has_take = True
+        self.format = "m4a"
+        self._peaks = []
         self.elapsed_seconds = 0
         self.lbl_time.setText("00:00")
         self.lbl_mini_time.setText("00:00")
@@ -3831,40 +4103,19 @@ class AudioRecordDialog(QDialog):
         except Exception as e:
             print("AudioSource error:", e)
 
-        btn_disabled_css = "background-color: rgba(255, 255, 255, 0.03); color: #64748b; border: 1px solid rgba(255, 255, 255, 0.06);"
-
         self.btn_start.setEnabled(False)
         self.btn_pause.setEnabled(True)
         self.btn_pause.setText(LanguageManager.tr("audio_record_pause"))
-        self.btn_pause.setIcon(AuraIconFactory.icon_pause("#f1f5f9"))
+        self.btn_pause.setIcon(AuraIconFactory.icon_pause(self._ink()))
         self.btn_stop.setEnabled(True)
         self.btn_reset.setEnabled(False)
         self.btn_play_preview.setEnabled(False)
+        self.btn_choose_file.setEnabled(False)
         self.btn_ok.setEnabled(False)
-
-        # Mini bar kontrollerini senkronize et
-        self.dot_mini.setStyleSheet("background-color: #ef4444; border-radius: 4px; border: none;")
-        self.dot_mini.setToolTip(LanguageManager.tr("audio_record_recording"))
-        self.btn_mini_pause.show()
-        self.btn_mini_pause.setEnabled(True)
-        self.btn_mini_pause.setIcon(AuraIconFactory.icon_pause("#f1f5f9"))
-        self.btn_mini_pause.setToolTip(LanguageManager.tr("audio_record_pause"))
-        self.btn_mini_stop.setEnabled(True)
-        self.btn_mini_stop.setIcon(AuraIconFactory.icon_stop("#ffffff"))
-        self.btn_mini_stop.setStyleSheet("""
-            QPushButton {
-                background-color: rgba(255, 255, 255, 0.08);
-                border: 1px solid rgba(255, 255, 255, 0.14);
-                border-radius: 4px;
-            }
-            QPushButton:hover {
-                background-color: rgba(239, 68, 68, 0.25);
-                border-color: rgba(239, 68, 68, 0.6);
-            }
-        """)
 
         self._set_status(LanguageManager.tr("audio_record_recording"), "#f87171")
         self.visualizer.start_recording_anim()
+        self._sync_capsule()
 
     def _toggle_pause(self):
         if not self.is_recording:
@@ -3875,11 +4126,7 @@ class AudioRecordDialog(QDialog):
             self.is_paused = True
             self.timer.stop()
             self.btn_pause.setText(LanguageManager.tr("audio_record_resume"))
-            self.btn_pause.setIcon(AuraIconFactory.icon_play("#f1f5f9"))
-            self.btn_mini_pause.setIcon(AuraIconFactory.icon_play("#f1f5f9"))
-            self.btn_mini_pause.setToolTip(LanguageManager.tr("audio_record_resume"))
-            self.dot_mini.setStyleSheet("background-color: #eab308; border-radius: 4px; border: none;")
-            self.dot_mini.setToolTip(LanguageManager.tr("audio_record_paused"))
+            self.btn_pause.setIcon(AuraIconFactory.icon_play(self._ink()))
             self._set_status(LanguageManager.tr("audio_record_paused"), "#eab308")
             self.visualizer.set_audio_level(0.0)
             self.mini_visualizer.set_level(0.0, active=False)
@@ -3888,18 +4135,17 @@ class AudioRecordDialog(QDialog):
             self.is_paused = False
             self.timer.start(1000)
             self.btn_pause.setText(LanguageManager.tr("audio_record_pause"))
-            self.btn_pause.setIcon(AuraIconFactory.icon_pause("#f1f5f9"))
-            self.btn_mini_pause.setIcon(AuraIconFactory.icon_pause("#f1f5f9"))
-            self.btn_mini_pause.setToolTip(LanguageManager.tr("audio_record_pause"))
-            self.dot_mini.setStyleSheet("background-color: #ef4444; border-radius: 4px; border: none;")
-            self.dot_mini.setToolTip(LanguageManager.tr("audio_record_recording"))
+            self.btn_pause.setIcon(AuraIconFactory.icon_pause(self._ink()))
             self._set_status(LanguageManager.tr("audio_record_recording"), "#f87171")
+        self._sync_capsule()
 
     def _stop_record(self):
         if not self.is_recording:
             return
 
-        self.recorder.stop()
+        # Dosya kapanana kadar ekleme kapalı kalır; hazır olunca durum sinyali açar
+        self._awaiting_file = True
+        recorded_ms = self.recorder.duration()
         self.is_recording = False
         self.is_paused = False
         self.timer.stop()
@@ -3907,39 +4153,46 @@ class AudioRecordDialog(QDialog):
         if self.audio_source:
             self.audio_source.stop()
             self.audio_source_io = None
-        self.duration_sec = float(self.elapsed_seconds)
+        self.duration_sec = recorded_ms / 1000.0 if recorded_ms > 0 else float(self.elapsed_seconds)
 
         self.btn_start.setEnabled(False)
         self.btn_pause.setEnabled(False)
         self.btn_pause.setText(LanguageManager.tr("audio_record_pause"))
-        self.btn_pause.setIcon(AuraIconFactory.icon_pause("#f1f5f9"))
+        self.btn_pause.setIcon(AuraIconFactory.icon_pause(self._ink()))
         self.btn_stop.setEnabled(False)
         self.btn_reset.setEnabled(True)
-
-        # Mini bar kontrollerini senkronize et
-        self.dot_mini.setStyleSheet("background-color: #10b981; border-radius: 4px; border: none;")
-        self.dot_mini.setToolTip(LanguageManager.tr("audio_record_completed"))
-        self.btn_mini_pause.hide()
-        self.btn_mini_stop.setIcon(AuraIconFactory.icon_check("#ffffff"))
-        self.btn_mini_stop.setToolTip(LanguageManager.tr("audio_record_insert"))
-        self.btn_mini_stop.setStyleSheet("""
-            QPushButton {
-                background-color: rgba(16, 185, 129, 0.2);
-                border: 1px solid rgba(16, 185, 129, 0.5);
-                border-radius: 4px;
-            }
-            QPushButton:hover {
-                background-color: rgba(16, 185, 129, 0.35);
-                border-color: #10b981;
-            }
-        """)
-        self.btn_mini_stop.setEnabled(True)
 
         self._set_status(LanguageManager.tr("audio_record_completed"), "#10b981")
         self.visualizer.stop_anim()
         self.mini_visualizer.set_level(0.0, active=False)
+        self._sync_capsule()
+        self.recorder.stop()
+        self._file_wait_ticks = 0
+        self._file_wait_timer.start()
 
-        QTimer.singleShot(500, self._load_temp_audio)
+    def _poll_recorder_stopped(self):
+        self._file_wait_ticks += 1
+        if self.recorder.recorderState() == QMediaRecorder.RecorderState.StoppedState or self._file_wait_ticks > 100:
+            self._file_wait_timer.stop()
+            if self._awaiting_file:
+                self._load_temp_audio()
+
+    def _on_recorder_error(self):
+        if self.recorder.error() == QMediaRecorder.Error.NoError or not (self.is_recording or self._awaiting_file):
+            return
+        self.is_recording = False
+        self.timer.stop()
+        self._reset_record()
+        self._set_status(LanguageManager.tr("audio_record_failed"), "#f87171")
+
+    def _discard_temp_file(self):
+        self.player.setSource(QUrl())
+        for path in {self.temp_record_path, self.recorder.actualLocation().toLocalFile()}:
+            try:
+                if path and os.path.exists(path):
+                    os.remove(path)
+            except OSError:
+                pass
 
     def _reset_record(self):
         if self.player.playbackState() == QMediaPlayer.PlaybackState.PlayingState:
@@ -3949,35 +4202,23 @@ class AudioRecordDialog(QDialog):
             self.audio_source.stop()
             self.audio_source_io = None
         self.level_timer.stop()
+        self._file_wait_timer.stop()
+        self._awaiting_file = False
+
+        self._discard_temp_file()
+        self.temp_record_path = tempfile.mktemp(suffix=".m4a")
+        self.recorder.setOutputLocation(QUrl.fromLocalFile(self.temp_record_path))
 
         self.audio_bytes = None
+        self.preview_path = None
         self.duration_sec = 0.0
         self.elapsed_seconds = 0
         self.is_paused = False
+        self.format = "wav"
+        self._has_take = False
+        self._peaks = []
         self.lbl_time.setText("00:00")
         self.lbl_mini_time.setText("00:00")
-        self.dot_mini.setStyleSheet("background-color: #94a3b8; border-radius: 4px; border: none;")
-        self.dot_mini.setToolTip(LanguageManager.tr("audio_record_ready"))
-        self.btn_mini_pause.show()
-        self.btn_mini_pause.setEnabled(False)
-        self.btn_mini_stop.setEnabled(False)
-        self.btn_mini_stop.setIcon(AuraIconFactory.icon_stop("#ffffff"))
-        self.btn_mini_stop.setToolTip(LanguageManager.tr("audio_record_stop"))
-        self.btn_mini_stop.setStyleSheet("""
-            QPushButton {
-                background-color: rgba(255, 255, 255, 0.08);
-                border: 1px solid rgba(255, 255, 255, 0.14);
-                border-radius: 4px;
-            }
-            QPushButton:hover {
-                background-color: rgba(239, 68, 68, 0.25);
-                border-color: rgba(239, 68, 68, 0.6);
-            }
-            QPushButton:disabled {
-                background-color: rgba(255, 255, 255, 0.03);
-                border-color: transparent;
-            }
-        """)
 
         self._set_status(LanguageManager.tr("audio_record_ready"), "#94a3b8")
         self.visualizer.stop_anim()
@@ -3989,7 +4230,9 @@ class AudioRecordDialog(QDialog):
         self.btn_stop.setEnabled(False)
         self.btn_reset.setEnabled(False)
         self.btn_play_preview.setEnabled(False)
+        self.btn_choose_file.setEnabled(True)
         self.btn_ok.setEnabled(False)
+        self._sync_capsule()
 
     def _tick_timer(self):
         self.elapsed_seconds += 1
@@ -3998,15 +4241,26 @@ class AudioRecordDialog(QDialog):
         time_str = f"{m:02d}:{s:02d}"
         self.lbl_time.setText(time_str)
         self.lbl_mini_time.setText(time_str)
-        if self.is_compact:
-            self.setWindowTitle(f"[{time_str}] {LanguageManager.tr('audio_record_title')}")
 
     def _load_temp_audio(self):
-        if os.path.exists(self.temp_record_path):
-            with open(self.temp_record_path, "rb") as f:
-                self.audio_bytes = f.read()
-            self.btn_play_preview.setEnabled(True)
-            self.btn_ok.setEnabled(True)
+        self._awaiting_file = False
+        actual_path = self.recorder.actualLocation().toLocalFile()
+        path = actual_path if actual_path and os.path.exists(actual_path) else self.temp_record_path
+        data = b""
+        if os.path.exists(path):
+            with open(path, "rb") as f:
+                data = f.read()
+        if not data:
+            self._reset_record()
+            self._set_status(LanguageManager.tr("audio_record_failed"), "#f87171")
+            return
+        self.audio_bytes = data
+        self.preview_path = path
+        self.format = os.path.splitext(path)[1].lstrip(".").lower() or self.format
+        self.btn_play_preview.setEnabled(True)
+        self.btn_choose_file.setEnabled(True)
+        self.btn_ok.setEnabled(True)
+        self._sync_capsule()
 
     def _play_preview(self):
         if self.player.playbackState() == QMediaPlayer.PlaybackState.PlayingState:
@@ -4015,8 +4269,8 @@ class AudioRecordDialog(QDialog):
             self.btn_play_preview.setText(LanguageManager.tr("audio_record_listen"))
             return
 
-        if self.temp_record_path and os.path.exists(self.temp_record_path):
-            self.player.setSource(QUrl.fromLocalFile(self.temp_record_path))
+        if self.preview_path and os.path.exists(self.preview_path):
+            self.player.setSource(QUrl.fromLocalFile(self.preview_path))
             self.player_output.setVolume(1.0)
             self.player.play()
             self.visualizer.start_playing_anim()
@@ -4027,35 +4281,69 @@ class AudioRecordDialog(QDialog):
             self.visualizer.stop_anim()
             self.btn_play_preview.setText(LanguageManager.tr("audio_record_listen"))
 
+    def _on_preview_duration(self, duration_ms: int):
+        """Seçilen ses dosyasının gerçek süresini oynatıcıdan öğrenir."""
+        if duration_ms > 0 and self.audio_bytes and not self._has_take:
+            self.duration_sec = duration_ms / 1000.0
+            total = int(self.duration_sec)
+            time_str = f"{total // 60:02d}:{total % 60:02d}"
+            self.lbl_time.setText(time_str)
+            self.lbl_mini_time.setText(time_str)
+
     def _choose_audio_file(self):
         fpath, _ = QFileDialog.getOpenFileName(self, LanguageManager.tr("insert_audio_file"), "", LanguageManager.tr("ui_ses_dosyalari_mp3_wav_m4a_ogg"))
         if fpath and os.path.exists(fpath):
+            self._reset_record()
             with open(fpath, "rb") as f:
                 self.audio_bytes = f.read()
-            ext = os.path.splitext(fpath)[1].replace(".", "")
-            self.format = ext
+            self.format = os.path.splitext(fpath)[1].lstrip(".").lower()
             self.txt_title.setText(os.path.basename(fpath))
             self._set_status(f"{LanguageManager.tr('audio_record_completed')}: {os.path.basename(fpath)}", "#10b981")
-            self.temp_record_path = fpath
+            self.preview_path = fpath
+            self.player.setSource(QUrl.fromLocalFile(fpath))
+            self.btn_start.setEnabled(False)
             self.btn_reset.setEnabled(True)
             self.btn_play_preview.setEnabled(True)
             self.btn_ok.setEnabled(True)
+            self._sync_capsule()
 
-    def closeEvent(self, event):
-        self._on_cancel()
-        super().closeEvent(event)
+    def _confirm_discard(self) -> bool:
+        if not self._has_take:
+            return True
+        answer = QMessageBox.question(
+            self,
+            LanguageManager.tr("audio_discard_title"),
+            LanguageManager.tr("audio_discard_text"),
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No
+        )
+        return answer == QMessageBox.StandardButton.Yes
 
     def _on_cancel(self):
+        if self._confirm_discard():
+            self.reject()
+
+    def keyPressEvent(self, event):
+        if event.key() == Qt.Key.Key_Escape:
+            self._on_cancel()
+            return
+        super().keyPressEvent(event)
+
+    def closeEvent(self, event):
+        if event.spontaneous() and not self._confirm_discard():
+            event.ignore()
+            return
+        super().closeEvent(event)
+
+    def done(self, result):
+        """Diyalog hangi yoldan kapanırsa kapansın mikrofonu ve geçici dosyayı bırakır."""
         if self.is_recording:
             try:
                 self.recorder.stop()
             except Exception:
                 pass
-        if self.player.playbackState() == QMediaPlayer.PlaybackState.PlayingState:
-            try:
-                self.player.stop()
-            except Exception:
-                pass
+        self.is_recording = False
+        self._awaiting_file = False
         if self.audio_source:
             try:
                 self.audio_source.stop()
@@ -4064,8 +4352,12 @@ class AudioRecordDialog(QDialog):
             self.audio_source_io = None
         self.level_timer.stop()
         self.timer.stop()
+        self._file_wait_timer.stop()
+        self._capsule_collapse_timer.stop()
+        self._capsule_follow_timer.stop()
         self.visualizer.stop_anim()
-        self.reject()
+        self._discard_temp_file()
+        super().done(result)
 
 
 class VideoInsertDialog(QDialog):

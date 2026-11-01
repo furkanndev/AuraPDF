@@ -5128,6 +5128,8 @@ class AuraPDFViewer(QMainWindow):
         if hasattr(self, '_audio_record_dialog') and self._audio_record_dialog is not None:
             try:
                 if self._audio_record_dialog.isVisible():
+                    if self._audio_record_dialog.is_compact:
+                        self._audio_record_dialog._toggle_compact_mode()
                     self._audio_record_dialog.showNormal()
                     self._audio_record_dialog.raise_()
                     self._audio_record_dialog.activateWindow()
@@ -5147,7 +5149,8 @@ class AuraPDFViewer(QMainWindow):
                         audio_bytes=dlg.audio_bytes,
                         title=dlg.txt_title.text().strip() or LanguageManager.tr("audio_record_title"),
                         duration_sec=dlg.duration_sec,
-                        format=dlg.format
+                        format=dlg.format,
+                        waveform=dlg.waveform_peaks()
                     )
                 else:
                     QMessageBox.warning(self, LanguageManager.tr("warning"), LanguageManager.tr("open_pdf_first_warning"))
