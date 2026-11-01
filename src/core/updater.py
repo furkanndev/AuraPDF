@@ -19,7 +19,7 @@ from PyQt6.QtCore import QThread, pyqtSignal, QSettings
 
 from src.core.i18n import LanguageManager
 
-CURRENT_VERSION = "Pro v2.2.4"
+CURRENT_VERSION = "Pro v2.2.5"
 GITHUB_REPO = "furkanndev/AuraPDF"
 
 
