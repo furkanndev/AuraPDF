@@ -121,23 +121,26 @@ class TestTextAndAudioFixes(unittest.TestCase):
         )
         self.scene.addItem(item)
 
-        # Short text should have dynamic bounding box fitting the content
+        # Sol hizada kutu, yazarken kelimeler aşağı zıplamasın diye daima izin verilen genişliği kullanır
         item.setPlainText("Kisa")
         item._update_text_width_constraint()
-        self.assertLess(item.boundingRect().width(), 100.0)
+        self.assertAlmostEqual(item.textWidth(), 138.0, delta=0.6)
+        left_width = item.boundingRect().width()
 
-        # Long text that would overflow page right must be clamped and wrapped
+        # Uzun metin sayfanın sağ kenarındaki 12 px boşluğu aşmamalı, sarılmalı.
+        # boundingRect() sağda ve solda tutamaç payı taşıdığı için yazının kendi alanı (text_rect) ölçülür.
         long_sentence = "Bu cumle cok uzundur ve sayfanin sag kenarini asacak sekilde devam etmektedir."
         item.setPlainText(long_sentence)
         item._update_text_width_constraint()
-        # Ensure item bounds + x pos does not overflow page right
-        item_right_in_scene = item.pos().x() + item.boundingRect().width() - 6.0
-        self.assertLessEqual(item_right_in_scene, 550.0)
+        self.assertLessEqual(item.pos().x() + item.text_rect().width(), 550.0 - 12.0 + 0.6)
 
-        # When text is shortened again, it should return to dynamic sizing
+        # Ortalı hizada kutu içeriğe göre daralır; her tuş vuruşunda yeniden hesaplandığı için birkaç kez çağrılır
+        item.set_alignment(Qt.AlignmentFlag.AlignHCenter, commit=False)
         item.setPlainText("Ok")
-        item._update_text_width_constraint()
-        self.assertLess(item.boundingRect().width(), 80.0)
+        for _ in range(4):
+            item._update_text_width_constraint()
+        self.assertLess(item.boundingRect().width(), left_width - 20.0)
+        self.assertLessEqual(item.pos().x() + item.text_rect().width(), 550.0 - 12.0 + 0.6)
 
     def test_audio_record_dialog_compact_mode_frameless_and_translations(self):
         parent_win = QMainWindow()

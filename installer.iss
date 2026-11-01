@@ -114,6 +114,7 @@ Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChang
 const
   AuraThumbClsid = '{D8BB9942-93BD-412D-87E4-33FAB214DC1A}';
   ThumbShellEx = '\ShellEx\{e357fccd-a995-4576-b01f-234630154e96}';
+  FileExtsPdf = 'Software\Microsoft\Windows\CurrentVersion\Explorer\FileExts\.pdf';
 
 { Yalnizca AuraPDF'e ait oldugu dogrulanan kayitlari siler; baska uygulamalarinkine dokunmaz. }
 procedure RemoveAuraThumbKey(RootKey: Integer; BaseKey: String);
@@ -172,11 +173,29 @@ begin
   end;
 end;
 
+{ Kaldirilan AuraPDF'i gosteren varsayilan uygulama secimini siler; aksi halde PDF simgeleri eski kalir. }
+procedure RemoveDanglingUserChoice();
+var
+  Val: String;
+begin
+  if RegQueryStringValue(HKCU, FileExtsPdf + '\UserChoiceLatest\ProgId', 'ProgId', Val) then
+    if Pos('aurapdf', Lowercase(Val)) = 1 then
+      RegDeleteKeyIncludingSubkeys(HKCU, FileExtsPdf + '\UserChoiceLatest');
+  if RegQueryStringValue(HKCU, FileExtsPdf + '\UserChoice', 'ProgId', Val) then
+    if Pos('aurapdf', Lowercase(Val)) = 1 then
+      RegDeleteKeyIncludingSubkeys(HKCU, FileExtsPdf + '\UserChoice');
+end;
+
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
+var
+  ResultCode: Integer;
 begin
   if CurUninstallStep = usPostUninstall then
   begin
     CleanupLegacyGlobalKeys();
     CleanupUserKeys();
+    RemoveDanglingUserChoice();
+    { Simge onbellegini yenile; Gezgin'in Edge/varsayilan okuyucu simgesine donmesi icin }
+    Exec(ExpandConstant('{sys}\ie4uinit.exe'), '-show', '', SW_HIDE, ewNoWait, ResultCode);
   end;
 end;

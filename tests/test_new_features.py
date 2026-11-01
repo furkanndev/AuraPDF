@@ -12,14 +12,28 @@ os.environ["QT_QPA_PLATFORM"] = "offscreen"
 app = QApplication.instance() or QApplication(sys.argv)
 
 def test_default_theme():
+    """Klasik arayüzde varsayılan tema gridir; kullanıcının kayıtlı arayüz ve temasından etkilenmez."""
+    from src.ui import ui_style
     settings = QSettings("AuraPDF", "PDFViewer")
-    settings.setValue("app_theme_default_version", 0)
-    from src.viewer import AuraPDFViewer
-    viewer = AuraPDFViewer()
-    assert settings.value("app_theme_default_version", 0, type=int) >= 4, "Version not bumped"
-    assert settings.value("app_theme", "") == "gray", f"Theme is not gray: {settings.value('app_theme')}"
-    assert viewer.current_theme == "gray", f"Viewer theme not gray: {viewer.current_theme}"
-    viewer.close()
+    keys = ("app_theme", "app_theme_default_version", "interface_style")
+    saved = {key: settings.value(key) for key in keys}
+    try:
+        settings.setValue("interface_style", "classic")
+        settings.setValue("app_theme_default_version", 0)
+        ui_style._active_style = None
+        from src.viewer import AuraPDFViewer
+        viewer = AuraPDFViewer()
+        assert settings.value("app_theme_default_version", 0, type=int) >= 4, "Version not bumped"
+        assert settings.value("app_theme", "") == "gray", f"Theme is not gray: {settings.value('app_theme')}"
+        assert viewer.current_theme == "gray", f"Viewer theme not gray: {viewer.current_theme}"
+        viewer.close()
+    finally:
+        for key, value in saved.items():
+            if value is None:
+                settings.remove(key)
+            else:
+                settings.setValue(key, value)
+        ui_style._active_style = None
     print("[PASS] Default theme is verified as 'gray'")
 
 def test_rotate_icons():

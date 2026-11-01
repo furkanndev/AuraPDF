@@ -54,7 +54,7 @@ def test_open_stamp_dialog_flow():
                 os.remove(tmp_pdf)
             except Exception:
                 pass
-    sys.exit(0)
 
 if __name__ == "__main__":
     test_open_stamp_dialog_flow()
+    sys.exit(0)

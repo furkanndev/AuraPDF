@@ -47,32 +47,128 @@ def get_bundled_file_path(filename: str) -> str | None:
     return None
 
 
+PDF_PROGID = "AuraPDF.AssocFile.PDF"
+FILE_EXTS_PDF = r"Software\Microsoft\Windows\CurrentVersion\Explorer\FileExts\.pdf"
+ASSOCSTR_PROGID = 20
+SHELL_REFRESH_TIMEOUT = 10
+
+
+def is_aurapdf_progid(value) -> bool:
+    """ProgID değerinin AuraPDF'e ait olup olmadığını döner."""
+    return str(value or "").strip().lower().startswith("aurapdf")
+
+
+def _query_effective_progid() -> str:
+    """Windows'un .pdf için gerçekte kullandığı ProgID'yi (Gezgin ile aynı kaynak) döner."""
+    try:
+        import ctypes
+        from ctypes import wintypes
+
+        buf = ctypes.create_unicode_buffer(512)
+        size = wintypes.DWORD(len(buf))
+        if ctypes.windll.shlwapi.AssocQueryStringW(0, ASSOCSTR_PROGID, ".pdf", None, buf, ctypes.byref(size)) == 0:
+            return buf.value
+    except Exception:
+        pass
+    return ""
+
+
+def _read_user_choice_progids() -> list:
+    """Kullanıcının seçtiği ProgID'leri döner. Windows 11, UserChoiceLatest değerini eski UserChoice'tan önce kullanır."""
+    found = []
+    try:
+        import winreg
+
+        for sub in (r"\UserChoiceLatest\ProgId", r"\UserChoice"):
+            try:
+                with winreg.OpenKey(winreg.HKEY_CURRENT_USER, FILE_EXTS_PDF + sub) as k:
+                    value, _ = winreg.QueryValueEx(k, "ProgId")
+                if value:
+                    found.append(str(value))
+            except OSError:
+                continue
+    except Exception:
+        pass
+    return found
+
+
 def is_aurapdf_default_viewer() -> bool:
     """AuraPDF'in sistemde varsayılan PDF okuyucu olup olmadığını doğrular."""
     if sys.platform != "win32":
         return False
-    try:
-        import winreg
-        with winreg.OpenKey(
-            winreg.HKEY_CURRENT_USER,
-            r"Software\Microsoft\Windows\CurrentVersion\Explorer\FileExts\.pdf\UserChoice",
-        ) as k:
-            prog_id, _ = winreg.QueryValueEx(k, "ProgId")
-            if "aurapdf" in str(prog_id).lower():
-                return True
-    except Exception:
-        pass
+
+    effective = _query_effective_progid()
+    if effective:
+        return is_aurapdf_progid(effective)
+
+    choices = _read_user_choice_progids()
+    if choices:
+        return is_aurapdf_progid(choices[0])
 
     try:
         import winreg
         with winreg.OpenKey(winreg.HKEY_CLASSES_ROOT, ".pdf") as k:
             val, _ = winreg.QueryValueEx(k, "")
-            if "aurapdf" in str(val).lower():
-                return True
+            return is_aurapdf_progid(val)
+    except Exception:
+        return False
+
+
+def refresh_shell_icons() -> None:
+    """Gezgin'e ilişkilendirme değişikliğini bildirir ve eski simge önbelleğini yeniler."""
+    if sys.platform != "win32":
+        return
+    try:
+        import ctypes
+        ctypes.windll.shell32.SHChangeNotify(0x08000000, 0x1000, None, None)  # SHCNE_ASSOCCHANGED | SHCNF_FLUSH
+    except Exception:
+        pass
+    try:
+        import subprocess
+        exe = os.path.join(os.environ.get("SystemRoot", r"C:\Windows"), "System32", "ie4uinit.exe")
+        if os.path.isfile(exe):
+            subprocess.run([exe, "-show"], timeout=SHELL_REFRESH_TIMEOUT, creationflags=0x08000000, check=False)
     except Exception:
         pass
 
-    return False
+
+def clear_dangling_user_choice() -> bool:
+    """Kaldırılan AuraPDF'i gösteren varsayılan uygulama seçimini siler; Windows PDF'ler için yeniden seçim ister.
+
+    Silinmezse Gezgin, artık var olmayan ProgID'yi gösterir ve PDF simgeleri bozuk ya da eski kalır.
+    Yalnızca AuraPDF'in kendi ProgID'sini gösteren seçimlere dokunulur.
+    """
+    if sys.platform != "win32":
+        return False
+    cleared = False
+    try:
+        import winreg
+
+        def delete_tree(subkey):
+            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, subkey, 0, winreg.KEY_ALL_ACCESS) as k:
+                while True:
+                    try:
+                        child = winreg.EnumKey(k, 0)
+                    except OSError:
+                        break
+                    delete_tree(f"{subkey}\\{child}")
+            winreg.DeleteKey(winreg.HKEY_CURRENT_USER, subkey)
+
+        for base, value_key in ((r"\UserChoiceLatest", r"\UserChoiceLatest\ProgId"), (r"\UserChoice", r"\UserChoice")):
+            try:
+                with winreg.OpenKey(winreg.HKEY_CURRENT_USER, FILE_EXTS_PDF + value_key) as k:
+                    value, _ = winreg.QueryValueEx(k, "ProgId")
+            except OSError:
+                continue
+            if is_aurapdf_progid(value):
+                try:
+                    delete_tree(FILE_EXTS_PDF + base)
+                    cleared = True
+                except OSError:
+                    pass
+    except Exception:
+        pass
+    return cleared
 
 
 def ensure_pdf_shell_integration(force: bool = False) -> bool:
@@ -126,6 +222,7 @@ def ensure_pdf_shell_integration(force: bool = False) -> bool:
             return False
 
         changed = False
+        is_default = force or is_aurapdf_default_viewer()
 
         def set_reg_val(root, subkey, name, val):
             nonlocal changed
@@ -184,6 +281,20 @@ def ensure_pdf_shell_integration(force: bool = False) -> bool:
             except Exception:
                 pass
 
+        # 1b. Kurulum AuraPDF ProgID'sini sistem genelinde kaydetmediyse ve AuraPDF varsayılan değilse
+        # HKCU'ya ProgID yazma; önceki çalıştırmalardan kalan kullanıcı kaydını da temizle.
+        setup_registered = False
+        try:
+            with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, f"Software\\Classes\\{PDF_PROGID}"):
+                setup_registered = True
+        except OSError:
+            pass
+        if not is_default and not setup_registered:
+            delete_reg_tree(winreg.HKEY_CURRENT_USER, f"Software\\Classes\\{PDF_PROGID}")
+            if changed:
+                refresh_shell_icons()
+            return True
+
         # 2. COM CLSID Kaydı (HKCU\Software\Classes\CLSID\{D8BB9942-93BD-412D-87E4-33FAB214DC1A})
         clsid_path = f"Software\\Classes\\CLSID\\{THUMBNAIL_PROVIDER_CLSID}"
         set_reg_val(winreg.HKEY_CURRENT_USER, clsid_path, "", "AuraPDF Thumbnail Provider")
@@ -219,7 +330,6 @@ def ensure_pdf_shell_integration(force: bool = False) -> bool:
 
         # 5. Sistem genelindeki (.pdf ve SystemFileAssociations) anahtarlar
         # YALNIZCA AuraPDF varsayılan PDF okuyucu olduğunda veya force=True durumunda uygulanır.
-        is_default = force or is_aurapdf_default_viewer()
         if is_default:
             for assoc_base in [
                 r"Software\Classes\.pdf",
@@ -275,10 +385,7 @@ def ensure_pdf_shell_integration(force: bool = False) -> bool:
 
         # 6. Değişiklik varsa Shell bildirimini gönder
         if changed:
-            try:
-                ctypes.windll.shell32.SHChangeNotify(0x08000000, 0x1000, None, None)  # SHCNE_ASSOCCHANGED | SHCNF_FLUSH
-            except Exception:
-                pass
+            refresh_shell_icons()
 
         return True
 
@@ -384,11 +491,11 @@ def remove_pdf_shell_integration() -> bool:
         except Exception:
             pass
 
-        # 6. Shell değişikliğini Windows Gezgini'ne bildir
-        try:
-            ctypes.windll.shell32.SHChangeNotify(0x08000000, 0x1000, None, None)  # SHCNE_ASSOCCHANGED | SHCNF_FLUSH
-        except Exception:
-            pass
+        # 6. Kaldırılan AuraPDF'i gösteren varsayılan uygulama seçimini sil (PDF simgeleri bozuk kalmasın)
+        clear_dangling_user_choice()
+
+        # 7. Shell değişikliğini Windows Gezgini'ne bildir ve simge önbelleğini yenile
+        refresh_shell_icons()
 
         return True
 

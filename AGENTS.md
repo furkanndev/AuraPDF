@@ -124,6 +124,8 @@ Bu bölüm, bu projede çalışan tüm yapay zeka araçları (Claude, Codex, Gem
 | İkon seti kodları (`modern`, `duotone`, `solid`, `badge`, `bold`, `sharp`, `classic`) saklı ayardır; görünen adlar yalnızca `i18n.py` içinden değişir. | `src/ui/icon_glyphs.py`, `src/core/i18n.py` | `tests/test_icon_sets.py` |
 | Yeni sekmenin başlığı ilk açılıştan itibaren aktif temanın rengiyle çizilir. | `AuraTabItem` (`src/ui/aura_views.py`) | Görsel kontrol (offscreen test bu hatayı yakalamaz) |
 | Sayfa stili penceresinde radyo düğmesi seçilince metni kırpılmaz; seçili ve seçili olmayan gösterge aynı boyuttadır. | `src/ui/dialogs/new_page_dialog.py` | `tests/test_ui_regressions.py` |
+| PDF simgesi, Gezgin'in gerçekte kullandığı ProgID'ye (`AssocQueryString`, Windows 11'de `UserChoiceLatest`) göre belirlenir; AuraPDF varsayılan değilken ve kurulum kaydı yokken HKCU'ya ProgID yazılmaz; kaldırmada AuraPDF'i gösteren varsayılan uygulama seçimi silinir ve simge önbelleği yenilenir. | `src/core/shell_integration.py`, `installer.iss` | `tests/test_shell_integration.py` |
+| Testler kullanıcının gerçek ayarlarını (kayıt defteri) okumaz veya değiştirmez; pytest, `QSettings`'i geçici INI'ye yönlendirir. | `tests/conftest.py` | `python -m pytest tests` sonrası ayarların aynı kalması |
 | TR ve EN sözlükleri eştir; koddaki anahtarlar sözlükte vardır; arayüzde gömülü Türkçe metin yoktur. | `src/core/i18n.py` | `tests/test_static_guards.py` |
 | Silinmiş modüllere import ve sınıf içinde tekrar eden metot bulunmaz. | `src/`, `main.py` | `tests/test_static_guards.py` |
 
