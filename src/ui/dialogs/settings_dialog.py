@@ -25,6 +25,7 @@ from src.core.shortcut_helper import (
     format_shortcut_display,
     clean_modifiers,
 )
+from src.ui.icon_glyphs import ICON_SETS, get_icon_set, glyph_icon, restore_icon_set, set_icon_set
 from src.ui.icons import AuraIconFactory
 from src.ui.cursors import CursorFactory, CURSOR_PRESETS
 
@@ -442,6 +443,110 @@ class AuraShortcutEdit(QWidget):
             "border-radius: 6px; font-size: 11px; color: #cbd5e1; } "
             "QToolButton:hover { background: rgba(239, 68, 68, 0.22); border: 1px solid #ef4444; color: #ffffff; }"
         )
+
+
+class AuraIconSetGallery(QWidget):
+    """Her ikon setini gerçek ikonlarla gösterir; ad üst satırda, örnek ikonlar alt satırdadır."""
+    setChosen = pyqtSignal(str)
+    # Siluetleri birbirinden belirgin biçimde ayrılan, renkli sınıftaki örnekler.
+    SAMPLES = (("comments", "#2563eb"), ("star", "#d97706"), ("lock", "#059669"),
+               ("image", "#7c3aed"), ("stamp", "#dc2626"), ("watermark", "#0891b2"))
+    CARD_HEIGHT = 78
+    GAP = 8
+    PADDING = 12
+    TITLE_HEIGHT = 20
+    ROW_GAP = 8
+    ICON_SIZE = 22
+    ICON_STEP = 30
+
+    def __init__(self, titles: dict, parent=None):
+        super().__init__(parent)
+        self.titles = titles
+        self.selected = ""
+        self._hovered = -1
+        self.setMouseTracking(True)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        rows = (len(ICON_SETS) + 1) // 2
+        self.setFixedHeight(rows * self.CARD_HEIGHT + (rows - 1) * self.GAP)
+
+    def set_selected(self, name: str):
+        self.selected = name
+        self.update()
+
+    def _card_rect(self, index: int) -> QRectF:
+        width = (self.width() - self.GAP) / 2.0
+        return QRectF((index % 2) * (width + self.GAP), (index // 2) * (self.CARD_HEIGHT + self.GAP), width, self.CARD_HEIGHT)
+
+    def _title_rect(self, index: int) -> QRectF:
+        card = self._card_rect(index)
+        return QRectF(card.x() + self.PADDING, card.y() + self.PADDING, card.width() - 2 * self.PADDING, self.TITLE_HEIGHT)
+
+    def _icon_rects(self, index: int) -> list:
+        """Ad satırının altındaki ikon yuvaları; dar kartta sığmayan ikon çizilmez."""
+        title = self._title_rect(index)
+        fit = int((title.width() + self.ICON_STEP - self.ICON_SIZE) // self.ICON_STEP)
+        top = title.bottom() + self.ROW_GAP
+        return [QRectF(title.x() + i * self.ICON_STEP, top, self.ICON_SIZE, self.ICON_SIZE)
+                for i in range(min(fit, len(self.SAMPLES)))]
+
+    def _index_at(self, pos) -> int:
+        return next((i for i in range(len(ICON_SETS)) if self._card_rect(i).contains(pos)), -1)
+
+    def mouseMoveEvent(self, event):
+        index = self._index_at(event.position())
+        if index != self._hovered:
+            self._hovered = index
+            self.update()
+
+    def leaveEvent(self, event):
+        self._hovered = -1
+        self.update()
+
+    def mousePressEvent(self, event):
+        index = self._index_at(event.position())
+        if index >= 0 and event.button() == Qt.MouseButton.LeftButton:
+            self.setChosen.emit(ICON_SETS[index])
+
+    def keyPressEvent(self, event):
+        steps = {Qt.Key.Key_Left: -1, Qt.Key.Key_Right: 1, Qt.Key.Key_Up: -2, Qt.Key.Key_Down: 2}
+        step = steps.get(event.key())
+        current = ICON_SETS.index(self.selected) if self.selected in ICON_SETS else 0
+        if step is None or not 0 <= current + step < len(ICON_SETS):
+            super().keyPressEvent(event)
+            return
+        self.setChosen.emit(ICON_SETS[current + step])
+
+    def focusInEvent(self, event):
+        super().focusInEvent(event)
+        self.update()
+
+    def focusOutEvent(self, event):
+        super().focusOutEvent(event)
+        self.update()
+
+    def paintEvent(self, event):
+        from src.ui.dialog_theme import get_theme_palette
+        pal = get_theme_palette()
+        state = get_icon_set()
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        for index, name in enumerate(ICON_SETS):
+            rect = self._card_rect(index).adjusted(0.5, 0.5, -0.5, -0.5)
+            chosen = name == self.selected
+            active = chosen or index == self._hovered
+            p.setPen(QPen(QColor(pal["accent"] if active else pal["border"]), 2.0 if chosen and self.hasFocus() else 1.5 if chosen else 1.0))
+            p.setBrush(QColor(pal["bg"]))
+            p.drawRoundedRect(rect, 8, 8)
+            title_rect = self._title_rect(index)
+            p.setPen(QColor(pal["text"]))
+            title = p.fontMetrics().elidedText(self.titles.get(name, name), Qt.TextElideMode.ElideRight, int(title_rect.width()))
+            p.drawText(title_rect, Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft, title)
+            set_icon_set(name)
+            for icon_rect, (glyph, color) in zip(self._icon_rects(index), self.SAMPLES):
+                glyph_icon(glyph, color).paint(p, icon_rect.toRect())
+        restore_icon_set(state)
+        p.end()
 
 
 class ThemeOptionCard(QFrame):
@@ -1291,6 +1396,12 @@ class AuraSettingsDialog(QDialog):
         for card in getattr(self, 'lang_cards', []):
             card.update_card_style()
 
+    @staticmethod
+    def _icon_set_title(code: str) -> str:
+        """Set adını renk çeşidiyle birleştirir: Örn. "Rozet · Tek Renk"."""
+        variant = "mono" if code.endswith("_mono") else "color"
+        return f"{LanguageManager.tr('settings_icon_style_' + code.removesuffix('_mono'))} · {LanguageManager.tr('settings_icon_variant_' + variant)}"
+
     def _create_setting_row(self, title_text: str, widget: QWidget, desc_text: str = None) -> QWidget:
         """Ayarlar paneli için metin sol, kontrol sağ şeklinde hizalanmış geniş ve okunaklı satır üretir."""
         row = QWidget()
@@ -1616,7 +1727,9 @@ class AuraSettingsDialog(QDialog):
         icon_layout = QVBoxLayout(icon_card)
         icon_layout.setContentsMargins(12, 12, 12, 12)
         self.cmb_icon_style = QComboBox()
-        self.cmb_icon_style.addItem(LanguageManager.tr("settings_icon_style_modern"), "modern")
+        icon_titles = {code: self._icon_set_title(code) for code in ICON_SETS}
+        for code, title in icon_titles.items():
+            self.cmb_icon_style.addItem(title, code)
         self.cmb_icon_style.addItem(LanguageManager.tr("settings_icon_style_classic"), "classic")
         self._set_cmb_data(self.cmb_icon_style, self.settings.value("icon_style", "modern", type=str))
         icon_layout.addWidget(self._create_setting_row(
@@ -1624,6 +1737,11 @@ class AuraSettingsDialog(QDialog):
             self.cmb_icon_style,
             LanguageManager.tr("settings_icon_style_desc")
         ))
+        self.icon_gallery = AuraIconSetGallery(icon_titles)
+        self.icon_gallery.set_selected(self.cmb_icon_style.currentData())
+        self.icon_gallery.setChosen.connect(lambda code: self._set_cmb_data(self.cmb_icon_style, code))
+        self.cmb_icon_style.currentIndexChanged.connect(lambda: self.icon_gallery.set_selected(self.cmb_icon_style.currentData()))
+        icon_layout.addWidget(self.icon_gallery)
         layout.addWidget(icon_card)
 
         card = QFrame()
@@ -2732,11 +2850,17 @@ class AuraSettingsDialog(QDialog):
                 if hasattr(self.main_window, 'update_panels_layout'):
                     self.main_window.update_panels_layout(panel_layout)
 
-        # İkon Seti (yeniden başlatınca uygulanır)
+        # İkon Seti (Klasik çizime geçiş yeniden başlatma ister, diğerleri anında uygulanır)
         icon_style = self.cmb_icon_style.currentData()
-        if icon_style != self.settings.value("icon_style", "modern", type=str):
+        previous_icons = self.settings.value("icon_style", "modern", type=str)
+        if icon_style != previous_icons:
             self.settings.setValue("icon_style", icon_style)
-            QMessageBox.information(self, LanguageManager.tr("settings_icon_style_lbl"), LanguageManager.tr("settings_icon_style_restart"))
+            if "classic" in (icon_style, previous_icons):
+                QMessageBox.information(self, LanguageManager.tr("settings_icon_style_lbl"), LanguageManager.tr("settings_icon_style_restart"))
+            else:
+                set_icon_set(icon_style)
+                for widget in QApplication.allWidgets():
+                    widget.update()
 
         # Sekme Önizlemesi
         if hasattr(self, 'chk_tab_hover_preview'):

@@ -16,7 +16,7 @@ import re
 from typing import Dict, List, Optional, Tuple
 
 from PyQt6.QtCore import QPointF, QRect, QRectF, QSize, Qt
-from PyQt6.QtGui import QColor, QIcon, QIconEngine, QPainter, QPainterPath, QPen, QPixmap
+from PyQt6.QtGui import QColor, QIcon, QIconEngine, QPainter, QPainterPath, QPainterPathStroker, QPen, QPixmap
 
 STROKE_WIDTH = 1.75
 GRID_SIZE = 24.0
@@ -201,8 +201,47 @@ COLORFUL_GLYPHS = {
 
 _TOKEN = re.compile(r"[MLHVQCZ]|-?\d*\.?\d+")
 
+# Her set ayrı bir siluet üretir; yalnızca çizgi kalınlığıyla ayrılan set eklenmez.
+# "_mono" ekli sürüm aynı çizimin renksiz halidir.
+_ICON_SET_SHAPES = {
+    "modern": {},
+    "duotone": {"mode": "layered"},
+    "solid": {"mode": "solid"},
+    "badge": {"mode": "badge"},
+    "bold": {"stroke": 2.5},
+    "sharp": {"sharp": True, "stroke": 2.1},
+}
+ICON_SETS = [name for shape in _ICON_SET_SHAPES for name in (shape, f"{shape}_mono")]
+_icon_shape: dict = {}
+_icon_mono = False
+SHARP_CORNER_SPAN = 3.5
+LAYER_OFFSET = 1.6
+LAYER_OPACITY = 0.32
+SOLID_STROKE = 2.0
+SOLID_CUT_WIDTH = 1.6
+BADGE_RADIUS = 6.0
+BADGE_GLYPH_SCALE = 0.68
+BADGE_STROKE = 2.3
 
-def _parse_path(spec: str) -> QPainterPath:
+
+def set_icon_set(name: str):
+    """Çizgi, dolgu ve renk davranışını seçili ikon setine geçirir."""
+    global _icon_shape, _icon_mono
+    _icon_mono = name.endswith("_mono")
+    _icon_shape = _ICON_SET_SHAPES.get(name.removesuffix("_mono"), {})
+
+
+def get_icon_set() -> tuple:
+    """Geçici önizlemeden sonra geri yüklenecek set durumunu döner."""
+    return _icon_shape, _icon_mono
+
+
+def restore_icon_set(state: tuple):
+    global _icon_shape, _icon_mono
+    _icon_shape, _icon_mono = state
+
+
+def _parse_path(spec: str, sharp: bool = False) -> QPainterPath:
     tokens = _TOKEN.findall(spec)
     path = QPainterPath()
     x = y = 0.0
@@ -230,8 +269,13 @@ def _parse_path(spec: str) -> QPainterPath:
             y = take(1)[0]
             path.lineTo(x, y)
         elif cmd == "Q":
+            start_x, start_y = x, y
             cx, cy, x, y = take(4)
-            path.quadTo(cx, cy, x, y)
+            if sharp and abs(x - start_x) <= SHARP_CORNER_SPAN and abs(y - start_y) <= SHARP_CORNER_SPAN:
+                path.lineTo(cx, cy)
+                path.lineTo(x, y)
+            else:
+                path.quadTo(cx, cy, x, y)
         elif cmd == "C":
             c1x, c1y, c2x, c2y, x, y = take(6)
             path.cubicTo(c1x, c1y, c2x, c2y, x, y)
@@ -240,7 +284,7 @@ def _parse_path(spec: str) -> QPainterPath:
     return path
 
 
-def _build_element(spec: str) -> Tuple[QPainterPath, bool]:
+def _build_element(spec: str, sharp: bool = False) -> Tuple[QPainterPath, bool]:
     filled = spec.startswith("f ")
     if filled:
         spec = spec[2:]
@@ -250,10 +294,39 @@ def _build_element(spec: str) -> Tuple[QPainterPath, bool]:
         path.addEllipse(QPointF(cx, cy), r, r)
     elif spec.startswith("r "):
         x, y, w, h, radius = (float(v) for v in spec[2:].split())
-        path.addRoundedRect(QRectF(x, y, w, h), radius, radius)
+        path.addRoundedRect(QRectF(x, y, w, h), 0 if sharp else radius, 0 if sharp else radius)
     else:
-        path = _parse_path(spec)
+        path = _parse_path(spec, sharp)
     return path, filled
+
+
+def _is_closed(path: QPainterPath) -> bool:
+    """Dolgu alabilecek, başladığı noktada biten yolları ayırır."""
+    if path.isEmpty():
+        return False
+    start, end = path.elementAt(0), path.currentPosition()
+    return abs(start.x - end.x()) < 0.01 and abs(start.y - end.y()) < 0.01
+
+
+def _solid_form(name: str, elements: List[Tuple[QPainterPath, bool]]) -> Tuple[QPainterPath, List[QPainterPath]]:
+    """Kapalı şekilleri tek gövdede birleştirir; gövde içindeki ayrıntıları oyarak görünür bırakır."""
+    if name in _SOLID_FORMS:
+        return _SOLID_FORMS[name]
+    stroker = QPainterPathStroker()
+    stroker.setWidth(SOLID_CUT_WIDTH)
+    stroker.setCapStyle(Qt.PenCapStyle.RoundCap)
+    stroker.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+    body = QPainterPath()
+    loose: List[QPainterPath] = []
+    for path, filled in elements:
+        if not body.isEmpty() and body.contains(path):
+            body = body.subtracted(path if filled else stroker.createStroke(path))
+        elif filled or _is_closed(path):
+            body = body.united(path)
+        else:
+            loose.append(path)
+    _SOLID_FORMS[name] = (body, loose)
+    return _SOLID_FORMS[name]
 
 
 class AuraGlyphEngine(QIconEngine):
@@ -276,6 +349,8 @@ class AuraGlyphEngine(QIconEngine):
 
     def paint(self, painter: QPainter, rect: QRect, mode, state):
         color = QColor(self.color or AuraGlyphEngine.theme_text)
+        if _icon_mono and self.color and color.hslSaturationF() > SATURATED_ABOVE and self.color.lower() not in _theme_keep:
+            color = QColor(AuraGlyphEngine.theme_text)
         painter.save()
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         if mode == QIcon.Mode.Disabled:
@@ -283,13 +358,47 @@ class AuraGlyphEngine(QIconEngine):
         side = min(rect.width(), rect.height())
         painter.translate(rect.x() + (rect.width() - side) / 2.0, rect.y() + (rect.height() - side) / 2.0)
         painter.scale(side / GRID_SIZE, side / GRID_SIZE)
-        pen = QPen(color, STROKE_WIDTH, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin)
-        for path, filled in self.elements:
+        mode = _icon_shape.get("mode", "line")
+        sharp = _icon_shape.get("sharp", False)
+        stroke = _icon_shape.get("stroke", STROKE_WIDTH)
+        elements = self.elements
+        if sharp:
+            if self.name not in _SHARP_PARSED:
+                _SHARP_PARSED[self.name] = [_build_element(spec, True) for spec in GLYPHS[self.name]]
+            elements = _SHARP_PARSED[self.name]
+        if mode == "badge":
+            tile = QPainterPath()
+            tile.addRoundedRect(QRectF(0, 0, GRID_SIZE, GRID_SIZE), BADGE_RADIUS, BADGE_RADIUS)
+            painter.fillPath(tile, color)
+            color = QColor("#0f172a" if color.lightnessF() > 0.6 else "#ffffff")
+            stroke = BADGE_STROKE
+            inset = GRID_SIZE * (1.0 - BADGE_GLYPH_SCALE) / 2.0
+            painter.translate(inset, inset)
+            painter.scale(BADGE_GLYPH_SCALE, BADGE_GLYPH_SCALE)
+        elif mode == "layered":
+            layer = QColor(color)
+            layer.setAlphaF(LAYER_OPACITY)
+            for path, _filled in elements:
+                if _is_closed(path):
+                    painter.fillPath(path.translated(LAYER_OFFSET, LAYER_OFFSET), layer)
+        cap = Qt.PenCapStyle.SquareCap if sharp else Qt.PenCapStyle.RoundCap
+        join = Qt.PenJoinStyle.MiterJoin if sharp else Qt.PenJoinStyle.RoundJoin
+        pen = QPen(color, stroke, Qt.PenStyle.SolidLine, cap, join)
+        painter.setPen(pen)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        if mode == "solid":
+            body, loose = _solid_form(self.name, elements)
+            painter.fillPath(body, color)
+            pen.setWidthF(SOLID_STROKE)
+            painter.setPen(pen)
+            for path in loose:
+                painter.drawPath(path)
+            painter.restore()
+            return
+        for path, filled in elements:
             if filled or self.filled:
                 painter.fillPath(path, color)
             if not filled:
-                painter.setPen(pen)
-                painter.setBrush(Qt.BrushStyle.NoBrush)
                 painter.drawPath(path)
         painter.restore()
 
@@ -303,6 +412,8 @@ class AuraGlyphEngine(QIconEngine):
 
 
 _PARSED: Dict[str, List[Tuple[QPainterPath, bool]]] = {}
+_SHARP_PARSED: Dict[str, List[Tuple[QPainterPath, bool]]] = {}
+_SOLID_FORMS: Dict[str, Tuple[QPainterPath, List[QPainterPath]]] = {}
 _theme_keep: set = set()
 
 

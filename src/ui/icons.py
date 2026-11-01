@@ -25,7 +25,7 @@ def _find_app_icon_path(filename="app_icon.png"):
             return p
     return None
 
-from src.ui.icon_glyphs import install_glyph_icons, set_glyph_theme
+from src.ui.icon_glyphs import install_glyph_icons, set_glyph_theme, set_icon_set
 
 # --- 5. VEKTÖREL İKON FABRİKASI ---
 class AuraIconFactory:
@@ -3334,7 +3334,9 @@ def _wrap_icon_methods():
 
 _wrap_icon_methods()
 # Klasik ikon seçeneği: Fabrikanın ilk çizimleri olduğu gibi kullanılır
-if QSettings("AuraPDF", "PDFViewer").value("icon_style", "modern", type=str) != "classic":
+_saved_icon_style = QSettings("AuraPDF", "PDFViewer").value("icon_style", "modern", type=str)
+if _saved_icon_style != "classic":
     install_glyph_icons(AuraIconFactory)
+    set_icon_set(_saved_icon_style)
 
 # AuraPDF Marka İsimlendirmesi ile Geriye Dönük Uyumluluk Takma Adı (Alias)
