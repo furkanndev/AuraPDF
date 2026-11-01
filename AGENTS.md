@@ -91,3 +91,44 @@ Commit mesajları açık, anlaşılır ve Conventional Commits standardına uygu
   * İhtiyaç duyulduğunda en güncel teknik dokümantasyon, Qt standartları ve açık kaynak desenleri incelenebilir; ancak projeye eklenen tüm kod, algoritma ve tasarımlar kesinlikle telif hakkı ihlali içermeyen, bağımsız ve AuraPDF mimarisine özgü temiz çözümler olmalıdır.
 * **Bütüncül Deneyim ve Eksiksiz Tamamlama:**
   * Fare etkileşimleri (boş alana tıklama ile seçimi temizleme, kutu ile çoklu seçim, sürükle-bırak yerleşim göstergeleri, interaktif tutamaçlar ve imleç değişimleri), klavye kısayolları, asenkron iş parçacıkları ve tema uyumu tam bir bütünlük içinde eksiksiz çalışmalıdır.
+
+---
+
+## 9. Korunan Çözümler ve Değişiklik Disiplini
+Bu bölüm, bu projede çalışan tüm yapay zeka araçları (Claude, Codex, Gemini / Antigravity, Cursor, Copilot vb.) için geçerlidir. Amaç, bir aracın yaptığı düzeltmenin başka bir araç tarafından sessizce geri alınmasını önlemektir.
+
+* **Değiştirmeden Önce Oku:**
+  * Bir dosyayı değiştirmeden önce ilgili kod için `git log` geçmişine bakılmalı ve kodun neden öyle yazıldığı anlaşılmalıdır.
+  * Hata düzeltme veya özellik işine başlarken `aurapdf-safe-change` skill'i (`.claude/skills/aurapdf-safe-change/SKILL.md`) izlenmelidir.
+* **Kapsamı Dar Tut:**
+  * Yalnızca istenen iş için gereken satırlar değiştirilmelidir. İstenmeden toplu biçimlendirme, yeniden adlandırma, taşıma veya yeniden yazma yapılmamalıdır.
+  * Çalışan bir çözüm, daha "temiz" görünüyor diye değiştirilmemelidir.
+* **Koruma Testlerine Dokunma:**
+  * Kırılan bir koruma testi, kodda sorun olduğunu gösterir. Test gevşetilmemeli, silinmemeli veya atlanmamalıdır.
+  * Bir testin gerçekten değişmesi gerekiyorsa önce gerekçesi kullanıcıya açıklanıp onay alınmalıdır.
+* **Korunan Davranışı Değiştirme:**
+  * Aşağıdaki tablodaki bir davranış, kullanıcı açıkça istemedikçe değiştirilmemelidir. Geri alma veya değiştirme gerekiyorsa önce kullanıcıya sorulmalıdır.
+  * Her yeni kritik düzeltmede bu hatayı yakalayan test yazılmalı ve tabloya bir satır eklenmelidir.
+* **Çalışma Ağaçlarına Saygı:**
+  * Commit edilmemiş iş `git checkout`, `git restore`, `git reset --hard` veya `git clean` ile silinmemelidir.
+  * Başka bir worktree'nin dosyaları düzenlenmemelidir. Aranan özellik bu dalda yoksa önce `git worktree list` ile diğer çalışma ağaçlarına bakılmalıdır.
+* **Dürüst Raporlama:**
+  * Test edilmeyen bir değişiklik "çalışıyor" diye raporlanmamalıdır. Çalıştırılamayan kontroller kullanıcıya açıkça bildirilmelidir.
+
+### Korunan Çözümler Tablosu
+| Davranış | Konum | Koruma |
+| --- | --- | --- |
+| İkon seti kartında ad üst satırda, ikonlar alt satırdadır; her genişlikte çakışmazlar. | `AuraIconSetGallery` (`src/ui/dialogs/settings_dialog.py`) | `tests/test_icon_sets.py` |
+| Her ikon seti ayrı siluet üretir; galeri örnekleri birbirine benzemez ve kendi rengini korur. | `_ICON_SET_SHAPES`, `SAMPLES` | `tests/test_icon_sets.py` |
+| İkon seti kodları (`modern`, `duotone`, `solid`, `badge`, `bold`, `sharp`, `classic`) saklı ayardır; görünen adlar yalnızca `i18n.py` içinden değişir. | `src/ui/icon_glyphs.py`, `src/core/i18n.py` | `tests/test_icon_sets.py` |
+| TR ve EN sözlükleri eştir; koddaki anahtarlar sözlükte vardır; arayüzde gömülü Türkçe metin yoktur. | `src/core/i18n.py` | `tests/test_static_guards.py` |
+| Silinmiş modüllere import ve sınıf içinde tekrar eden metot bulunmaz. | `src/`, `main.py` | `tests/test_static_guards.py` |
+
+### Proje Skill'leri
+| Skill | Ne zaman |
+| --- | --- |
+| `aurapdf-safe-change` | Kod değiştiren her görevden önce |
+| `aurapdf-icons` | İkon, ikon seti veya galeri çalışmalarında |
+| `aurapdf-ui-verify` | Arayüz değişikliğini bitirmeden önce |
+
+Skill dosyaları `.claude/skills/<ad>/SKILL.md` altındadır. Skill mekanizması olmayan araçlar bu dosyaları doğrudan okuyup adımlarını izlemelidir.
