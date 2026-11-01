@@ -122,7 +122,7 @@ Bu bölüm, bu projede çalışan tüm yapay zeka araçları (Claude, Codex, Gem
 | İkon seti kartında ad üst satırda, ikonlar alt satırdadır; her genişlikte çakışmazlar. | `AuraIconSetGallery` (`src/ui/dialogs/settings_dialog.py`) | `tests/test_icon_sets.py` |
 | Her ikon seti ayrı siluet üretir; galeri örnekleri birbirine benzemez ve kendi rengini korur. | `_ICON_SET_SHAPES`, `SAMPLES` | `tests/test_icon_sets.py` |
 | İkon seti kodları (`modern`, `duotone`, `solid`, `badge`, `bold`, `sharp`, `classic`) saklı ayardır; görünen adlar yalnızca `i18n.py` içinden değişir. | `src/ui/icon_glyphs.py`, `src/core/i18n.py` | `tests/test_icon_sets.py` |
-| Yeni sekmenin başlığı ilk açılıştan itibaren aktif temanın rengiyle çizilir. | `AuraTabItem` (`src/ui/aura_views.py`) | `tests/test_ui_regressions.py` |
+| Yeni sekmenin başlığı ilk açılıştan itibaren aktif temanın rengiyle çizilir. | `AuraTabItem` (`src/ui/aura_views.py`) | Görsel kontrol (offscreen test bu hatayı yakalamaz) |
 | Sayfa stili penceresinde radyo düğmesi seçilince metni kırpılmaz; seçili ve seçili olmayan gösterge aynı boyuttadır. | `src/ui/dialogs/new_page_dialog.py` | `tests/test_ui_regressions.py` |
 | TR ve EN sözlükleri eştir; koddaki anahtarlar sözlükte vardır; arayüzde gömülü Türkçe metin yoktur. | `src/core/i18n.py` | `tests/test_static_guards.py` |
 | Silinmiş modüllere import ve sınıf içinde tekrar eden metot bulunmaz. | `src/`, `main.py` | `tests/test_static_guards.py` |

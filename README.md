@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/furkanndev/AuraPDF/releases/latest"><img src="https://img.shields.io/badge/release-Pro%20v2.2.5-2563eb?style=flat-square" alt="Latest release" /></a>
+  <a href="https://github.com/furkanndev/AuraPDF/releases/latest"><img src="https://img.shields.io/badge/release-Pro%20v2.2.6-2563eb?style=flat-square" alt="Latest release" /></a>
   <img src="https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-0078D6?style=flat-square" alt="Windows 10 and 11" />
   <img src="https://img.shields.io/badge/python-3.10%2B-3776AB?style=flat-square" alt="Python 3.10 or later" />
   <img src="https://img.shields.io/badge/UI-PyQt6-41CD52?style=flat-square" alt="PyQt6" />
