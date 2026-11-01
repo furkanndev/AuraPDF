@@ -4604,6 +4604,116 @@ class PDFTabDocument(QWidget):
             frame2.finish(color=(0.88, 0.76, 0.48), width=0.6)
             frame2.commit()
 
+        elif style == "isometric":
+            import math as _math
+            margin_x = 36.0
+            margin_y = 36.0
+            step = 20.0  # satır yüksekliği (= nokta aralığı dikey)
+            step_x = step * _math.sqrt(3)  # yatay aralık
+
+            # Sol-sağ eğik çizgiler (30° açı)
+            shape = new_p.new_shape()
+            # Sağ-aşağı eğik (60°)
+            x_start = margin_x - h
+            while x_start < w - margin_x + h:
+                x0 = x_start
+                y0 = margin_y
+                x1 = x_start + (h - 2 * margin_y) / _math.tan(_math.radians(60))
+                y1 = h - margin_y
+                shape.draw_line(fitz.Point(x0, y0), fitz.Point(x1, y1))
+                x_start += step_x
+            shape.finish(color=(0.43, 0.66, 0.85), width=0.55)
+            shape.commit()
+
+            # Sol-aşağı eğik (120°)
+            shape2 = new_p.new_shape()
+            x_start = margin_x - h
+            while x_start < w - margin_x + h:
+                x0 = x_start
+                y0 = margin_y
+                x1 = x_start - (h - 2 * margin_y) / _math.tan(_math.radians(60))
+                y1 = h - margin_y
+                shape2.draw_line(fitz.Point(x0, y0), fitz.Point(x1, y1))
+                x_start += step_x
+            shape2.finish(color=(0.43, 0.66, 0.85), width=0.55)
+            shape2.commit()
+
+            # Yatay çizgiler
+            shape3 = new_p.new_shape()
+            y = margin_y
+            while y <= h - margin_y:
+                shape3.draw_line(fitz.Point(margin_x, y), fitz.Point(w - margin_x, y))
+                y += step
+            shape3.finish(color=(0.43, 0.66, 0.85), width=0.30)
+            shape3.commit()
+
+        elif style == "hexagonal":
+            import math as _math
+            margin_x = 36.0
+            margin_y = 36.0
+            r = 14.0  # dış yarıçap (noktan-noktaya / 2)
+            r_h = r * _math.sqrt(3) / 2.0  # apothem
+            col_w = r * 1.5
+            row_h = r_h * 2
+
+            shape = new_p.new_shape()
+            row_idx = 0
+            cy = margin_y + r_h
+            while cy < h - margin_y:
+                offset_x = col_w if (row_idx % 2) else 0.0
+                cx = margin_x + r + offset_x
+                while cx < w - margin_x:
+                    pts = [
+                        fitz.Point(cx + r * _math.cos(_math.radians(30 + 60 * k)),
+                                   cy + r * _math.sin(_math.radians(30 + 60 * k)))
+                        for k in range(6)
+                    ]
+                    for k in range(6):
+                        shape.draw_line(pts[k], pts[(k + 1) % 6])
+                    cx += col_w * 2
+                cy += row_h
+                row_idx += 1
+            shape.finish(color=(0.53, 0.94, 0.64), width=0.7)
+            shape.commit()
+
+        elif style == "seyes":
+            margin_x = 36.0
+            top_margin = 44.0
+            bottom_margin = 36.0
+            step_main = 8.0   # 8 pt ≈ 2.82 mm (original Séyès is 8mm; scale to points)
+            step_minor = 2.0  # 4 küçük çizgi için
+
+            # Dikey sol kenar yardım çizgisi
+            margin_line_x = 90.0
+            shape_v = new_p.new_shape()
+            shape_v.draw_line(fitz.Point(margin_line_x, top_margin),
+                              fitz.Point(margin_line_x, h - bottom_margin))
+            shape_v.finish(color=(0.58, 0.78, 0.99), width=1.0)
+            shape_v.commit()
+
+            # Ana yatay çizgiler
+            shape_main = new_p.new_shape()
+            y = top_margin
+            while y <= h - bottom_margin:
+                shape_main.draw_line(fitz.Point(margin_x, y), fitz.Point(w - margin_x, y))
+                y += step_main * 4  # her 4 minor adımda 1 ana çizgi
+            shape_main.finish(color=(0.58, 0.78, 0.99), width=0.8)
+            shape_main.commit()
+
+            # İnce yardımcı çizgiler
+            shape_minor = new_p.new_shape()
+            y = top_margin + step_minor
+            while y < h - bottom_margin:
+                y_rounded = round(y, 4)
+                # Ana çizgi konumlarını atla
+                y_rel = (y_rounded - top_margin) % (step_main * 4)
+                if abs(y_rel) > 0.2 and abs(y_rel - step_main * 4) > 0.2:
+                    shape_minor.draw_line(fitz.Point(margin_line_x + 2, y_rounded),
+                                          fitz.Point(w - margin_x, y_rounded))
+                y += step_minor
+            shape_minor.finish(color=(0.58, 0.78, 0.99), width=0.25)
+            shape_minor.commit()
+
     def notify_thumbnails_updated(self, target_page: Optional[int] = None):
         """Sağ çekmecedeki modern sayfa önizlemelerini ve varsa kenetlenmiş dock'u günceller."""
         if hasattr(self.main_window, 'aura_right_sidebar') and self.main_window.aura_right_sidebar:

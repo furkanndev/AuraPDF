@@ -4395,13 +4395,16 @@ class ThumbnailsDock(QDockWidget):
     def _add_bookmark(self, parent_item=None):
         tab_doc = self.main_window.get_current_tab_doc()
         if not tab_doc or not tab_doc.doc: return
-        
-        title, ok = QInputDialog.getText(self, LanguageManager.tr("bookmarks_add_btn"), LanguageManager.tr("ui_baslik"))
-        if not ok or not title.strip(): return
-        
-        page_str, ok2 = QInputDialog.getText(self, LanguageManager.tr("bookmarks_add_btn"), LanguageManager.tr("ui_sayfa_numarasi_1_den_baslar"))
-        if not ok2 or not page_str.isdigit(): return
-        page_num = int(page_str)
+
+        curr_page = getattr(tab_doc, 'current_page', 0) + 1
+        from src.ui.dialogs.media_dialogs import AuraAddBookmarkDialog
+        dlg = AuraAddBookmarkDialog(self, default_page=curr_page, show_page=True)
+        if dlg.exec() != dlg.DialogCode.Accepted:
+            return
+        title = dlg.bookmark_name()
+        page_num = dlg.bookmark_page()
+        if not title or page_num is None:
+            return
         
         toc = tab_doc.doc.get_toc(simple=False)
         old_toc = [list(e) for e in toc]
@@ -4433,7 +4436,7 @@ class ThumbnailsDock(QDockWidget):
                     insert_idx = i
                     break
         
-        toc.insert(insert_idx, [level, title.strip(), page_num])
+        toc.insert(insert_idx, [level, title, page_num])
         tab_doc.doc.set_toc(toc)
         tab_doc.set_modified(True)
         tab_doc.push_undo_action({

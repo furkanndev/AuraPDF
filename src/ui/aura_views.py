@@ -9402,22 +9402,12 @@ class AuraRightSidebar(QWidget):
         h_head.addStretch(1)
 
         self.btn_add = QToolButton()
+        self.btn_add.setObjectName("SidebarAddBtn")
         self.btn_add.setIcon(AuraIconFactory.icon_plus("#ffffff"))
         self.btn_add.setIconSize(QSize(16, 16))
         self.btn_add.setFixedSize(28, 28)
         self.btn_add.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_add.setToolTip(LanguageManager.tr("sidebar_add_page"))
-        self.btn_add.setStyleSheet("""
-            QToolButton {
-                background-color: rgba(56, 189, 248, 0.15);
-                border: 1px solid rgba(56, 189, 248, 0.3);
-                border-radius: 6px;
-            }
-            QToolButton:hover {
-                background-color: rgba(56, 189, 248, 0.3);
-                border: 1px solid rgba(56, 189, 248, 0.5);
-            }
-        """)
         self.btn_add.clicked.connect(self._on_header_add_clicked)
         h_head.addWidget(self.btn_add)
 
@@ -10823,16 +10813,18 @@ class AuraRightSidebar(QWidget):
         if not tab_doc or not tab_doc.doc:
             return
         curr = getattr(tab_doc, 'current_page', 0)
-        from PyQt6.QtWidgets import QInputDialog
-        title, ok = QInputDialog.getText(self, LanguageManager.tr("bookmarks_add_btn"), LanguageManager.tr("ui_yer_imi_basligi"))
-        if ok and title.strip():
-            toc = tab_doc.doc.get_toc(simple=False)
-            toc.append([1, title.strip(), curr + 1])
-            tab_doc.doc.set_toc(toc)
-            tab_doc.set_modified(True)
-            self.load_bookmarks()
-            if hasattr(tab_doc, 'update_bookmark_ribbons'):
-                tab_doc.update_bookmark_ribbons()
+        from src.ui.dialogs.media_dialogs import AuraAddBookmarkDialog
+        dlg = AuraAddBookmarkDialog(self, show_page=False)
+        if dlg.exec() == dlg.DialogCode.Accepted:
+            name = dlg.bookmark_name()
+            if name:
+                toc = tab_doc.doc.get_toc(simple=False)
+                toc.append([1, name, curr + 1])
+                tab_doc.doc.set_toc(toc)
+                tab_doc.set_modified(True)
+                self.load_bookmarks()
+                if hasattr(tab_doc, 'update_bookmark_ribbons'):
+                    tab_doc.update_bookmark_ribbons()
 
     # ==========================================================================
     # YORUMLAR İŞLEMLERİ (ADOBE ACROBAT TARZI)
@@ -11684,6 +11676,19 @@ class AuraRightSidebar(QWidget):
                 color: {c['accent']};
             }}
         """)
+        if hasattr(self, 'btn_add'):
+            self.btn_add.setStyleSheet(f"""
+                QToolButton#SidebarAddBtn {{
+                    background-color: {c['accent_light']};
+                    border: 1px solid {c['accent']};
+                    border-radius: 6px;
+                }}
+                QToolButton#SidebarAddBtn:hover {{
+                    background-color: {c['accent']};
+                    border: 1px solid {c['accent_hover']};
+                }}
+            """)
+            self.btn_add.setIcon(AuraIconFactory.icon_plus(c['accent']))
         if hasattr(self, 'btn_close'):
             self.btn_close.setIcon(AuraIconFactory.icon_close(c['text']))
         if hasattr(self, 'panel_accessibility') and self.panel_accessibility is not None:
