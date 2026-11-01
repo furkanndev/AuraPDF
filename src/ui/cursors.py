@@ -1,4 +1,4 @@
-from PyQt6.QtGui import (QCursor, QPixmap, QPainter, QColor, QPen, QBrush, 
+from PyQt6.QtGui import (QCursor, QImage, QPixmap, QPainter, QColor, QPen, QBrush, 
                           QRadialGradient, QLinearGradient, QPainterPath, QPolygonF, QFont)
 from PyQt6.QtCore import Qt, QPointF, QRectF, QSettings
 from typing import Optional, Union
@@ -61,9 +61,21 @@ CURSOR_PRESETS = {
         "pen": "dot", "hl": "flat_brush", "eraser": "square",
         "pointer": "neon_ring", "text": "badge_ibeam", "selection": "macos_reticle", "ruler": "protractor"
     },
-    "draftsman": {
-        "pen": "classic_pen", "hl": "thick_marker", "eraser": "cad_cross",
-        "pointer": "dot", "text": "classic_ibeam", "selection": "standard_cross", "ruler": "draft_triangle"
+    "blueprint": {
+        "pen": "crosshair", "hl": "thick_marker", "eraser": "square",
+        "pointer": "radar", "text": "typewriter", "selection": "marquee", "ruler": "draft_triangle"
+    },
+    "studio": {
+        "pen": "brush_pen", "hl": "classic_marker", "eraser": "sponge",
+        "pointer": "target", "text": "badge_ibeam", "selection": "lasso", "ruler": "protractor"
+    },
+    "paper": {
+        "pen": "classic_pen", "hl": "thick_marker", "eraser": "solid_block",
+        "pointer": "dot", "text": "typewriter", "selection": "fine_cross", "ruler": "classic_ruler"
+    },
+    "signal": {
+        "pen": "pixel", "hl": "flat_brush", "eraser": "cleaning_brush",
+        "pointer": "star", "text": "feather", "selection": "marquee", "ruler": "protractor"
     },
     "minimalist": {
         "pen": "dot", "hl": "arrow", "eraser": "dot",
@@ -72,10 +84,6 @@ CURSOR_PRESETS = {
     "heavy_duty": {
         "pen": "brush_pen", "hl": "thick_marker", "eraser": "solid_block",
         "pointer": "target", "text": "badge_ibeam", "selection": "marquee", "ruler": "classic_ruler"
-    },
-    "stealth": {
-        "pen": "crosshair", "hl": "crosshair", "eraser": "dot",
-        "pointer": "radar", "text": "macos_ibeam", "selection": "fine_cross", "ruler": "protractor"
     },
     "creative": {
         "pen": "fountain_pen", "hl": "flat_brush", "eraser": "sponge",
@@ -87,7 +95,7 @@ CURSOR_PRESETS = {
     },
     "legacy": {
         "pen": "arrow", "hl": "arrow", "eraser": "cad_cross",
-        "pointer": "arrow", "text": "classic_ibeam", "selection": "hand", "ruler": "classic_ruler"
+        "pointer": "dot", "text": "classic_ibeam", "selection": "hand", "ruler": "classic_ruler"
     }
 }
 
@@ -165,13 +173,15 @@ class CursorFactory:
         if chosen_style == "arrow": return QCursor(Qt.CursorShape.ArrowCursor)
         if chosen_style == "crosshair": return CursorFactory._make_crosshair_cursor(size=28)
         if chosen_style == "dot": return CursorFactory._make_dot_cursor(color=color if show_active_color else None)
-        if chosen_style in ("classic_pen", "fountain_pen"):
+        if chosen_style == "classic_pen":
             pix = CursorFactory._draw_classic_pen_pix(color if show_active_color else None, size)
             return QCursor(pix, 1, 1)
-        if chosen_style == "pixel": return CursorFactory._make_dot_cursor(color=color if show_active_color else None, radius=1.5, total_size=8)
+        if chosen_style == "fountain_pen":
+            return QCursor(CursorFactory._draw_fountain_pen_pix(color if show_active_color else None), 1, 1)
+        if chosen_style == "pixel":
+            return QCursor(CursorFactory._draw_pixel_pen_pix(color if show_active_color else None), 1, 1)
         if chosen_style == "brush_pen":
-            pix = CursorFactory._draw_apple_pencil_pix(color if show_active_color else None, int(size * 1.5))
-            return QCursor(pix, 1, 1)
+            return QCursor(CursorFactory._draw_brush_pen_pix(color if show_active_color else None), 1, 1)
 
         pix = CursorFactory._draw_apple_pencil_pix(color if show_active_color else None, size)
         return QCursor(pix, 1, 1)
@@ -390,12 +400,12 @@ class CursorFactory:
             return QCursor(pix, 1, 1)
         if chosen_style == "arrow": return QCursor(Qt.CursorShape.ArrowCursor)
         if chosen_style == "crosshair": return CursorFactory._make_crosshair_cursor(size=28)
-        if chosen_style in ("classic_marker", "thick_marker"):
-            pix = CursorFactory._draw_classic_marker_pix(color if show_active_color else None, int(size * 1.2) if chosen_style == "thick_marker" else size)
-            return QCursor(pix, 1, 1)
+        if chosen_style == "classic_marker":
+            return QCursor(CursorFactory._draw_classic_marker_pix(color if show_active_color else None, size), 1, 1)
+        if chosen_style == "thick_marker":
+            return QCursor(CursorFactory._draw_thick_marker_pix(color if show_active_color else None), 1, 1)
         if chosen_style == "flat_brush":
-            pix = CursorFactory._draw_apple_chisel_pix(color if show_active_color else None, int(size * 1.5))
-            return QCursor(pix, 1, 1)
+            return QCursor(CursorFactory._draw_flat_brush_pix(color if show_active_color else None), 1, 1)
 
         pix = CursorFactory._draw_apple_chisel_pix(color if show_active_color else None, size)
         return QCursor(pix, 1, 1)
@@ -555,7 +565,8 @@ class CursorFactory:
             pix = CursorFactory._draw_vice_city_cube_pix(s)
             return QCursor(pix, int(center), int(center))
         if chosen_style == "dot": return CursorFactory._make_dot_cursor(radius=3.0, total_size=int(total))
-        if chosen_style == "sponge": return CursorFactory._make_dot_cursor(radius=s/2.0, total_size=int(total))
+        if chosen_style == "sponge":
+            return QCursor(CursorFactory._draw_sponge_pix(s, pad), int(center), int(center))
         if chosen_style in ("square", "solid_block"):
             pix = CursorFactory._draw_square_eraser_pix(s, pad, "fill" if chosen_style=="solid_block" else mode)
             return QCursor(pix, int(center), int(center))
@@ -563,8 +574,7 @@ class CursorFactory:
             pix = CursorFactory._draw_cad_eraser_pix(s, pad, mode)
             return QCursor(pix, int(center), int(center))
         if chosen_style == "cleaning_brush":
-            pix = CursorFactory._draw_apple_ring_eraser_pix(int(s*1.2), pad, "fill")
-            return QCursor(pix, int(center), int(center))
+            return QCursor(CursorFactory._draw_cleaning_brush_pix(s, pad), int(center), int(center))
 
         pix = CursorFactory._draw_apple_ring_eraser_pix(s, pad, mode)
         return QCursor(pix, int(center), int(center))
@@ -712,13 +722,14 @@ class CursorFactory:
         if chosen_style == "docs_pointer":
             pix = CursorFactory._draw_docs_pointer_pix(color)
             return QCursor(pix, 16, 16)
-        if chosen_style in ("apple_glow_ring", "radar"):
-            pix = CursorFactory._draw_apple_glow_ring_pix(color)
-            return QCursor(pix, 16, 16)
-
-        if chosen_style in ("neon_ring", "target"):
-            pix = CursorFactory._draw_neon_ring_pointer_pix(color)
-            return QCursor(pix, 16, 16)
+        if chosen_style == "apple_glow_ring":
+            return QCursor(CursorFactory._draw_apple_glow_ring_pix(color), 16, 16)
+        if chosen_style == "radar":
+            return QCursor(CursorFactory._draw_radar_pix(color), 16, 16)
+        if chosen_style == "target":
+            return QCursor(CursorFactory._draw_target_pix(color), 16, 16)
+        if chosen_style == "neon_ring":
+            return QCursor(CursorFactory._draw_neon_ring_pointer_pix(color), 16, 16)
 
         if chosen_style == "arrow":
             return QCursor(Qt.CursorShape.ArrowCursor)
@@ -728,7 +739,7 @@ class CursorFactory:
             return QCursor(pix, 16, 16)
 
         if chosen_style == "star":
-            return QCursor(Qt.CursorShape.CrossCursor)
+            return QCursor(CursorFactory._draw_star_pix(color), 16, 16)
 
         pix = CursorFactory._draw_apple_laser_pix(color)
         return QCursor(pix, 16, 16)
@@ -890,8 +901,9 @@ class CursorFactory:
         if chosen_style == "vscode_ibeam":
             pix = CursorFactory._draw_vscode_ibeam_pix()
             return QCursor(pix, 16, 16)
-        if chosen_style in ("classic_ibeam", "typewriter"): return QCursor(Qt.CursorShape.IBeamCursor)
-        if chosen_style == "feather": return QCursor(Qt.CursorShape.UpArrowCursor)
+        if chosen_style == "classic_ibeam": return QCursor(Qt.CursorShape.IBeamCursor)
+        if chosen_style == "typewriter": return QCursor(CursorFactory._draw_typewriter_pix(), 16, 16)
+        if chosen_style == "feather": return QCursor(CursorFactory._draw_feather_pix(), 3, 29)
         if chosen_style == "badge_ibeam":
             pix = CursorFactory._draw_badge_ibeam_pix()
             return QCursor(pix, 16, 16)
@@ -993,7 +1005,8 @@ class CursorFactory:
             pix = CursorFactory._draw_vice_city_reticle_pix()
             return QCursor(pix, 16, 16)
         if chosen_style == "standard_cross": return QCursor(Qt.CursorShape.CrossCursor)
-        if chosen_style in ("fine_cross", "marquee"): return CursorFactory._make_crosshair_cursor(size=32)
+        if chosen_style == "marquee": return QCursor(CursorFactory._draw_marquee_pix(), 16, 16)
+        if chosen_style == "fine_cross": return CursorFactory._make_crosshair_cursor(size=32)
         if chosen_style == "hand": return QCursor(Qt.CursorShape.OpenHandCursor)
 
         size = 32
@@ -1797,3 +1810,285 @@ class CursorFactory:
 
         p.end()
         return pix
+
+    # -------------------------------------------------------------
+    # 10. ÖZGÜN ARAÇ ÇİZİMLERİ (Her stil kendine ait bir biçim taşır)
+    # -------------------------------------------------------------
+    @staticmethod
+    def _canvas(size: int = 32):
+        pix = QPixmap(size, size)
+        pix.fill(Qt.GlobalColor.transparent)
+        p = QPainter(pix)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        return pix, p
+
+    @staticmethod
+    def _body_pen(width: float = 1.0) -> QPen:
+        return QPen(QColor(28, 28, 32, 235), width, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin)
+
+    @staticmethod
+    def _draw_arrow_pix() -> QPixmap:
+        pix, p = CursorFactory._canvas(24)
+        arrow = QPolygonF([QPointF(2, 1.5), QPointF(2, 18), QPointF(6.5, 14), QPointF(9.5, 21), QPointF(12.5, 19.8),
+                           QPointF(9.6, 13), QPointF(15.5, 13)])
+        p.setPen(CursorFactory._body_pen(1.1))
+        p.setBrush(QColor("#FFFFFF"))
+        p.drawPolygon(arrow)
+        p.end()
+        return pix
+
+    @staticmethod
+    def _draw_fountain_pen_pix(color=None) -> QPixmap:
+        pix, p = CursorFactory._canvas()
+        nib = QPainterPath(QPointF(1.2, 1.2))
+        nib.quadTo(9.5, 3.0, 13.0, 8.0)
+        nib.lineTo(8.0, 13.0)
+        nib.quadTo(3.0, 9.5, 1.2, 1.2)
+        p.setPen(CursorFactory._body_pen())
+        p.setBrush(QColor("#FFFFFF"))
+        p.drawPath(nib)
+        p.drawLine(QPointF(1.6, 1.6), QPointF(7.2, 7.2))
+        p.setBrush(CursorFactory._parse_color(color, "#1d2733"))
+        p.drawEllipse(QPointF(7.6, 7.6), 1.5, 1.5)
+        p.setBrush(QColor("#FFFFFF"))
+        barrel = QPolygonF([QPointF(11.5, 7.0), QPointF(25.0, 20.5), QPointF(20.5, 25.0), QPointF(7.0, 11.5)])
+        p.drawPolygon(barrel)
+        p.end()
+        return pix
+
+    @staticmethod
+    def _draw_brush_pen_pix(color=None) -> QPixmap:
+        pix, p = CursorFactory._canvas()
+        tuft = QPainterPath(QPointF(1.2, 1.2))
+        tuft.cubicTo(3.0, 7.0, 7.0, 11.0, 12.0, 11.5)
+        tuft.quadTo(13.5, 9.0, 11.5, 12.0)
+        tuft.cubicTo(11.0, 7.0, 7.0, 3.0, 1.2, 1.2)
+        tuft.closeSubpath()
+        p.setPen(CursorFactory._body_pen())
+        p.setBrush(CursorFactory._parse_color(color, "#1d2733"))
+        p.drawPath(tuft)
+        p.setBrush(QColor("#FFFFFF"))
+        p.drawPolygon(QPolygonF([QPointF(9.5, 12.5), QPointF(12.5, 9.5), QPointF(16.5, 13.5), QPointF(13.5, 16.5)]))
+        p.drawPolygon(QPolygonF([QPointF(15.0, 13.0), QPointF(26.5, 24.5), QPointF(24.5, 26.5), QPointF(13.0, 15.0)]))
+        p.end()
+        return pix
+
+    @staticmethod
+    def _draw_pixel_pen_pix(color=None) -> QPixmap:
+        pix, p = CursorFactory._canvas(24)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing, False)
+        cells = [(0, 0), (1, 1), (0, 1), (1, 0), (2, 2), (3, 3), (4, 4), (5, 5), (3, 2), (2, 3), (4, 3), (3, 4), (5, 4), (4, 5), (6, 6)]
+        p.setPen(Qt.PenStyle.NoPen)
+        for x, y in cells:
+            p.fillRect(x * 3 - 1, y * 3 - 1, 5, 5, QColor(28, 28, 32, 235))
+        for x, y in cells:
+            p.fillRect(x * 3, y * 3, 3, 3, QColor("#FFFFFF"))
+        p.fillRect(0, 0, 3, 3, CursorFactory._parse_color(color, "#1d2733"))
+        p.end()
+        return pix
+
+    @staticmethod
+    def _draw_flat_brush_pix(color=None) -> QPixmap:
+        pix, p = CursorFactory._canvas()
+        tint = CursorFactory._parse_color(color, "#FFD60A")
+        p.setPen(CursorFactory._body_pen())
+        p.setBrush(tint)
+        p.drawPolygon(QPolygonF([QPointF(1.2, 8.0), QPointF(8.0, 1.2), QPointF(14.0, 7.0), QPointF(7.0, 14.0)]))
+        p.setBrush(QColor("#FFFFFF"))
+        p.drawPolygon(QPolygonF([QPointF(7.0, 14.0), QPointF(14.0, 7.0), QPointF(17.0, 10.0), QPointF(10.0, 17.0)]))
+        p.drawPolygon(QPolygonF([QPointF(12.0, 13.0), QPointF(14.0, 11.0), QPointF(27.0, 24.0), QPointF(25.0, 26.0)]))
+        p.end()
+        return pix
+
+    @staticmethod
+    def _draw_thick_marker_pix(color=None) -> QPixmap:
+        pix, p = CursorFactory._canvas()
+        tint = CursorFactory._parse_color(color, "#FFD60A")
+        p.setPen(CursorFactory._body_pen(1.2))
+        p.setBrush(QColor("#FFFFFF"))
+        p.drawPolygon(QPolygonF([QPointF(8.0, 3.0), QPointF(28.0, 23.0), QPointF(22.0, 29.0), QPointF(2.0, 9.0)]))
+        p.setBrush(tint)
+        p.drawPolygon(QPolygonF([QPointF(1.2, 1.2), QPointF(8.0, 3.0), QPointF(2.0, 9.0)]))
+        p.drawLine(QPointF(14.0, 9.0), QPointF(8.0, 15.0))
+        p.end()
+        return pix
+
+    @staticmethod
+    def _draw_sponge_pix(s: int, pad: int) -> QPixmap:
+        total = s + pad * 2
+        pix, p = CursorFactory._canvas(total)
+        c = total / 2.0
+        half = s / 2.0
+        p.setPen(CursorFactory._body_pen(1.3))
+        p.setBrush(QColor(255, 255, 255, 215))
+        p.drawRoundedRect(QRectF(c - half, c - half * 0.72, s, half * 1.44), half * 0.45, half * 0.45)
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(QColor(28, 28, 32, 200))
+        for dx, dy in ((-0.45, -0.25), (0.05, 0.28), (0.5, -0.2), (-0.15, -0.38), (0.32, 0.35), (-0.55, 0.28)):
+            p.drawEllipse(QPointF(c + dx * half, c + dy * half), max(0.8, half * 0.09), max(0.8, half * 0.09))
+        p.end()
+        return pix
+
+    @staticmethod
+    def _draw_cleaning_brush_pix(s: int, pad: int) -> QPixmap:
+        total = s + pad * 2
+        pix, p = CursorFactory._canvas(total)
+        c = total / 2.0
+        half = s / 2.0
+        p.setPen(CursorFactory._body_pen(1.2))
+        p.setBrush(QColor("#FFFFFF"))
+        p.drawRoundedRect(QRectF(c - half, c - half * 0.7, s, half * 0.62), 2, 2)
+        count = max(4, s // 5)
+        # Kıllar çift tonludur; böylece her sayfa renginde seçilebilir.
+        for color, width in ((QColor(255, 255, 255, 240), 2.8), (QColor(28, 28, 32, 235), 1.2)):
+            p.setPen(QPen(color, width, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+            for index in range(count):
+                x = c - half + 2 + (s - 4) * index / (count - 1)
+                p.drawLine(QPointF(x, c - half * 0.05), QPointF(x, c + half * 0.65))
+        p.end()
+        return pix
+
+    @staticmethod
+    def _draw_target_pix(color=None) -> QPixmap:
+        pix, p = CursorFactory._canvas()
+        tint = CursorFactory._parse_color(color, "#FF2D55")
+        p.setBrush(Qt.BrushStyle.NoBrush)
+        p.setPen(QPen(tint, 1.8))
+        p.drawEllipse(QPointF(16, 16), 11, 11)
+        p.drawEllipse(QPointF(16, 16), 5.5, 5.5)
+        p.setPen(QPen(tint, 1.4))
+        for a, b in (((16, 1.5), (16, 8)), ((16, 24), (16, 30.5)), ((1.5, 16), (8, 16)), ((24, 16), (30.5, 16))):
+            p.drawLine(QPointF(*a), QPointF(*b))
+        p.end()
+        return pix
+
+    @staticmethod
+    def _draw_radar_pix(color=None) -> QPixmap:
+        pix, p = CursorFactory._canvas()
+        tint = CursorFactory._parse_color(color, "#FF2D55")
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(tint)
+        p.drawEllipse(QPointF(16, 16), 3, 3)
+        for index, radius in enumerate((7.0, 10.5, 14.0)):
+            arc = QColor(tint)
+            arc.setAlpha(230 - index * 60)
+            p.setPen(QPen(arc, 1.8, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+            box = QRectF(16 - radius, 16 - radius, radius * 2, radius * 2)
+            p.drawArc(box, 25 * 16, 80 * 16)
+            p.drawArc(box, 205 * 16, 80 * 16)
+        p.end()
+        return pix
+
+    @staticmethod
+    def _draw_star_pix(color=None) -> QPixmap:
+        pix, p = CursorFactory._canvas()
+        star = QPainterPath(QPointF(16, 2))
+        for x, y in ((18, 14), (30, 16), (18, 18), (16, 30), (14, 18), (2, 16), (14, 14)):
+            star.lineTo(x, y)
+        star.closeSubpath()
+        p.setPen(QPen(QColor(28, 28, 32, 170), 0.9))
+        p.setBrush(CursorFactory._parse_color(color, "#FFD60A"))
+        p.drawPath(star)
+        p.end()
+        return pix
+
+    @staticmethod
+    def _draw_feather_pix() -> QPixmap:
+        pix, p = CursorFactory._canvas()
+        vane = QPainterPath(QPointF(6.0, 26.0))
+        vane.cubicTo(7.0, 14.0, 15.0, 5.0, 28.0, 3.0)
+        vane.cubicTo(27.0, 14.0, 19.0, 23.0, 6.0, 26.0)
+        p.setPen(CursorFactory._body_pen())
+        p.setBrush(QColor("#FFFFFF"))
+        p.drawPath(vane)
+        p.drawLine(QPointF(3.0, 29.0), QPointF(23.0, 8.0))
+        p.end()
+        return pix
+
+    @staticmethod
+    def _draw_typewriter_pix() -> QPixmap:
+        pix, p = CursorFactory._canvas()
+        p.setPen(CursorFactory._body_pen(1.0))
+        p.setBrush(QColor("#FFFFFF"))
+        p.drawRect(QRectF(9, 5, 14, 4))
+        p.drawRect(QRectF(13.5, 9, 5, 14))
+        p.drawRect(QRectF(9, 23, 14, 4))
+        p.end()
+        return pix
+
+    @staticmethod
+    def _draw_marquee_pix() -> QPixmap:
+        pix, p = CursorFactory._canvas()
+        p.setBrush(Qt.BrushStyle.NoBrush)
+        p.setPen(QPen(QColor(255, 255, 255, 235), 2.6))
+        p.drawRect(QRectF(7, 7, 18, 18))
+        p.setPen(QPen(QColor(28, 28, 32, 235), 1.3, Qt.PenStyle.DashLine))
+        p.drawRect(QRectF(7, 7, 18, 18))
+        p.setPen(QPen(QColor(28, 28, 32, 235), 1.2))
+        p.drawLine(QPointF(16, 13), QPointF(16, 19))
+        p.drawLine(QPointF(13, 16), QPointF(19, 16))
+        p.end()
+        return pix
+
+    @staticmethod
+    def get_arrow_cursor() -> QCursor:
+        return QCursor(Qt.CursorShape.ArrowCursor)
+
+
+def _fit_pixmap_to_page(pix: QPixmap, tone: str) -> QPixmap:
+    """Renksiz imleç gövdesini açık sayfada koyu, koyu sayfada açık yapar; seçili renkleri korur."""
+    img = pix.toImage().convertToFormat(QImage.Format.Format_ARGB32)
+    data = img.bits()
+    data.setsize(img.sizeInBytes())
+    buf = memoryview(data).cast("B")
+    neutral, weight, light = [], 0, 0
+    for at in range(0, len(buf), 4):
+        blue, green, red, alpha = buf[at], buf[at + 1], buf[at + 2], buf[at + 3]
+        if alpha > 30 and max(red, green, blue) - min(red, green, blue) < 48:
+            neutral.append(at)
+            weight += alpha
+            light += alpha * (red + green + blue) // 3
+    if not weight or (light / weight > 128) == (tone == "dark"):
+        return pix
+    for at in neutral:
+        buf[at], buf[at + 1], buf[at + 2] = 255 - buf[at], 255 - buf[at + 1], 255 - buf[at + 2]
+    del buf
+    return QPixmap.fromImage(img.copy())
+
+
+_SHAPE_DRAWINGS = {
+    Qt.CursorShape.ArrowCursor: (CursorFactory._draw_arrow_pix, 2, 2),
+    Qt.CursorShape.IBeamCursor: (CursorFactory._draw_macos_ibeam_pix, 16, 16),
+}
+
+
+def _follows_page_tone(getter):
+    """İmleç üreticisini etkin sayfanın parlaklığına uyacak şekilde sarar."""
+    def wrapped(*args, **kwargs):
+        cursor = getter(*args, **kwargs)
+        tone = CursorFactory.page_tone
+        if not tone:
+            return cursor
+        shape = cursor.shape()
+        if shape == Qt.CursorShape.BitmapCursor:
+            spot = cursor.hotSpot()
+            return QCursor(_fit_pixmap_to_page(cursor.pixmap(), tone), spot.x(), spot.y())
+        if shape in _SHAPE_DRAWINGS:
+            draw, x, y = _SHAPE_DRAWINGS[shape]
+            return QCursor(_fit_pixmap_to_page(draw(), tone), x, y)
+        if shape == Qt.CursorShape.CrossCursor:
+            return wrapped_cross(tone)
+        return cursor
+    return wrapped
+
+
+def wrapped_cross(tone: str) -> QCursor:
+    cross = CursorFactory._make_crosshair_cursor(size=32)
+    return QCursor(_fit_pixmap_to_page(cross.pixmap(), tone), 16, 16)
+
+
+CursorFactory.page_tone = None
+for _name in ("get_pen_cursor", "get_highlighter_cursor", "get_eraser_cursor", "get_text_cursor",
+              "get_selection_cursor", "get_move_cursor", "get_pan_cursor", "get_closed_hand_cursor",
+              "get_ruler_cursor", "get_arrow_cursor"):
+    setattr(CursorFactory, _name, staticmethod(_follows_page_tone(getattr(CursorFactory, _name))))

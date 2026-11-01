@@ -35,6 +35,7 @@ from PyQt6.QtGui import (
 from src.core.i18n import LanguageManager
 from src.ui.icons import AuraIconFactory
 from src.ui.dialog_theme import apply_dialog_theme
+from src.ui.ui_style import STYLE_THEME_COLORS
 
 # Global önbellek: son açılan PDF dosyalarının metaverilerini (mtime -> sayfa sayısı, boyut) saklar
 _RECENT_FILE_INFO_CACHE: Dict[str, Any] = {}
@@ -235,6 +236,7 @@ def get_aura_theme_colors(theme_name: str = "gray") -> Dict[str, str]:
             "card_border": "#363c4b",
         }
     }
+    palettes.update(STYLE_THEME_COLORS)
     if theme_name == "navy":
         return palettes["nord"]
     if theme_name == "custom":
@@ -821,6 +823,8 @@ class AuraPinnedQuickToolsBar(QFrame):
         self.orientation = orientation
         self.active_tool = "select"
         self.theme_name = "gray"
+        self.presentation = "capsule"
+        self._btn_width = 38
         self.buttons: Dict[str, QToolButton] = {}
 
         if self.orientation == Qt.Orientation.Horizontal:
@@ -937,8 +941,8 @@ class AuraPinnedQuickToolsBar(QFrame):
     def sizeHint(self):
         if self.orientation == Qt.Orientation.Horizontal:
             btn_count = len(self.buttons) + (1 if hasattr(self, 'btn_unpin') else 0)
-            total_w = btn_count * 38 + max(0, btn_count - 1) * 4 + 1 + 8 + 16
-            return QSize(total_w, 42)
+            total_w = btn_count * self._btn_width + max(0, btn_count - 1) * 4 + 1 + 8 + 16
+            return QSize(total_w, self.height())
         return super().sizeHint()
 
     def set_tools_order(self, order: list):
@@ -1022,11 +1026,47 @@ class AuraPinnedQuickToolsBar(QFrame):
             btn.setIcon(AuraIconFactory.icon_select_rect("#38bdf8"))
             btn.setToolTip(LanguageManager.tr("quick_tool_draw_select"))
 
+    def _fit_ribbon_button(self, btn: QToolButton):
+        """Şerit butonunu etiketi kesilmeyecek genişliğe getirir."""
+        btn.setFixedWidth(max(self._btn_width, btn.fontMetrics().horizontalAdvance(btn.text()) + 28))
+
+    def set_presentation(self, mode: str):
+        """Yatay çubuğu kapsül, alt yüzen dok veya etiketli tam genişlik şerit olarak gösterir."""
+        if self.orientation != Qt.Orientation.Horizontal or mode == self.presentation:
+            return
+        self.presentation = mode
+        layout = self.layout()
+        ribbon = mode == "ribbon"
+        width, height, bar_height = {"capsule": (38, 38, 42), "dock": (48, 48, 62), "ribbon": (84, 58, 68)}[mode]
+        self._btn_width = width
+        self.setFixedHeight(bar_height)
+        if ribbon:
+            self.setMinimumWidth(0)
+            self.setMaximumWidth(16777215)
+        layout.setSizeConstraint(QLayout.SizeConstraint.SetDefaultConstraint if ribbon else QLayout.SizeConstraint.SetFixedSize)
+        layout.setAlignment(Qt.AlignmentFlag.AlignLeft if ribbon else Qt.AlignmentFlag.AlignCenter)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding if ribbon else QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
+        self.graphicsEffect().setEnabled(not ribbon)
+        for tid, btn in self.buttons.items():
+            btn.setFixedSize(width, height)
+            btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextUnderIcon if ribbon else Qt.ToolButtonStyle.ToolButtonIconOnly)
+            btn.setText(LanguageManager.tr(self.tool_specs_factory[tid][0]) if ribbon else "")
+            if ribbon:
+                self._fit_ribbon_button(btn)
+        self.btn_unpin.setVisible(not ribbon)
+        self.sep.setVisible(not ribbon)
+        self.apply_theme(self.theme_name)
+        self.updateGeometry()
+        self.adjustSize()
+
     def retranslate_ui(self):
         for tid, btn in self.buttons.items():
             if tid in self.tool_specs_factory:
                 key, _ = self.tool_specs_factory[tid]
                 btn.setToolTip(LanguageManager.tr(key))
+                if self.presentation == "ribbon":
+                    btn.setText(LanguageManager.tr(key))
+                    self._fit_ribbon_button(btn)
         if hasattr(self, 'btn_unpin'):
             self.btn_unpin.setToolTip(LanguageManager.tr("capsule_unpin_float"))
 
@@ -1043,6 +1083,10 @@ class AuraPinnedQuickToolsBar(QFrame):
             if self.orientation == Qt.Orientation.Horizontal
             else f"border-right: 1px solid {c['border']}; border-left: 1px solid {c['border']}; border-bottom: 1px solid {c['border']}; border-radius: 0px;"
         )
+        if self.presentation == "ribbon":
+            border_style = f"border: none; border-bottom: 1px solid {c['border']}; border-radius: 0px;"
+        elif self.presentation == "dock":
+            border_style = f"border: 1px solid {c['border']}; border-radius: 20px;"
         self.setStyleSheet(f"""
             #PinnedQuickToolsBar {{
                 background-color: {c['card_bg']};

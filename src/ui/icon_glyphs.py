@@ -223,6 +223,20 @@ BADGE_RADIUS = 6.0
 BADGE_GLYPH_SCALE = 0.68
 BADGE_STROKE = 2.3
 
+_GLYPH_STYLES = {
+    "classic": {"stroke": 1.75, "sharp": False, "tint": 0.0},
+    "atolye": {"stroke": 1.35, "sharp": False, "tint": 0.0},
+    "grafit": {"stroke": 2.0, "sharp": False, "tint": 0.24},
+    "serit": {"stroke": 1.6, "sharp": True, "tint": 0.0},
+}
+_glyph_style = _GLYPH_STYLES["classic"]
+
+
+def set_glyph_style(style: str):
+    """İkonların çizgi kalınlığını, köşe dilini ve dolgu tonunu arayüze göre seçer."""
+    global _glyph_style
+    _glyph_style = _GLYPH_STYLES.get(style, _GLYPH_STYLES["classic"])
+
 
 def set_icon_set(name: str):
     """Çizgi, dolgu ve renk davranışını seçili ikon setine geçirir."""
@@ -308,10 +322,11 @@ def _is_closed(path: QPainterPath) -> bool:
     return abs(start.x - end.x()) < 0.01 and abs(start.y - end.y()) < 0.01
 
 
-def _solid_form(name: str, elements: List[Tuple[QPainterPath, bool]]) -> Tuple[QPainterPath, List[QPainterPath]]:
+def _solid_form(name: str, elements: List[Tuple[QPainterPath, bool]], sharp: bool = False) -> Tuple[QPainterPath, List[QPainterPath]]:
     """Kapalı şekilleri tek gövdede birleştirir; gövde içindeki ayrıntıları oyarak görünür bırakır."""
-    if name in _SOLID_FORMS:
-        return _SOLID_FORMS[name]
+    key = (name, sharp)
+    if key in _SOLID_FORMS:
+        return _SOLID_FORMS[key]
     stroker = QPainterPathStroker()
     stroker.setWidth(SOLID_CUT_WIDTH)
     stroker.setCapStyle(Qt.PenCapStyle.RoundCap)
@@ -325,8 +340,8 @@ def _solid_form(name: str, elements: List[Tuple[QPainterPath, bool]]) -> Tuple[Q
             body = body.united(path)
         else:
             loose.append(path)
-    _SOLID_FORMS[name] = (body, loose)
-    return _SOLID_FORMS[name]
+    _SOLID_FORMS[key] = (body, loose)
+    return _SOLID_FORMS[key]
 
 
 class AuraGlyphEngine(QIconEngine):
@@ -359,8 +374,8 @@ class AuraGlyphEngine(QIconEngine):
         painter.translate(rect.x() + (rect.width() - side) / 2.0, rect.y() + (rect.height() - side) / 2.0)
         painter.scale(side / GRID_SIZE, side / GRID_SIZE)
         mode = _icon_shape.get("mode", "line")
-        sharp = _icon_shape.get("sharp", False)
-        stroke = _icon_shape.get("stroke", STROKE_WIDTH)
+        sharp = _icon_shape.get("sharp", False) or _glyph_style["sharp"]
+        stroke = _icon_shape.get("stroke", _glyph_style["stroke"])
         elements = self.elements
         if sharp:
             if self.name not in _SHARP_PARSED:
@@ -387,7 +402,7 @@ class AuraGlyphEngine(QIconEngine):
         painter.setPen(pen)
         painter.setBrush(Qt.BrushStyle.NoBrush)
         if mode == "solid":
-            body, loose = _solid_form(self.name, elements)
+            body, loose = _solid_form(self.name, elements, sharp)
             painter.fillPath(body, color)
             pen.setWidthF(SOLID_STROKE)
             painter.setPen(pen)
@@ -395,9 +410,13 @@ class AuraGlyphEngine(QIconEngine):
                 painter.drawPath(path)
             painter.restore()
             return
+        tint = QColor(color)
+        tint.setAlphaF(_glyph_style["tint"])
         for path, filled in elements:
             if filled or self.filled:
                 painter.fillPath(path, color)
+            elif tint.alpha() and _is_closed(path):
+                painter.fillPath(path, tint)
             if not filled:
                 painter.drawPath(path)
         painter.restore()
@@ -413,7 +432,7 @@ class AuraGlyphEngine(QIconEngine):
 
 _PARSED: Dict[str, List[Tuple[QPainterPath, bool]]] = {}
 _SHARP_PARSED: Dict[str, List[Tuple[QPainterPath, bool]]] = {}
-_SOLID_FORMS: Dict[str, Tuple[QPainterPath, List[QPainterPath]]] = {}
+_SOLID_FORMS: Dict[Tuple[str, bool], Tuple[QPainterPath, List[QPainterPath]]] = {}
 _theme_keep: set = set()
 
 

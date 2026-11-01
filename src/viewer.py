@@ -21,7 +21,10 @@ from src.core.shortcut_helper import (
     clean_modifiers,
 )
 from src.ui.icons import AuraIconFactory
+from src.ui.animations import AuraMotion, crossfade_window
 from src.ui.cursors import CursorFactory
+from src.ui.ui_style import (get_panel_layout, STYLE_LAYOUTS, STYLE_PAGE_CONTROL_PALETTES, STYLE_THEME_SPECS, active_style,
+                             apply_interface_style, get_style_css, resolve_theme_for_style)
 from src.ui.widgets import (AuraTabWidget,
                             ThumbnailsDock, AuraSearchBar, FullscreenSlideToolbar,
                             FullscreenReadingHUD)
@@ -112,6 +115,7 @@ class EditableZoomWidget(QWidget):
             "vice_city": {"btn": "#240e3b", "btn_hover": "#381458", "lbl": "#160024", "border": "#ff2a85", "border_inner": "#240e3b", "accent": "#00f0ff", "text": "#ffffff"},
             "apple": {"btn": "#262a34", "btn_hover": "#333846", "lbl": "#16181f", "border": "#3a4050", "border_inner": "#262a34", "accent": "#38bdf8", "text": "#f5f5f7"},
         }
+        palette.update(STYLE_PAGE_CONTROL_PALETTES)
         palette["light"] = palette["gray"]
         palette["dark"] = palette["gray"]
         p = palette.get(theme_name, palette["gray"])
@@ -263,6 +267,7 @@ class AuraPDFViewer(QMainWindow):
         self.setWindowState(Qt.WindowState.WindowMaximized)
 
         self.setAcceptDrops(True)
+        self.media_picker = None
         self.current_tool = 'select'
         self.selection_shape_mode = 'rect'
         self.new_doc_counter = 0
@@ -1371,12 +1376,66 @@ class AuraPDFViewer(QMainWindow):
         self.aura_right_sidebar.hide()
         self.aura_utility_rail.hide()
 
+    def _apply_interface_layout(self):
+        """Araç, panel, sekme ve tam ekran yerleşimini seçili arayüze geçirir."""
+        if not hasattr(self, 'aura_root_layout') or not hasattr(self, 'body_layout'):
+            return
+        style = active_style()
+        if style == getattr(self, '_layout_style', None):
+            return
+        first_pass = not hasattr(self, '_layout_style')
+        self._layout_style = style
+        prefs = STYLE_LAYOUTS.get(style)
+        settings = QSettings("AuraPDF", "PDFViewer")
+        toolbar, hud = self.fullscreen_toolbar, self.fullscreen_reading_hud
+        if first_pass:
+            self._classic_fs_edges = (toolbar.edge, hud.edge)
+
+        if prefs and not settings.contains("classic_capsule_dock"):
+            settings.setValue("classic_capsule_dock", settings.value("capsule_dock_position", "float", type=str))
+        dock = prefs["dock"] if prefs else settings.value("classic_capsule_dock", settings.value("capsule_dock_position", "float", type=str), type=str)
+        if not prefs:
+            settings.remove("classic_capsule_dock")
+
+        presentation = prefs["tools_bar"] if prefs else "capsule"
+        bar = self.top_pinned_tools_bar
+        for widget in (self.aura_tab_bar, self.aura_header_bar, self.body_container, bar):
+            self.aura_root_layout.removeWidget(widget)
+        bar.setParent(self.aura_root_widget if presentation == "ribbon" else self)
+        bar.hide()
+        bar.set_presentation(presentation)
+        tabs_bottom = bool(prefs) and prefs["tabs"] == "bottom"
+        if not tabs_bottom:
+            self.aura_root_layout.addWidget(self.aura_tab_bar)
+        self.aura_root_layout.addWidget(self.aura_header_bar)
+        if presentation == "ribbon":
+            self.aura_root_layout.addWidget(bar)
+        self.aura_root_layout.addWidget(self.body_container, stretch=1)
+        if tabs_bottom:
+            self.aura_root_layout.addWidget(self.aura_tab_bar)
+
+        margin = prefs["body_margin"] if prefs else 0
+        self.body_layout.setContentsMargins(margin, margin, margin, margin)
+        self.body_layout.setSpacing(prefs["body_spacing"] if prefs else 0)
+        self.update_panels_layout()
+        if prefs:
+            dock = self._style_dock_side(prefs)
+        toolbar_edge, hud_edge = (prefs["fs_toolbar"], prefs["fs_hud"]) if prefs else self._classic_fs_edges
+        toolbar._apply_edge_layout(toolbar_edge)
+        hud._apply_edge_layout(hud_edge)
+        {"top": self.dock_capsule_to_top, "left": self.dock_capsule_to_left,
+         "right": self.dock_capsule_to_right}.get(dock, self.undock_capsule)()
+        if not first_pass or prefs:
+            self.aura_left_sidebar.setVisible(prefs["tools_panel"] if prefs else True)
+
     def update_floating_capsule_pos(self):
         if hasattr(self, 'top_pinned_tools_bar') and getattr(self, 'capsule_docked_to_top', False) and self.top_pinned_tools_bar.isVisible():
-            if hasattr(self, 'central_stack'):
+            presentation = self.top_pinned_tools_bar.presentation
+            if hasattr(self, 'central_stack') and presentation != "ribbon":
                 self.top_pinned_tools_bar.adjustSize()
                 c_rect = self.central_stack.rect()
-                pt = self.central_stack.mapTo(self, QPoint((c_rect.width() - self.top_pinned_tools_bar.width()) // 2, 8))
+                bar_y = c_rect.height() - self.top_pinned_tools_bar.height() - 18 if presentation == "dock" else 8
+                pt = self.central_stack.mapTo(self, QPoint((c_rect.width() - self.top_pinned_tools_bar.width()) // 2, bar_y))
                 self.top_pinned_tools_bar.move(pt)
                 self.top_pinned_tools_bar.raise_()
 
@@ -1528,8 +1587,7 @@ class AuraPDFViewer(QMainWindow):
     def update_panels_layout(self, layout_mode: Optional[str] = None):
         """Tüm Araçlar paneli ile Gezinme / Yardımcı Ray panellerinin ekran yerleşimini (Sol / Sağ) ayarlar."""
         if layout_mode is None:
-            settings = QSettings("AuraPDF", "PDFViewer")
-            layout_mode = settings.value("sidebar_layout", "tools_right_nav_left", type=str)
+            layout_mode = get_panel_layout(active_style())
         self.sidebar_layout_mode = layout_mode
 
         if getattr(self, 'body_layout', None) is not None:
@@ -1577,8 +1635,22 @@ class AuraPDFViewer(QMainWindow):
                 if hasattr(self, 'aura_utility_rail') and hasattr(self.aura_utility_rail, 'set_dock_side'):
                     self.aura_utility_rail.set_dock_side("right")
 
+            prefs = STYLE_LAYOUTS.get(active_style())
+            if prefs and prefs["dock"] != "top" and getattr(self, 'capsule_docked_to_top', False) is False:
+                self._dock_capsule_for_style(prefs)
+
             if hasattr(self, '_center_active_document'):
                 self._center_active_document()
+
+    def _style_dock_side(self, prefs: dict) -> str:
+        """Yana yerleşen araç çubuğu, Tüm Araçlar panelinin bulunduğu kenarı izler."""
+        if prefs["dock"] == "top":
+            return "top"
+        return "left" if self.sidebar_layout_mode == "tools_left_nav_right" else "right"
+
+    def _dock_capsule_for_style(self, prefs: dict):
+        if hasattr(self, 'left_pinned_tools_bar') and hasattr(self, 'right_pinned_tools_bar'):
+            (self.dock_capsule_to_left if self._style_dock_side(prefs) == "left" else self.dock_capsule_to_right)()
 
     def sync_aura_tabs(self):
         """Modern üst sekme çubuğunu AuraTabWidget içeriği ile tam senkronize eder."""
@@ -3309,6 +3381,8 @@ class AuraPDFViewer(QMainWindow):
         if initial_tab == "updates" and hasattr(dlg, 'sidebar'):
             dlg.sidebar.setCurrentRow(7)
         dlg.exec()
+        # Ana pencerenin altında biriken eski ayar pencereleri tema geçişini yavaşlatır.
+        dlg.deleteLater()
 
     def check_updates_background(self):
         settings = QSettings("AuraPDF", "PDFViewer")
@@ -3339,10 +3413,15 @@ class AuraPDFViewer(QMainWindow):
     def apply_theme(self, theme_name: str = "gray"):
         if theme_name in ("light", "dark", "navy"):
             theme_name = "nord" if theme_name == "navy" else "gray"
+        crossfade_window(self)
+        apply_interface_style()
+        theme_name = resolve_theme_for_style(theme_name)
+        apply_interface_style(get_aura_theme_colors(theme_name))
         self.current_theme = theme_name
         settings = QSettings("AuraPDF", "PDFViewer")
         settings.setValue("app_theme", theme_name)
         icon_colors = get_aura_theme_colors(theme_name)
+        AuraMotion.tint = icon_colors['text']
         AuraIconFactory.set_theme(icon_colors['text'], icon_colors['accent'], icon_colors['accent_hover'], icon_colors['danger'])
 
         theme_specs = {
@@ -3395,6 +3474,7 @@ class AuraPDFViewer(QMainWindow):
                 "view_bg": "#0a0c0f"
             }
         }
+        theme_specs.update(STYLE_THEME_SPECS)
         if theme_name == "custom":
             c = get_aura_theme_colors("custom")
             spec = {
@@ -3450,6 +3530,7 @@ class AuraPDFViewer(QMainWindow):
                 QScrollBar::handle:horizontal:hover {{ background: {spec['accent']}; }}
                 QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {{ width: 0px; }}
                 QScrollBar::add-page, QScrollBar::sub-page {{ background: transparent; }}
+                {get_style_css(theme_name)}
             """)
 
         if hasattr(self, 'btn_insert') and hasattr(self.btn_insert, 'menu') and self.btn_insert.menu():
@@ -3552,6 +3633,8 @@ class AuraPDFViewer(QMainWindow):
                     hud = getattr(widget, 'text_selection_hud', None)
                     if hud and hasattr(hud, 'apply_theme'):
                         hud.apply_theme(theme_name, spec)
+
+        self._apply_interface_layout()
 
         if hasattr(self, 'aura_tab_bar'):
             self.aura_tab_bar.apply_theme(theme_name)
@@ -3782,6 +3865,7 @@ class AuraPDFViewer(QMainWindow):
             "purple": "#0e0817", "crimson": "#13070a", "nord": "#11161e", "dark": "#121212",
             "vice_city": "#0d0017"
         }
+        bg_map.update({code: spec["view_bg"] for code, spec in STYLE_THEME_SPECS.items()})
         return bg_map.get(theme, "#121212")
 
     def add_pdf_tab(self, file_path):
@@ -4795,6 +4879,9 @@ class AuraPDFViewer(QMainWindow):
     def update_viewport_cursor(self):
         if not (tab_doc := self.get_current_tab_doc()): return
         vp = tab_doc.view.viewport()
+        adaptive = QSettings("AuraPDF", "PDFViewer").value("cursor_page_tone", True, type=bool)
+        CursorFactory.page_tone = tab_doc.cursor_tone if adaptive else None
+        tab_doc.request_cursor_tone_sync()
 
         pen_col = getattr(self.pen_popup, 'color', None)
         hl_col = getattr(self.hl_popup, 'color', None)
@@ -4809,14 +4896,14 @@ class AuraPDFViewer(QMainWindow):
             pointer_cursor = CursorFactory.get_pointer_cursor(pointer_col)
 
         cursors = {
-            'select': Qt.CursorShape.ArrowCursor,
+            'select': CursorFactory.get_arrow_cursor(),
             'pan': CursorFactory.get_pan_cursor(),
             'pen': CursorFactory.get_pen_cursor(pen_col),
             'highlighter': CursorFactory.get_highlighter_cursor(hl_col, style=hl_cursor_style),
             'eraser': CursorFactory.get_eraser_cursor(self.eraser_popup.thickness, self.eraser_popup.eraser_mode),
             'text': CursorFactory.get_text_cursor(),
             'comment': Qt.CursorShape.PointingHandCursor,
-            'direct_edit': Qt.CursorShape.IBeamCursor,
+            'direct_edit': CursorFactory.get_text_cursor("classic_ibeam"),
             'selection_tool': CursorFactory.get_selection_cursor(self.selection_shape_mode),
             'pointer': pointer_cursor,
             'ruler': CursorFactory.get_ruler_cursor()
@@ -4957,7 +5044,8 @@ class AuraPDFViewer(QMainWindow):
                     os.remove(temp_path)
                 except Exception:
                     pass
-            export_doc.save(temp_path, garbage=3, deflate=True)
+            # garbage=3 aynı nesneleri tek tek karşılaştırır; büyük belgede ana iş parçacığını saniyelerce dondurur.
+            export_doc.save(temp_path, garbage=1, deflate=True)
             export_doc.close()
 
             # Kendi kaydımız sırasında dosya izleyicinin gereksiz harici bildirim tetiklemesini önle
@@ -5095,13 +5183,29 @@ class AuraPDFViewer(QMainWindow):
         if not tab_doc or not tab_doc.doc or len(tab_doc.doc) == 0:
             QMessageBox.warning(self, LanguageManager.tr("warning"), LanguageManager.tr("open_pdf_first_warning"))
             return
+        if self.media_picker is not None:
+            self.media_picker.raise_()
+            self.media_picker.activateWindow()
+            return
         from src.ui.dialogs.media_dialogs import EmojiGifPickerDialog
-        dlg = EmojiGifPickerDialog(self)
-        if dlg.exec():
-            if dlg.selected_emoji:
-                tab_doc.add_emoji(dlg.selected_emoji)
-            elif dlg.selected_gif_bytes:
-                tab_doc.add_image_media(dlg.selected_gif_bytes, title=LanguageManager.tr("media_title_sticker"))
+        # Pencere modsuz açılır; böylece öğeler doğrudan belgeye sürüklenebilir.
+        self.media_picker = EmojiGifPickerDialog(self)
+        self.media_picker.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
+        self.media_picker.accepted.connect(self._insert_picked_media)
+        self.media_picker.finished.connect(self._forget_media_picker)
+        self.media_picker.show()
+
+    def _insert_picked_media(self):
+        tab_doc = self.get_current_tab_doc()
+        if not tab_doc:
+            return
+        if self.media_picker.selected_emoji:
+            tab_doc.add_emoji(self.media_picker.selected_emoji)
+        elif self.media_picker.selected_gif_bytes:
+            tab_doc.add_image_media(self.media_picker.selected_gif_bytes, title=LanguageManager.tr("media_title_sticker"))
+
+    def _forget_media_picker(self):
+        self.media_picker = None
 
     def show_insert_image_dialog(self, default_tab=0):
         tab_doc = self.get_current_tab_doc()

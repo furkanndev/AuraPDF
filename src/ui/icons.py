@@ -52,6 +52,7 @@ class AuraIconFactory:
     def set_theme(text: str, accent: str, accent_hover: str, danger: str):
         """Renk verilmeden üretilen ikonların aktif temayı izlemesini sağlar."""
         set_glyph_theme(text, accent, accent_hover, danger)
+        AuraIconFactory._icon_cache.clear()
 
     @staticmethod
     def tinted(icon: QIcon, color: str, size: int = 18) -> QIcon:
@@ -132,7 +133,7 @@ class AuraIconFactory:
     @staticmethod
     def icon_toolbox(color: str = None):
         pix, p = AuraIconFactory._base()
-        col = QColor(color or "#e0e0e0")
+        col = QColor(color or AuraGlyphEngine.theme_text)
         p.setPen(QPen(col, 1.4, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
         p.drawRoundedRect(3, 9, 20, 13, 3, 3)
         p.drawLine(3, 14, 23, 14)
@@ -186,9 +187,9 @@ class AuraIconFactory:
     @staticmethod
     def icon_contents():
         pix, p = AuraIconFactory._base()
-        p.setBrush(QColor("#e0e0e0"))
+        p.setBrush(QColor(AuraGlyphEngine.theme_text))
         p.drawEllipse(3, 6, 2, 2); p.drawEllipse(3, 12, 2, 2); p.drawEllipse(3, 18, 2, 2)
-        p.setPen(QPen(QColor("#e0e0e0"), 1.8, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+        p.setPen(QPen(QColor(AuraGlyphEngine.theme_text), 1.8, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
         p.drawLine(8, 7, 22, 7); p.drawLine(8, 13, 22, 13); p.drawLine(8, 19, 22, 19)
         p.end()
         return QIcon(pix)
@@ -366,7 +367,7 @@ class AuraIconFactory:
     @staticmethod
     def icon_text_box():
         pix, p = AuraIconFactory._base()
-        p.setPen(QPen(QColor("#e0e0e0"), 1.4))
+        p.setPen(QPen(QColor(AuraGlyphEngine.theme_text), 1.4))
         p.drawRoundedRect(3, 3, 20, 20, 4, 4)
         p.drawLine(8, 8, 18, 8); p.drawLine(13, 8, 13, 18)
         p.end()
@@ -567,9 +568,9 @@ class AuraIconFactory:
     @staticmethod
     def icon_undo():
         pix, p = AuraIconFactory._base()
-        p.setPen(QPen(QColor("#e0e0e0"), 1.8, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+        p.setPen(QPen(QColor(AuraGlyphEngine.theme_text), 1.8, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
         p.drawArc(7, 8, 14, 14, 0, 150 * 16)
-        p.setBrush(QBrush(QColor("#e0e0e0")))
+        p.setBrush(QBrush(QColor(AuraGlyphEngine.theme_text)))
         p.setPen(Qt.PenStyle.NoPen)
         p.drawPolygon(QPolygonF([QPointF(7, 4), QPointF(3, 9), QPointF(9, 12)]))
         p.end()
@@ -578,9 +579,9 @@ class AuraIconFactory:
     @staticmethod
     def icon_redo():
         pix, p = AuraIconFactory._base()
-        p.setPen(QPen(QColor("#e0e0e0"), 1.8, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+        p.setPen(QPen(QColor(AuraGlyphEngine.theme_text), 1.8, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
         p.drawArc(5, 8, 14, 14, 30 * 16, 150 * 16)
-        p.setBrush(QBrush(QColor("#e0e0e0")))
+        p.setBrush(QBrush(QColor(AuraGlyphEngine.theme_text)))
         p.setPen(Qt.PenStyle.NoPen)
         p.drawPolygon(QPolygonF([QPointF(19, 4), QPointF(23, 9), QPointF(17, 12)]))
         p.end()
@@ -590,7 +591,7 @@ class AuraIconFactory:
     def icon_rotate(color=None):
         """Sağa Döndür (Sayfa Silüeti ve Saat Yönünde Dönüş Oku - CW 90°)"""
         pix, p = AuraIconFactory._base()
-        col = QColor(color) if color else QColor("#e0e0e0")
+        col = QColor(color) if color else QColor(AuraGlyphEngine.theme_text)
         # 1. Dikey sayfa silüeti (ortalanmış, yuvarlatılmış köşeli belge)
         p.setPen(QPen(col, 1.5, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
         p.setBrush(Qt.BrushStyle.NoBrush)
@@ -616,7 +617,7 @@ class AuraIconFactory:
     def icon_rotate_ccw(color=None):
         """Sola Döndür (Sayfa Silüeti ve Saat Yönünün Tersinde Dönüş Oku - CCW 90°)"""
         pix, p = AuraIconFactory._base()
-        col = QColor(color) if color else QColor("#e0e0e0")
+        col = QColor(color) if color else QColor(AuraGlyphEngine.theme_text)
         # 1. Dikey sayfa silüeti (ortalanmış, yuvarlatılmış köşeli belge)
         p.setPen(QPen(col, 1.5, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
         p.setBrush(Qt.BrushStyle.NoBrush)
@@ -659,7 +660,7 @@ class AuraIconFactory:
     @staticmethod
     def icon_save():
         pix, p = AuraIconFactory._base()
-        p.setPen(QPen(QColor("#e0e0e0"), 1.4))
+        p.setPen(QPen(QColor(AuraGlyphEngine.theme_text), 1.4))
         p.drawRoundedRect(4, 4, 18, 18, 2, 2)
         p.drawRect(7, 4, 12, 6); p.drawRect(7, 14, 12, 8)
         p.end()
@@ -669,7 +670,7 @@ class AuraIconFactory:
     def icon_pointer():
         pix, p = AuraIconFactory._base()
         # Laser wand shaft
-        p.setPen(QPen(QColor("#e0e0e0"), 2.2, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+        p.setPen(QPen(QColor(AuraGlyphEngine.theme_text), 2.2, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
         p.drawLine(QPointF(5, 21), QPointF(13, 13))
         # Red tip
         p.setPen(QPen(QColor("#ff5252"), 2.6, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
@@ -699,7 +700,7 @@ class AuraIconFactory:
         path.lineTo(13.2, 14.4)
         path.lineTo(19.0, 14.4)
         path.closeSubpath()
-        p.setBrush(QBrush(QColor("#e0e0e0")))
+        p.setBrush(QBrush(QColor(AuraGlyphEngine.theme_text)))
         p.setPen(QPen(QColor("#1e1e1e"), 1.2, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
         p.drawPath(path)
         p.end()
@@ -1098,7 +1099,7 @@ class AuraIconFactory:
     @staticmethod
     def icon_settings(color: str = None):
         pix, p = AuraIconFactory._base()
-        col = QColor(color or "#e0e0e0")
+        col = QColor(color or AuraGlyphEngine.theme_text)
         p.setPen(QPen(col, 1.6, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
         p.setBrush(Qt.BrushStyle.NoBrush)
         p.drawEllipse(QPointF(13, 13), 3.0, 3.0)
@@ -2218,7 +2219,7 @@ class AuraIconFactory:
     @staticmethod
     def icon_home(color=None):
         pix, p = AuraIconFactory._base()
-        clr = QColor(color) if color else QColor("#e0e0e0")
+        clr = QColor(color) if color else QColor(AuraGlyphEngine.theme_text)
         p.setPen(QPen(clr, 1.6, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
         path = QPainterPath()
         path.moveTo(4, 13); path.lineTo(13, 5); path.lineTo(22, 13)
@@ -2231,7 +2232,7 @@ class AuraIconFactory:
     @staticmethod
     def icon_folder(color=None):
         pix, p = AuraIconFactory._base()
-        clr = QColor(color) if color else QColor("#e0e0e0")
+        clr = QColor(color) if color else QColor(AuraGlyphEngine.theme_text)
         p.setPen(QPen(clr, 1.5, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
         path = QPainterPath()
         path.moveTo(4, 8)
@@ -2248,7 +2249,7 @@ class AuraIconFactory:
     @staticmethod
     def icon_all_grid(color=None):
         pix, p = AuraIconFactory._base()
-        clr = QColor(color) if color else QColor("#e0e0e0")
+        clr = QColor(color) if color else QColor(AuraGlyphEngine.theme_text)
         p.setPen(Qt.PenStyle.NoPen)
         p.setBrush(QBrush(clr))
         p.drawRoundedRect(QRectF(4, 5, 4.5, 4.5), 1, 1)
@@ -2266,7 +2267,7 @@ class AuraIconFactory:
     @staticmethod
     def icon_chevron_up(color=None):
         pix, p = AuraIconFactory._base()
-        clr = QColor(color) if color else QColor("#e0e0e0")
+        clr = QColor(color) if color else QColor(AuraGlyphEngine.theme_text)
         p.setPen(QPen(clr, 1.8, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
         path = QPainterPath()
         path.moveTo(6, 16); path.lineTo(13, 9); path.lineTo(20, 16)
@@ -2277,7 +2278,7 @@ class AuraIconFactory:
     @staticmethod
     def icon_chevron_down(color=None):
         pix, p = AuraIconFactory._base()
-        clr = QColor(color) if color else QColor("#e0e0e0")
+        clr = QColor(color) if color else QColor(AuraGlyphEngine.theme_text)
         p.setPen(QPen(clr, 1.8, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
         path = QPainterPath()
         path.moveTo(6, 10); path.lineTo(13, 17); path.lineTo(20, 10)
@@ -2288,7 +2289,7 @@ class AuraIconFactory:
     @staticmethod
     def icon_chevron_left(color=None):
         pix, p = AuraIconFactory._base()
-        clr = QColor(color) if color else QColor("#e0e0e0")
+        clr = QColor(color) if color else QColor(AuraGlyphEngine.theme_text)
         p.setPen(QPen(clr, 1.8, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
         path = QPainterPath()
         path.moveTo(15, 6); path.lineTo(9, 13); path.lineTo(15, 20)
@@ -2299,7 +2300,7 @@ class AuraIconFactory:
     @staticmethod
     def icon_chevron_right(color=None):
         pix, p = AuraIconFactory._base()
-        clr = QColor(color) if color else QColor("#e0e0e0")
+        clr = QColor(color) if color else QColor(AuraGlyphEngine.theme_text)
         p.setPen(QPen(clr, 1.8, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
         path = QPainterPath()
         path.moveTo(11, 6); path.lineTo(17, 13); path.lineTo(11, 20)

@@ -18,11 +18,12 @@ from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QGraphicsView, QGraphicsScene
 from PyQt6.QtGui import (QImage, QPixmap, QPen, QColor, QPainter, QPainterPath, QPainterPathStroker,
                          QBrush, QLinearGradient, QRadialGradient, QFont,
                          QFontMetrics, QTransform, QDesktopServices, QCursor, QPolygonF)
-from PyQt6.QtCore import (Qt, QRectF, QPointF, QPoint, QTimer, QLineF, QEvent, QSettings, QUrl,
+from PyQt6.QtCore import (Qt, QRect, QRectF, QPointF, QPoint, QTimer, QLineF, QEvent, QSettings, QUrl,
                           QThread, pyqtSignal as _pyqtSignal, QMutex, QMutexLocker, QBuffer, QIODevice)
 
 from src.document.pencil_stroke import AuraPencilStrokeItem, build_brush_path, stroke_seed
 from src.core.i18n import LanguageManager
+from src.ui.dialogs.media_dialogs import MEDIA_EMOJI_MIME, MEDIA_GIF_MIME
 from src.ui.icons import AuraIconFactory
 from src.ui.cursors import CursorFactory
 from src.ui.widgets import EditableInlineTextItem
@@ -1102,6 +1103,11 @@ class PDFTabDocument(QWidget):
 
         # --- V3 YENİ ÖZELLİKLER (V3 NEW FEATURES) ---
         self.reading_color_mode: str = "normal"  # "normal", "dark", "sepia"
+        self.cursor_tone: str = "light"  # İmleç rengini belirleyen, ekrandaki sayfanın parlaklığı
+        self._cursor_tone_timer = QTimer(self)
+        self._cursor_tone_timer.setSingleShot(True)
+        self._cursor_tone_timer.setInterval(180)
+        self._cursor_tone_timer.timeout.connect(self._sync_cursor_tone)
         self.nav_history: List[tuple] = []  # [(page_idx, scroll_y), ...]
         self.nav_history_idx: int = -1
         self._nav_recording_disabled: bool = False
@@ -3005,7 +3011,13 @@ class PDFTabDocument(QWidget):
 
                 if d.get("bg_color"):
                     box_col = QColor(d["bg_color"])
-                    box_rect = fitz.Rect(rel_x, rel_y, rel_x + w_pt, rel_y + h_pt) * page.derotation_matrix
+                    box_x, box_w = rel_x, w_pt
+                    text_item = d.get("item_ref")
+                    if text_item is not None and hasattr(text_item, 'background_rect'):
+                        fill_rect = text_item.background_rect()
+                        box_x = rel_x + fill_rect.x() / self.base_render_dpi
+                        box_w = fill_rect.width() / self.base_render_dpi
+                    box_rect = fitz.Rect(box_x, rel_y, box_x + box_w, rel_y + h_pt) * page.derotation_matrix
                     page.draw_rect(box_rect.normalize(), color=None, fill=(box_col.redF(), box_col.greenF(), box_col.blueF()), width=0, overlay=True)
 
                 vis_rect = fitz.Rect(rel_x, rel_y, rel_x + w_pt, rel_y + h_pt)
@@ -6021,10 +6033,35 @@ class PDFTabDocument(QWidget):
         if event.type() == QEvent.Type.DevicePixelRatioChange:
             self._check_dpr_and_rerender()
 
+    def request_cursor_tone_sync(self):
+        self._cursor_tone_timer.start()
+
+    def _sync_cursor_tone(self):
+        """Ekrandaki sayfanın parlaklığını ölçer; açık/koyu değiştiyse imleçleri yeniler."""
+        info = self.page_positions.get(self.current_page_idx) if self.doc is not None else None
+        if not info:
+            return
+        viewport = self.view.viewport()
+        page = QRectF(info.get('left', 0.0), info['top'], info['width'], info['height'])
+        visible = page & self.view.mapToScene(viewport.rect()).boundingRect()
+        if visible.isEmpty():
+            return
+        center = self.view.mapFromScene(visible.center())
+        sample = viewport.grab(QRect(center.x() - 60, center.y() - 60, 120, 120)).toImage()
+        if sample.isNull():
+            return
+        lightness = sample.scaled(1, 1, Qt.AspectRatioMode.IgnoreAspectRatio, Qt.TransformationMode.SmoothTransformation).pixelColor(0, 0).lightness()
+        tone = "dark" if lightness < 110 else "light"
+        if tone != self.cursor_tone:
+            self.cursor_tone = tone
+            if self.main_window and hasattr(self.main_window, 'update_viewport_cursor'):
+                self.main_window.update_viewport_cursor()
+
     def set_reading_color_mode(self, mode: str):
         if mode not in ("normal", "dark", "sepia"):
             mode = "normal"
         self.reading_color_mode = mode
+        self.request_cursor_tone_sync()
         bg_col = QColor(255, 255, 255)
         border_col = QColor(40, 40, 40)
         scene_bg = "#181818"
@@ -6173,6 +6210,7 @@ class PDFTabDocument(QWidget):
             self.go_to_page(self.current_page_idx)
 
     def on_scroll_change(self):
+        self.request_cursor_tone_sync()
         self.update_current_page_indicator()
         # Scroll debounce: hızlı scroll sırasında gereksiz re-render'ı önle
         # 200ms timeout: scroll durduğunda tek bir render tetikle
@@ -6290,10 +6328,10 @@ class PDFTabDocument(QWidget):
         page_right = page_left + page_width
 
         # Sayfa sınırları içinde kalması için güvenli marjinler ve minimum genişlik
-        margin = 15.0
-        min_w = 120.0
+        margin = 4.0
+        min_w = 40.0
         clamped_x = max(page_left + margin, min(scene_pos.x(), page_right - min_w - margin))
-        clamped_y = max(p_info['top'] + margin, min(scene_pos.y(), p_info['bottom'] - 40.0 - margin))
+        clamped_y = max(p_info['top'] + margin, min(scene_pos.y(), p_info['bottom'] - margin))
         popup = self.main_window.text_popup
         item = EditableInlineTextItem(
             self, page_idx, QPointF(clamped_x, clamped_y),
@@ -6305,8 +6343,14 @@ class PDFTabDocument(QWidget):
             underline=getattr(popup, 'underline', False),
         )
         item.set_box_background(getattr(popup, 'box_bg_color', None), commit=False)
+        # İmleç tıklanan noktada başlar: belge kenar payı çıkarılır, ilk satır dikeyde ortalanır.
+        inset = item.document().documentMargin()
+        first_line_h = item.document().size().height() - inset * 2.0
+        item.setPos(max(page_left, clamped_x - inset), max(p_info['top'], clamped_y - inset - first_line_h / 2.0))
         self.scene.addItem(item)
         self.active_text_item = item
+        if popup.btn_strike.isChecked():
+            item.apply_format_to_selection(strikeout=True)
 
     def commit_inline_text(self, item):
         if not item or not hasattr(item, 'toPlainText'):
@@ -8611,6 +8655,25 @@ class PDFTabDocument(QWidget):
                 self.scene.update()
                 self.view.viewport().update()
 
+    @staticmethod
+    def _is_media_drag(mime) -> bool:
+        return mime.hasFormat(MEDIA_EMOJI_MIME) or mime.hasFormat(MEDIA_GIF_MIME)
+
+    def _drop_media(self, mime, global_pos: QPoint):
+        """GIF ve emoji seçiciden sürüklenen öğeyi bırakıldığı noktaya ekler."""
+        pos = self.view.mapToScene(self.view.viewport().mapFromGlobal(global_pos))
+        page_idx = next((i for i, info in self.page_positions.items() if info['top'] <= pos.y() <= info['bottom']),
+                        self.current_page_idx)
+        if mime.hasFormat(MEDIA_EMOJI_MIME):
+            self.add_emoji(bytes(mime.data(MEDIA_EMOJI_MIME)).decode("utf-8"), page_idx=page_idx, pos=pos)
+            return
+        picker = getattr(self.main_window, 'media_picker', None)
+        if picker is not None:
+            picker.fetch_gif_for_drop(
+                bytes(mime.data(MEDIA_GIF_MIME)).decode("utf-8"),
+                lambda data: self.add_image_media(data, title=LanguageManager.tr("media_title_sticker"),
+                                                  page_idx=page_idx, pos=pos))
+
     # --- MODÜLER FARE YÖNETİMİ ---
     def eventFilter(self, source, event):
         if not hasattr(self, 'doc') or self.doc is None:
@@ -8618,10 +8681,17 @@ class PDFTabDocument(QWidget):
 
         if source in (self.view.viewport(), self.view):
             if event.type() in (QEvent.Type.DragEnter, QEvent.Type.DragMove):
+                if self._is_media_drag(event.mimeData()):
+                    event.acceptProposedAction()
+                    return True
                 if event.mimeData().hasUrls() and any(u.toLocalFile().lower().endswith('.pdf') for u in event.mimeData().urls()):
                     event.acceptProposedAction()
                     return True
             elif event.type() == QEvent.Type.Drop:
+                if self._is_media_drag(event.mimeData()):
+                    self._drop_media(event.mimeData(), source.mapToGlobal(event.position().toPoint()))
+                    event.acceptProposedAction()
+                    return True
                 if event.mimeData().hasUrls():
                     pdf_urls = [u for u in event.mimeData().urls() if u.toLocalFile().lower().endswith('.pdf')]
                     if pdf_urls:
@@ -10145,7 +10215,10 @@ class PDFTabDocument(QWidget):
                     self.active_text_item = None
                 if is_editing:
                     # Kullanıcı metin kutusundan dışarı çıkmak için boş alana tıkladı;
-                    # yeni bir kutu açılmasını engelle ve olayı tüket!
+                    # yeni bir kutu açılmasını engelle, varsayılan imleç aracına dön ve olayı tüket!
+                    if self.main_window.current_tool == 'text':
+                        self.main_window.text_popup.hide()
+                        self.main_window.set_cursor_mode('select')
                     return True
 
         # Sayfa dışına tıklandıysa çizim veya metin başlatma!

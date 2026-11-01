@@ -19,6 +19,8 @@ from PyQt6.QtCore import (QPoint, QPointF, QRect, Qt, QSize, QTimer, QUrl, QThre
                           QRectF, QBuffer, QByteArray, QEvent)
 from PyQt6.QtMultimedia import (QMediaCaptureSession, QAudioInput, QMediaRecorder,
                                 QMediaPlayer, QAudioOutput, QAudioSource, QAudioFormat, QMediaDevices)
+from PyQt6.QtCore import QMimeData, QSizeF
+from PyQt6.QtGui import QDrag, QPainterPath
 from PyQt6.QtSvg import QSvgRenderer
 
 from src.core.i18n import LanguageManager
@@ -1558,6 +1560,82 @@ class ImageDownloadWorker(QThread):
             self.error.emit(str(e))
 
 
+MEDIA_EMOJI_MIME = "application/x-aurapdf-emoji"
+MEDIA_GIF_MIME = "application/x-aurapdf-gif"
+_IMAGE_SUFFIXES = (".png", ".jpg", ".jpeg", ".webp", ".bmp", ".svg", ".gif")
+
+
+def _text_on(accent: str) -> str:
+    """Vurgu rengi üzerinde okunacak yazı rengini seçer."""
+    return "#17181a" if QColor(accent).lightness() > 170 else "#ffffff"
+
+
+def _start_media_drag(source: QWidget, mime_type: str, payload: str, pixmap: QPixmap):
+    """Emoji veya GIF'i belgeye taşınmak üzere sürüklemeye başlatır."""
+    mime = QMimeData()
+    mime.setData(mime_type, QByteArray(payload.encode("utf-8")))
+    drag = QDrag(source)
+    drag.setMimeData(mime)
+    drag.setPixmap(pixmap)
+    drag.setHotSpot(QPoint(pixmap.width() // 2, pixmap.height() // 2))
+    drag.exec(Qt.DropAction.CopyAction)
+
+
+def _accepts_image_drop(mime: QMimeData) -> bool:
+    if mime.hasImage():
+        return True
+    return any(url.scheme() in ("http", "https") or url.toLocalFile().lower().endswith(_IMAGE_SUFFIXES)
+               for url in mime.urls())
+
+
+def _dropped_image(mime: QMimeData) -> Tuple[str, Optional[bytes], str]:
+    """Bırakılan içerikten (yerel dosya yolu, görsel verisi, web adresi) üçlüsünü çıkarır."""
+    for url in mime.urls():
+        path = url.toLocalFile()
+        if path.lower().endswith(_IMAGE_SUFFIXES):
+            return path, None, ""
+        if url.scheme() in ("http", "https"):
+            return "", None, url.toString()
+    if mime.hasImage():
+        buffer = QBuffer()
+        buffer.open(QBuffer.OpenModeFlag.WriteOnly)
+        QImage(mime.imageData()).save(buffer, "PNG")
+        return "", bytes(buffer.data()), ""
+    return "", None, ""
+
+
+class EmojiDragButton(QPushButton):
+    """Tıklandığında seçilen, sürüklendiğinde belgeye bırakılabilen emoji düğmesi."""
+
+    def __init__(self, emoji_char: str, parent=None):
+        super().__init__(emoji_char, parent)
+        self.emoji_char = emoji_char
+        self._press_pos: Optional[QPoint] = None
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._press_pos = event.position().toPoint()
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event):
+        moved = self._press_pos is not None and (event.buttons() & Qt.MouseButton.LeftButton)
+        if moved and (event.position().toPoint() - self._press_pos).manhattanLength() >= QApplication.startDragDistance():
+            self._press_pos = None
+            self.setDown(False)
+            _start_media_drag(self, MEDIA_EMOJI_MIME, self.emoji_char, self._drag_pixmap())
+            return
+        super().mouseMoveEvent(event)
+
+    def _drag_pixmap(self) -> QPixmap:
+        pix = QPixmap(56, 56)
+        pix.fill(Qt.GlobalColor.transparent)
+        p = QPainter(pix)
+        p.setFont(QFont("Segoe UI Emoji", 30))
+        p.drawText(pix.rect(), Qt.AlignmentFlag.AlignCenter, self.emoji_char)
+        p.end()
+        return pix
+
+
 class EmojiHoverButton(QPushButton):
     """Üzerine gelindiğinde emojinin adını ve detayını haber veren buton."""
     hovered = pyqtSignal(str)
@@ -1900,6 +1978,7 @@ class GifThumbnailCard(QFrame):
         self._gif_data: Optional[bytes] = None
         self._movie: Optional[QMovie] = None
         self._buf: Optional[QBuffer] = None
+        self._press_pos: Optional[QPoint] = None
 
         self.setFixedSize(126, 96)  # 3 sütun için optimize edildi (3 * 126 + boşluklar < 400)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -1912,6 +1991,7 @@ class GifThumbnailCard(QFrame):
         # WhatsApp tarzı tam dolgulu görsel önizleme alanı
         self.lbl_thumb = QLabel()
         self.lbl_thumb.setFixedSize(124, 94)
+        self.lbl_thumb.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
         self.lbl_thumb.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.lbl_thumb.setStyleSheet(" border-radius: 4px;  font-size: 11px;")
         self.lbl_thumb.setText("...")
@@ -2030,8 +2110,19 @@ class GifThumbnailCard(QFrame):
 
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
+            self._press_pos = event.position().toPoint()
             self.clicked.emit(self.url)
+            event.accept()
+            return
         super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event):
+        moved = self._press_pos is not None and (event.buttons() & Qt.MouseButton.LeftButton)
+        if moved and self._gif_data and (event.position().toPoint() - self._press_pos).manhattanLength() >= QApplication.startDragDistance():
+            self._press_pos = None
+            _start_media_drag(self, MEDIA_GIF_MIME, self.url, self.lbl_thumb.grab())
+            return
+        super().mouseMoveEvent(event)
 
     def mouseDoubleClickEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
@@ -2207,7 +2298,16 @@ class EmojiGifPickerDialog(QDialog):
         self.setWindowTitle("GIF & Emoji")
         self.setMinimumSize(460, 560)
         self.resize(480, 580)
+        self.setAcceptDrops(True)
         self.setStyleSheet(get_dialog_theme_stylesheet(self) + f"""
+            QLabel#MediaDropOverlay {{
+                background-color: {self.card_bg};
+                border: 2px dashed {self.accent};
+                border-radius: 12px;
+                color: {self.text_col};
+                font-size: 15px;
+                font-weight: 600;
+            }}
             QDialog {{
                 background-color: {self.dialog_bg};
                 color: {self.text_col};
@@ -2356,6 +2456,17 @@ class EmojiGifPickerDialog(QDialog):
         self.stacked.addWidget(self.emoji_scroll)
 
         layout.addWidget(self.stacked, 1)
+
+        lbl_drag_hint = QLabel(LanguageManager.tr("media_drag_hint"))
+        lbl_drag_hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        lbl_drag_hint.setStyleSheet(f"color: {self.muted_col}; font-size: 11px; background: transparent; border: none;")
+        layout.addWidget(lbl_drag_hint)
+
+        self.drop_overlay = QLabel(LanguageManager.tr("media_drop_hint"), self)
+        self.drop_overlay.setObjectName("MediaDropOverlay")
+        self.drop_overlay.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.drop_overlay.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+        self.drop_overlay.hide()
 
         # 4. Alt Mod Değiştirici: [ 😄 | GIF ]
         bottom_bar = QHBoxLayout()
@@ -2529,7 +2640,7 @@ class EmojiGifPickerDialog(QDialog):
         end_idx = min(start_idx + self._emoji_batch_size, len(self._current_emoji_list))
         for i in range(start_idx, end_idx):
             em = self._current_emoji_list[i]
-            btn = QPushButton(em)
+            btn = EmojiDragButton(em)
             btn.setFixedSize(48, 48)
             btn.setCursor(Qt.CursorShape.PointingHandCursor)
             btn.setStyleSheet("""
@@ -2925,6 +3036,58 @@ class EmojiGifPickerDialog(QDialog):
         self.selected_emoji = None
         self.accept()
 
+    def fetch_gif_for_drop(self, url: str, on_ready):
+        """Belgeye bırakılan GIF'in kaliteli sürümünü indirip eklenmek üzere iletir."""
+        thumb = GifThumbnailCard._THUMB_CACHE.get(url)
+        full_url = self._gif_full_urls.get(url, url)
+        if full_url == url:
+            if thumb:
+                on_ready(thumb)
+            return
+        self._set_gif_status(LanguageManager.tr("gif_status_downloading"))
+
+        def deliver(_url: str, data: bytes):
+            if data or thumb:
+                self._set_gif_status("")
+                on_ready(data or thumb)
+            else:
+                self._set_gif_status(LanguageManager.tr("gif_status_insert_failed"))
+
+        worker = GifDownloadWorker(full_url)
+        _register_worker(worker)
+        worker.downloaded.connect(deliver)
+        worker.start()
+        self._thumb_workers.append(worker)
+
+    def dragEnterEvent(self, event):
+        if _accepts_image_drop(event.mimeData()):
+            self.drop_overlay.setGeometry(self.rect().adjusted(10, 10, -10, -10))
+            self.drop_overlay.show()
+            self.drop_overlay.raise_()
+            event.acceptProposedAction()
+
+    def dragLeaveEvent(self, event):
+        self.drop_overlay.hide()
+
+    def dropEvent(self, event):
+        self.drop_overlay.hide()
+        path, data, url = _dropped_image(event.mimeData())
+        if path:
+            try:
+                with open(path, "rb") as f:
+                    data = f.read()
+            except OSError:
+                data = None
+        if data:
+            event.acceptProposedAction()
+            self._finish_gif_selection(data)
+        elif url:
+            event.acceptProposedAction()
+            self.set_mode("gif")
+            self.txt_search.setText(url)
+        else:
+            self._set_gif_status(LanguageManager.tr("gif_status_insert_failed"))
+
     def _stop_and_cleanup(self):
         self._stop_all_workers()
         for card in self.gif_cards:
@@ -2947,123 +3110,247 @@ class EmojiGifPickerDialog(QDialog):
         super().closeEvent(event)
 
 
+class AuraImageStage(QFrame):
+    """Görsel önizlemesini gösteren, tıklanabilen ve sürükle-bırak durumunu belirten sahne."""
+    clicked = pyqtSignal()
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setMinimumSize(340, 280)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self.pixmap: Optional[QPixmap] = None
+        self._drag_active = False
+
+    def set_pixmap(self, pixmap: QPixmap):
+        self.pixmap = pixmap
+        self.update()
+
+    def set_drag_active(self, active: bool):
+        self._drag_active = active
+        self.update()
+
+    def enterEvent(self, event):
+        self.update()
+        super().enterEvent(event)
+
+    def leaveEvent(self, event):
+        self.update()
+        super().leaveEvent(event)
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            self.clicked.emit()
+        super().mousePressEvent(event)
+
+    def keyPressEvent(self, event):
+        if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter, Qt.Key.Key_Space):
+            self.clicked.emit()
+            return
+        super().keyPressEvent(event)
+
+    def paintEvent(self, event):
+        pal = get_theme_palette()
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        p.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
+        rect = QRectF(self.rect()).adjusted(1, 1, -1, -1)
+        clip = QPainterPath()
+        clip.addRoundedRect(rect, 12, 12)
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(QColor(pal["card"]))
+        p.drawPath(clip)
+
+        if self.pixmap and not self._drag_active:
+            p.save()
+            p.setClipPath(clip)
+            self._paint_checker(p, rect, pal)
+            fit = QSizeF(self.pixmap.size()).scaled(rect.size() - QSizeF(24, 24), Qt.AspectRatioMode.KeepAspectRatio)
+            target = QRectF(QPointF(0, 0), fit)
+            target.moveCenter(rect.center())
+            p.drawPixmap(target, self.pixmap, QRectF(self.pixmap.rect()))
+            p.restore()
+        else:
+            self._paint_prompt(p, rect, pal)
+
+        highlighted = self._drag_active or self.underMouse() or self.hasFocus()
+        pen = QPen(QColor(pal["accent"] if highlighted else pal["border"]), 1.6 if highlighted else 1.2)
+        if not self.pixmap or self._drag_active:
+            pen.setStyle(Qt.PenStyle.DashLine)
+        p.setPen(pen)
+        p.setBrush(Qt.BrushStyle.NoBrush)
+        p.drawPath(clip)
+        p.end()
+
+    def _paint_checker(self, p: QPainter, rect: QRectF, pal: dict):
+        """Saydam görsellerin zeminden ayırt edilmesi için dama deseni çizer."""
+        square = 12
+        tone = QColor(pal["border"])
+        tone.setAlpha(90)
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(tone)
+        for row in range(int(rect.height() / square) + 1):
+            for col in range(row % 2, int(rect.width() / square) + 1, 2):
+                p.drawRect(QRectF(rect.left() + col * square, rect.top() + row * square, square, square))
+
+    def _paint_prompt(self, p: QPainter, rect: QRectF, pal: dict):
+        size = 44
+        top = rect.center().y() - 52
+        AuraIconFactory.icon_image_gallery(pal["accent"]).paint(
+            p, QRectF(rect.center().x() - size / 2, top, size, size).toRect())
+        font = QFont(self.font())
+        font.setPointSizeF(font.pointSizeF() + 1.5)
+        font.setBold(True)
+        p.setFont(font)
+        p.setPen(QColor(pal["text"]))
+        p.drawText(QRectF(rect.left() + 16, top + size + 10, rect.width() - 32, 24),
+                   Qt.AlignmentFlag.AlignCenter, LanguageManager.tr("media_drop_hint" if self._drag_active else "image_stage_title"))
+        if not self._drag_active:
+            p.setFont(self.font())
+            p.setPen(QColor(pal["muted"]))
+            p.drawText(QRectF(rect.left() + 16, top + size + 36, rect.width() - 32, 22),
+                       Qt.AlignmentFlag.AlignCenter, LanguageManager.tr("image_stage_sub"))
+
+
 class ImageInsertDialog(QDialog):
-    """
-    Tek bir pencere üzerinden:
-    1. Bilgisayardan dosya seçimi
-    2. Web sitesi adresinden (URL) indirme
-    """
+    """Solda görsel kaynağını, sağda canlı önizlemeyi gösteren görsel ekleme penceresi."""
+
     def __init__(self, parent=None, default_tab=0):
         super().__init__(parent)
-        self.setWindowTitle(LanguageManager.tr("insert_image_title", default=LanguageManager.tr("insert_image_title")))
-        self.setMinimumSize(480, 480)
-        self.resize(500, 500)
+        self.setWindowTitle(LanguageManager.tr("insert_image_title"))
+        self.setMinimumSize(700, 460)
+        self.resize(780, 500)
+        self.setAcceptDrops(True)
 
         self.image_bytes: Optional[bytes] = None
         self.image_pixmap: Optional[QPixmap] = None
         self._worker: Optional[ImageDownloadWorker] = None
 
         layout = QVBoxLayout(self)
-        layout.setSpacing(12)
-        layout.setContentsMargins(18, 18, 18, 18)
+        layout.setSpacing(14)
+        layout.setContentsMargins(20, 18, 20, 18)
 
-        self.tabs = QTabWidget()
+        lbl_title = QLabel(LanguageManager.tr("insert_image_title"))
+        lbl_title.setObjectName("ImageDialogTitle")
+        lbl_subtitle = QLabel(LanguageManager.tr("image_dialog_subtitle"))
+        lbl_subtitle.setProperty("class", "muted")
+        heading = QVBoxLayout()
+        heading.setSpacing(2)
+        heading.addWidget(lbl_title)
+        heading.addWidget(lbl_subtitle)
+        layout.addLayout(heading)
 
-        # Sekme 1: Bilgisayardan
-        tab_local = QWidget()
-        tl_layout = QVBoxLayout(tab_local)
-        tl_layout.setSpacing(10)
-        tl_layout.setContentsMargins(14, 14, 14, 14)
+        body = QHBoxLayout()
+        body.setSpacing(16)
+        side = QVBoxLayout()
+        side.setSpacing(12)
 
+        # Kaynak seçici
+        self.source_group = QButtonGroup(self)
+        self.source_group.setExclusive(True)
+        source_bar = QFrame()
+        source_bar.setObjectName("ImageSourceBar")
+        source_row = QHBoxLayout(source_bar)
+        source_row.setContentsMargins(3, 3, 3, 3)
+        source_row.setSpacing(2)
+        for index, key in enumerate(("image_tab_local", "image_tab_url")):
+            btn = QPushButton(LanguageManager.tr(key))
+            btn.setObjectName("ImageSourceBtn")
+            btn.setCheckable(True)
+            btn.setAutoDefault(False)
+            btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            self.source_group.addButton(btn, index)
+            source_row.addWidget(btn, 1)
+        side.addWidget(source_bar)
+
+        self.source_stack = QStackedWidget()
+        self.source_group.idClicked.connect(self.source_stack.setCurrentIndex)
+
+        # Bilgisayardan
+        page_local = QWidget()
+        tl_layout = QVBoxLayout(page_local)
+        tl_layout.setContentsMargins(0, 0, 0, 0)
+        tl_layout.setSpacing(8)
         btn_browse = QPushButton(LanguageManager.tr("ui_bilgisayardan_dosya_sec"))
-        btn_browse.setStyleSheet("""
-            QPushButton {
-                  font-weight: bold;
-                padding: 10px; border-radius: 6px; border: none;
-            }
-            QPushButton:hover {  }
-        """)
+        btn_browse.setIcon(AuraIconFactory.icon_upload())
+        btn_browse.setAutoDefault(False)
+        btn_browse.setCursor(Qt.CursorShape.PointingHandCursor)
         btn_browse.clicked.connect(self._browse_local)
         tl_layout.addWidget(btn_browse)
-
-        self.lbl_local_info = QLabel("Desteklenen formatlar: PNG, JPG, JPEG, WEBP, BMP, SVG, GIF")
-        self.lbl_local_info.setWordWrap(True)
-        self.lbl_local_info.setProperty("class", "muted")
-        self.lbl_local_info.setStyleSheet("font-size: 11px;")
-        tl_layout.addWidget(self.lbl_local_info)
-
-        self.lbl_local_preview = QLabel(LanguageManager.tr("ui_onizleme_yok"))
-        self.lbl_local_preview.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.lbl_local_preview.setStyleSheet(" border-radius: 6px; ")
-        self.lbl_local_preview.setFixedHeight(160)
-        tl_layout.addWidget(self.lbl_local_preview)
-
+        lbl_formats = QLabel(LanguageManager.tr("image_formats_hint"))
+        lbl_formats.setWordWrap(True)
+        lbl_formats.setProperty("class", "muted")
+        tl_layout.addWidget(lbl_formats)
         tl_layout.addStretch()
-        self.tabs.addTab(tab_local, "Bilgisayardan")
+        self.source_stack.addWidget(page_local)
 
-        # Sekme 2: Web Adresi (URL)
-        tab_url = QWidget()
-        tu_layout = QVBoxLayout(tab_url)
-        tu_layout.setSpacing(10)
-        tu_layout.setContentsMargins(14, 14, 14, 14)
-
+        # Web Adresi (URL)
+        page_url = QWidget()
+        tu_layout = QVBoxLayout(page_url)
+        tu_layout.setContentsMargins(0, 0, 0, 0)
+        tu_layout.setSpacing(8)
         lbl_url_desc = QLabel(LanguageManager.tr("ui_web_sitesi_veya_gorsel_adresi_url"))
         lbl_url_desc.setWordWrap(True)
-        lbl_url_desc.setStyleSheet("font-size: 12px; font-weight: bold;")
         tu_layout.addWidget(lbl_url_desc)
-
-        url_input_box = QHBoxLayout()
         self.txt_url = QLineEdit()
-        self.txt_url.setPlaceholderText("https://ornek.com/resim.jpg")
-        btn_fetch = QPushButton(LanguageManager.tr("ui_indir_ve_onizle"))
-        btn_fetch.setStyleSheet("""
-            QPushButton {
-                  font-weight: bold;
-                padding: 8px 14px; border-radius: 6px; border: none;
-            }
-            QPushButton:hover {  }
-        """)
-        btn_fetch.clicked.connect(self._fetch_url)
-        url_input_box.addWidget(self.txt_url)
-        url_input_box.addWidget(btn_fetch)
-        tu_layout.addLayout(url_input_box)
-
+        self.txt_url.setPlaceholderText(LanguageManager.tr("image_url_placeholder"))
+        self.txt_url.returnPressed.connect(self._fetch_url)
+        tu_layout.addWidget(self.txt_url)
+        self.btn_fetch = QPushButton(LanguageManager.tr("ui_indir_ve_onizle"))
+        self.btn_fetch.setIcon(AuraIconFactory.icon_link())
+        self.btn_fetch.setAutoDefault(False)
+        self.btn_fetch.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_fetch.clicked.connect(self._fetch_url)
+        tu_layout.addWidget(self.btn_fetch)
         self.progress_bar = QProgressBar()
         self.progress_bar.setRange(0, 0)
+        self.progress_bar.setTextVisible(False)
         self.progress_bar.setFixedHeight(4)
         self.progress_bar.hide()
         tu_layout.addWidget(self.progress_bar)
-
-        self.lbl_url_preview = QLabel(LanguageManager.tr("ui_onizleme_yok"))
-        self.lbl_url_preview.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.lbl_url_preview.setStyleSheet(" border-radius: 6px; ")
-        self.lbl_url_preview.setFixedHeight(150)
-        tu_layout.addWidget(self.lbl_url_preview)
-
-        self.lbl_url_status = QLabel("")
-        self.lbl_url_status.setStyleSheet(" font-size: 11px;")
-        tu_layout.addWidget(self.lbl_url_status)
-
         tu_layout.addStretch()
-        self.tabs.addTab(tab_url, "Web Adresi (URL)")
+        self.source_stack.addWidget(page_url)
+        side.addWidget(self.source_stack, 1)
 
-        self.tabs.setCurrentIndex(default_tab)
-        layout.addWidget(self.tabs)
+        self.lbl_status = QLabel("")
+        self.lbl_status.setObjectName("ImageStatus")
+        self.lbl_status.setWordWrap(True)
+        side.addWidget(self.lbl_status)
 
-        # En-boy oranını koru seçeneği
         self.chk_keep_aspect = QCheckBox(LanguageManager.tr("ui_en_boy_oranini_koru"))
         self.chk_keep_aspect.setChecked(True)
-        self.chk_keep_aspect.setStyleSheet(" font-size: 12px; margin-top: 4px; margin-bottom: 4px;")
-        layout.addWidget(self.chk_keep_aspect)
+        side.addWidget(self.chk_keep_aspect)
+
+        side_host = QWidget()
+        side_host.setFixedWidth(270)
+        side_host.setLayout(side)
+        side.setContentsMargins(0, 0, 0, 0)
+        body.addWidget(side_host)
+
+        # Önizleme
+        preview_col = QVBoxLayout()
+        preview_col.setSpacing(6)
+        self.stage = AuraImageStage()
+        self.stage.setToolTip(LanguageManager.tr("ui_gorsel_sec"))
+        self.stage.clicked.connect(self._browse_local)
+        preview_col.addWidget(self.stage, 1)
+        self.lbl_info = QLabel(LanguageManager.tr("ui_onizleme_yok"))
+        self.lbl_info.setProperty("class", "muted")
+        self.lbl_info.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        preview_col.addWidget(self.lbl_info)
+        body.addLayout(preview_col, 1)
+        layout.addLayout(body, 1)
 
         # Alt Butonlar
         btn_box = QHBoxLayout()
         btn_cancel = QPushButton(LanguageManager.tr("btn_cancel", default=LanguageManager.tr("cancel")))
         btn_cancel.setObjectName("CancelBtn")
+        btn_cancel.setAutoDefault(False)
         btn_cancel.clicked.connect(self.reject)
 
         self.btn_insert = QPushButton(LanguageManager.tr("btn_insert", default=LanguageManager.tr("btn_insert")))
         self.btn_insert.setObjectName("PrimaryBtn")
+        self.btn_insert.setAutoDefault(False)
         self.btn_insert.setEnabled(False)
         self.btn_insert.clicked.connect(self.accept)
 
@@ -3072,11 +3359,67 @@ class ImageInsertDialog(QDialog):
         btn_box.addWidget(self.btn_insert)
         layout.addLayout(btn_box)
 
-        apply_dialog_theme(self, parent)
+        self._select_source(default_tab)
+        pal = get_theme_palette(parent)
+        apply_dialog_theme(self, parent, extra_css=f"""
+            QLabel#ImageDialogTitle {{ font-size: 16px; font-weight: 600; }}
+            QLabel#ImageStatus {{ font-size: 11px; color: {pal['muted']}; }}
+            QFrame#ImageSourceBar {{
+                background-color: {pal['card']};
+                border: 1px solid {pal['border']};
+                border-radius: 9px;
+            }}
+            QPushButton#ImageSourceBtn {{
+                background-color: transparent;
+                border: none;
+                border-radius: 7px;
+                padding: 6px 8px;
+                color: {pal['muted']};
+                font-weight: 600;
+            }}
+            QPushButton#ImageSourceBtn:hover {{ color: {pal['text']}; }}
+            QPushButton#ImageSourceBtn:focus {{ border: 1px solid {pal['accent']}; }}
+            QPushButton#ImageSourceBtn:checked {{
+                background-color: {pal['accent']};
+                color: {_text_on(pal['accent'])};
+            }}
+        """)
 
     @property
     def keep_aspect_ratio(self) -> bool:
         return self.chk_keep_aspect.isChecked()
+
+    def _select_source(self, index: int):
+        self.source_group.button(index).setChecked(True)
+        self.source_stack.setCurrentIndex(index)
+
+    def _set_image(self, data: bytes, name: str = "") -> bool:
+        """Veriyi çözer, önizlemeye alır ve bilgi satırını günceller."""
+        img = QImage()
+        img.loadFromData(data)
+        if img.isNull():
+            self.lbl_status.setText(LanguageManager.tr("image_dialog_invalid"))
+            return False
+        self.image_bytes = data
+        self.image_pixmap = QPixmap.fromImage(img)
+        self.stage.set_pixmap(self.image_pixmap)
+        size_text = f"{len(data) / 1024:.0f} KB" if len(data) < 1024 * 1024 else f"{len(data) / 1048576:.1f} MB"
+        parts = [name] if name else []
+        parts += [f"{img.width()} × {img.height()} px", size_text]
+        self.lbl_info.setText(self.lbl_info.fontMetrics().elidedText(
+            "  ·  ".join(parts), Qt.TextElideMode.ElideMiddle, max(120, self.stage.width())))
+        self.lbl_status.setText("")
+        self.btn_insert.setEnabled(True)
+        return True
+
+    def _load_file(self, path: str):
+        try:
+            with open(path, "rb") as f:
+                data = f.read()
+        except OSError:
+            self.lbl_status.setText(LanguageManager.tr("image_dialog_invalid"))
+            return
+        self._set_image(data, os.path.basename(path))
 
     def _browse_local(self):
         fpath, _ = QFileDialog.getOpenFileName(
@@ -3084,18 +3427,30 @@ class ImageInsertDialog(QDialog):
             LanguageManager.tr("ui_gorseller_png_jpg_jpeg_webp_bmp")
         )
         if fpath and os.path.exists(fpath):
-            with open(fpath, "rb") as f:
-                self.image_bytes = f.read()
+            self._load_file(fpath)
 
-            img = QImage()
-            img.loadFromData(self.image_bytes)
-            if not img.isNull():
-                pix = QPixmap.fromImage(img)
-                self.image_pixmap = pix
-                scaled = pix.scaled(self.lbl_local_preview.size(), Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
-                self.lbl_local_preview.setPixmap(scaled)
-                self.lbl_local_info.setText(LanguageManager.tr("ui_secilen_dosya_x_px", value=os.path.basename(fpath), value2=img.width(), value3=img.height()))
-                self.btn_insert.setEnabled(True)
+    def dragEnterEvent(self, event):
+        if _accepts_image_drop(event.mimeData()):
+            self.stage.set_drag_active(True)
+            event.acceptProposedAction()
+
+    def dragLeaveEvent(self, event):
+        self.stage.set_drag_active(False)
+
+    def dropEvent(self, event):
+        self.stage.set_drag_active(False)
+        path, data, url = _dropped_image(event.mimeData())
+        if path:
+            self._load_file(path)
+        elif data:
+            self._set_image(data)
+        elif url:
+            self._select_source(1)
+            self.txt_url.setText(url)
+            self._fetch_url()
+        else:
+            return
+        event.acceptProposedAction()
 
     def _fetch_url(self):
         url = self.txt_url.text().strip()
@@ -3105,8 +3460,8 @@ class ImageInsertDialog(QDialog):
             url = "https://" + url
 
         self.progress_bar.show()
-        self.lbl_url_status.setText(LanguageManager.tr("ui_gorsel_indiriliyor"))
-        self.lbl_url_status.setStyleSheet("")
+        self.btn_fetch.setEnabled(False)
+        self.lbl_status.setText(LanguageManager.tr("ui_gorsel_indiriliyor"))
 
         self._worker = ImageDownloadWorker(url)
         _register_worker(self._worker)
@@ -3116,21 +3471,14 @@ class ImageInsertDialog(QDialog):
 
     def _on_fetch_success(self, data: bytes, info: str):
         self.progress_bar.hide()
-        self.image_bytes = data
-        img = QImage()
-        img.loadFromData(data)
-        pix = QPixmap.fromImage(img)
-        self.image_pixmap = pix
-        scaled = pix.scaled(self.lbl_url_preview.size(), Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
-        self.lbl_url_preview.setPixmap(scaled)
-        self.lbl_url_status.setText(LanguageManager.tr("ui_gorsel_basariyla_indirildi", info=info))
-        self.lbl_url_status.setStyleSheet("")
-        self.btn_insert.setEnabled(True)
+        self.btn_fetch.setEnabled(True)
+        if self._set_image(data):
+            self.lbl_status.setText(LanguageManager.tr("ui_gorsel_basariyla_indirildi", info=info))
 
     def _on_fetch_error(self, err_msg: str):
         self.progress_bar.hide()
-        self.lbl_url_status.setText(LanguageManager.tr("ui_indirilemedi", err_msg=err_msg))
-        self.lbl_url_status.setStyleSheet("")
+        self.btn_fetch.setEnabled(True)
+        self.lbl_status.setText(LanguageManager.tr("ui_indirilemedi", err_msg=err_msg))
 
     def _cleanup_worker(self):
         if self._worker:

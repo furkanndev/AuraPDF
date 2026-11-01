@@ -5,6 +5,8 @@ from PyQt6.QtCore import QPointF, QSettings, Qt, QObject, QEvent
 from PyQt6.QtGui import QColor, QPainter, QPen, QPixmap
 from PyQt6.QtWidgets import QFrame, QLabel, QHBoxLayout, QVBoxLayout
 
+from src.ui.ui_style import STYLE_DIALOG_PALETTES, get_style_css
+
 THEME_PALETTES = {
     "gray": {
         "bg": "#2b2d30",
@@ -70,6 +72,7 @@ THEME_PALETTES = {
         "muted": "#cbd5e1",
     },
 }
+THEME_PALETTES.update(STYLE_DIALOG_PALETTES)
 # Geriye dönük uyumluluk ve güvenli eşleme:
 THEME_PALETTES["light"] = THEME_PALETTES["gray"]
 THEME_PALETTES["dark"] = THEME_PALETTES["gray"]
@@ -921,9 +924,9 @@ def apply_dialog_theme(dialog: Any, parent: Optional[Any] = None, extra_css: str
         pass
     pal = get_theme_palette(parent)
     caption_css = f"QLabel#DialogCaption {{ color: {pal['muted']}; font-size: 11px; }}\n"
-    dialog.setStyleSheet(get_dialog_theme_stylesheet(parent, get_surface_css(pal) + caption_css + extra_css))
-
     curr_theme = get_current_theme(parent)
+    style_css = get_style_css(curr_theme)
+    dialog.setStyleSheet(get_dialog_theme_stylesheet(parent, get_surface_css(pal) + caption_css + style_css + extra_css))
 
     # 1. AuraStepper / AuraSpinBox / AuraDoubleSpinBox çocuk bileşenlerini tema ile senkronize et
     try:

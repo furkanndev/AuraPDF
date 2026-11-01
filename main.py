@@ -274,6 +274,8 @@ def main():
         pass
 
     app = QApplication(sys.argv)
+    from src.ui.ui_style import install_stylesheet_shaper
+    install_stylesheet_shaper()
     from PyQt6.QtCore import QSettings
     settings = QSettings("AuraPDF", "PDFViewer")
     try:
@@ -305,6 +307,9 @@ def main():
     """)
     app_icon = AuraIconFactory.icon_app()
     app.setWindowIcon(app_icon)
+
+    from src.ui.animations import AuraMotion
+    AuraMotion.install(app)
 
     # Windows Dosya Gezgini PDF kucuk resim onizlemesi (temiz, sag-alt rozetsiz)
     # Yalnızca paketlenmiş/kurulu sürümde çalıştırılır (geliştirme ortamında sisteme müdahale edilmez)
