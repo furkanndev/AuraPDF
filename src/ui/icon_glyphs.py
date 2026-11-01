@@ -150,6 +150,10 @@ GLYPHS: Dict[str, Tuple[str, ...]] = {
     "select_pan": ("M8 11.5V6Q8 4.75 9.25 4.75Q10.5 4.75 10.5 6V11", "M10.5 10.5V4.5Q10.5 3.25 11.75 3.25Q13 3.25 13 4.5V10.5", "M13 10.5V5.5Q13 4.25 14.25 4.25Q15.5 4.25 15.5 5.5V11", "M15.5 11V7.5Q15.5 6.25 16.75 6.25Q18 6.25 18 7.5V14.5Q18 20.5 12.5 20.5Q9 20.5 7 17.5L4.5 13.5Q4 12.25 5.25 11.75Q6.25 11.5 7 12.5L8 14V11.5"),
     "ruler": ("M3.5 15.5L15.5 3.5L20.5 8.5L8.5 20.5Z", "M7.5 11.5L9.5 13.5", "M10.5 8.5L12.5 10.5", "M13.5 5.5L15.5 7.5"),
     "pen": (_PENCIL, "M14 6.5L17.5 10"),
+    "pen_pencil": ("M4 20L5 15.5L15.5 5Q17 3.5 18.5 5L19 5.5Q20.5 7 19 8.5L8.5 19Z", "M5 15.5L8.5 19", "M13.5 7L17 10.5"),
+    "pen_fountain": ("M12 21L6 12L9 4H15L18 12Z", "M12 21V14", "c 12 12.5 1.5"),
+    "pen_brush": ("M20.5 3.5L12 12", "M12 12Q8 11 7 14Q6.5 17 3.5 18Q9 21.5 12 18.5Q14.5 16 13 13Z"),
+    "marker": ("M6.5 14.5L15 6L18 9L9.5 17.5Z", "M6.5 14.5L4 20L9.5 17.5", "M15 6L17 4L20 7L18 9"),
     "highlighter": ("M9 15L5 19H10L13 16", "M9 15L16.5 5Q18 3.5 19.5 5Q21 6.5 19.5 8L13 16Z", "M4 21H20"),
     "eraser": ("M8.5 20L4 15.5Q3 14.5 4 13.5L13 4.5Q14 3.5 15 4.5L20 9.5Q21 10.5 20 11.5L11.5 20Z", "M8.5 9L15.5 16", "M8.5 20H20"),
     "pointer": ("c 12 12 3", "M12 3.5V6", "M12 18V20.5", "M3.5 12H6", "M18 12H20.5", "M6 6L7.75 7.75", "M16.25 16.25L18 18", "M18 6L16.25 7.75", "M7.75 16.25L6 18"),
@@ -193,7 +197,7 @@ SEMANTIC_GLYPHS = {"check", "cross", "warning"}
 
 # Araç ve özellik ikonları, çağıran yerin verdiği kendi rengini korur.
 COLORFUL_GLYPHS = {
-    "pen", "highlighter", "eraser", "text_tool", "comments", "pointer", "insert", "select_rect",
+    "pen", "pen_pencil", "pen_fountain", "pen_brush", "marker", "highlighter", "eraser", "text_tool", "comments", "pointer", "insert", "select_rect",
     "stamp", "signature", "fill_sign", "compress", "ocr", "combine_files", "export_pdf",
     "edit_content", "organize", "lock", "redact", "compare", "prepare_form", "sparkle",
     "trash", "star", "image", "link", "watermark", "new_document", "add_page",

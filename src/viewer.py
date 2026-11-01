@@ -277,6 +277,7 @@ class AuraPDFViewer(QMainWindow):
         self.search_bar = AuraSearchBar(self)
         self.fullscreen_toolbar = FullscreenSlideToolbar(self)
         self.fullscreen_reading_hud = FullscreenReadingHUD(self)
+        self.refresh_tool_variant_icons()
         if self.fullscreen_toolbar.edge == self.fullscreen_reading_hud.edge:
             if self.fullscreen_reading_hud.edge == 'bottom':
                 self.fullscreen_toolbar._apply_edge_layout('left')
@@ -790,8 +791,8 @@ class AuraPDFViewer(QMainWindow):
 
     def _init_popups(self):
         self.cursor_popup = CursorPopup(self, on_mode_change=self.set_cursor_mode)
-        self.hl_popup = ToolSettingsPopup(self, True, True, False, True, on_change_callback=self.update_viewport_cursor, tool_name="highlighter")
-        self.pen_popup = ToolSettingsPopup(self, True, True, on_change_callback=self.update_viewport_cursor, tool_name="pen")
+        self.hl_popup = ToolSettingsPopup(self, True, True, False, True, on_change_callback=self._on_draw_tool_changed, tool_name="highlighter")
+        self.pen_popup = ToolSettingsPopup(self, True, True, on_change_callback=self._on_draw_tool_changed, tool_name="pen")
         self.eraser_popup = ToolSettingsPopup(self, False, False, True, False, on_change_callback=self.update_viewport_cursor, tool_name="eraser")
         self.text_popup = TextSettingsPopup(self, tool_name="text")
         self.selection_popup = SelectionSettingsPopup(self, on_mode_change=self.set_selection_mode)
@@ -828,6 +829,45 @@ class AuraPDFViewer(QMainWindow):
         if hasattr(self, 'cursor_popup'):
             self.cursor_popup.hide()
         self.update_viewport_cursor()
+
+    def _on_draw_tool_changed(self):
+        self.refresh_tool_variant_icons()
+        self.update_viewport_cursor()
+
+    def refresh_tool_variant_icons(self):
+        """Kalem ve vurgulayıcı butonlarını tüm araç çubuklarında son kullanılan türle eşitler."""
+        variants = {
+            "solid": (AuraIconFactory.icon_pen, "pen_ballpoint"),
+            "pencil": (AuraIconFactory.icon_pen_pencil, "pen_pencil"),
+            "calligraphy": (AuraIconFactory.icon_pen_fountain, "pen_fountain"),
+            "brush": (AuraIconFactory.icon_pen_brush, "pen_brush"),
+            "highlighter": (AuraIconFactory.icon_highlighter, "pen_highlighter"),
+            "marker": (AuraIconFactory.icon_marker, "pen_marker"),
+        }
+        bars = [getattr(self, name, None) for name in
+                ('floating_capsule', 'top_pinned_tools_bar', 'left_pinned_tools_bar', 'right_pinned_tools_bar')]
+        fullscreen_bar = getattr(self, 'fullscreen_toolbar', None)
+        # Kalınlık kaydırıcısı gibi sık değişimlerde ikonlar boşuna yeniden kurulmasın
+        state = (getattr(getattr(self, 'pen_popup', None), 'current_pen_type', None),
+                 getattr(getattr(self, 'hl_popup', None), 'hl_type', None),
+                 fullscreen_bar is not None, all(bars), LanguageManager.current_lang)
+        if state == getattr(self, '_tool_variant_state', None):
+            return
+        self._tool_variant_state = state
+        for tool, popup, kind, color, button in (
+            ('pen', getattr(self, 'pen_popup', None), 'current_pen_type', "#0284c7", getattr(self, 'btn_pen', None)),
+            ('highlighter', getattr(self, 'hl_popup', None), 'hl_type', "#eab308", getattr(self, 'btn_hl', None)),
+        ):
+            icon_method, tip_key = variants.get(getattr(popup, kind, None), variants['solid' if tool == 'pen' else 'highlighter'])
+            tip = LanguageManager.tr(tip_key)
+            icon_func = lambda m=icon_method, c=color: m(c)
+            if button is not None:
+                button.setIcon(icon_method())
+            for bar in bars:
+                if bar:
+                    bar.update_tool_variant(tool, icon_func, tip)
+            if fullscreen_bar:
+                fullscreen_bar.update_tool_variant(tool, icon_func(), tip)
 
     def set_selection_mode(self, mode):
         if mode == 'select':
@@ -1323,6 +1363,7 @@ class AuraPDFViewer(QMainWindow):
         self.top_pinned_tools_bar.set_tools_order(self.floating_capsule.tool_order)
         self.left_pinned_tools_bar.set_tools_order(self.floating_capsule.tool_order)
         self.right_pinned_tools_bar.set_tools_order(self.floating_capsule.tool_order)
+        self.refresh_tool_variant_icons()
 
         self.central_stack.installEventFilter(self)
         if hasattr(self, 'tab_widget') and hasattr(self.tab_widget, 'tabBar') and self.tab_widget.tabBar():

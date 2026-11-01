@@ -829,14 +829,19 @@ class TextPreviewWidget(QFrame):
         self.bold = False
         self.italic = False
         self.underline = False
+        self.strikeout = False
+        self.box_bg_color = None
 
-    def update_style(self, color, font_size, font_family, bold=False, italic=False, underline=False):
+    def update_style(self, color, font_size, font_family, bold=False, italic=False, underline=False,
+                     strikeout=False, box_bg_color=None):
         self.color = color
         self.font_size = font_size
         self.font_family = font_family
         self.bold = bold
         self.italic = italic
         self.underline = underline
+        self.strikeout = strikeout
+        self.box_bg_color = box_bg_color
         self.update()
 
     def retranslate_ui(self):
@@ -851,7 +856,8 @@ class TextPreviewWidget(QFrame):
 
         # Clean document canvas sheet (solid background with subtle border, no split line)
         p.setPen(QPen(QColor("#cbd5e1"), 1.0))
-        p.setBrush(QBrush(QColor("#f8fafc")))
+        canvas = QColor(self.box_bg_color or "#f8fafc")
+        p.setBrush(QBrush(canvas))
         p.drawRoundedRect(QRectF(0.5, 0.5, w - 1.0, h - 1.0), 6.0, 6.0)
 
         display_size = max(10, min(int(self.font_size), 20))
@@ -859,6 +865,7 @@ class TextPreviewWidget(QFrame):
         font.setBold(self.bold)
         font.setItalic(self.italic)
         font.setUnderline(self.underline)
+        font.setStrikeOut(self.strikeout)
         p.setFont(font)
 
         sample = LanguageManager.tr("sample_text")
@@ -866,7 +873,7 @@ class TextPreviewWidget(QFrame):
 
         # If text color is very light (e.g. white, light yellow), draw a soft contrast shadow/halo
         # so it is crystal clear on the light paper background without needing awkward split screens!
-        if self.color.lightnessF() > 0.65:
+        if self.color.lightnessF() > 0.65 and canvas.lightnessF() > 0.65:
             halo_color = QColor(30, 41, 59, 150)
             p.setPen(halo_color)
             for dx, dy in ((-1.0, 0.0), (1.0, 0.0), (0.0, -1.0), (0.0, 1.0), (-1.0, -1.0), (1.0, 1.0)):
@@ -1218,6 +1225,7 @@ class TextSettingsPopup(BaseSettingsPopup):
     def _on_box_bg_selected(self, color):
         self.box_bg_color = color
         self._update_box_bg_styles()
+        self.update_preview()
         it = self._get_target_text_item()
         if it and hasattr(it, 'set_box_background'):
             it.set_box_background(color)
@@ -1329,7 +1337,8 @@ class TextSettingsPopup(BaseSettingsPopup):
 
     def update_preview(self):
         self.preview.update_style(self.color, self.font_size, self.font_family,
-                                  self.bold, self.italic, self.underline)
+                                  self.bold, self.italic, self.underline,
+                                  self.btn_strike.isChecked(), self.box_bg_color)
 
     def sync_with_item_selection(self, item):
         if not item or not hasattr(item, 'get_selection_format'):
@@ -1359,7 +1368,7 @@ class TextSettingsPopup(BaseSettingsPopup):
                 self.btn_link.style().unpolish(self.btn_link)
                 self.btn_link.style().polish(self.btn_link)
                 self.btn_link.setToolTip(LanguageManager.tr("ui_baglantiyi_kaldir_hyperlink") if is_l else LanguageManager.tr("ui_metne_web_baglantisi_hyperlink_ekle"))
-            for btn in (self.btn_bold, self.btn_italic, self.btn_underline):
+            for btn in (self.btn_bold, self.btn_italic, self.btn_underline, self.btn_strike):
                 btn.setProperty("checked", btn.isChecked())
                 btn.style().unpolish(btn)
                 btn.style().polish(btn)

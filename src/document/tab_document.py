@@ -6306,6 +6306,12 @@ class PDFTabDocument(QWidget):
         )
         item.set_box_background(getattr(popup, 'box_bg_color', None), commit=False)
         self.scene.addItem(item)
+        if popup.btn_strike.isChecked():
+            cursor = item.textCursor()
+            fmt = cursor.charFormat()
+            fmt.setFontStrikeOut(True)
+            cursor.setCharFormat(fmt)
+            item.setTextCursor(cursor)
         self.active_text_item = item
 
     def commit_inline_text(self, item):
