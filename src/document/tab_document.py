@@ -1,5 +1,6 @@
 import os
 import math
+import copy
 import uuid
 import random
 import json
@@ -8988,6 +8989,25 @@ class PDFTabDocument(QWidget):
                     self.delete_selected_items()
                     return True
 
+        # Seçili nesneleri Kopyalama (Ctrl+C) ve Yapıştırma (Ctrl+V)
+        if event.type() == QEvent.Type.KeyPress and (event.modifiers() & Qt.KeyboardModifier.ControlModifier):
+            if event.key() == Qt.Key.Key_C:
+                if self.copy_selected_item():
+                    return True
+                elif getattr(self, 'selected_text', ''):
+                    self.copy_selected_text()
+                    return True
+            elif event.key() == Qt.Key.Key_V:
+                active_txt = getattr(self, 'active_text_item', None)
+                is_typing = False
+                if active_txt:
+                    flags = getattr(active_txt, 'textInteractionFlags', lambda: Qt.TextInteractionFlag.NoTextInteraction)()
+                    if (flags & Qt.TextInteractionFlag.TextEditorInteraction):
+                        is_typing = True
+                if not is_typing and self.can_paste_item():
+                    if self.paste_copied_item():
+                        return True
+
         # Bekleyen Damga (Stamp) yerleştirme modu aktifse fare olaylarını yakala
         if getattr(self, 'pending_stamp', None):
             if event.type() == QEvent.Type.MouseMove:
@@ -9110,6 +9130,9 @@ class PDFTabDocument(QWidget):
                     if getattr(self, 'selected_text', ''):
                         self._show_text_context_menu(self.view.viewport().mapToGlobal(event.pos()))
                         return True
+                    elif self.can_paste_item():
+                        self._show_page_context_menu(self.view.viewport().mapToGlobal(event.pos()), pos)
+                        return True
 
             # 4. Fare Sürükleme (Move with Left Button): Yorum taşıma veya metin seçimi güncelleme
             elif event.type() == QEvent.Type.MouseMove and (event.buttons() & Qt.MouseButton.LeftButton):
@@ -9224,6 +9247,9 @@ class PDFTabDocument(QWidget):
                     pass
                 g_pos = self.view.viewport().mapToGlobal(event.pos())
                 if self.show_tool_quick_menu(g_pos, tool):
+                    return True
+                elif self.can_paste_item():
+                    self._show_page_context_menu(g_pos, pos)
                     return True
         elif event.type() == event.Type.MouseMove:
             if event.buttons() & Qt.MouseButton.LeftButton:
@@ -9436,6 +9462,273 @@ class PDFTabDocument(QWidget):
         self.selected_text = ""
         if getattr(self, 'text_selection_hud', None):
             self.text_selection_hud.hide()
+
+    def get_item_copy_data(self, item) -> Optional[dict]:
+        """Verilen sahne öğesinin kopyalanabilir veri kaydını döner."""
+        if not item:
+            return None
+        from src.document.media_items import PDFTableItem, PDFResizableImageItem, PDFAudioItem, PDFVideoItem
+        from src.ui.widgets import EditableInlineTextItem, TextMoveHandleItem
+
+        # Taşıma tutamacı ise asıl metin kutusunu referans al
+        if isinstance(item, TextMoveHandleItem):
+            item = getattr(item, 'parent_text_item', None)
+        if not item:
+            return None
+
+        if isinstance(item, EditableInlineTextItem):
+            if hasattr(self, 'commit_inline_text'):
+                self.commit_inline_text(item)
+            for d in self.drawings:
+                if d.get("item_ref") == item:
+                    rec = dict(d)
+                    rec.pop("item_ref", None)
+                    return copy.deepcopy(rec)
+
+            content = item.toPlainText().strip()
+            br = item.boundingRect()
+            p_info = self.page_positions.get(item.page_idx, {}) if hasattr(self, 'page_positions') else {}
+            page_left = p_info.get('left', 0.0)
+            page_top = p_info.get('top', 0.0)
+            rel_x = max(0.0, (item.pos().x() - page_left) / self.base_render_dpi)
+            rel_y = max(0.0, (item.pos().y() - page_top) / self.base_render_dpi)
+            return {
+                "type": "text", "page": item.page_idx, "text": content,
+                "html": item.toHtml() if hasattr(item, 'toHtml') else "",
+                "fragments": item.get_fragments() if hasattr(item, 'get_fragments') else None,
+                "bg_color": getattr(item, 'box_bg_color', None),
+                "font_size": item.font_size, "font_family": item.font_family,
+                "color": item.text_color, "x": rel_x, "y": rel_y,
+                "w": br.width() / self.base_render_dpi,
+                "h": br.height() / self.base_render_dpi,
+                "bold": getattr(item, 'bold', False),
+                "italic": getattr(item, 'italic', False),
+                "underline": getattr(item, 'underline', False),
+                "alignment": getattr(item, 'alignment_str', 'left'),
+                "link_url": getattr(item, 'link_url', ""),
+                "link_type": getattr(item, 'link_type', ""),
+                "link_raw": getattr(item, 'link_raw', ""),
+                "link_text": getattr(item, 'link_text', ""),
+                "link_range": getattr(item, 'link_range', None),
+                "manual_link": getattr(item, 'manual_link', False)
+            }
+
+        elif isinstance(item, (PDFTableItem, PDFResizableImageItem, PDFAudioItem, PDFVideoItem)):
+            if hasattr(item, '_sync_record'):
+                item._sync_record()
+            rec = getattr(item, 'record', None)
+            if rec:
+                rec_copy = dict(rec)
+                rec_copy.pop("item_ref", None)
+                return copy.deepcopy(rec_copy)
+
+        return None
+
+    def copy_selected_item(self, item=None) -> bool:
+        """Seçili metin kutusu, tablo, görsel/GIF veya ses kartını panoya kopyalar."""
+        # 1. Metin kutusu içinde aktif bir karakter seçimi varsa normal metin kopyalamaya bırak
+        active_txt = getattr(self, 'active_text_item', None)
+        if active_txt and (getattr(active_txt, 'textInteractionFlags', lambda: Qt.TextInteractionFlag.NoTextInteraction)() & Qt.TextInteractionFlag.TextEditorInteraction):
+            cur = active_txt.textCursor() if hasattr(active_txt, 'textCursor') else None
+            if cur and cur.hasSelection():
+                return False
+
+        # 2. Seçili sahne nesnelerini kontrol et
+        target_item = item
+        if not target_item and self.scene:
+            sel_items = self.scene.selectedItems()
+            for it in sel_items:
+                data = self.get_item_copy_data(it)
+                if data:
+                    target_item = it
+                    break
+
+        if not target_item and active_txt:
+            if self.get_item_copy_data(active_txt):
+                target_item = active_txt
+
+        if not target_item and getattr(self, 'last_text_item', None):
+            if self.get_item_copy_data(self.last_text_item):
+                target_item = self.last_text_item
+
+        if not target_item:
+            return False
+
+        item_data = self.get_item_copy_data(target_item)
+        if not item_data:
+            return False
+
+        # Panoda sakla
+        if self.main_window:
+            self.main_window._clipboard_item_data = copy.deepcopy(item_data)
+        self._clipboard_item_data = copy.deepcopy(item_data)
+
+        # Sistem panosunu da güncelle
+        try:
+            cb = QApplication.clipboard()
+            itype = item_data.get("type")
+            if itype == "text":
+                cb.setText(item_data.get("text", ""))
+            elif itype == "image" and item_data.get("image_bytes"):
+                qimg = QImage()
+                qimg.loadFromData(item_data["image_bytes"])
+                if not qimg.isNull():
+                    cb.setImage(qimg)
+            elif itype == "table":
+                cells = item_data.get("cell_data", [])
+                tsv = "\n".join(["\t".join(str(c) for c in row) for row in cells])
+                cb.setText(tsv)
+            elif itype == "audio":
+                cb.setText(item_data.get("card_title") or item_data.get("title") or LanguageManager.tr("audio_note_title"))
+        except Exception:
+            pass
+
+        status_bar = getattr(self.main_window, "statusBar", lambda: None)()
+        if status_bar:
+            status_bar.showMessage(LanguageManager.tr("ui_item_copied"), 2500)
+        return True
+
+    def can_paste_item(self) -> bool:
+        """Panoda yapıştırılabilecek bir nesne veya sistem görseli olup olmadığını döner."""
+        if self.main_window and hasattr(self.main_window, '_clipboard_item_data') and self.main_window._clipboard_item_data:
+            return True
+        if hasattr(self, '_clipboard_item_data') and self._clipboard_item_data:
+            return True
+        try:
+            cb = QApplication.clipboard()
+            img = cb.image()
+            if img and not img.isNull():
+                return True
+        except Exception:
+            pass
+        return False
+
+    def paste_copied_item(self, pos: Optional[QPointF] = None, page_idx: Optional[int] = None) -> bool:
+        """Kopyalanan metin kutusu, tablo, görsel/GIF veya ses kartını hedef sayfaya birebir yapıştırır."""
+        clip_data = None
+        if self.main_window and hasattr(self.main_window, '_clipboard_item_data') and self.main_window._clipboard_item_data:
+            clip_data = self.main_window._clipboard_item_data
+        elif hasattr(self, '_clipboard_item_data') and self._clipboard_item_data:
+            clip_data = self._clipboard_item_data
+
+        if not clip_data:
+            try:
+                cb = QApplication.clipboard()
+                img = cb.image()
+                if img and not img.isNull():
+                    from PyQt6.QtCore import QByteArray, QBuffer
+                    ba = QByteArray()
+                    buf = QBuffer(ba)
+                    buf.open(QBuffer.OpenModeFlag.WriteOnly)
+                    img.save(buf, "PNG")
+                    self.add_image_media(ba.data(), title=LanguageManager.tr("media_title_image"), page_idx=page_idx, pos=pos)
+                    return True
+            except Exception:
+                pass
+            return False
+
+        if self.doc is None or len(self.doc) == 0:
+            return False
+
+        item_data = copy.deepcopy(clip_data)
+        source_page = item_data.get("page", 0)
+
+        target_page = page_idx
+        if target_page is None:
+            if pos is not None:
+                target_page = self.get_page_at_pos(pos)
+            if target_page is None:
+                center_y = self.view.mapToScene(self.view.viewport().rect().center()).y()
+                for p_i, p_b in self.page_positions.items():
+                    if p_b['top'] <= center_y <= p_b['bottom']:
+                        target_page = p_i
+                        break
+            if target_page is None:
+                target_page = getattr(self, 'current_page_idx', 0)
+
+        target_page = max(0, min(target_page, len(self.doc) - 1))
+        p_info = self.page_positions.get(target_page)
+        if not p_info:
+            return False
+
+        page_top = p_info['top']
+        page_left = p_info.get('left', 0.0)
+        page_pdf_w = p_info['width'] / self.base_render_dpi
+        page_pdf_h = p_info['height'] / self.base_render_dpi
+
+        item_w = item_data.get("w", 120.0)
+        item_h = item_data.get("h", 40.0)
+
+        if pos is not None:
+            pdf_x = (pos.x() - page_left) / self.base_render_dpi
+            pdf_y = (pos.y() - page_top) / self.base_render_dpi
+        elif target_page == source_page:
+            pdf_x = item_data.get("x", 40.0) + 15.0
+            pdf_y = item_data.get("y", 40.0) + 15.0
+        else:
+            pdf_x = item_data.get("x", 40.0)
+            pdf_y = item_data.get("y", 40.0)
+
+        pdf_x = max(0.0, min(pdf_x, max(0.0, page_pdf_w - item_w)))
+        pdf_y = max(0.0, min(pdf_y, max(0.0, page_pdf_h - item_h)))
+
+        item_data["page"] = target_page
+        item_data["x"] = pdf_x
+        item_data["y"] = pdf_y
+        item_data.pop("item_ref", None)
+
+        itype = item_data.get("type")
+        self.drawings.append(item_data)
+
+        if itype == "text":
+            self.render_text_item(item_data)
+        elif itype == "image":
+            self.render_image_item(item_data)
+        elif itype == "table":
+            self.render_table_item(item_data)
+        elif itype == "audio":
+            self.render_audio_item(item_data)
+        elif itype == "video":
+            self.render_video_item(item_data)
+        else:
+            return False
+
+        self.push_undo_action({"type": "add", "data": item_data})
+        self.notify_drawings_changed(target_page)
+        self.set_modified(True)
+
+        new_it = item_data.get("item_ref")
+        if new_it:
+            if self.scene:
+                self.scene.clearSelection()
+            new_it.setSelected(True)
+            if itype == "text":
+                self.active_text_item = new_it
+            else:
+                if hasattr(self, 'active_text_item') and self.active_text_item:
+                    if hasattr(self.active_text_item, 'finish_editing'):
+                        try:
+                            self.active_text_item.finish_editing()
+                        except Exception:
+                            pass
+                    self.active_text_item = None
+            self.last_text_item = new_it
+
+        status_bar = getattr(self.main_window, "statusBar", lambda: None)()
+        if status_bar:
+            status_bar.showMessage(LanguageManager.tr("ui_item_pasted"), 2500)
+        return True
+
+    def _show_page_context_menu(self, global_pos: QPoint, scene_pos: QPointF):
+        """Sayfa boşluğuna sağ tıklandığında yapıştırma menüsünü gösterir."""
+        menu = QMenu(self)
+        from src.ui.dialog_theme import apply_dialog_theme
+        if hasattr(self, 'main_window') and self.main_window:
+            apply_dialog_theme(menu, self.main_window)
+        act_paste = menu.addAction(AuraIconFactory.icon_paste(), LanguageManager.tr("paste") + " (Ctrl+V)")
+        chosen = menu.exec(global_pos)
+        if chosen == act_paste:
+            self.paste_copied_item(pos=scene_pos)
 
     def copy_selected_text(self):
         if self.selected_text:

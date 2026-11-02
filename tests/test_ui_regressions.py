@@ -47,6 +47,26 @@ class UiRegressionTests(unittest.TestCase):
         self.assertIsNotNone(checked, "secili gosterge kendi boyutunu tanimlamali")
         self.assertEqual(int(size[1]) + 2 * int(size[2]), int(checked[1]) + 2 * int(checked[2]))
 
+    def test_hyperlink_dialog_uses_theme_palette_and_buttons(self):
+        from src.ui.widgets import AuraLinkInputDialog
+        from PyQt6.QtWidgets import QWidget
+
+        class DummyParent(QWidget):
+            def __init__(self, theme):
+                super().__init__()
+                self.current_theme = theme
+                self.app_font_size = 10
+
+        for theme in ["gray", "emerald", "purple", "crimson", "nord", "vice_city", "apple", "dark"]:
+            parent = DummyParent(theme)
+            dlg = AuraLinkInputDialog(parent, initial_text="AuraPDF", initial_url="https://aurapdf.com", has_existing_link=True)
+            self.assertEqual(dlg.btn_apply.objectName(), "PrimaryBtn")
+            self.assertEqual(dlg.btn_cancel.objectName(), "CancelBtn")
+            self.assertIsNotNone(dlg.btn_remove)
+            self.assertEqual(dlg.btn_remove.objectName(), "DangerBtn")
+            self.assertTrue(dlg.lbl_header.property("class") == "accent-title" or dlg.lbl_header.objectName() == "AccentLabel")
+            dlg.close()
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

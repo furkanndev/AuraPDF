@@ -343,6 +343,8 @@ class AuraPDFViewer(QMainWindow):
         QShortcut(QKeySequence("Shift+F3"), self, activated=self.find_prev)
         QShortcut(QKeySequence("Delete"), self, activated=self.delete_selected_items)
         QShortcut(QKeySequence("Backspace"), self, activated=self.delete_selected_items)
+        QShortcut(QKeySequence.StandardKey.Copy, self, activated=self.copy_selected_item)
+        QShortcut(QKeySequence.StandardKey.Paste, self, activated=self.paste_copied_item)
         QShortcut(QKeySequence("Ctrl+T"), self, activated=self.toggle_toolbar_visibility)
         QShortcut(QKeySequence("Ctrl+Shift+Z"), self, activated=self.redo)
         QShortcut(QKeySequence("Ctrl+S"), self, activated=self.save_pdf)
@@ -764,6 +766,46 @@ class AuraPDFViewer(QMainWindow):
                 if hasattr(it, 'textInteractionFlags') and (it.textInteractionFlags() & Qt.TextInteractionFlag.TextEditorInteraction) and it.hasFocus():
                     return
             doc.delete_selected_items()
+
+    def copy_selected_item(self):
+        focus_w = QApplication.focusWidget()
+        if focus_w:
+            from PyQt6.QtWidgets import QLineEdit, QTextEdit, QPlainTextEdit, QSpinBox, QDoubleSpinBox, QComboBox
+            if isinstance(focus_w, (QLineEdit, QTextEdit, QPlainTextEdit)):
+                focus_w.copy()
+                return
+            if isinstance(focus_w, (QSpinBox, QDoubleSpinBox, QComboBox)):
+                return
+            if getattr(focus_w, 'is_text_input', False):
+                return
+        if doc := self.get_current_tab_doc():
+            if getattr(doc, 'active_text_item', None):
+                it = doc.active_text_item
+                if hasattr(it, 'textInteractionFlags') and (it.textInteractionFlags() & Qt.TextInteractionFlag.TextEditorInteraction) and it.hasFocus():
+                    cur = it.textCursor()
+                    if cur.hasSelection():
+                        QApplication.clipboard().setText(cur.selectedText())
+                        return
+            doc.copy_selected_item()
+
+    def paste_copied_item(self):
+        focus_w = QApplication.focusWidget()
+        if focus_w:
+            from PyQt6.QtWidgets import QLineEdit, QTextEdit, QPlainTextEdit, QSpinBox, QDoubleSpinBox, QComboBox
+            if isinstance(focus_w, (QLineEdit, QTextEdit, QPlainTextEdit)):
+                focus_w.paste()
+                return
+            if isinstance(focus_w, (QSpinBox, QDoubleSpinBox, QComboBox)):
+                return
+            if getattr(focus_w, 'is_text_input', False):
+                return
+        if doc := self.get_current_tab_doc():
+            if getattr(doc, 'active_text_item', None):
+                it = doc.active_text_item
+                if hasattr(it, 'textInteractionFlags') and (it.textInteractionFlags() & Qt.TextInteractionFlag.TextEditorInteraction) and it.hasFocus():
+                    it.textCursor().insertText(QApplication.clipboard().text())
+                    return
+            doc.paste_copied_item()
 
     def undo(self):
         if doc := self.get_current_tab_doc():

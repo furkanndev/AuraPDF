@@ -569,6 +569,11 @@ class PDFTableItem(QGraphicsItem):
 
     def keyPressEvent(self, event):
         if not getattr(self, '_inline_editor', None):
+            if event.modifiers() & Qt.KeyboardModifier.ControlModifier and event.key() == Qt.Key.Key_C:
+                if self.tab_doc and hasattr(self.tab_doc, 'copy_selected_item'):
+                    self.tab_doc.copy_selected_item(self)
+                    event.accept()
+                    return
             if event.key() in (Qt.Key.Key_Delete, Qt.Key.Key_Backspace):
                 self.delete_self()
                 event.accept()
@@ -904,6 +909,8 @@ class PDFTableItem(QGraphicsItem):
         act_add_col = menu.addAction(LanguageManager.tr("table_add_col"))
         act_del_col = menu.addAction(LanguageManager.tr("table_del_col"))
         menu.addSeparator()
+        act_copy = menu.addAction(AuraIconFactory.icon_copy(), LanguageManager.tr("ui_copy_item") + " (Ctrl+C)")
+        menu.addSeparator()
         act_del_table = menu.addAction(AuraIconFactory.icon_trash("#ef4444"), LanguageManager.tr("table_delete"))
 
         action = menu.exec(event.screenPos())
@@ -948,6 +955,9 @@ class PDFTableItem(QGraphicsItem):
             self.add_col(click_c + 1)
         elif action == act_del_col:
             self.delete_col(click_c)
+        elif action == act_copy:
+            if self.tab_doc and hasattr(self.tab_doc, 'copy_selected_item'):
+                self.tab_doc.copy_selected_item(self)
         elif action == act_del_table:
             self.delete_self()
 
@@ -1238,6 +1248,11 @@ class PDFResizableImageItem(QGraphicsItem):
         self.setFocus()
 
     def keyPressEvent(self, event):
+        if event.modifiers() & Qt.KeyboardModifier.ControlModifier and event.key() == Qt.Key.Key_C:
+            if self.tab_doc and hasattr(self.tab_doc, 'copy_selected_item'):
+                self.tab_doc.copy_selected_item(self)
+                event.accept()
+                return
         if event.key() in (Qt.Key.Key_Delete, Qt.Key.Key_Backspace):
             self.delete_self()
             event.accept()
@@ -1446,6 +1461,8 @@ class PDFResizableImageItem(QGraphicsItem):
         act_grid = menu.addAction(AuraIconFactory.icon_all_grid(), LanguageManager.tr("align_to_grid", default="Grid'e Hizala"))
         act_reset = menu.addAction(AuraIconFactory.icon_refresh(), LanguageManager.tr("reset_size", default=LanguageManager.tr("reset_size")))
         menu.addSeparator()
+        act_copy = menu.addAction(AuraIconFactory.icon_copy(), LanguageManager.tr("ui_copy_item") + " (Ctrl+C)")
+        menu.addSeparator()
         act_del = menu.addAction(AuraIconFactory.icon_trash("#ef4444"), LanguageManager.tr("content_btn_delete_img", default=LanguageManager.tr("ui_gorseli_sil")))
 
         action = menu.exec(event.screenPos())
@@ -1493,6 +1510,9 @@ class PDFResizableImageItem(QGraphicsItem):
                 self.update()
                 if hasattr(self.tab_doc, 'notify_drawings_changed'):
                     self.tab_doc.notify_drawings_changed(self.record.get("page"))
+        elif action == act_copy:
+            if self.tab_doc and hasattr(self.tab_doc, 'copy_selected_item'):
+                self.tab_doc.copy_selected_item(self)
         elif action == act_del:
             self.delete_self()
 
@@ -1847,6 +1867,11 @@ class PDFAudioItem(QGraphicsItem):
         self.setFocus()
 
     def keyPressEvent(self, event):
+        if event.modifiers() & Qt.KeyboardModifier.ControlModifier and event.key() == Qt.Key.Key_C:
+            if self.tab_doc and hasattr(self.tab_doc, 'copy_selected_item'):
+                self.tab_doc.copy_selected_item(self)
+                event.accept()
+                return
         if event.key() in (Qt.Key.Key_Delete, Qt.Key.Key_Backspace):
             self.delete_self()
             event.accept()
@@ -2034,6 +2059,8 @@ class PDFAudioItem(QGraphicsItem):
         act_play = menu.addAction(LanguageManager.tr("audio_item_pause" if self.is_playing else "audio_item_play"))
         act_reset = menu.addAction(LanguageManager.tr("ui_varsayilan_boyuta_don_180x48"))
         menu.addSeparator()
+        act_copy = menu.addAction(AuraIconFactory.icon_copy(), LanguageManager.tr("ui_copy_item") + " (Ctrl+C)")
+        menu.addSeparator()
         act_del = menu.addAction(LanguageManager.tr("ui_ses_kaydini_sil"))
 
         action = menu.exec(event.screenPos())
@@ -2061,6 +2088,9 @@ class PDFAudioItem(QGraphicsItem):
             self.update()
             if hasattr(self.tab_doc, 'notify_drawings_changed'):
                 self.tab_doc.notify_drawings_changed(self.record.get("page"))
+        elif action == act_copy:
+            if self.tab_doc and hasattr(self.tab_doc, 'copy_selected_item'):
+                self.tab_doc.copy_selected_item(self)
         elif action == act_del:
             self.delete_self()
 
@@ -2511,6 +2541,11 @@ class PDFVideoItem(QGraphicsItem):
         self.setFocus()
 
     def keyPressEvent(self, event):
+        if event.modifiers() & Qt.KeyboardModifier.ControlModifier and event.key() == Qt.Key.Key_C:
+            if self.tab_doc and hasattr(self.tab_doc, 'copy_selected_item'):
+                self.tab_doc.copy_selected_item(self)
+                event.accept()
+                return
         if event.key() in (Qt.Key.Key_Delete, Qt.Key.Key_Backspace):
             self.delete_self()
             event.accept()
@@ -2679,6 +2714,8 @@ class PDFVideoItem(QGraphicsItem):
         act_aspect.setChecked(self.keep_aspect_ratio)
         act_reset = menu.addAction(LanguageManager.tr("ui_varsayilan_boyuta_don_200x120"))
         menu.addSeparator()
+        act_copy = menu.addAction(AuraIconFactory.icon_copy(), LanguageManager.tr("ui_copy_item") + " (Ctrl+C)")
+        menu.addSeparator()
         act_del = menu.addAction(LanguageManager.tr("ui_videoyu_sil"))
 
         action = menu.exec(event.screenPos())
@@ -2714,6 +2751,9 @@ class PDFVideoItem(QGraphicsItem):
             self.update()
             if hasattr(self.tab_doc, 'notify_drawings_changed'):
                 self.tab_doc.notify_drawings_changed(self.record.get("page"))
+        elif action == act_copy:
+            if self.tab_doc and hasattr(self.tab_doc, 'copy_selected_item'):
+                self.tab_doc.copy_selected_item(self)
         elif action == act_del:
             self.delete_self()
 

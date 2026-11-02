@@ -84,6 +84,7 @@ def test_dialogs():
         ("src.ui.dialogs.toolbox_dialogs", "PDFWatermarkDialog", lambda: (parent,)),
         ("src.ui.dialogs.toolbox_dialogs", "PDFBackgroundDialog", lambda: (parent,)),
         ("src.ui.dialogs.toolbox_dialogs", "PDFPasswordDialog", lambda: (parent,)),
+        ("src.ui.widgets", "AuraLinkInputDialog", lambda: (parent, "example", "https://example.com", True)),
     ]
 
     from src.ui.dialog_theme import apply_dialog_theme

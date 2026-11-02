@@ -16,7 +16,7 @@ from PyQt6.QtCore import (Qt, QPoint, QPointF, QSize, QEvent, QRect, QRectF, QTi
 from src.core.i18n import LanguageManager
 from src.core.hyperlink_detector import detect_hyperlink
 from src.ui.icons import AuraIconFactory
-from src.ui.dialog_theme import apply_dialog_theme
+from src.ui.dialog_theme import apply_dialog_theme, get_theme_palette, AuraInfoCard
 from src.ui.ui_style import get_checked_tool_css
 from PyQt6.QtWidgets import QStyle
 
@@ -24,122 +24,97 @@ from PyQt6.QtWidgets import QStyle
 class AuraLinkInputDialog(QDialog):
     """
     Kullanıcının metin kutusuna veya seçili metne tıklanabilir web bağlantısı (hyperlink)
-    eklemesini sağlayan şık ve modern diyalog.
+    eklemesini sağlayan tüm temalarla (8 tema) uyumlu, şık ve modern diyalog.
     """
     def __init__(self, parent=None, initial_text="", initial_url="", has_existing_link=False):
         super().__init__(parent)
         self.setWindowTitle(LanguageManager.tr("ui_baglanti_hyperlink_ayarlari"))
-        self.setFixedWidth(440)
+        self.setFixedWidth(460)
         self.initial_text = initial_text or ""
-        self.setStyleSheet("""
-            QDialog {
-                background-color: #1e1e20;
-                border: 1px solid rgba(255, 255, 255, 0.1);
-                border-radius: 12px;
-            }
-            QLabel {
-                color: #e2e8f0;
-                font-size: 13px;
-                font-weight: 500;
-            }
-            QLineEdit {
-                background-color: #27272a;
-                color: #ffffff;
-                border: 1px solid rgba(255, 255, 255, 0.1);
-                border-radius: 6px;
-                padding: 9px 12px;
-                font-size: 13px;
-            }
-            QLineEdit:focus {
-                border: 1px solid #0284c7;
-                background-color: #2b2b30;
-            }
-            QPushButton {
-                border-radius: 6px;
-                padding: 8px 18px;
-                font-size: 13px;
-                font-weight: 600;
-            }
-        """)
+        self.remove_link = False
+        self.setSizeGripEnabled(False)
+        self.setWindowFlags(self.windowFlags() & ~Qt.WindowType.WindowContextHelpButtonHint)
+
+        pal = get_theme_palette(parent)
+        accent_color = pal.get("accent", "#38bdf8")
+
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(24, 22, 24, 22)
+        layout.setContentsMargins(22, 20, 22, 20)
         layout.setSpacing(14)
 
-        # Başlık
-        header = QLabel(LanguageManager.tr("ui_metne_web_baglantisi_hyperlink_ekle"))
-        header.setStyleSheet("font-size: 16px; font-weight: bold; color: #38bdf8;")
-        layout.addWidget(header)
+        # Başlık ve İkon
+        header_layout = QHBoxLayout()
+        header_layout.setSpacing(10)
+
+        self.lbl_icon = QLabel(self)
+        self.lbl_icon.setPixmap(AuraIconFactory.icon_link(accent_color).pixmap(22, 22))
+        header_layout.addWidget(self.lbl_icon)
+
+        self.lbl_header = QLabel(LanguageManager.tr("ui_metne_web_baglantisi_hyperlink_ekle"), self)
+        self.lbl_header.setObjectName("AccentLabel")
+        self.lbl_header.setProperty("class", "accent-title")
+        self.lbl_header.setStyleSheet("font-size: 15px; font-weight: bold;")
+        header_layout.addWidget(self.lbl_header, 1)
+        layout.addLayout(header_layout)
 
         # Hedef URL Alanı
-        lbl_url = QLabel(LanguageManager.tr("ui_yonlendirilecek_web_adresi_url"))
+        lbl_url = QLabel(LanguageManager.tr("ui_yonlendirilecek_web_adresi_url"), self)
+        lbl_url.setStyleSheet("font-weight: 600; font-size: 12px;")
         layout.addWidget(lbl_url)
-        self.txt_url = QLineEdit()
+
+        self.txt_url = QLineEdit(self)
         self.txt_url.setPlaceholderText("https://www.google.com")
         self.txt_url.setText(initial_url or "https://")
         self.txt_url.returnPressed.connect(self.accept)
         layout.addWidget(self.txt_url)
 
-        # Bilgilendirme / İpucu
-        hint = QLabel(LanguageManager.tr("ui_baglanti_eklenen_metin_mavi_ve_alti"))
-        hint.setWordWrap(True)
-        hint.setStyleSheet("font-size: 11px; color: #94a3b8; font-style: italic; line-height: 1.4;")
-        layout.addWidget(hint)
+        # Bilgilendirme / İpucu Kartı (Tema uyumlu AuraInfoCard)
+        self.hint_card = AuraInfoCard(
+            text=LanguageManager.tr("ui_baglanti_eklenen_metin_mavi_ve_alti"),
+            parent=self
+        )
+        layout.addWidget(self.hint_card)
 
         # Butonlar
         btn_layout = QHBoxLayout()
         btn_layout.setSpacing(10)
 
-        self.remove_link = False
+        self.btn_remove = None
         if has_existing_link:
-            self.btn_remove = QPushButton(LanguageManager.tr("ui_baglantiyi_kaldir"))
-            self.btn_remove.setStyleSheet("""
-                QPushButton {
-                    background-color: #451a1a;
-                    color: #fca5a5;
-                    border: 1px solid #7f1d1d;
-                }
-                QPushButton:hover {
-                    background-color: #7f1d1d;
-                    color: #ffffff;
-                }
-            """)
+            self.btn_remove = QPushButton(LanguageManager.tr("ui_baglantiyi_kaldir"), self)
+            self.btn_remove.setObjectName("DangerBtn")
+            self.btn_remove.setIcon(AuraIconFactory.icon_trash("#ffffff"))
             self.btn_remove.clicked.connect(self._on_remove)
             btn_layout.addWidget(self.btn_remove)
 
         btn_layout.addStretch()
 
-        btn_cancel = QPushButton(LanguageManager.tr("cancel"))
-        btn_cancel.setStyleSheet("""
-            QPushButton {
-                background-color: #3f3f46;
-                color: #f1f5f9;
-                border: 1px solid #52525b;
-            }
-            QPushButton:hover {
-                background-color: #52525b;
-            }
-        """)
-        btn_cancel.clicked.connect(self.reject)
-        btn_layout.addWidget(btn_cancel)
+        self.btn_cancel = QPushButton(LanguageManager.tr("cancel"), self)
+        self.btn_cancel.setObjectName("CancelBtn")
+        self.btn_cancel.clicked.connect(self.reject)
+        btn_layout.addWidget(self.btn_cancel)
 
-        btn_apply = QPushButton(LanguageManager.tr("save"))
-        btn_apply.setStyleSheet("""
-            QPushButton {
-                background-color: #0284c7;
-                color: #ffffff;
-                border: none;
-            }
-            QPushButton:hover {
-                background-color: #0369a1;
-            }
-        """)
-        btn_apply.clicked.connect(self.accept)
-        btn_layout.addWidget(btn_apply)
+        self.btn_apply = QPushButton(LanguageManager.tr("save"), self)
+        self.btn_apply.setObjectName("PrimaryBtn")
+        self.btn_apply.setDefault(True)
+        self.btn_apply.clicked.connect(self.accept)
+        btn_layout.addWidget(self.btn_apply)
 
         layout.addLayout(btn_layout)
 
+        # Temayı ve aktif font boyutunu pencereye uygula
+        apply_dialog_theme(self, parent)
+
         # Otomatik odaklanma
         QTimer.singleShot(50, self._focus_url)
+
+    def apply_theme(self, theme_name: str = "gray"):
+        pal = get_theme_palette(theme_name)
+        accent = pal.get("accent", "#38bdf8")
+        if hasattr(self, "lbl_icon"):
+            self.lbl_icon.setPixmap(AuraIconFactory.icon_link(accent).pixmap(22, 22))
+        if hasattr(self, "hint_card") and hasattr(self.hint_card, "apply_theme"):
+            self.hint_card.apply_theme(theme_name)
 
     def _focus_url(self):
         self.txt_url.setFocus()
@@ -1242,7 +1217,7 @@ class EditableInlineTextItem(QGraphicsTextItem):
         initial_url = fmt_sel.get("href", "") or getattr(self, "link_url", "") or "https://"
         has_existing = bool(fmt_sel.get("is_link", False)) or bool(getattr(self, "link_url", "")) or getattr(self, "manual_link", False)
 
-        parent_widget = self.scene().views()[0] if self.scene() and self.scene().views() else self.tab_doc.main_window
+        parent_widget = (self.tab_doc.main_window if getattr(self, "tab_doc", None) and getattr(self.tab_doc, "main_window", None) else (self.scene().views()[0] if self.scene() and self.scene().views() else None))
         dlg = AuraLinkInputDialog(
             parent_widget,
             initial_text=initial_word,
@@ -1611,8 +1586,13 @@ class EditableInlineTextItem(QGraphicsTextItem):
         mods = event.modifiers()
         key = event.key()
 
-        # Metin kutusu düzenleme modunda değilken (NoTextInteraction) ve kutu seçiliyken Delete/Backspace ile silme
+        # Metin kutusu düzenleme modunda değilken (NoTextInteraction) ve kutu seçiliyken Delete/Backspace ile silme veya Kopyalama
         if self.textInteractionFlags() == Qt.TextInteractionFlag.NoTextInteraction and self.isSelected():
+            if mods & Qt.KeyboardModifier.ControlModifier and key == Qt.Key.Key_C:
+                if self.tab_doc and hasattr(self.tab_doc, 'copy_selected_item'):
+                    self.tab_doc.copy_selected_item(self)
+                    event.accept()
+                    return
             if key in (Qt.Key.Key_Delete, Qt.Key.Key_Backspace):
                 self.delete_self()
                 event.accept()
@@ -1634,8 +1614,15 @@ class EditableInlineTextItem(QGraphicsTextItem):
                 event.accept()
                 return
 
-        # Klavye kısayolları ile zengin metin biçimlendirme
+        # Klavye kısayolları ile zengin metin biçimlendirme veya Kutu Kopyalama
         if mods & Qt.KeyboardModifier.ControlModifier:
+            if key == Qt.Key.Key_C:
+                cur = self.textCursor()
+                if not cur.hasSelection():
+                    if self.tab_doc and hasattr(self.tab_doc, 'copy_selected_item'):
+                        self.tab_doc.copy_selected_item(self)
+                        event.accept()
+                        return
             if key == Qt.Key.Key_B:
                 fmt = self.get_selection_format()
                 self.apply_format_to_selection(bold=not fmt["bold"])
@@ -1910,6 +1897,8 @@ class EditableInlineTextItem(QGraphicsTextItem):
         menu.addSeparator()
         act_grid = menu.addAction(AuraIconFactory.icon_all_grid(icon_col), LanguageManager.tr("align_to_grid", default="Grid'e Hizala"))
         menu.addSeparator()
+        act_copy_box = menu.addAction(AuraIconFactory.icon_copy(icon_col), LanguageManager.tr("ui_copy_text_box") + " (Ctrl+C)")
+        menu.addSeparator()
         act_delete_box = menu.addAction(LanguageManager.tr("delete_text_box"))
         act_delete_box.setIcon(AuraIconFactory.icon_trash("#ef4444"))
 
@@ -1938,6 +1927,9 @@ class EditableInlineTextItem(QGraphicsTextItem):
         elif chosen == act_grid:
             if hasattr(self.tab_doc, 'snap_item_to_grid'):
                 self.tab_doc.snap_item_to_grid(self, self.page_idx)
+        elif chosen == act_copy_box:
+            if self.tab_doc and hasattr(self.tab_doc, 'copy_selected_item'):
+                self.tab_doc.copy_selected_item(self)
         elif chosen == act_delete_box:
             self.delete_self()
         event.accept()

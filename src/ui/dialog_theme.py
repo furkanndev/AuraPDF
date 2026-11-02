@@ -163,33 +163,45 @@ THEME_PALETTES["custom"] = get_custom_dialog_palette()
 
 def get_current_theme(parent: Optional[Any] = None) -> str:
     """Aktif temayı ana pencereden veya QSettings'ten okur."""
-    th = "gray"
+    th = None
     if parent is not None:
         if hasattr(parent, 'current_theme') and parent.current_theme:
             th = parent.current_theme
         elif hasattr(parent, 'main_window') and hasattr(parent.main_window, 'current_theme') and parent.main_window.current_theme:
             th = parent.main_window.current_theme
-    else:
+        elif hasattr(parent, 'window') and callable(parent.window) and hasattr(parent.window(), 'current_theme') and parent.window().current_theme:
+            th = parent.window().current_theme
+        elif hasattr(parent, 'tab_doc') and hasattr(parent.tab_doc, 'main_window') and hasattr(parent.tab_doc.main_window, 'current_theme') and parent.tab_doc.main_window.current_theme:
+            th = parent.tab_doc.main_window.current_theme
+
+    if not th:
         try:
             settings = QSettings("AuraPDF", "PDFViewer")
             th = settings.value("app_theme", "gray")
         except Exception:
             th = "gray"
-    if th in ("light", "dark"):
+    if th in ("light", "dark") or not th:
         return "gray"
     return th
 
 
 def get_current_font_size(parent: Optional[Any] = None) -> int:
     """Aktif uygulama yazı tipi boyutunu (pt) okur (Varsayılan: 10pt)."""
+    val = None
     if parent is not None:
         if hasattr(parent, 'app_font_size') and parent.app_font_size and int(parent.app_font_size) > 0:
-            return max(8, int(parent.app_font_size))
-        if hasattr(parent, 'main_window') and hasattr(parent.main_window, 'app_font_size') and parent.main_window.app_font_size and int(parent.main_window.app_font_size) > 0:
-            return max(8, int(parent.main_window.app_font_size))
+            val = parent.app_font_size
+        elif hasattr(parent, 'main_window') and hasattr(parent.main_window, 'app_font_size') and parent.main_window.app_font_size and int(parent.main_window.app_font_size) > 0:
+            val = parent.main_window.app_font_size
+        elif hasattr(parent, 'window') and callable(parent.window) and hasattr(parent.window(), 'app_font_size') and parent.window().app_font_size and int(parent.window().app_font_size) > 0:
+            val = parent.window().app_font_size
+    if not val:
+        try:
+            settings = QSettings("AuraPDF", "PDFViewer")
+            val = settings.value("app_font_size", 10)
+        except Exception:
+            val = 10
     try:
-        settings = QSettings("AuraPDF", "PDFViewer")
-        val = settings.value("app_font_size", 10)
         return max(8, int(val)) if val and int(val) > 0 else 10
     except Exception:
         return 10
@@ -938,7 +950,12 @@ def apply_dialog_theme(dialog: Any, parent: Optional[Any] = None, extra_css: str
     except Exception:
         pass
 
-    # 2. AuraInfoCard çocuk bileşenlerini tema ile senkronize et
+    # 2. Dialog apply_theme çağrısı ve AuraInfoCard çocuk bileşenlerini tema ile senkronize et
+    if hasattr(dialog, "apply_theme") and callable(dialog.apply_theme):
+        try:
+            dialog.apply_theme(curr_theme)
+        except Exception:
+            pass
     try:
         for card in dialog.findChildren(AuraInfoCard):
             card.apply_theme(curr_theme)

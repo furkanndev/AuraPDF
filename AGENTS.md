@@ -130,6 +130,8 @@ Bu bölüm, bu projede çalışan tüm yapay zeka araçları (Claude, Codex, Gem
 | Silinmiş modüllere import ve sınıf içinde tekrar eden metot bulunmaz. | `src/`, `main.py` | `tests/test_static_guards.py` |
 | Yer imi ekleme, yeniden adlandırma ve düzenleme akışları temalı `AuraAddBookmarkDialog` kullanır; `QInputDialog.getText` kullanılmaz. | `src/document/tab_document.py`, `src/ui/widgets.py`, `src/ui/dialogs/media_dialogs.py` | `tests/test_static_guards.py` (`BookmarkThemeGuardTests`) |
 | Tablo ekle penceresindeki renk ve şablon düğmeleri sabit renk yerine `_make_item_btn_style()` ile tema paletini kullanır. | `TableInsertDialog` (`src/ui/dialogs/media_dialogs.py`) | Görsel kontrol (offscreen test bu hatayı yakalamaz) |
+| Metin kutusu köprü penceresi (hyperlink) sabit renkler yerine apply_dialog_theme ile 8 temanın paletini, vektörel ikonunu ve temalı butonlarını (PrimaryBtn, CancelBtn, DangerBtn) kullanır. | `AuraLinkInputDialog` (`src/ui/widgets.py`) | `tests/test_ui_regressions.py`, `tests/test_all_dialogs.py` |
+| Metin kutuları, GIF/resimler, tablolar, ses ve video kartları; Ctrl+C / Ctrl+V ve sağ tık bağlam menüsüyle diğer sayfalara birebir koordinat ve özellikleri korunarak kopyalanıp yapıştırılabilir; aynı sayfada +15pt öteleme ile çoğaltılır. | `src/document/tab_document.py`, `src/document/media_items.py`, `src/ui/widgets.py`, `src/viewer.py` | `tests/test_copy_paste_items.py` |
 
 ### Proje Skill'leri
 | Skill | Ne zaman |
