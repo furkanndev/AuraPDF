@@ -1565,6 +1565,10 @@ class AuraSettingsDialog(QDialog):
         variant = "mono" if code.endswith("_mono") else "color"
         return f"{LanguageManager.tr('settings_icon_style_' + code.removesuffix('_mono'))} · {LanguageManager.tr('settings_icon_variant_' + variant)}"
 
+    def _open_drag_wheel_settings(self):
+        from src.ui.dialogs.drag_wheel_settings_dialog import AuraDragWheelSettingsDialog
+        AuraDragWheelSettingsDialog(self).exec()
+
     def _create_setting_row(self, title_text: str, widget: QWidget, desc_text: str = None) -> QWidget:
         """Ayarlar paneli için metin sol, kontrol sağ şeklinde hizalanmış geniş ve okunaklı satır üretir."""
         row = QWidget()
@@ -1744,6 +1748,24 @@ class AuraSettingsDialog(QDialog):
             LanguageManager.tr("settings_desc_font_size")
         )
         card_layout.addWidget(row_font)
+
+        # Ctrl+Alt sürükle-bırak tekerleği (sistem tepsisi yardımcısı)
+        self.chk_drag_wheel = QCheckBox()
+        self.btn_drag_wheel_cfg = QPushButton(LanguageManager.tr("settings_drag_wheel_customize"))
+        self.btn_drag_wheel_cfg.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_drag_wheel_cfg.clicked.connect(self._open_drag_wheel_settings)
+        wheel_ctrl = QWidget()
+        wheel_ctrl_l = QHBoxLayout(wheel_ctrl)
+        wheel_ctrl_l.setContentsMargins(0, 0, 0, 0)
+        wheel_ctrl_l.setSpacing(10)
+        wheel_ctrl_l.addWidget(self.btn_drag_wheel_cfg)
+        wheel_ctrl_l.addWidget(self.chk_drag_wheel)
+        row_wheel = self._create_setting_row(
+            LanguageManager.tr("settings_drag_wheel_lbl"),
+            wheel_ctrl,
+            LanguageManager.tr("settings_drag_wheel_desc")
+        )
+        card_layout.addWidget(row_wheel)
 
         layout.addWidget(card)
 
@@ -2963,6 +2985,9 @@ class AuraSettingsDialog(QDialog):
         self.chk_cursor_page_tone.setChecked(self.settings.value("cursor_page_tone", True, type=bool))
         self._update_cursor_preview()
 
+        if hasattr(self, 'chk_drag_wheel'):
+            self.chk_drag_wheel.setChecked(self.settings.value("drag_wheel_enabled", True, type=bool))
+
         # 8. Güncelleme Ayarlarını Yükle
         if hasattr(self, 'chk_auto_update'):
             self.chk_auto_update.setChecked(self.settings.value("auto_check_updates", True, type=bool))
@@ -3187,6 +3212,16 @@ class AuraSettingsDialog(QDialog):
             self.main_window.update_viewport_cursor()
 
         # 8. Güncelleme Ayarlarını Kaydet
+        if hasattr(self, 'chk_drag_wheel'):
+            wheel_on = self.chk_drag_wheel.isChecked()
+            if wheel_on != self.settings.value("drag_wheel_enabled", True, type=bool):
+                self.settings.setValue("drag_wheel_enabled", wheel_on)
+                self.settings.sync()
+                try:
+                    from src.core.drag_wheel_service import apply_drag_wheel_setting
+                    apply_drag_wheel_setting(wheel_on)
+                except Exception:
+                    pass
         if hasattr(self, 'chk_auto_update'):
             self.settings.setValue("auto_check_updates", self.chk_auto_update.isChecked())
         if hasattr(self, 'cmb_update_freq'):

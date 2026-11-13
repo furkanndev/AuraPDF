@@ -4,10 +4,10 @@
 #define MyAppName "AuraPDF"
 #define MyAppFullName "AuraPDF"
 #ifndef MyAppVersion
-#define MyAppVersion "Pro v2.2.7"
+#define MyAppVersion "Pro v2.3"
 #endif
 #ifndef OutputFileName
-#define OutputFileName "AuraPDF_Pro v2.2.7"
+#define OutputFileName "AuraPDF_Pro v2.3"
 #endif
 #ifndef OutputDir
 #define OutputDir "Kurulum\Pro"
@@ -52,6 +52,8 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 [CustomMessages]
 turkish.AssocPdf=PDF dosyalarını varsayılan olarak AuraPDF ile ilişkilendir
 english.AssocPdf=Associate PDF files with AuraPDF by default
+turkish.DragWheel=Ctrl+Alt ile PDF sürükleyince eylem tekerleğini göster (Windows ile başlat)
+english.DragWheel=Show the action wheel when dragging a PDF with Ctrl+Alt (start with Windows)
 turkish.FileAssociations=Dosya İlişkilendirmeleri:
 english.FileAssociations=File Associations:
 turkish.UninstallApp=AuraPDF Kaldır
@@ -62,6 +64,7 @@ english.PdfDocType=PDF Document
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"
 Name: "assocpdf"; Description: "{cm:AssocPdf}"; GroupDescription: "{cm:FileAssociations}"
+Name: "dragwheel"; Description: "{cm:DragWheel}"; GroupDescription: "{cm:AdditionalIcons}"
 
 [Files]
 Source: "THIRD_PARTY_NOTICES.txt"; DestDir: "{app}"; Flags: ignoreversion
@@ -77,6 +80,8 @@ Name: "{autoprograms}\{#MyAppFullName}\{cm:UninstallApp}"; Filename: "{uninstall
 Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; IconFilename: "{app}\app_icon.ico"; Tasks: desktopicon
 
 [Registry]
+; Sistem tepsisi yardimcisi (Ctrl+Alt surukle-birak tekerlegi)
+Root: HKA; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "AuraPDFDragWheel"; ValueData: """{app}\{#MyAppExeName}"" --tray"; Flags: uninsdeletevalue; Tasks: dragwheel
 ; PDF Dosya Iliskilendirmesi
 Root: HKA; Subkey: "Software\Classes\.pdf\OpenWithProgids"; ValueType: string; ValueName: "AuraPDF.AssocFile.PDF"; ValueData: ""; Flags: uninsdeletevalue; Tasks: assocpdf
 Root: HKA; Subkey: "Software\Classes\AuraPDF.AssocFile.PDF"; ValueType: string; ValueName: ""; ValueData: "{cm:PdfDocType}"; Flags: uninsdeletekey; Tasks: assocpdf
@@ -108,6 +113,7 @@ Filename: "{app}\{#MyAppExeName}"; Parameters: "--uninstall-cleanup"; Flags: run
 Type: filesandordirs; Name: "{localappdata}\{#MyAppName}"
 
 [Run]
+Filename: "{app}\{#MyAppExeName}"; Parameters: "--tray"; Flags: nowait runhidden skipifsilent runasoriginaluser; Tasks: dragwheel
 Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; Flags: nowait postinstall skipifsilent
 
 [Code]
@@ -198,4 +204,24 @@ begin
     { Simge onbellegini yenile; Gezgin'in Edge/varsayilan okuyucu simgesine donmesi icin }
     Exec(ExpandConstant('{sys}\ie4uinit.exe'), '-show', '', SW_HIDE, ewNoWait, ResultCode);
   end;
+end;
+
+procedure StopAuraProcesses();
+var
+  ResultCode: Integer;
+begin
+  // Tepsi yardimcisi exe'yi kilitler; kurulum/kaldirma oncesi kapatilir.
+  Exec(ExpandConstant('{sys}\taskkill.exe'), '/F /IM "{#MyAppExeName}"', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+end;
+
+function PrepareToInstall(var NeedsRestart: Boolean): String;
+begin
+  StopAuraProcesses();
+  Result := '';
+end;
+
+function InitializeUninstall(): Boolean;
+begin
+  StopAuraProcesses();
+  Result := True;
 end;

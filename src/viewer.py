@@ -267,6 +267,10 @@ class AuraPDFViewer(QMainWindow):
         self.setWindowState(Qt.WindowState.WindowMaximized)
 
         self.setAcceptDrops(True)
+        # Ctrl basılıyken PDF sürüklenince açılan eylem tekerleği (birleştir / böl / dönüştür)
+        from src.ui.drag_wheel import DragWheelController
+        self._drag_wheel = DragWheelController(self)
+        QApplication.instance().installEventFilter(self._drag_wheel)
         self.media_picker = None
         self.current_tool = 'select'
         self.selection_shape_mode = 'rect'

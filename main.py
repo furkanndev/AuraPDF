@@ -60,6 +60,13 @@ sys.excepthook = _global_excepthook
 from PyQt6.QtWidgets import QApplication
 from PyQt6.QtCore import Qt
 
+# Sistem tepsisi yardımcısı (`--tray`): pencere açmadan Ctrl+Alt sürükle-bırak tekerleğini
+# sağlar. Ağır arayüz modülleri (viewer vb.) yüklenmeden önce başlatılır; böylece yardımcı
+# hafif kalır ve oturum açılışını geciktirmez.
+if __name__ == "__main__" and "--tray" in sys.argv:
+    from src.core.drag_wheel_service import run_tray_app
+    sys.exit(run_tray_app(QApplication(sys.argv)))
+
 # Gerekli ana bileşenleri doğrudan aktar
 from src.core.i18n import LanguageManager
 from src.ui.icons import AuraIconFactory
@@ -235,6 +242,36 @@ def _silence_system_sounds():
         pass
 
 
+def parse_wheel_args(args):
+    """`--wheel <eylem> <dosya...>` bayrağını ayırır. Döner: (eylem veya None, kalan argümanlar)."""
+    args = list(args)
+    if "--wheel" in args:
+        i = args.index("--wheel")
+        if i + 1 < len(args):
+            return args[i + 1], args[:i] + args[i + 2:]
+        return None, args[:i]
+    return None, args
+
+
+def finish_headless_wheel(app, viewer):
+    """Başsız tekerlek eyleminden sonra: belge açıldıysa pencereyi göster, yoksa uygulamadan çık."""
+    viewer._wheel_active = max(0, getattr(viewer, "_wheel_active", 1) - 1)
+    if viewer._wheel_active > 0:
+        return  # başka bir tekerlek penceresi hâlâ açık
+    try:
+        from src.document.tab_document import PDFTabDocument
+        tabs = viewer.tab_widget
+        has_docs = any(isinstance(tabs.widget(i), PDFTabDocument) for i in range(tabs.count()))
+    except Exception:
+        has_docs = False
+    if has_docs:
+        viewer._wheel_headless = False
+        app.setQuitOnLastWindowClosed(True)
+        activate_window(viewer)
+    elif getattr(viewer, "_wheel_headless", False):
+        app.quit()
+
+
 def main():
     if any(arg in sys.argv for arg in ("--clean-shell", "--uninstall-cleanup")):
         try:
@@ -274,6 +311,13 @@ def main():
         pass
 
     app = QApplication(sys.argv)
+
+    # Sürükle-bırak tekerleği yardımcısı kapanmışsa (ör. tepsiden çıkış) geri getir.
+    # Yalnızca kurulu sürümde; geliştirme ortamında arka plan süreci başlatılmaz.
+    if getattr(sys, "frozen", False):
+        from src.core.drag_wheel_service import ensure_helper_running
+        ensure_helper_running()
+
     from src.ui.ui_style import install_stylesheet_shaper
     install_stylesheet_shaper()
     from PyQt6.QtCore import QSettings
@@ -321,7 +365,8 @@ def main():
             pass
 
     # 1. Argümanlardan açılacak dosyaları tespit et (çift tıklanan PDF kitapları)
-    files_to_open = get_pdf_paths_from_args(sys.argv[1:])
+    wheel_action, rest_args = parse_wheel_args(sys.argv[1:])
+    files_to_open = get_pdf_paths_from_args(rest_args)
 
     # 2. Single-Instance Kontrolü: Uygulama zaten açıksa, dosyayı açık olan pencereye gönderip çık
     if HAS_LOCAL_IPC:
@@ -339,11 +384,32 @@ def main():
     viewer = AuraPDFViewer()
 
     # Dosya ilişkilendirmesiyle çift tıklanan PDF'leri doğrudan yeni sekme olarak aç
-    for file_path in files_to_open:
-        viewer.add_pdf_tab(file_path)
+    # (tekerlekten gelen birleştir/böl/dönüştür eyleminde dosya sekme olarak açılmaz)
+    if not wheel_action:
+        for file_path in files_to_open:
+            viewer.add_pdf_tab(file_path)
 
-    # Pencereyi tam ekran (maximized) olarak aç
-    viewer.showMaximized()
+    wheel_headless = bool(wheel_action and files_to_open)
+    viewer._wheel_headless = wheel_headless
+    if wheel_headless:
+        # Tekerlekten gelen eylem: ana pencere açılmaz, yalnızca ilgili pencere gösterilir.
+        # Eylem sonunda açık belge yoksa uygulama kapanır; belge açıldıysa pencere gösterilir.
+        from PyQt6.QtCore import QTimer
+        from src.ui.drag_wheel import run_wheel_action
+        app.setQuitOnLastWindowClosed(False)
+
+        viewer._wheel_active = 1
+
+        def _run_headless_wheel():
+            try:
+                run_wheel_action(viewer, wheel_action, files_to_open)
+            finally:
+                finish_headless_wheel(app, viewer)
+
+        QTimer.singleShot(0, _run_headless_wheel)
+    else:
+        # Pencereyi tam ekran (maximized) olarak aç
+        viewer.showMaximized()
 
     # 4. Yerel Sunucuyu Başlat (Sonradan çift tıklanacak PDF'leri yakalamak için)
     server = None
@@ -359,6 +425,31 @@ def main():
                 if client.waitForReadyRead(1000):
                     raw_data = client.readAll().data().decode("utf-8", errors="ignore")
                     lines = [line.strip() for line in raw_data.splitlines() if line.strip()]
+                    if lines and lines[0].startswith("__WHEEL__:"):
+                        w_action = lines[0].split(":", 1)[1]
+                        w_paths = get_pdf_paths_from_args(lines[1:])
+                        headless = getattr(viewer, "_wheel_headless", False)
+                        if not headless:
+                            activate_window(viewer)
+                        if w_paths:
+                            from PyQt6.QtCore import QTimer
+                            from src.ui.drag_wheel import run_wheel_action
+
+                            viewer._wheel_active = getattr(viewer, "_wheel_active", 0) + 1
+
+                            def _run_wheel(a=w_action, ps=w_paths):
+                                try:
+                                    run_wheel_action(viewer, a, ps)
+                                finally:
+                                    if headless:
+                                        finish_headless_wheel(app, viewer)
+                            QTimer.singleShot(0, _run_wheel)
+                        client.disconnectFromServer()
+                        return
+                    # Normal açma isteği: başsız (tekerlek) kipteyse tam uygulamaya dönüş
+                    if getattr(viewer, "_wheel_headless", False):
+                        viewer._wheel_headless = False
+                        app.setQuitOnLastWindowClosed(True)
                     for item in lines:
                         if item != "__ACTIVATE__":
                             paths = get_pdf_paths_from_args([item])
