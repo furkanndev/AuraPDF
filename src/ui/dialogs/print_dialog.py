@@ -926,16 +926,31 @@ class AuraPrintDialog(QDialog):
         root_layout.addLayout(bottom_layout)
 
     def _populate_printers(self):
-        """Yazıcı listesini doldurur: İlki 'Save as PDF', ardından sistem yazıcıları."""
-        self.cmb_printer.clear()
-        self.cmb_printer.addItem(LanguageManager.tr("print_opt_save_pdf"), "save_pdf")
+        """Yazıcı listesini doldurur: varsayılan sistem yazıcısı ilk sırada, 'PDF Olarak Kaydet' sonda.
 
-        available = QPrinterInfo.availablePrinterNames()
+        Gerçek bir yazıcı varsa o seçili gelir; yazıcı yoksa 'PDF Olarak Kaydet' seçilir.
+        """
+        self.cmb_printer.clear()
+
+        try:
+            available = list(QPrinterInfo.availablePrinterNames())
+        except Exception:
+            available = []
+        try:
+            default_name = QPrinterInfo.defaultPrinterName()
+        except Exception:
+            default_name = ""
+        if default_name in available:
+            available.remove(default_name)
+            available.insert(0, default_name)
+
         for p_name in available:
             self.cmb_printer.addItem(p_name, p_name)
+        self.cmb_printer.addItem(LanguageManager.tr("print_opt_save_pdf"), "save_pdf")
 
-        # Varsayılan seçim "Save as PDF"
         self.cmb_printer.setCurrentIndex(0)
+        # Sinyaller henüz bağlı değil; buton etiketini elle eşitle
+        self._on_printer_changed(0)
 
     def _connect_signals(self):
         # Yazıcı değiştiğinde buton etiketini ve özellikler butonunu güncelle
