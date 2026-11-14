@@ -4838,97 +4838,176 @@ class AudioRecordDialog(QDialog):
         super().done(result)
 
 
+_VIDEO_EXTS = (".mp4", ".mkv", ".avi", ".mov", ".webm", ".m4v", ".wmv", ".flv")
+
+
+class AuraVideoStage(AuraImageStage):
+    """Video önizleme sahnesi: görsel sahnesiyle aynı çizim, video metinleri ve oynat simgesiyle."""
+
+    def _paint_prompt(self, p: QPainter, rect: QRectF, pal: dict):
+        size = 44
+        top = rect.center().y() - 52
+        AuraIconFactory.icon_play(pal["accent"]).paint(
+            p, QRectF(rect.center().x() - size / 2, top, size, size).toRect())
+        font = QFont(self.font())
+        font.setPointSizeF(font.pointSizeF() + 1.5)
+        font.setBold(True)
+        p.setFont(font)
+        p.setPen(QColor(pal["text"]))
+        p.drawText(QRectF(rect.left() + 16, top + size + 10, rect.width() - 32, 24),
+                   Qt.AlignmentFlag.AlignCenter,
+                   LanguageManager.tr("media_drop_hint" if self._drag_active else "video_stage_title"))
+        if not self._drag_active:
+            p.setFont(self.font())
+            p.setPen(QColor(pal["muted"]))
+            p.drawText(QRectF(rect.left() + 16, top + size + 36, rect.width() - 32, 22),
+                       Qt.AlignmentFlag.AlignCenter, LanguageManager.tr("image_stage_sub"))
+
+
 class VideoInsertDialog(QDialog):
-    """
-    Video ekleme penceresi: Bilgisayardan video seçme veya video URL'si girme.
-    """
+    """Solda video kaynağını, sağda önizleme kartını gösteren video ekleme penceresi
+    (görsel ekleme penceresiyle aynı düzen; tüm renkler aktif tema paletinden gelir)."""
+
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setWindowTitle(LanguageManager.tr("insert_video_title", default=LanguageManager.tr("insert_video_title")))
-        self.setMinimumSize(480, 420)
-        self.resize(500, 440)
+        self.setWindowTitle(LanguageManager.tr("insert_video_title"))
+        self.setMinimumSize(700, 460)
+        self.resize(780, 500)
+        self.setAcceptDrops(True)
 
         self.video_url_or_path: str = ""
         self.thumbnail_bytes: Optional[bytes] = None
         self.title: str = "Video"
+        self._worker: Optional[ImageDownloadWorker] = None
+        self._pending_url: str = ""
 
         layout = QVBoxLayout(self)
-        layout.setSpacing(12)
-        layout.setContentsMargins(18, 18, 18, 18)
+        layout.setSpacing(14)
+        layout.setContentsMargins(20, 18, 20, 18)
 
-        hdr = QLabel(LanguageManager.tr("insert_video_title"))
-        hdr.setStyleSheet("font-size: 16px; font-weight: bold; ")
-        layout.addWidget(hdr)
+        lbl_title = QLabel(LanguageManager.tr("insert_video_title"))
+        lbl_title.setObjectName("ImageDialogTitle")
+        lbl_subtitle = QLabel(LanguageManager.tr("video_dialog_subtitle"))
+        lbl_subtitle.setProperty("class", "muted")
+        heading = QVBoxLayout()
+        heading.setSpacing(2)
+        heading.addWidget(lbl_title)
+        heading.addWidget(lbl_subtitle)
+        layout.addLayout(heading)
 
-        desc = QLabel(LanguageManager.tr("ui_pdf_sayfasina_video_onizleme_karti_ekleyin"))
-        desc.setWordWrap(True)
-        desc.setStyleSheet(" font-size: 11px;")
-        layout.addWidget(desc)
+        body = QHBoxLayout()
+        body.setSpacing(16)
+        side = QVBoxLayout()
+        side.setSpacing(12)
 
-        tabs = QTabWidget()
-        tabs.setStyleSheet("""
-            QTabWidget::pane { border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 6px; background-color: rgba(255, 255, 255, 0.02); }
-            QTabBar::tab { background: rgba(255, 255, 255, 0.04); color: #94a3b8; padding: 6px 14px; border-top-left-radius: 4px; border-top-right-radius: 4px; font-size: 11px; font-weight: bold; }
-            QTabBar::tab:hover { background: rgba(255, 255, 255, 0.08); color: #ffffff; }
-            QTabBar::tab:selected { background: rgba(255, 255, 255, 0.1); color: #38bdf8; border-bottom: 2px solid #38bdf8; }
-        """.replace("#38bdf8", get_theme_palette()["accent"]))
+        # Kaynak seçici
+        self.source_group = QButtonGroup(self)
+        self.source_group.setExclusive(True)
+        source_bar = QFrame()
+        source_bar.setObjectName("ImageSourceBar")
+        source_row = QHBoxLayout(source_bar)
+        source_row.setContentsMargins(3, 3, 3, 3)
+        source_row.setSpacing(2)
+        for index, key in enumerate(("video_tab_local", "video_tab_web")):
+            btn = QPushButton(LanguageManager.tr(key))
+            btn.setObjectName("ImageSourceBtn")
+            btn.setCheckable(True)
+            btn.setAutoDefault(False)
+            btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            self.source_group.addButton(btn, index)
+            source_row.addWidget(btn, 1)
+        side.addWidget(source_bar)
 
-        # Sekme 1: Bilgisayardan
-        tab_local = QWidget()
-        tl = QVBoxLayout(tab_local)
-        tl.setSpacing(10)
-        btn_sel_video = QPushButton(LanguageManager.tr("ui_bilgisayardan_video_sec_mp4_mkv_avi"))
-        btn_sel_video.setObjectName("PrimaryBtn")
-        btn_sel_video.clicked.connect(self._select_local_video)
-        tl.addWidget(btn_sel_video)
+        self.source_stack = QStackedWidget()
+        self.source_group.idClicked.connect(self.source_stack.setCurrentIndex)
 
-        self.lbl_local_info = QLabel(LanguageManager.tr("ui_secilen_video_yok"))
-        self.lbl_local_info.setStyleSheet(" font-size: 11px;")
-        tl.addWidget(self.lbl_local_info)
+        # Bilgisayardan
+        page_local = QWidget()
+        tl = QVBoxLayout(page_local)
+        tl.setContentsMargins(0, 0, 0, 0)
+        tl.setSpacing(8)
+        btn_browse = QPushButton(LanguageManager.tr("ui_bilgisayardan_video_sec_mp4_mkv_avi"))
+        btn_browse.setIcon(AuraIconFactory.icon_upload())
+        btn_browse.setAutoDefault(False)
+        btn_browse.setCursor(Qt.CursorShape.PointingHandCursor)
+        btn_browse.clicked.connect(self._select_local_video)
+        tl.addWidget(btn_browse)
+        lbl_formats = QLabel(LanguageManager.tr("video_formats_hint"))
+        lbl_formats.setWordWrap(True)
+        lbl_formats.setProperty("class", "muted")
+        tl.addWidget(lbl_formats)
         tl.addStretch()
-        tabs.addTab(tab_local, "Bilgisayardan")
+        self.source_stack.addWidget(page_local)
 
-        # Sekme 2: Web URL
-        tab_url = QWidget()
-        tu = QVBoxLayout(tab_url)
-        tu.setSpacing(10)
-
+        # Web adresi
+        page_url = QWidget()
+        tu = QVBoxLayout(page_url)
+        tu.setContentsMargins(0, 0, 0, 0)
+        tu.setSpacing(8)
         lbl_u = QLabel(LanguageManager.tr("ui_video_baglantisi_youtube_vimeo_veya_dogrudan"))
-        lbl_u.setStyleSheet(" font-size: 11px;")
+        lbl_u.setWordWrap(True)
         tu.addWidget(lbl_u)
-
         self.txt_url = QLineEdit()
         self.txt_url.setPlaceholderText("https://www.youtube.com/watch?v=...")
-        self.txt_url.setStyleSheet("background-color: rgba(255, 255, 255, 0.06); color: #f1f5f9; border: 1px solid rgba(255, 255, 255, 0.12); border-radius: 6px; padding: 8px;")
+        self.txt_url.returnPressed.connect(self._apply_url)
         tu.addWidget(self.txt_url)
-
-        btn_apply_url = QPushButton(LanguageManager.tr("ui_baglantiyi_tanimla"))
-        btn_apply_url.setStyleSheet("background-color: rgba(255, 255, 255, 0.1); color: #f1f5f9; font-weight: bold; padding: 8px; border-radius: 6px; border: 1px solid rgba(255, 255, 255, 0.15);")
-        btn_apply_url.clicked.connect(self._apply_url)
-        tu.addWidget(btn_apply_url)
+        self.btn_apply_url = QPushButton(LanguageManager.tr("ui_baglantiyi_tanimla"))
+        self.btn_apply_url.setIcon(AuraIconFactory.icon_link())
+        self.btn_apply_url.setAutoDefault(False)
+        self.btn_apply_url.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_apply_url.clicked.connect(self._apply_url)
+        tu.addWidget(self.btn_apply_url)
+        self.progress_bar = QProgressBar()
+        self.progress_bar.setRange(0, 0)
+        self.progress_bar.setTextVisible(False)
+        self.progress_bar.setFixedHeight(4)
+        self.progress_bar.hide()
+        tu.addWidget(self.progress_bar)
         tu.addStretch()
-        tabs.addTab(tab_url, "Web / YouTube")
+        self.source_stack.addWidget(page_url)
+        side.addWidget(self.source_stack, 1)
 
-        layout.addWidget(tabs)
-
-        # Başlık Kutusu
+        # Başlık
         lbl_t = QLabel(LanguageManager.tr("ui_video_basligi"))
-        lbl_t.setStyleSheet(" font-size: 11px;")
-        layout.addWidget(lbl_t)
-        self.txt_title = QLineEdit("Tanıtım Videosu")
-        self.txt_title.setStyleSheet("background-color: rgba(255, 255, 255, 0.06); color: #f1f5f9; border: 1px solid rgba(255, 255, 255, 0.12); border-radius: 6px; padding: 6px 10px;")
-        layout.addWidget(self.txt_title)
+        side.addWidget(lbl_t)
+        self.txt_title = QLineEdit(LanguageManager.tr("video_default_title"))
+        side.addWidget(self.txt_title)
 
-        layout.addStretch()
+        self.lbl_status = QLabel("")
+        self.lbl_status.setObjectName("ImageStatus")
+        self.lbl_status.setWordWrap(True)
+        side.addWidget(self.lbl_status)
 
-        # Butonlar
+        side_host = QWidget()
+        side_host.setFixedWidth(270)
+        side_host.setLayout(side)
+        side.setContentsMargins(0, 0, 0, 0)
+        body.addWidget(side_host)
+
+        # Önizleme
+        preview_col = QVBoxLayout()
+        preview_col.setSpacing(6)
+        self.stage = AuraVideoStage()
+        self.stage.setToolTip(LanguageManager.tr("ui_video_sec"))
+        self.stage.clicked.connect(self._select_local_video)
+        preview_col.addWidget(self.stage, 1)
+        self.lbl_info = QLabel(LanguageManager.tr("ui_onizleme_yok"))
+        self.lbl_info.setProperty("class", "muted")
+        self.lbl_info.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        preview_col.addWidget(self.lbl_info)
+        body.addLayout(preview_col, 1)
+        layout.addLayout(body, 1)
+
+        # Alt butonlar
         btn_box = QHBoxLayout()
-        btn_cancel = QPushButton(LanguageManager.tr("btn_cancel", default=LanguageManager.tr("cancel")))
+        btn_cancel = QPushButton(LanguageManager.tr("cancel"))
         btn_cancel.setObjectName("CancelBtn")
+        btn_cancel.setAutoDefault(False)
         btn_cancel.clicked.connect(self.reject)
 
-        self.btn_ok = QPushButton(LanguageManager.tr("btn_insert", default=LanguageManager.tr("btn_insert")))
+        self.btn_ok = QPushButton(LanguageManager.tr("btn_insert"))
         self.btn_ok.setObjectName("PrimaryBtn")
+        self.btn_ok.setAutoDefault(False)
         self.btn_ok.setEnabled(False)
         self.btn_ok.clicked.connect(self.accept)
 
@@ -4937,38 +5016,132 @@ class VideoInsertDialog(QDialog):
         btn_box.addWidget(self.btn_ok)
         layout.addLayout(btn_box)
 
-        apply_dialog_theme(self, parent)
+        self._select_source(0)
+        pal = get_theme_palette(parent)
+        apply_dialog_theme(self, parent, extra_css=f"""
+            QLabel#ImageDialogTitle {{ font-size: 16px; font-weight: 600; }}
+            QLabel#ImageStatus {{ font-size: 11px; color: {pal['muted']}; }}
+            QFrame#ImageSourceBar {{
+                background-color: {pal['card']};
+                border: 1px solid {pal['border']};
+                border-radius: 9px;
+            }}
+            QPushButton#ImageSourceBtn {{
+                background-color: transparent;
+                border: none;
+                border-radius: 7px;
+                padding: 6px 8px;
+                color: {pal['muted']};
+                font-weight: 600;
+            }}
+            QPushButton#ImageSourceBtn:hover {{ color: {pal['text']}; }}
+            QPushButton#ImageSourceBtn:focus {{ border: 1px solid {pal['accent']}; }}
+            QPushButton#ImageSourceBtn:checked {{
+                background-color: {pal['accent']};
+                color: {_text_on(pal['accent'])};
+            }}
+        """)
+
+    def _select_source(self, index: int):
+        self.source_group.button(index).setChecked(True)
+        self.source_stack.setCurrentIndex(index)
+
+    def _set_video(self, source: str, thumb: bytes, info: str):
+        """Seçilen video kaynağını ve önizleme görselini kaydeder."""
+        self.video_url_or_path = source
+        self.thumbnail_bytes = thumb
+        pix = QPixmap()
+        if pix.loadFromData(thumb):
+            self.stage.set_pixmap(pix)
+        self.lbl_info.setText(self.lbl_info.fontMetrics().elidedText(
+            info, Qt.TextElideMode.ElideMiddle, max(120, self.stage.width())))
+        self.btn_ok.setEnabled(True)
 
     def _select_local_video(self):
         fpath, _ = QFileDialog.getOpenFileName(self, LanguageManager.tr("ui_video_sec"), "", LanguageManager.tr("ui_video_dosyalari_mp4_mkv_avi_mov"))
         if fpath and os.path.exists(fpath):
-            self.video_url_or_path = fpath
-            name = os.path.basename(fpath)
-            self.txt_title.setText(os.path.splitext(name)[0])
-            self.lbl_local_info.setText(LanguageManager.tr("ui_secildi", name=name))
-            self.lbl_local_info.setStyleSheet("")
-            self.thumbnail_bytes = self._generate_default_thumbnail(name)
-            self.btn_ok.setEnabled(True)
+            self._load_local(fpath)
+
+    def _load_local(self, fpath: str):
+        name = os.path.basename(fpath)
+        self.txt_title.setText(os.path.splitext(name)[0])
+        try:
+            size = os.path.getsize(fpath)
+            size_text = f"{size / 1024:.0f} KB" if size < 1024 * 1024 else f"{size / 1048576:.1f} MB"
+        except OSError:
+            size_text = ""
+        info = "  ·  ".join(x for x in (name, size_text) if x)
+        self._set_video(fpath, self._generate_default_thumbnail(name), info)
+        self.lbl_status.setText(LanguageManager.tr("ui_secildi", name=name))
+
+    def dragEnterEvent(self, event):
+        md = event.mimeData()
+        if md.hasUrls() and any(u.isLocalFile() and u.toLocalFile().lower().endswith(_VIDEO_EXTS) for u in md.urls()):
+            self.stage.set_drag_active(True)
+            event.acceptProposedAction()
+
+    def dragLeaveEvent(self, event):
+        self.stage.set_drag_active(False)
+
+    def dropEvent(self, event):
+        self.stage.set_drag_active(False)
+        for u in event.mimeData().urls():
+            if u.isLocalFile() and u.toLocalFile().lower().endswith(_VIDEO_EXTS):
+                self._select_source(0)
+                self._load_local(u.toLocalFile())
+                event.acceptProposedAction()
+                return
 
     def _apply_url(self):
         url = self.txt_url.text().strip()
         if not url:
             return
-        self.video_url_or_path = url
+        if not (url.startswith("http://") or url.startswith("https://")):
+            url = "https://" + url
+        self._pending_url = url
         yt_id = self._extract_youtube_id(url)
-        if yt_id:
-            try:
-                thumb_url = f"https://img.youtube.com/vi/{yt_id}/hqdefault.jpg"
-                req = urllib.request.Request(thumb_url, headers={"User-Agent": "Mozilla/5.0"})
-                with urllib.request.urlopen(req, timeout=5) as resp:
-                    self.thumbnail_bytes = resp.read()
-            except Exception:
-                self.thumbnail_bytes = self._generate_default_thumbnail("YouTube Video")
-        else:
-            self.thumbnail_bytes = self._generate_default_thumbnail("Web Video")
+        if not yt_id:
+            self._set_video(url, self._generate_default_thumbnail("Web Video"), url)
+            self.lbl_status.setText(LanguageManager.tr("ui_video_baglantisi_basariyla_tanimlandi"))
+            return
+        # YouTube küçük resmi arka plan iş parçacığında indirilir (arayüz donmaz).
+        self.progress_bar.show()
+        self.btn_apply_url.setEnabled(False)
+        self.lbl_status.setText(LanguageManager.tr("ui_gorsel_indiriliyor"))
+        self._worker = ImageDownloadWorker(f"https://img.youtube.com/vi/{yt_id}/hqdefault.jpg")
+        _register_worker(self._worker)
+        self._worker.finished.connect(self._on_thumb_ok)
+        self._worker.error.connect(self._on_thumb_fail)
+        self._worker.start()
 
-        self.btn_ok.setEnabled(True)
-        QMessageBox.information(self, LanguageManager.tr("info"), LanguageManager.tr("ui_video_baglantisi_basariyla_tanimlandi"))
+    def _on_thumb_ok(self, data: bytes, info: str):
+        self.progress_bar.hide()
+        self.btn_apply_url.setEnabled(True)
+        self._set_video(self._pending_url, data, self._pending_url)
+        self.lbl_status.setText(LanguageManager.tr("ui_video_baglantisi_basariyla_tanimlandi"))
+
+    def _on_thumb_fail(self, err: str):
+        self.progress_bar.hide()
+        self.btn_apply_url.setEnabled(True)
+        self._set_video(self._pending_url, self._generate_default_thumbnail("YouTube Video"), self._pending_url)
+        self.lbl_status.setText(LanguageManager.tr("ui_video_baglantisi_basariyla_tanimlandi"))
+
+    def _cleanup_worker(self):
+        if self._worker:
+            try:
+                self._worker.finished.disconnect()
+                self._worker.error.disconnect()
+            except Exception:
+                pass
+            self._worker = None
+
+    def reject(self):
+        self._cleanup_worker()
+        super().reject()
+
+    def closeEvent(self, event):
+        self._cleanup_worker()
+        super().closeEvent(event)
 
     def _extract_youtube_id(self, url: str) -> Optional[str]:
         match = re.search(r"(?:v=|\/)([0-9A-Za-z_-]{11}).*", url)

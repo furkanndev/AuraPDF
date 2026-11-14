@@ -273,6 +273,25 @@ class PrinterOrderTests(unittest.TestCase):
         self.assertEqual(combo_items, ["HP", "A", "Z", "save_pdf"])
         self.assertEqual(stub.cmb_printer.idx, 0)
 
+    def test_physical_printer_before_virtual_default(self):
+        from src.ui.dialogs import print_dialog as pd
+
+        items = []
+
+        class Combo:
+            def clear(self): items.clear()
+            def addItem(self, text, data): items.append(data)
+            def setCurrentIndex(self, i): self.idx = i
+
+        stub = type("S", (), {})()
+        stub.cmb_printer = Combo()
+        stub._on_printer_changed = lambda i: None
+        names = ["Microsoft Print to PDF", "OneNote", "Canon LBP", "HP LaserJet"]
+        with mock.patch.object(pd.QPrinterInfo, "availablePrinterNames", return_value=names),                 mock.patch.object(pd.QPrinterInfo, "defaultPrinterName", return_value="Microsoft Print to PDF"):
+            pd.AuraPrintDialog._populate_printers(stub)
+        self.assertEqual(items[:2], ["Canon LBP", "HP LaserJet"])
+        self.assertEqual(items[-1], "save_pdf")
+
     def test_no_printer_falls_back_to_pdf(self):
         from src.ui.dialogs import print_dialog as pd
 

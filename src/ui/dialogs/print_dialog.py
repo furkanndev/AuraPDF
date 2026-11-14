@@ -10,7 +10,7 @@ import pymupdf as fitz
 from PyQt6.QtWidgets import (
     QDialog, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QLabel,
     QPushButton, QRadioButton, QButtonGroup, QLineEdit, QComboBox,
-    QCheckBox, QStackedWidget, QMessageBox, QFileDialog, QSizePolicy
+    QCheckBox, QStackedWidget, QMessageBox, QFileDialog, QSizePolicy, QFrame
 )
 from PyQt6.QtGui import (
     QPainter, QImage, QColor, QPen, QPageSize, QPageLayout
@@ -21,7 +21,7 @@ from PyQt6.QtPrintSupport import QPrinter, QPrinterInfo, QPrintDialog
 from src.core.i18n import LanguageManager
 from src.ui.icons import AuraIconFactory
 from src.ui.dialog_theme import (
-    apply_dialog_theme
+    apply_dialog_theme, get_theme_palette
 )
 from src.ui.aura_stepper import AuraSpinBox, AuraDoubleSpinBox
 
@@ -101,6 +101,18 @@ PAPER_SIZES: Dict[str, Dict[str, Any]] = {
 }
 
 
+_VIRTUAL_PRINTER_HINTS = (
+    "pdf", "xps", "onenote", "fax", "document writer", "image writer",
+    "snagit", "virtual", "cutepdf", "primopdf", "send to", "print to file",
+)
+
+
+def _is_virtual_printer(name: str) -> bool:
+    """Gerçek bir cihaza bağlı olmayan (PDF/XPS/OneNote/faks vb.) yazıcıları ayırt eder."""
+    low = (name or "").lower()
+    return any(h in low for h in _VIRTUAL_PRINTER_HINTS)
+
+
 # --- SEGMENTLİ SEKMELER BUTON ÇUBUĞU (ADOBE ACROBAT PRO STİLİ) ---
 class AcrobatSegmentedTabBar(QWidget):
     """
@@ -114,10 +126,12 @@ class AcrobatSegmentedTabBar(QWidget):
         self.tabs = tabs
         self.current_index = 0
         self.buttons: List[QPushButton] = []
+        self._pal: Dict[str, str] = get_theme_palette(parent)
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
 
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(6)
+        layout.setContentsMargins(3, 3, 3, 3)
+        layout.setSpacing(2)
 
         for idx, (key, label) in enumerate(tabs):
             btn = QPushButton(label)
@@ -125,10 +139,9 @@ class AcrobatSegmentedTabBar(QWidget):
             btn.setCursor(Qt.CursorShape.PointingHandCursor)
             btn.setObjectName(f"AcrobatTabBtn_{idx}")
             btn.clicked.connect(lambda checked, i=idx: self.set_current_index(i))
-            layout.addWidget(btn)
+            layout.addWidget(btn, 1)
             self.buttons.append(btn)
 
-        layout.addStretch()
         self._update_styles()
 
     def set_current_index(self, index: int):
@@ -137,36 +150,53 @@ class AcrobatSegmentedTabBar(QWidget):
             self._update_styles()
             self.tabChanged.emit(index)
 
+    def apply_palette(self, pal: Dict[str, str]):
+        """Aktif tema paletini uygular (sekme renkleri temayla birlikte değişir)."""
+        self._pal = pal
+        self._update_styles()
+
     def _update_styles(self):
+        pal = self._pal
+        on_accent = "#17181a" if QColor(pal["accent"]).lightness() > 170 else "#ffffff"
+        self.setObjectName("PrintTabBar")
+        self.setStyleSheet(f"""
+            QWidget#PrintTabBar {{
+                background-color: {pal['bg']};
+                border: 1px solid {pal['border']};
+                border-radius: 9px;
+            }}
+        """)
         for idx, btn in enumerate(self.buttons):
             is_active = (idx == self.current_index)
             btn.setChecked(is_active)
             if is_active:
-                btn.setStyleSheet("""
-                    QPushButton {
-                        background: transparent;
+                btn.setStyleSheet(f"""
+                    QPushButton {{
+                        background-color: {pal['accent']};
                         border: none;
-                        border-bottom: 2.5px solid #0a84ff;
-                        font-weight: bold;
-                        color: #ffffff;
-                        padding: 4px 10px;
-                        border-radius: 0px;
-                    }
+                        border-radius: 7px;
+                        font-weight: 600;
+                        color: {on_accent};
+                        padding: 6px 8px;
+                    }}
                 """)
             else:
-                btn.setStyleSheet("""
-                    QPushButton {
+                btn.setStyleSheet(f"""
+                    QPushButton {{
                         background: transparent;
                         border: none;
-                        border-bottom: 2.5px solid transparent;
-                        font-weight: normal;
-                        color: #94a3b8;
-                        padding: 4px 10px;
-                        border-radius: 0px;
-                    }
-                    QPushButton:hover {
-                        color: #e2e8f0;
-                    }
+                        border-radius: 7px;
+                        font-weight: 600;
+                        color: {pal['muted']};
+                        padding: 6px 8px;
+                    }}
+                    QPushButton:hover {{
+                        color: {pal['text']};
+                        background-color: {pal['card']};
+                    }}
+                    QPushButton:focus {{
+                        border: 1px solid {pal['accent']};
+                    }}
                 """)
 
 
@@ -199,6 +229,11 @@ class PrintPreviewCanvas(QWidget):
 
         # Önbellek (Hızlı gezinme için)
         self._pixmap_cache: Dict[int, QImage] = {}
+        self._pal: Dict[str, str] = get_theme_palette(parent)
+
+    def apply_palette(self, pal: Dict[str, str]):
+        self._pal = pal
+        self.update()
 
     def clear_cache(self):
         self._pixmap_cache.clear()
@@ -263,13 +298,15 @@ class PrintPreviewCanvas(QWidget):
         w = self.width()
         h = self.height()
 
-        # 1. Koyu Tuval Arka Planı
-        bg_color = QColor("#16181f")
-        painter.fillRect(0, 0, w, h, bg_color)
+        # 1. Tema uyumlu tuval arka planı
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QColor(self._pal["bg"]))
+        painter.drawRoundedRect(QRectF(0.5, 0.5, w - 1, h - 1), 8, 8)
 
         # Tuval Çerçevesi
-        painter.setPen(QPen(QColor(255, 255, 255, 18), 1))
-        painter.drawRoundedRect(QRectF(1, 1, w - 2, h - 2), 6, 6)
+        painter.setPen(QPen(QColor(self._pal["border"]), 1))
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.drawRoundedRect(QRectF(0.5, 0.5, w - 1, h - 1), 8, 8)
 
         if not self.doc or len(self.doc) == 0:
             painter.end()
@@ -483,8 +520,8 @@ class AuraPrintDialog(QDialog):
         self.current_sheet_idx: int = 0
 
         self.setWindowTitle(LanguageManager.tr("print_dialog_title"))
-        self.resize(880, 640)
-        self.setMinimumSize(780, 560)
+        self.resize(920, 700)
+        self.setMinimumSize(820, 620)
         self.setSizeGripEnabled(True)
 
         # Önizleme Debounce Timer
@@ -496,37 +533,58 @@ class AuraPrintDialog(QDialog):
         self._populate_printers()
         self._connect_signals()
 
-        # Tema Uygula
-        apply_dialog_theme(self, main_window, extra_css="""
-            QGroupBox {
-                border: 1px solid rgba(255, 255, 255, 0.12);
-                border-radius: 8px;
-                margin-top: 10px;
-                padding-top: 14px;
-                font-weight: bold;
-            }
-            QGroupBox::title {
-                subcontrol-origin: margin;
-                left: 10px;
-                padding: 0 4px;
-            }
-            QLabel.SectionHeader {
+        # Tema Uygula (8 temanın paleti; sabit renk yok)
+        self._theme_parent = main_window
+        pal = get_theme_palette(main_window)
+        apply_dialog_theme(self, main_window, extra_css=f"""
+            QLabel#PrintDialogTitle {{ font-size: 16px; font-weight: 600; }}
+            QLabel#PrintSectionHeader {{
                 font-weight: bold;
                 font-size: 11px;
-                color: #94a3b8;
-                letter-spacing: 0.5px;
-                margin-top: 8px;
+                color: {pal['accent']};
+                margin-top: 10px;
                 margin-bottom: 2px;
-            }
+                padding-left: 8px;
+                border-left: 3px solid {pal['accent']};
+            }}
+            QFrame#PrintSettingsCard {{
+                background-color: {pal['card']};
+                border: 1px solid {pal['border']};
+                border-radius: 10px;
+            }}
+            QLabel#PrintPrinterStatus {{
+                color: {pal['muted']};
+                font-size: 11px;
+            }}
         """)
+        self.apply_theme()
 
         # İlk hesaplama ve önizleme
         self._recalculate_and_render_preview()
 
+    def apply_theme(self, theme: Optional[str] = None):
+        """Özel çizilen bileşenleri (sekme çubuğu, önizleme tuvali) aktif temaya eşitler."""
+        pal = get_theme_palette(getattr(self, "_theme_parent", None))
+        try:
+            self.sizing_tabs.apply_palette(pal)
+            self.preview_canvas.apply_palette(pal)
+        except Exception:
+            pass
+
     def _build_ui(self):
         root_layout = QVBoxLayout(self)
-        root_layout.setContentsMargins(16, 16, 16, 14)
-        root_layout.setSpacing(12)
+        root_layout.setContentsMargins(20, 18, 20, 16)
+        root_layout.setSpacing(14)
+
+        lbl_title = QLabel(LanguageManager.tr("print_dialog_title"))
+        lbl_title.setObjectName("PrintDialogTitle")
+        lbl_subtitle = QLabel(LanguageManager.tr("print_dialog_subtitle"))
+        lbl_subtitle.setProperty("class", "muted")
+        heading = QVBoxLayout()
+        heading.setSpacing(2)
+        heading.addWidget(lbl_title)
+        heading.addWidget(lbl_subtitle)
+        root_layout.addLayout(heading)
 
         # Ana Gövde (Sol Panel: Ayarlar, Sağ Panel: Önizleme)
         body_layout = QHBoxLayout()
@@ -535,9 +593,10 @@ class AuraPrintDialog(QDialog):
         # ==============================================================
         # SOL PANEL: TÜM YAZDIRMA AYARLARI
         # ==============================================================
-        left_widget = QWidget()
+        left_widget = QFrame()
+        left_widget.setObjectName("PrintSettingsCard")
         left_layout = QVBoxLayout(left_widget)
-        left_layout.setContentsMargins(0, 0, 0, 0)
+        left_layout.setContentsMargins(16, 14, 16, 14)
         left_layout.setSpacing(8)
 
         # 1. ÜST AYARLAR (Printer, Copies, Two-sided, Paper)
@@ -564,6 +623,11 @@ class AuraPrintDialog(QDialog):
         grid_top.addWidget(lbl_printer, 0, 0)
         grid_top.addLayout(h_printer, 0, 1)
 
+        # Yazıcı durumu satırı (fiziksel / sanal / PDF)
+        self.lbl_printer_status = QLabel("")
+        self.lbl_printer_status.setObjectName("PrintPrinterStatus")
+        grid_top.addWidget(self.lbl_printer_status, 1, 1)
+
         # Satır 1: Kopya + Harmanla + Gri Tonlama
         lbl_copies = QLabel(LanguageManager.tr("print_lbl_copies"))
         self.spn_copies = AuraSpinBox(min_val=1, max_val=999, default_val=1, parent=self)
@@ -582,8 +646,8 @@ class AuraPrintDialog(QDialog):
         h_copies.addWidget(self.chk_grayscale)
         h_copies.addStretch()
 
-        grid_top.addWidget(lbl_copies, 1, 0)
-        grid_top.addLayout(h_copies, 1, 1)
+        grid_top.addWidget(lbl_copies, 2, 0)
+        grid_top.addLayout(h_copies, 2, 1)
 
         # Satır 2: İki Taraflı
         lbl_twosided = QLabel(LanguageManager.tr("print_lbl_twosided"))
@@ -591,8 +655,8 @@ class AuraPrintDialog(QDialog):
         self.cmb_twosided.addItem(LanguageManager.tr("print_twosided_off"), "off")
         self.cmb_twosided.addItem(LanguageManager.tr("print_twosided_long"), "long")
         self.cmb_twosided.addItem(LanguageManager.tr("print_twosided_short"), "short")
-        grid_top.addWidget(lbl_twosided, 2, 0)
-        grid_top.addWidget(self.cmb_twosided, 2, 1)
+        grid_top.addWidget(lbl_twosided, 3, 0)
+        grid_top.addWidget(self.cmb_twosided, 3, 1)
 
         # Satır 3: Kağıt Boyutu
         lbl_paper = QLabel(LanguageManager.tr("print_lbl_paper"))
@@ -604,8 +668,8 @@ class AuraPrintDialog(QDialog):
         self.cmb_paper.addItem(f"{LanguageManager.tr('print_paper_a5')} (148 × 210 mm)", "a5")
         self.cmb_paper.addItem(f"{LanguageManager.tr('print_paper_tabloid')} (11 × 17 in)", "tabloid")
         self.cmb_paper.addItem(LanguageManager.tr("print_paper_auto"), "auto")
-        grid_top.addWidget(lbl_paper, 3, 0)
-        grid_top.addWidget(self.cmb_paper, 3, 1)
+        grid_top.addWidget(lbl_paper, 4, 0)
+        grid_top.addWidget(self.cmb_paper, 4, 1)
 
         left_layout.addLayout(grid_top)
 
@@ -613,8 +677,7 @@ class AuraPrintDialog(QDialog):
         # 2. BÖLÜM: YAZDIRILACAK SAYFALAR (PAGES TO PRINT)
         # --------------------------------------------------------------
         lbl_sec_pages = QLabel(LanguageManager.tr("print_sec_pages"))
-        lbl_sec_pages.setProperty("class", "SectionHeader")
-        lbl_sec_pages.setStyleSheet("font-weight: bold; font-size: 11px; color: #94a3b8; margin-top: 6px;")
+        lbl_sec_pages.setObjectName("PrintSectionHeader")
         left_layout.addWidget(lbl_sec_pages)
 
         # Radyo Butonları: Tümü | Geçerli Sayfa | Sayfalar
@@ -664,7 +727,7 @@ class AuraPrintDialog(QDialog):
         # 3. BÖLÜM: SAYFA BOYUTLANDIRMA VE YÖNETİMİ (PAGE SIZING & HANDLING)
         # --------------------------------------------------------------
         lbl_sec_sizing = QLabel(LanguageManager.tr("print_sec_sizing"))
-        lbl_sec_sizing.setStyleSheet("font-weight: bold; font-size: 11px; color: #94a3b8; margin-top: 8px;")
+        lbl_sec_sizing.setObjectName("PrintSectionHeader")
         left_layout.addWidget(lbl_sec_sizing)
 
         # Segmentli Sekmeler: Size | Poster | Multiple | Booklet
@@ -842,7 +905,7 @@ class AuraPrintDialog(QDialog):
         # 4. BÖLÜM: AÇIKLAMALAR VE FORMLAR (COMMENTS & FORMS)
         # --------------------------------------------------------------
         lbl_sec_comments = QLabel(LanguageManager.tr("print_sec_comments"))
-        lbl_sec_comments.setStyleSheet("font-weight: bold; font-size: 11px; color: #94a3b8; margin-top: 8px;")
+        lbl_sec_comments.setObjectName("PrintSectionHeader")
         left_layout.addWidget(lbl_sec_comments)
 
         self.cmb_comments = QComboBox()
@@ -897,7 +960,7 @@ class AuraPrintDialog(QDialog):
         # Kağıt Boyutu ve Ölçüleri Etiketi: e.g. "8.50 × 11.00 in"
         self.lbl_paper_dimensions = QLabel("8.50 × 11.00 in")
         self.lbl_paper_dimensions.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.lbl_paper_dimensions.setStyleSheet("font-size: 11px; color: #94a3b8;")
+        self.lbl_paper_dimensions.setObjectName("DialogCaption")
         right_layout.addWidget(self.lbl_paper_dimensions)
 
         body_layout.addWidget(right_widget, 50)
@@ -940,13 +1003,23 @@ class AuraPrintDialog(QDialog):
             default_name = QPrinterInfo.defaultPrinterName()
         except Exception:
             default_name = ""
-        if default_name in available:
-            available.remove(default_name)
-            available.insert(0, default_name)
 
-        for p_name in available:
-            self.cmb_printer.addItem(p_name, p_name)
+        # Sıra: varsayılan fiziksel yazıcı, diğer fiziksel yazıcılar, sanal yazıcılar, "PDF Olarak Kaydet".
+        physical = [n for n in available if not _is_virtual_printer(n)]
+        virtual = [n for n in available if _is_virtual_printer(n)]
+        if default_name in physical:
+            physical.remove(default_name)
+            physical.insert(0, default_name)
+        elif default_name in virtual:
+            virtual.remove(default_name)
+            virtual.insert(0, default_name)
+
+        tag = LanguageManager.tr("print_printer_default_tag")
+        for p_name in physical + virtual:
+            label = f"{p_name} ({tag})" if p_name == default_name else p_name
+            self.cmb_printer.addItem(label, p_name)
         self.cmb_printer.addItem(LanguageManager.tr("print_opt_save_pdf"), "save_pdf")
+        self._physical_printers = set(physical)
 
         self.cmb_printer.setCurrentIndex(0)
         # Sinyaller henüz bağlı değil; buton etiketini elle eşitle
@@ -1000,9 +1073,14 @@ class AuraPrintDialog(QDialog):
         if data == "save_pdf":
             self.btn_run.setText(LanguageManager.tr("print_btn_save_pdf"))
             self.btn_properties.setEnabled(False)
+            status = LanguageManager.tr("print_status_pdf")
         else:
             self.btn_run.setText(LanguageManager.tr("print_btn_print"))
             self.btn_properties.setEnabled(True)
+            is_physical = data in getattr(self, "_physical_printers", set())
+            status = LanguageManager.tr("print_status_physical" if is_physical else "print_status_virtual")
+        if hasattr(self, "lbl_printer_status"):
+            self.lbl_printer_status.setText(status)
 
     def _open_printer_properties(self):
         p_name = self.cmb_printer.currentData()
