@@ -236,6 +236,19 @@ class StandaloneOverlayTests(unittest.TestCase):
         ov.dismiss()
         self.assertFalse(ov.isVisible())
 
+    def test_standalone_overlay_survives_drag_leave(self):
+        """Imleç pencere dışına çıkınca tekerlek, düğme bırakılana dek açık kalır."""
+        from PyQt6.QtCore import QPoint
+        from PyQt6.QtGui import QDragLeaveEvent
+        from src.ui.drag_wheel import AuraDragWheelOverlay
+        ov = AuraDragWheelOverlay(None, on_choice=lambda a, p: None)
+        ov.present_at_cursor(QPoint(300, 300))
+        ov._armed = True
+        ov.dragLeaveEvent(QDragLeaveEvent())
+        self.assertTrue(ov.isVisible())
+        self.assertTrue(ov._armed)
+        ov.dismiss()
+
 
 class PrinterOrderTests(unittest.TestCase):
     def test_default_printer_first_and_pdf_last(self):

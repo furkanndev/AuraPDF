@@ -1752,6 +1752,7 @@ class AuraSettingsDialog(QDialog):
         # Ctrl+Alt sürükle-bırak tekerleği (sistem tepsisi yardımcısı)
         self.chk_drag_wheel = QCheckBox()
         self.btn_drag_wheel_cfg = QPushButton(LanguageManager.tr("settings_drag_wheel_customize"))
+        self.btn_drag_wheel_cfg.setObjectName("SecondaryBtn")
         self.btn_drag_wheel_cfg.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_drag_wheel_cfg.clicked.connect(self._open_drag_wheel_settings)
         wheel_ctrl = QWidget()

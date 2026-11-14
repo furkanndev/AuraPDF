@@ -4771,6 +4771,8 @@ class FloatingQuickToolsCapsule(QFrame):
             self.main_window.capsule_docked_to_left = False
             self.main_window.capsule_docked_to_right = False
             self.main_window.capsule_docked_to_top = False
+            if hasattr(self.main_window, '_remember_capsule_dock'):
+                self.main_window._remember_capsule_dock("float")
             settings = QSettings("AuraPDF", "PDFViewer")
             settings.setValue("capsule_dock_position", "float")
             settings.setValue("capsule_docked_to_top", False)
@@ -8172,10 +8174,6 @@ class AuraAccessibilityPanel(QWidget):
         self.lbl_model_status_text.setObjectName("TTSStatusText")
         h_mhead.addWidget(self.lbl_model_status_text)
 
-        lbl_ai_badge = QLabel("EMA AI")
-        lbl_ai_badge.setObjectName("TTSBadge")
-        h_mhead.addWidget(lbl_ai_badge)
-
         self.waveform = WaveformWidget(self)
         self.waveform.setFixedSize(36, 14)
         h_mhead.addWidget(self.waveform)
@@ -9429,7 +9427,7 @@ class AuraRightSidebar(QWidget):
 
         self.btn_tab_thumbs = QToolButton()
         self.btn_tab_thumbs.setProperty("class", "SidebarTabButton")
-        self.btn_tab_thumbs.setIcon(AuraIconFactory.icon_thumbnails())
+        self.btn_tab_thumbs.setIcon(AuraIconFactory.icon_thumbnails("#0ea5e9"))
         self.btn_tab_thumbs.setIconSize(QSize(14, 14))
         self.btn_tab_thumbs.setText(" " + LanguageManager.tr("sidebar_thumbnails"))
         self.btn_tab_thumbs.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
@@ -9441,7 +9439,7 @@ class AuraRightSidebar(QWidget):
 
         self.btn_tab_bookmarks = QToolButton()
         self.btn_tab_bookmarks.setProperty("class", "SidebarTabButton")
-        self.btn_tab_bookmarks.setIcon(AuraIconFactory.icon_bookmark())
+        self.btn_tab_bookmarks.setIcon(AuraIconFactory.icon_bookmark("#f59e0b"))
         self.btn_tab_bookmarks.setIconSize(QSize(14, 14))
         self.btn_tab_bookmarks.setText(" " + LanguageManager.tr("sidebar_bookmarks"))
         self.btn_tab_bookmarks.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
@@ -9452,7 +9450,7 @@ class AuraRightSidebar(QWidget):
 
         self.btn_tab_attachments = QToolButton()
         self.btn_tab_attachments.setProperty("class", "SidebarTabButton")
-        self.btn_tab_attachments.setIcon(AuraIconFactory.icon_attachment())
+        self.btn_tab_attachments.setIcon(AuraIconFactory.icon_attachment("#8b5cf6"))
         self.btn_tab_attachments.setIconSize(QSize(14, 14))
         self.btn_tab_attachments.setText(" " + LanguageManager.tr("sidebar_attachments"))
         self.btn_tab_attachments.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
@@ -9463,7 +9461,7 @@ class AuraRightSidebar(QWidget):
 
         self.btn_tab_comments = QToolButton()
         self.btn_tab_comments.setProperty("class", "SidebarTabButton")
-        self.btn_tab_comments.setIcon(AuraIconFactory.icon_comments())
+        self.btn_tab_comments.setIcon(AuraIconFactory.icon_comments("#f59e0b"))
         self.btn_tab_comments.setIconSize(QSize(14, 14))
         self.btn_tab_comments.setText(" " + LanguageManager.tr("sidebar_comments"))
         self.btn_tab_comments.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
@@ -11840,10 +11838,10 @@ class AuraUtilityRail(QWidget):
         # Üst Panel Tetikleyicileri
         self.buttons: Dict[str, QToolButton] = {}
         top_items = [
-            ("thumbnails", AuraIconFactory.icon_thumbnails(), "dock_title"),
-            ("bookmarks", AuraIconFactory.icon_bookmark(), "sidebar_bookmarks"),
-            ("comments", AuraIconFactory.icon_comments(), "sidebar_comments"),
-            ("attachments", AuraIconFactory.icon_attachment(), "sidebar_attachments"),
+            ("thumbnails", AuraIconFactory.icon_thumbnails("#0ea5e9"), "dock_title"),
+            ("bookmarks", AuraIconFactory.icon_bookmark("#f59e0b"), "sidebar_bookmarks"),
+            ("comments", AuraIconFactory.icon_comments("#f59e0b"), "sidebar_comments"),
+            ("attachments", AuraIconFactory.icon_attachment("#8b5cf6"), "sidebar_attachments"),
         ]
 
         for rid, icon, tip_key in top_items:
@@ -11862,7 +11860,7 @@ class AuraUtilityRail(QWidget):
 
         # Alt Panel Tetikleyicisi (En alt kısım): Erişilebilirlik ve Sesli Okuma
         btn_acc = QToolButton()
-        btn_acc.setIcon(AuraIconFactory.icon_accessibility())
+        btn_acc.setIcon(AuraIconFactory.icon_accessibility("#10b981"))
         btn_acc.setIconSize(QSize(18, 18))
         btn_acc.setFixedSize(40, 36)
         btn_acc.setCheckable(True)

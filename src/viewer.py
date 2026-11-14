@@ -1506,12 +1506,16 @@ class AuraPDFViewer(QMainWindow):
         self.body_layout.setSpacing(prefs["body_spacing"] if prefs else 0)
         self.update_panels_layout()
         if prefs:
-            dock = self._style_dock_side(prefs)
+            dock = self._saved_style_dock() or self._style_dock_side(prefs)
         toolbar_edge, hud_edge = (prefs["fs_toolbar"], prefs["fs_hud"]) if prefs else self._classic_fs_edges
         toolbar._apply_edge_layout(toolbar_edge)
         hud._apply_edge_layout(hud_edge)
-        {"top": self.dock_capsule_to_top, "left": self.dock_capsule_to_left,
-         "right": self.dock_capsule_to_right}.get(dock, self.undock_capsule)()
+        self._applying_style_dock = True
+        try:
+            {"top": self.dock_capsule_to_top, "left": self.dock_capsule_to_left,
+             "right": self.dock_capsule_to_right}.get(dock, self.undock_capsule)()
+        finally:
+            self._applying_style_dock = False
         if not first_pass or prefs:
             self.aura_left_sidebar.setVisible(prefs["tools_panel"] if prefs else True)
 
@@ -1562,8 +1566,22 @@ class AuraPDFViewer(QMainWindow):
             self.floating_capsule.move(target_x, target_y)
             self.floating_capsule.raise_()
 
+    def _remember_capsule_dock(self, position: str):
+        """Kullanıcının seçtiği araç çubuğu konumunu aktif arayüz stili için saklar.
+
+        Stil kendi varsayılan yerleşimini her açılışta uyguladığından, kullanıcının seçimi
+        bu anahtar olmadan sonraki açılışta ezilirdi."""
+        if getattr(self, '_applying_style_dock', False) or active_style() not in STYLE_LAYOUTS:
+            return
+        QSettings("AuraPDF", "PDFViewer").setValue(f"capsule_dock_style_{active_style()}", position)
+
+    def _saved_style_dock(self) -> str:
+        value = QSettings("AuraPDF", "PDFViewer").value(f"capsule_dock_style_{active_style()}", "", type=str)
+        return value if value in ("top", "left", "right", "float") else ""
+
     def dock_capsule_to_top(self):
         """Hareketli araç çubuğunu üst araç çubuğuna sabitler."""
+        self._remember_capsule_dock("top")
         self.capsule_docked_to_top = True
         self.capsule_docked_to_left = False
         self.capsule_docked_to_right = False
@@ -1588,6 +1606,7 @@ class AuraPDFViewer(QMainWindow):
 
     def dock_capsule_to_left(self):
         """Hareketli araç çubuğunu sol araç çubuğuna sabitler."""
+        self._remember_capsule_dock("left")
         self.capsule_docked_to_top = False
         self.capsule_docked_to_left = True
         self.capsule_docked_to_right = False
@@ -1611,6 +1630,7 @@ class AuraPDFViewer(QMainWindow):
 
     def dock_capsule_to_right(self):
         """Hareketli araç çubuğunu sağ araç çubuğuna sabitler."""
+        self._remember_capsule_dock("right")
         self.capsule_docked_to_top = False
         self.capsule_docked_to_left = False
         self.capsule_docked_to_right = True
@@ -1643,6 +1663,7 @@ class AuraPDFViewer(QMainWindow):
 
     def undock_capsule(self):
         """Sabitlenmiş araçları serbest yüzen hareketli moda döndürür."""
+        self._remember_capsule_dock("float")
         self.capsule_docked_to_top = False
         self.capsule_docked_to_left = False
         self.capsule_docked_to_right = False
@@ -1723,7 +1744,7 @@ class AuraPDFViewer(QMainWindow):
                     self.aura_utility_rail.set_dock_side("right")
 
             prefs = STYLE_LAYOUTS.get(active_style())
-            if prefs and prefs["dock"] != "top" and getattr(self, 'capsule_docked_to_top', False) is False:
+            if prefs and prefs["dock"] != "top" and getattr(self, 'capsule_docked_to_top', False) is False and not self._saved_style_dock():
                 self._dock_capsule_for_style(prefs)
 
             if hasattr(self, '_center_active_document'):
@@ -1737,7 +1758,11 @@ class AuraPDFViewer(QMainWindow):
 
     def _dock_capsule_for_style(self, prefs: dict):
         if hasattr(self, 'left_pinned_tools_bar') and hasattr(self, 'right_pinned_tools_bar'):
-            (self.dock_capsule_to_left if self._style_dock_side(prefs) == "left" else self.dock_capsule_to_right)()
+            self._applying_style_dock = True
+            try:
+                (self.dock_capsule_to_left if self._style_dock_side(prefs) == "left" else self.dock_capsule_to_right)()
+            finally:
+                self._applying_style_dock = False
 
     def sync_aura_tabs(self):
         """Modern üst sekme çubuğunu AuraTabWidget içeriği ile tam senkronize eder."""

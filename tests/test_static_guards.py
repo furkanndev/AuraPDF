@@ -361,3 +361,36 @@ class BookmarkThemeGuardTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
+
+
+def _read(*parts):
+    with open(os.path.join(ROOT, *parts), encoding="utf-8") as fh:
+        return fh.read()
+
+
+class ReportedIssueGuardTests(unittest.TestCase):
+    """v2.3 kullanici raporundaki duzeltmelerin geri alinmasini engeller."""
+
+    def test_removed_icon_sets_stay_removed(self):
+        from src.ui.icon_glyphs import ICON_SETS
+        for code in ("solid", "badge"):
+            self.assertNotIn(code, ICON_SETS)
+            self.assertNotIn(code + "_mono", ICON_SETS)
+
+    def test_tts_header_has_no_ema_ai_label(self):
+        text = _read("src", "ui", "aura_views.py")
+        self.assertNotIn("EMA AI", text)
+
+    def test_navigation_icons_keep_their_color(self):
+        from src.ui.icon_glyphs import COLORFUL_GLYPHS
+        for glyph in ("thumbnails", "bookmark", "attachment", "accessibility", "toolbox", "print"):
+            self.assertIn(glyph, COLORFUL_GLYPHS)
+
+    def test_floating_toolbar_dock_is_remembered_per_style(self):
+        text = _read("src", "viewer.py")
+        self.assertIn("_saved_style_dock() or self._style_dock_side(prefs)", text)
+        self.assertIn("capsule_dock_style_", text)
+
+    def test_wheel_settings_button_uses_themed_style(self):
+        text = _read("src", "ui", "dialogs", "settings_dialog.py")
+        self.assertIn('self.btn_drag_wheel_cfg.setObjectName("SecondaryBtn")', text)

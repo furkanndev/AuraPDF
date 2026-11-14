@@ -260,7 +260,14 @@ class AuraDragWheelOverlay(QWidget):
         event.acceptProposedAction()
 
     def dragLeaveEvent(self, event):
-        self.dismiss()
+        if self._standalone:
+            # Bağımsız modda tekerleği yalnızca fare düğmesi bırakılınca yardımcı kapatır.
+            # İmleç pencere dışına çıkıp geri dönebilir; burada kapatmak tekerleği tuşlar
+            # hâlâ basılıyken ortadan kaldırıyordu.
+            self._hover = None
+            self.update()
+        else:
+            self.dismiss()
         event.accept()
 
     def dropEvent(self, event):

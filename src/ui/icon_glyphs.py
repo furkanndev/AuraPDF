@@ -201,6 +201,7 @@ COLORFUL_GLYPHS = {
     "stamp", "signature", "fill_sign", "compress", "ocr", "combine_files", "export_pdf",
     "edit_content", "organize", "lock", "redact", "compare", "prepare_form", "sparkle",
     "trash", "star", "image", "link", "watermark", "new_document", "add_page",
+    "thumbnails", "bookmark", "attachment", "accessibility", "toolbox", "print",
 }
 
 _TOKEN = re.compile(r"[MLHVQCZ]|-?\d*\.?\d+")
@@ -210,8 +211,6 @@ _TOKEN = re.compile(r"[MLHVQCZ]|-?\d*\.?\d+")
 _ICON_SET_SHAPES = {
     "modern": {},
     "duotone": {"mode": "layered"},
-    "solid": {"mode": "solid"},
-    "badge": {"mode": "badge"},
     "bold": {"stroke": 2.5},
     "sharp": {"sharp": True, "stroke": 2.1},
 }
